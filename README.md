@@ -170,7 +170,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 # On a clean machine without -OfflineZip, P03 will throw "All 4 download tiers exhausted".
 # See the NPU-specific quick start below for the full pattern.
 .\Deploy-AMDNpuDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot `
-    -OfflineZip .\NPU_RAI1.7.1_380_WHQL.zip -AssumeIfMissing
+    -OfflineZip .\NPU_RAI1.6.1_314_WHQL.zip -AssumeIfMissing
 ```
 
 `PrepareVerify` runs `P00-P09` (download, extract, patch, generate catalog, sign) followed by `V01-V06` (verify artefacts, dry-run install plan, hardware impact analysis). **No system state is modified** — no certs are imported, no WDAC policy is deployed, no drivers are installed. Read the V05 / V06 output to understand exactly what `Install` *would* do.
@@ -243,7 +243,7 @@ The recommended pattern is **`-Action PrepareVerify` + `-OfflineZip`**. With `-O
 .\Deploy-AMDNpuDriverOnWindowsServer.ps1 `
     -Action PrepareVerify `
     -CleanWorkRoot `
-    -OfflineZip .\NPU_RAI1.7.1_380_WHQL.zip `
+    -OfflineZip .\NPU_RAI1.6.1_314_WHQL.zip `
     -AssumeIfMissing                            # default Strix Point + RAI 1.7.1
 ```
 

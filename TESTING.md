@@ -175,7 +175,7 @@ aws s3 cp s3://$bucket/Deploy-AMDChipsetDriverOnWindowsServer.ps1  .
 aws s3 cp s3://$bucket/Deploy-AMDGraphicsDriverOnWindowsServer.ps1 .
 aws s3 cp s3://$bucket/Deploy-AMDNpuDriverOnWindowsServer.ps1      .
 # Optionally, an offline NPU ZIP (see §4 for download instructions)
-aws s3 cp s3://$bucket/NPU_RAI1.7.1_380_WHQL.zip .
+aws s3 cp s3://$bucket/NPU_RAI1.6.1_314_WHQL.zip .
 
 # Confirm the CPU generation
 Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed
@@ -195,7 +195,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 
 # NPU PrepareVerify with -AssumeIfMissing (NPU absent on EPYC; default Strix Point profile)
 .\Deploy-AMDNpuDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot `
-    -OfflineZip .\NPU_RAI1.7.1_380_WHQL.zip -AssumeIfMissing *>&1 |
+    -OfflineZip .\NPU_RAI1.6.1_314_WHQL.zip -AssumeIfMissing *>&1 |
   Tee-Object C:\TEMP\npu-AWS-$env:COMPUTERNAME.log
 
 # Upload logs to S3 for offline review
@@ -847,10 +847,10 @@ jobs:
           NPU_OFFLINE_ZIP_S3_URI: ${{ secrets.NPU_OFFLINE_ZIP_S3_URI }}
         run: |
           # Pre-fetched NPU ZIP from S3 (license-gated; not in repo)
-          aws s3 cp $env:NPU_OFFLINE_ZIP_S3_URI .\NPU_RAI1.7.1_380_WHQL.zip
+          aws s3 cp $env:NPU_OFFLINE_ZIP_S3_URI .\NPU_RAI1.6.1_314_WHQL.zip
           .\Deploy-AMDNpuDriverOnWindowsServer.ps1 `
               -Action PrepareVerify -CleanWorkRoot `
-              -OfflineZip .\NPU_RAI1.7.1_380_WHQL.zip `
+              -OfflineZip .\NPU_RAI1.6.1_314_WHQL.zip `
               -AssumeIfMissing
 ```
 

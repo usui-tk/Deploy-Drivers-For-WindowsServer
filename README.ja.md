@@ -170,7 +170,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 # クリーン環境で -OfflineZip 未指定の場合、P03 で "All 4 download tiers exhausted" と throw する。
 # 詳細パターンは下記の NPU スクリプト固有の Quick Start を参照。
 .\Deploy-AMDNpuDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot `
-    -OfflineZip .\NPU_RAI1.7.1_380_WHQL.zip -AssumeIfMissing
+    -OfflineZip .\NPU_RAI1.6.1_314_WHQL.zip -AssumeIfMissing
 ```
 
 `PrepareVerify` は `P00-P09` (download、extract、patch、catalog 生成、署名) を実行した後、`V01-V06` (artifact 検証、dry-run install plan、ハードウェア影響分析) を行います。**システム状態は一切変更されません** — 証明書は import されず、WDAC policy も deploy されず、ドライバも install されません。V05 / V06 の出力を読み、`Install` がどのような変更を加えるかを正確に把握できます。
@@ -243,7 +243,7 @@ Tier 4 用の手動ダウンロード手順:
 .\Deploy-AMDNpuDriverOnWindowsServer.ps1 `
     -Action PrepareVerify `
     -CleanWorkRoot `
-    -OfflineZip .\NPU_RAI1.7.1_380_WHQL.zip `
+    -OfflineZip .\NPU_RAI1.6.1_314_WHQL.zip `
     -AssumeIfMissing                            # default Strix Point + RAI 1.7.1
 ```
 

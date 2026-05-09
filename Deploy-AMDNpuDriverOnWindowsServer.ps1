@@ -184,7 +184,7 @@
 [CmdletBinding()]
 param(
     [Parameter()]
-    [ValidateSet('PrepareVerify','Prepare','Verify','Install','Cleanup','ListPhases')]
+    [ValidateSet('Prepare','Verify','PrepareVerify','Install','All','Cleanup','ListPhases')]
     [string]$Action = 'PrepareVerify',
 
     [Parameter()]
@@ -700,9 +700,16 @@ function Get-PhaseListByAction {
     [CmdletBinding()]
     [OutputType([string[]])]
     param([string]$Action)
+    # Sister-script-aligned action -> phase mapping:
+    #   Prepare       : Prep only
+    #   Verify        : Verify only
+    #   PrepareVerify : Prep + Verify (no system-state change)
+    #   Install       : Inst only (assumes Prep+Verify ran in a prior invocation
+    #                   and patched artifacts are still on disk)
+    #   All           : Prep + Verify + Inst (full pipeline end-to-end)
     switch ($Action) {
         'PrepareVerify' {
-            return ($Script:PhaseRegistry | Where-Object Group -in @('Prep','Verify') | Select-Object -ExpandProperty Id)
+            return ($Script:PhaseRegistry | Where-Object { $_.Group -eq 'Prep' -or $_.Group -eq 'Verify' } | Select-Object -ExpandProperty Id)
         }
         'Prepare' {
             return ($Script:PhaseRegistry | Where-Object Group -EQ 'Prep' | Select-Object -ExpandProperty Id)
@@ -711,6 +718,9 @@ function Get-PhaseListByAction {
             return ($Script:PhaseRegistry | Where-Object Group -EQ 'Verify' | Select-Object -ExpandProperty Id)
         }
         'Install' {
+            return ($Script:PhaseRegistry | Where-Object Group -EQ 'Inst' | Select-Object -ExpandProperty Id)
+        }
+        'All' {
             return ($Script:PhaseRegistry | Select-Object -ExpandProperty Id)
         }
         default {
@@ -722,16 +732,18 @@ function Get-PhaseListByAction {
 function Show-PhaseList {
     [CmdletBinding()]
     param()
-    Write-SubHeader ("$Script:ScriptName $Script:ScriptVersion - phase listing")
+    # Sister-script-aligned: column order ID -> Name -> Group -> Function,
+    # Magenta header, '-' x 70 divider.
     Write-Host ''
-    $fmt = "{0,-5} {1,-7} {2,-30} {3}"
-    Write-Host ($fmt -f 'ID', 'Group', 'Name', 'Function')
-    Write-Host ($fmt -f '----', '-----', '----', '--------')
+    Write-Host ('Registered phases for {0} {1}:' -f $Script:ScriptName, $Script:ScriptVersion) -ForegroundColor Magenta
+    Write-Host ('  {0,-5} {1,-30} {2,-6} {3}' -f 'ID','Name','Group','Function') -ForegroundColor Magenta
+    Write-Host ('  {0}' -f ('-' * 70)) -ForegroundColor Magenta
     foreach ($p in $Script:PhaseRegistry) {
-        Write-Host ($fmt -f $p.Id, $p.Group, $p.Name, $p.Func)
+        Write-Host ('  {0,-5} {1,-30} {2,-6} {3}' -f $p.Id, $p.Name, $p.Group, $p.Func)
     }
     Write-Host ''
     Write-Skip 'Use -OnlyPhases <P05,P06,...> to run a subset.'
+    Write-Skip "Use -Action <Prepare|Verify|PrepareVerify|Install|All|Cleanup> to choose a phase group."
 }
 
 # =============================================================================
@@ -4016,9 +4028,11 @@ function Invoke-MainEntryPoint {
         throw "No phases resolved for Action='$Action'."
     }
 
-    # Block Install on Workstation OS unless explicitly allowed
-    # (handled by I00 itself, but we also short-circuit here for clarity)
-    if ($Action -eq 'Install') {
+    # Block Install / All on Workstation OS unless explicitly allowed
+    # (handled by I00 itself, but we also short-circuit here for clarity).
+    # 'All' is the sister-script-aligned full-pipeline action that includes
+    # I phases, so it must trigger the same Workstation gate as 'Install'.
+    if ($Action -eq 'Install' -or $Action -eq 'All') {
         # Quick OS detect to know if we should warn upfront
         try {
             $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
@@ -4026,7 +4040,7 @@ function Invoke-MainEntryPoint {
             if ($productType -eq 1 -and -not $Script:AllowWorkstationInstall) {
                 Write-Warn2 ''
                 Write-Warn2 '------------------------------------------------------------------'
-                Write-Warn2 'Action=Install on Workstation OS detected.'
+                Write-Warn2 ('Action={0} on Workstation OS detected.' -f $Action)
                 Write-Warn2 'I00 will block install phases. Use -AllowWorkstationInstall to'
                 Write-Warn2 'override (discouraged), or use Action=PrepareVerify on Win11 hosts.'
                 Write-Warn2 '------------------------------------------------------------------'
@@ -4040,8 +4054,8 @@ function Invoke-MainEntryPoint {
     # Execute the resolved phase list
     Invoke-PhaseRunner -PhaseIds $phaseIds
 
-    # Post-Install: show Ryzen AI Software guidance to the operator
-    if ($Action -eq 'Install') {
+    # Post-Install / Post-All: show Ryzen AI Software guidance to the operator
+    if ($Action -eq 'Install' -or $Action -eq 'All') {
         $allInstallPhasesOk = $true
         foreach ($id in @('I01','I02','I03','I04')) {
             $r = $Script:PhaseResults[$id]
