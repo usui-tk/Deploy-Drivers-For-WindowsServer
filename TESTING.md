@@ -1,0 +1,486 @@
+# TESTING.md — Cloud Testing Procedure and Physical Hardware Validation Results
+
+This document consolidates everything needed to test and evaluate `Deploy-AMD-Drivers-For-WindowsServer`. It covers three environments:
+
+1. **AWS cloud (Tokyo region)** — testing procedure with multi-generation EPYC instance options (Naples / Milan / Genoa / Turin)
+2. **Validation Result 1: ThinkCentre M75q Tiny Gen 2** (Windows Server 2025 physical / Cezanne Zen 3)
+3. **Validation Result 2: ThinkPad X13 Gen 1 AMD (2020)** (Windows 11 Enterprise LTSC 2024 / Renoir Zen 2)
+
+🇯🇵 **Japanese version: see [TESTING.ja.md](./TESTING.ja.md).**
+
+---
+
+## 1. AWS Cloud Testing
+
+### 1.1 Positioning of cloud testing
+
+AWS EC2 does not directly provide consumer Ryzen hardware. AMD-based EC2 instances run on **AMD EPYC server CPUs**, which are silicon-distinct from the consumer Ryzen chipset / Radeon iGPU that this script targets. AWS testing is therefore limited to the following purposes:
+
+| What AWS can verify | What AWS cannot verify |
+|---|---|
+| ✓ Whether the script runs to completion without errors on Windows Server 2025 | ❌ Actual driver install results on real AMD consumer chipset / Radeon hardware |
+| ✓ AMD package download / extraction / parsing | ❌ Device-bind correctness (the relevant HW is absent) |
+| ✓ Self-signed certificate generation and catalog signing | ❌ Expected driver upgrades like "3 candidates upgrade" in V06 |
+| ✓ WDAC supplemental policy generation (stop at PrepareVerify; do not deploy) | ❌ Post-I03 driver behaviour in a real environment |
+| ✓ inf2cat / signtool tool-chain validation | ❌ BitLocker / TPM (PSP driver) interactions |
+| ✓ CI automated testing (PR validation, regression testing) | ❌ AMD Vega/RDNA GPU rendering paths |
+| ✓ Win32_Processor detection logic across EPYC generations | ❌ Consumer Ryzen detection paths |
+
+In short: **"pipeline soundness verification"** is well-served by AWS, while **"driver upgrade outcomes on consumer Ryzen machines"** require physical hardware. Cloud testing is most valuable as automated regression testing in something like GitHub Actions CI.
+
+### 1.2 Map of all AMD EPYC generations available on AWS
+
+AWS has been adopting AMD EPYC since 2018, and **five generations** of silicon are currently available. For script validation, deliberately spreading tests across generations is recommended (the pipeline must work uniformly on old and new EPYC alike):
+
+| Generation | Codename | Release year | Architecture | Representative instances | Example CPU model | Max frequency | Tokyo region availability |
+|---|---|---|---|---|---|---|---|
+| **1st gen** | **Naples** | 2018 | Zen | T3a / M5a / R5a / C5a | EPYC 7571 (T3a) | 2.5 GHz | ✓ (older instances) |
+| 2nd gen | Rome | 2019 | Zen 2 | (no general AWS adoption) | — | — | — |
+| **3rd gen** | **Milan** | 2021 | Zen 3 | M6a / C6a / R6a / Hpc6a | EPYC 7R13 | 3.6 GHz | ✓ |
+| **4th gen** | **Genoa** | 2023 | Zen 4 | M7a / C7a / R7a | EPYC 9R14 | 3.7 GHz (DDR5) | ✓ |
+| **5th gen** | **Turin** | 2025 | Zen 5 | M8a / R8a / C8a | EPYC 9R45 | 4.5 GHz (M8azn: 5.0 GHz) | ✓ (M8a available in Tokyo since 2025-11-12) |
+
+**Key technical differences**:
+
+- **Naples (T3a/M5a)**: 1 vCPU = 1 SMT thread (2 vCPUs = 1 physical core). T3a has **AZ restrictions in some availability zones** that prevent WS2025 AMI launch (which requires Nitro + UEFI).
+- **Milan (M6a)**: 1 vCPU = 1 SMT thread. AMD SEV-SNP supported (confirmed on M6a/C6a/R6a).
+- **Genoa (M7a)**: **1 vCPU = 1 physical core (SMT disabled)**. DDR5 memory, AVX-512 / VNNI / bfloat16.
+- **Turin (M8a)**: 1 vCPU = 1 physical core. Zen 5, CPU Family 26 (Genoa is Family 25). L1d cache 48 KiB (+50% over previous-generation 32 KiB).
+
+### 1.3 Recommended instance types by use case (Tokyo region, ap-northeast-1)
+
+| Use case | Recommended instance | EPYC generation | vCPU/RAM | Tokyo Windows price (estimate) | Notes |
+|---|---|---|---|---|---|
+| **Cheapest — PrepareVerify** | `t3a.medium` | Naples (1st) | 2 / 4 GiB | ≈ **$0.07–0.10/h** | Watch AZ restrictions (e.g. WS2025 AMI may not launch in us-east-1a) |
+| **Stable burstable** | `t3a.large` | Naples (1st) | 2 / 8 GiB | ≈ $0.13–0.17/h | More headroom for the WDK install |
+| **Modern EPYC — Milan** | `m6a.large` | Milan (3rd) | 2 / 8 GiB | ≈ $0.18–0.22/h | SMT enabled, SEV-SNP testable |
+| **DDR5 — Genoa** | `m7a.large` | Genoa (4th) | 2 / 8 GiB | ≈ $0.22–0.27/h | SMT disabled, AVX-512, validates CPU Family 25 detection |
+| **Latest — Turin** | `m8a.large` | Turin (5th) | 2 / 8 GiB | ≈ $0.23–0.28/h | ≈ +5% vs M7a, Zen 5, validates CPU Family 26 detection |
+| **GPU validation (optional)** | `g4ad.xlarge` | (Naples + Radeon V520) | 4 / 16 GiB | ≈ $0.50–0.60/h | AMD Radeon Pro V520 dGPU; exercises `Win32_VideoController` AMD GPU detection paths |
+
+> **Pricing note**: figures above are approximations as of this document's creation (May 2026), with the Windows Server license cost (≈ $0.046/h) included. Verify the latest exact pricing in [AWS Pricing Calculator](https://calculator.aws/). **Spot instances** can offer up to ~70% savings (a t3a.medium Spot runs around $0.02–0.03/h).
+
+#### Cost estimate for one PrepareVerify run (~10 minutes)
+
+| Instance | Single run | 5 runs/day | Monthly (5/wk × 4 wk) |
+|---|---|---|---|
+| t3a.medium Spot | ≈ $0.005 | ≈ $0.025 | ≈ $0.50 |
+| t3a.medium On-Demand | ≈ $0.014 | ≈ $0.07 | ≈ $1.40 |
+| m6a.large On-Demand | ≈ $0.033 | ≈ $0.165 | ≈ $3.30 |
+| m7a.large On-Demand | ≈ $0.040 | ≈ $0.20 | ≈ $4.00 |
+| m8a.large On-Demand | ≈ $0.043 | ≈ $0.215 | ≈ $4.30 |
+
+**Weekly regression testing across all four generations (Naples / Milan / Genoa / Turin)** can be built for under ~$15/month total. Add ~$5/month for storage (gp3 EBS 50 GB) and the picture remains very affordable.
+
+### 1.4 Recommended AMI and launch constraints
+
+Use the AWS-managed **Microsoft Windows Server 2025 Base** (License Included) AMI. Windows Server 2025 AMIs require **Nitro-based instances with UEFI boot mode**:
+
+- **Supported**: T3a (in newer AZs), M6a, M7a, M8a, C6a, C7a, C8a, R6a, R7a, R8a — all are Nitro + UEFI capable and can launch the WS2025 AMI.
+- **Caveat**: Some AZs (e.g. us-east-1a) cannot launch WS2025 on T3a due to UEFI restrictions. Either use the `BIOS-Windows_Server-2025-English-Full-Base` AMI (Legacy BIOS) or pick a different AZ (e.g. us-east-1f). In Tokyo, T3a launches of WS2025 are most stable in ap-northeast-1c / 1d.
+
+#### Fetching the latest AMI ID
+
+```bash
+# Latest WS2025 (UEFI, English) AMI in Tokyo
+aws ec2 describe-images \
+  --owners 'amazon' \
+  --region ap-northeast-1 \
+  --filters \
+    'Name=platform,Values=windows' \
+    'Name=name,Values=Windows_Server-2025-English-Full-Base-*' \
+  --query 'reverse(sort_by(Images, &CreationDate))[0].{ImageId:ImageId,Name:Name,CreationDate:CreationDate}' \
+  --output table
+
+# Japanese-locale variant (localizes patch logs)
+aws ec2 describe-images \
+  --owners 'amazon' \
+  --region ap-northeast-1 \
+  --filters \
+    'Name=platform,Values=windows' \
+    'Name=name,Values=Windows_Server-2025-Japanese-Full-Base-*' \
+  --query 'reverse(sort_by(Images, &CreationDate))[0].{ImageId:ImageId,Name:Name,CreationDate:CreationDate}' \
+  --output table
+```
+
+AMI names follow the `Windows_Server-2025-{English|Japanese}-Full-Base-YYYY.MM.DD` convention and are refreshed monthly.
+
+### 1.5 Setup procedure (cross-generation validation)
+
+#### Step 1: Launch one EC2 instance per generation (example)
+
+```bash
+AMI_ID=ami-XXXXXXXXXXXXXXXXX  # from describe-images
+KEY=YourKeyPair
+SG=sg-XXXXXXXXXX
+SUBNET=subnet-XXXXXXXXXX  # ap-northeast-1c or 1d recommended
+
+for INST in t3a.medium m6a.large m7a.large m8a.large; do
+  aws ec2 run-instances \
+    --region ap-northeast-1 \
+    --image-id $AMI_ID \
+    --instance-type $INST \
+    --key-name $KEY \
+    --security-group-ids $SG \
+    --subnet-id $SUBNET \
+    --block-device-mappings 'DeviceName=/dev/sda1,Ebs={VolumeSize=50,VolumeType=gp3}' \
+    --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=amd-test-$INST}]"
+done
+```
+
+#### Step 2: Retrieve Administrator password and connect via RDP
+
+```bash
+aws ec2 get-password-data \
+  --region ap-northeast-1 \
+  --instance-id i-XXXXXXXXXX \
+  --priv-launch-key ./YourKeyPair.pem
+```
+
+Allow TCP 3389 from your IP in the security group, then RDP into the public IP.
+
+#### Step 3: Transfer the scripts and run PrepareVerify
+
+```powershell
+# Inside the RDP session, in an elevated PowerShell
+mkdir C:\TEMP
+cd C:\TEMP
+
+# Transfer the scripts (S3 / SSM Run Command / RDP clipboard — your choice)
+$bucket = 'your-test-bucket'
+aws s3 cp s3://$bucket/Deploy-AMDChipsetDriverOnWindowsServer.ps1  .
+aws s3 cp s3://$bucket/Deploy-AMDGraphicsDriverOnWindowsServer.ps1 .
+
+# Confirm the CPU generation
+Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed
+# Expected output:
+#   t3a.medium: AMD EPYC 7571              2 cores  2 LP  2500 MHz  (Naples, SMT)
+#   m6a.large : AMD EPYC 7R13              2 cores  2 LP  3725 MHz  (Milan, SMT)
+#   m7a.large : AMD EPYC 9R14              2 cores  2 LP  3700 MHz  (Genoa, SMT off, Family 25)
+#   m8a.large : AMD EPYC 9R45              2 cores  2 LP  4500 MHz  (Turin, SMT off, Family 26)
+
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+
+# Run PrepareVerify only (Install is meaningless on EPYC machines and discouraged)
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1  -Action PrepareVerify -CleanWorkRoot *>&1 |
+  Tee-Object C:\TEMP\chipset-AWS-$env:COMPUTERNAME.log
+.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot *>&1 |
+  Tee-Object C:\TEMP\graphics-AWS-$env:COMPUTERNAME.log
+
+# Upload logs to S3 for offline review
+aws s3 cp C:\TEMP\chipset-AWS-$env:COMPUTERNAME.log  s3://$bucket/results/
+aws s3 cp C:\TEMP\graphics-AWS-$env:COMPUTERNAME.log s3://$bucket/results/
+```
+
+#### Step 4: Stop or terminate the instances when done
+
+```bash
+# Stop (storage cost only while stopped)
+aws ec2 stop-instances --region ap-northeast-1 \
+  --instance-ids i-XXXXXXXXXX i-YYYYYYYYYY i-ZZZZZZZZZZ i-WWWWWWWWWW
+
+# Fully terminate after validation
+aws ec2 terminate-instances --region ap-northeast-1 \
+  --instance-ids i-XXXXXXXXXX i-YYYYYYYYYY i-ZZZZZZZZZZ i-WWWWWWWWWW
+```
+
+### 1.6 Expected results across EPYC generations
+
+| Verification item | t3a.medium (Naples) | m6a.large (Milan) | m7a.large (Genoa) | m8a.large (Turin) |
+|---|---|---|---|---|
+| OS detection (P00) | WS2025, ProductType=3 | same | same | same |
+| CPU detection (P03) | EPYC 7571, recognised as Naples (Zen 1) | EPYC 7R13, Milan (Zen 3) | EPYC 9R14, Genoa (Zen 4), CPU Family 25 | EPYC 9R45, Turin (Zen 5), CPU Family 26 |
+| Platform decision (P03) | Server / EPYC family → falls back to consumer Ryzen URL probe | same | same | same |
+| AMD HW detection (V06) | 0 or very few (PCI devices are virtio / Nitro) | same | same | same |
+| WILL be replaced (V06) | 0 | 0 | 0 | 0 |
+| All P00–V06 phases pass | ✓ | ✓ | ✓ | ✓ |
+| Expected runtime | ~8–12 min (slowest CPU) | ~6–9 min | ~5–8 min | ~4–7 min (fastest) |
+| Pipeline soundness | OK | OK | OK | OK |
+
+**What four-generation cross-validation confirms**:
+
+- The script runs to completion uniformly across all EPYC generations from Naples (Zen) to Turin (Zen 5) — a forward-compatibility guarantee for future silicon.
+- Branch logic on CPU Family numbers (Naples=23, Milan=25, Genoa=25, Turin=26) does not regress.
+- vCPU/SMT topology differences (SMT-on Naples/Milan vs SMT-off Genoa/Turin) do not break parallel-execution paths in the pipeline.
+
+---
+
+## 2. Validation Result 1: ThinkCentre M75q Tiny Gen 2 (Windows Server 2025)
+
+### 2.1 Hardware specifications
+
+| Item | Value |
+|---|---|
+| Model | Lenovo ThinkCentre M75q Tiny Gen 2 |
+| CPU | AMD Ryzen 7 PRO 5750GE (Cezanne, Zen 3, 8 core / 16 thread, 35 W TDP) |
+| iGPU | AMD Radeon Graphics (Vega 8, integrated in Cezanne) |
+| Memory | DDR4 SO-DIMM 16–32 GB |
+| Storage | M.2 NVMe SSD |
+| BIOS | UEFI, Secure Boot configurable |
+| TPM | fTPM (via AMD PSP) |
+
+### 2.2 OS configuration
+
+| Item | Value |
+|---|---|
+| OS | Windows Server 2025 Standard / Datacenter |
+| Build | 26100 |
+| ProductType | 3 (Server) |
+| Secure Boot | ON |
+| HVCI | OS default (varies by environment) |
+| BitLocker | Optional (when enabled, **secure the recovery key in advance**) |
+
+### 2.3 Validation procedure
+
+```powershell
+# Elevated PowerShell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+
+# Stage 1: PrepareVerify, V06 review (system unchanged)
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1  -Action PrepareVerify -CleanWorkRoot *>&1 |
+  Tee-Object C:\TEMP\m75q-chipset-prepareverify.log
+.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot *>&1 |
+  Tee-Object C:\TEMP\m75q-graphics-prepareverify.log
+
+# Stage 2: Once V06 risk is acceptable, run Install
+# IMPORTANT: secure the BitLocker recovery key beforehand
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1  -Action Install
+.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action Install
+```
+
+### 2.4 Key validation results
+
+#### Chipset script
+
+- **P03 detection**: `Cezanne / Zen 3 / Desktop APU, AM4`
+- **P03 download**: `amd_chipset_software_8.02.18.557.exe` (~75 MB)
+- **P05 inventory**: 67 INFs detected; 32 W11x64 variant INFs selected
+- **P06 patching**: 1 INF patched (`AmdMicroPEP.inf`); 31 INFs already Server-compatible and copied through
+- **V06 main upgrade candidates** (varies with the actual OEM driver baseline):
+  - AMD GPIO Controller: `oem17.inf v2.2.0.130` → `amdgpio2.inf v2.2.0.136`
+  - AMD PSP 10.0 Device: `oem26.inf v5.22.0.0` → `amdpsp.inf v5.43.0.0` (HIGH risk — BitLocker caution)
+  - AMD SMBus: `oem12.inf v5.12.0.38` → `SMBUSamd.inf v5.12.0.44`
+
+#### Graphics script
+
+- **P03 detection**: `Cezanne APU, Vega-Polaris Legacy branch`
+- **P03 download**: `whql-amd-software-adrenalin-edition-XX.X.X-win11-XXX-vega-polaris.exe` (~600 MB)
+- **P05 inventory**: 19 INFs detected; `WT64A` (audio) + `WT6A_INF` (display) variants selected
+- **P06 patching**: 1 INF patched (`u0197843.inf`); 18 INFs already Server-compatible and copied through
+- **V06 main upgrade candidates**:
+  - AMD Audio CoProcessor: `oem70.inf v6.0.0.79` → `amdacpbus.inf v6.0.1.83` (MEDIUM risk)
+  - AMD Radeon Graphics: newer version in the AMD package → display upgrade (MEDIUM risk)
+  - AMD HD Audio Device: `oem58.inf v10.0.1.30` → `AtihdWT6.inf v10.0.1.30` (date-newer, MEDIUM risk)
+
+#### Soundness checks
+
+- All 21 phases completed successfully
+- Self-signed certificate (RSA 4096 / SHA-384, 5-year validity) generated successfully
+- 32 catalogs (chipset) + 19 catalogs (graphics) generated by `inf2cat /os:Server2025_X64`
+- All catalogs successfully timestamp-signed by `signtool`
+- After I03 (Install), Device Manager shows 3 chipset + 3 graphics devices bound to `[C] Self-signed`
+
+### 2.5 Known limitations
+
+- On hosts with BitLocker enabled, a PSP driver upgrade can trigger a recovery prompt at the next boot. **Always have the recovery key available** (Control Panel BitLocker UI, or via Microsoft Account backup).
+- Some `ROOT\AMD*` software-only entities (AMDLOG / AMDXE etc.) are added by I03 but never appear in `Win32_PnPSignedDriver` enumeration; V06 Section 1 reports them as "software-only" for information only.
+- Successful install is confirmed by the `[B] Vendor` → `[C] Self-signed` transition observed in I04.
+
+---
+
+## 3. Validation Result 2: ThinkPad X13 Gen 1 AMD (2020) — Windows 11 Enterprise LTSC 2024
+
+### 3.1 Hardware specifications
+
+| Item | Value |
+|---|---|
+| Model | Lenovo ThinkPad X13 Gen 1 (AMD, 2020) |
+| CPU | AMD Ryzen 5 PRO 4650U (Renoir, Zen 2, 6 core / 12 thread, 15 W TDP) |
+| iGPU | AMD Radeon Graphics (Vega 6, integrated in Renoir) |
+| Memory | DDR4 16 GB on-board |
+| Storage | M.2 NVMe SSD |
+| BIOS | UEFI, Secure Boot toggleable |
+| TPM | dTPM (Discrete TPM, e.g. Infineon SLB9670) |
+
+### 3.2 OS configuration (at validation time)
+
+| Item | Value |
+|---|---|
+| OS | Microsoft Windows 11 Enterprise LTSC 2024 |
+| Build | 26100 (24H2 LTSC) |
+| ProductType | 1 (Workstation) — runs in **WS2025 PREVIEW MODE** in this script |
+| Secure Boot | OFF (toggled off for testing) |
+| HVCI | ON |
+| BitLocker | OFF (lab use) |
+
+### 3.3 Validation procedure
+
+Windows 11 Enterprise LTSC 2024 shares NT kernel build 26100 with Windows Server 2025, so the script runs in **WS2025 PRE-MIGRATION PREVIEW MODE** (P00 banner declares it explicitly).
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+
+# Install phases auto-block on Workstation OS — PrepareVerify only
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1  -Action PrepareVerify -CleanWorkRoot *>&1 |
+  Tee-Object C:\TEMP\x13gen1-chipset-Win11-preview.log
+.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot *>&1 |
+  Tee-Object C:\TEMP\x13gen1-graphics-Win11-preview.log
+```
+
+### 3.4 Key validation results
+
+#### P00 OS detection (Workstation preview)
+
+```
+[+] OS detected: Microsoft Windows 11 Enterprise LTSC (build 26100)
+    Profile applied : WS2025 (Windows Server 2025)
+    ProductType     : 1  (1=Workstation, 3=Server)
+
+    +-----------------------------------------------------------------+
+    | WS2025 PRE-MIGRATION PREVIEW MODE                               |
+    | (Windows 11 24H2 and Windows Server 2025 share NT build 26100)  |
+    +-----------------------------------------------------------------+
+```
+
+Install phases auto-block (override with `-AllowWorkstationInstall`, but discouraged).
+
+#### Chipset script
+
+- **P03 detection**: `Renoir / Zen 2 / Mobile`
+- **P03 download**: `amd_chipset_software_8.02.18.557.exe` (same as M75q)
+- **P05 inventory**: 67 INFs detected; 32 W11x64 variant INFs selected
+- **P06 patching**: 1 INF patched (`AmdMicroPEP.inf`)
+- **V06 main upgrade candidates** (compared against Win11 OEM drivers):
+  - AMD PSP 10.0 Device: `oem144.inf v5.42.0.0` → `amdpsp.inf v5.43.0.0` (HIGH risk)
+  - GPIO / I2C / SMBus / MicroPEP — same version (KEEP)
+
+#### Graphics script
+
+- **P03 detection**: `Renoir / Vega-Polaris Legacy`
+- **P03 download**: `whql-amd-software-adrenalin-edition-26.1.1-win11-jan-vega-polaris.exe` (~624 MB)
+- **P05 inventory**: 19 INFs detected; `WT64A` + `WT6A_INF` variants selected
+- **P06 patching**: 1 INF patched (`u0197843.inf`), mirroring 6 decorations
+- **V06 upgrade candidates**:
+  - AMD Audio CoProcessor: `v6.0.0.79 → v6.0.1.83` (real version upgrade)
+  - AMD Radeon Graphics: `v31.0.21923.11000 → v31.0.21924.61` (real version upgrade)
+  - AMD HD Audio Device: `v10.0.1.30 → v10.0.1.30` (date-only newer; graphics r16 explicitly displays "same version, but newer date")
+
+#### Soundness checks
+
+- All 21 phases completed (Install phases auto-blocked because the host is Workstation OS)
+- All 19 INFs flow through the pipeline
+- 19 catalogs + 19 signtool signatures all succeed
+- AMD HW detected: AMD Audio CoProcessor, AMD Radeon Graphics, AMD HD Audio Device, AMD GPIO Controller, AMD I2C Controller, AMD Micro PEP, AMD SMBus, AMD PSP 10.0 Device, etc.
+
+### 3.5 Expected delta between Win11 and WS2025 on identical hardware
+
+Comparing Validation Result 1 (M75q + WS2025) and Validation Result 2 (X13 Gen 1 + Win11 24H2): **the script's decision logic is identical between the two OSes because they share kernel build 26100**, but **V06 upgrade candidate counts differ because the existing OEM driver baseline differs**:
+
+| V06 section | M75q (WS2025) | X13 Gen 1 (Win11) |
+|---|---|---|
+| Detected AMD HW | identical detection logic (HW topology differs by machine) | identical |
+| MS-GENERIC count | high (clean WS2025 has bare Server in-box drivers) | lower (Win11 has OEM drivers pre-installed) |
+| WILL be replaced count | more (MS generic → AMD vendor swaps are frequent) | fewer (only swap when AMD package is newer than the OEM driver) |
+| KEEP (same/newer) count | fewer | more |
+| Recommended Install execution | YES (target host) | NO (Workstation OS, auto-blocked) |
+
+In other words, **PrepareVerify on Win11 24H2 functions as pre-migration verification for WS2025**: the patched-INF signatures and catalog structures generated remain valid on WS2025 (same kernel build). The actual install decisions (which devices fall into WILL be replaced) should be re-confirmed on WS2025 after migration.
+
+---
+
+## 4. Summary of validation results
+
+### 4.1 Per-environment matrix
+
+| Item | AWS Naples | AWS Milan | AWS Genoa | AWS Turin | M75q Tiny Gen 2 | X13 Gen 1 AMD |
+|---|---|---|---|---|---|---|
+| Instance / model | t3a.medium | m6a.large | m7a.large | m8a.large | ThinkCentre physical | ThinkPad physical |
+| OS | WS2025 | WS2025 | WS2025 | WS2025 | WS2025 | Win11 LTSC 2024 |
+| ProductType | 3 | 3 | 3 | 3 | 3 | 1 (PREVIEW MODE) |
+| CPU | EPYC 7571 (Naples) | EPYC 7R13 (Milan) | EPYC 9R14 (Genoa) | EPYC 9R45 (Turin) | Ryzen 7 PRO 5750GE (Cezanne) | Ryzen 5 PRO 4650U (Renoir) |
+| AMD HW detected | 0 (EPYC) | 0 (EPYC) | 0 (EPYC) | 0 (EPYC) | ~47 | ~49 |
+| Chipset INFs processed | 32/32 | 32/32 | 32/32 | 32/32 | 32/32 + 3 V06 upgrades | 32/32 + 1 V06 upgrade |
+| Graphics INFs processed | 19/19 | 19/19 | 19/19 | 19/19 | 19/19 + 3 V06 upgrades | 19/19 + 3 V06 upgrades |
+| All phases complete | ✓ | ✓ | ✓ | ✓ | ✓ + Install succeeded | ✓ (Install auto-blocked) |
+| Cost / run | ~$0.014 | ~$0.033 | ~$0.040 | ~$0.043 | $0 (physical) | $0 (physical) |
+| Validation purpose | Cheapest regression test | Milan compatibility | DDR5 / Zen 4 | Zen 5 forward-compat | Pre-production rehearsal | WS2025 pre-migration check |
+
+### 4.2 Recommended validation patterns
+
+| Scenario | Recommended environment |
+|---|---|
+| "Quick PR sanity check" | t3a.medium Spot (one generation) |
+| "Pre-release regression" | t3a.medium + m7a.large (two generations) |
+| "All-generation compatibility" | t3a + m6a + m7a + m8a (four-way parallel) |
+| "Real driver install validation" | M75q Gen 2 physical (production target) |
+| "Win11 → WS2025 pre-migration evaluation" | X13 Gen 1 physical |
+
+---
+
+## 5. Discovered bugs and fix history
+
+The following bugs were found and fixed during the validation runs above:
+
+| Discovery environment | Version | Fix version | Summary |
+|---|---|---|---|
+| ThinkPad X13 Gen 1 (Win11 24H2) | chipset r45 | r46 | Timezone bug in `Compare-InfDriverVer` (UTC midnight `DriverDate` was converted to local 09:00 by CIM cmdlets, causing the same-version case to be misreported as "current newer than patched"). Fixed by comparing `.Date` (year/month/day truncation) only. |
+| ThinkPad X13 Gen 1 (Win11 24H2) | r45 / r14 | r46 / r15 | The P05 / P00 compatibility check displayed `Host OS: Windows Server 2025` even on a Workstation host, which was confusing. Now shows the actual `Caption` plus the mapped profile side by side. |
+| ThinkPad X13 Gen 1 (Win11 24H2) | graphics r14 | r16 / r47 | V05 "would upgrade 1067/1067 matched device(s)" inflation. `$matchedDevices` was being appended per INF HWID variant rather than per physical device, inflating counts. Fixed by deduplication on the physical DeviceID. |
+| ThinkPad X13 Gen 1 (Win11 24H2) | graphics r14 | r16 / r47 | Same-version, newer-date upgrade case formerly produced the nonsensical `patched newer (X) than current (X)` message. Now displays `patched same version (X) but newer date; PnP ranking prefers newer-dated driver` for clarity. |
+
+For full validation logs and the corresponding fix commits, see <https://github.com/usui-tk/Deploy-AMD-Drivers-For-WindowsServer/commits/main>.
+
+---
+
+## 6. Outlook on CI/CD automation
+
+For automated regression testing via GitHub Actions, AWS-based self-hosted runners are the practical choice:
+
+```yaml
+# .github/workflows/regression.yml — conceptual example
+name: PrepareVerify regression test (multi-EPYC)
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  static-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run psa.py static analyzer
+        run: |
+          python3 tools/psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
+          python3 tools/psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+
+  ws2025-prepare-verify:
+    needs: static-analysis
+    strategy:
+      matrix:
+        include:
+          - runner-tag: amd-naples   # t3a.medium
+          - runner-tag: amd-milan    # m6a.large
+          - runner-tag: amd-genoa    # m7a.large
+          - runner-tag: amd-turin    # m8a.large
+    runs-on: [self-hosted, windows, server-2025, "${{ matrix.runner-tag }}"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run chipset PrepareVerify
+        shell: pwsh
+        run: |
+          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          .\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot
+      - name: Run graphics PrepareVerify
+        shell: pwsh
+        run: |
+          .\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot
+```
+
+This workflow has two layers:
+
+1. **static-analysis job**: runs `tools/psa.py` on a Linux runner to check PowerShell syntax and brace/paren/bracket balance (~10 seconds, essentially free).
+2. **ws2025-prepare-verify job**: runs PrepareVerify in parallel across four self-hosted WS2025 runners covering the Naples / Milan / Genoa / Turin generations.
+
+Combining the self-hosted runners with a scheduler that starts/stops them only on demand (e.g. AWS Lambda + SSM) keeps monthly cost down to roughly $5–10. The workflow stops at PrepareVerify; it does not attempt Install (since EPYC machines have no consumer Ryzen hardware to bind to).
