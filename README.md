@@ -86,8 +86,6 @@ For the full at-your-own-risk acknowledgements (BitLocker, anti-cheat software, 
 | `TESTING.ja.md` | Japanese translation of TESTING.md. |  |
 | `CONTRIBUTING.md` | How to file issues, propose changes, and run regression tests. |  |
 | `LICENSE` | MIT License. |  |
-| `tools/psa.py` | PowerShell static analyzer used in CI to validate the pipeline scripts. See [Development tools](#development-tools). |  |
-| `tools/README.md` | psa.py usage guide. |  |
 
 All three PowerShell scripts share the same 21-phase architecture, the same self-signing model, and the same WDAC authorisation path. They write to separate workspaces (`C:\AMD-Chipset-WS`, `C:\AMD-Graphics-WS`, `C:\AMD-NPU-WS`) and use separate self-signed certificates so they never collide.
 
@@ -161,10 +159,7 @@ Deploy-AMD-Drivers-For-WindowsServer/
 ├── CONTRIBUTING.md                              Issue / PR guidelines
 ├── LICENSE                                      MIT License
 ├── .gitattributes                               Git line-ending normalization
-├── .gitignore                                   Standard ignores
-└── tools/
-    ├── README.md                                psa.py usage guide
-    └── psa.py                                   PowerShell static analyzer (Python 3, single-file)
+└── .gitignore                                   Standard ignores
 ```
 
 ### What the scripts produce
@@ -718,19 +713,51 @@ This is the expected outcome on Windows Server 2025. The kernel-mode driver load
 
 ## Development tools
 
-The `tools/` directory contains development utilities for contributors.
+### `psa.py` — PowerShell Static Analyzer
 
-### `tools/psa.py` — PowerShell Static Analyzer
+The PowerShell static analyzer used to validate the pipeline scripts is `psa.py`. It is **maintained as a single canonical artifact** in a separate repository — [`usui-tk/ai-generated-artifacts`](https://github.com/usui-tk/ai-generated-artifacts) — under [`scripts/python/powershell-static-analyzer/`](https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/python/powershell-static-analyzer). This repository does **not** bundle a local copy; obtain `psa.py` via one of the methods below before using it.
 
-A single-file Python 3 static analyzer that catches common PowerShell mistakes the regular parser does not flag. Run it before committing any change to the `.ps1` files:
+A single-file Python 3 static analyzer that catches common PowerShell mistakes the regular parser does not flag.
+
+#### Obtaining `psa.py`
+
+**Method 1 — Clone the canonical repository (recommended for ongoing development)**
 
 ```bash
-python3 tools/psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
-python3 tools/psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
-python3 tools/psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
+# Clone the canonical repository as a sibling directory to this repo
+git clone https://github.com/usui-tk/ai-generated-artifacts.git ../ai-generated-artifacts
+
+# Run from this repository's root
+python3 ../ai-generated-artifacts/scripts/python/powershell-static-analyzer/psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
+python3 ../ai-generated-artifacts/scripts/python/powershell-static-analyzer/psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+python3 ../ai-generated-artifacts/scripts/python/powershell-static-analyzer/psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
 ```
 
-Checks performed:
+**Method 2 — Download the single file (recommended for one-shot CI runs)**
+
+Linux / macOS (curl):
+
+```bash
+curl -sSLO https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py
+python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
+python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
+```
+
+Windows PowerShell (Invoke-WebRequest):
+
+```powershell
+Invoke-WebRequest `
+    -Uri  "https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py" `
+    -OutFile psa.py
+python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
+python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
+```
+
+In the rest of this document and in `SPEC.md` / `TESTING.md` / `CONTRIBUTING.md`, commands of the form `python3 psa.py <script>.ps1` assume that `psa.py` has already been obtained via Method 1 or Method 2 above and is accessible on a path of your choice.
+
+#### Checks performed
 
 | Code | Severity | Description |
 | --- | --- | --- |
@@ -748,21 +775,24 @@ Checks performed:
 Exit codes: `0` = clean, `1` = warnings only, `2` = errors. Useful in CI:
 
 ```yaml
-# .github/workflows/lint.yml example
+# .github/workflows/lint.yml example (Method 2 — single-file download)
+- name: Fetch psa.py from canonical repository
+  run: |
+    curl -sSLO https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py
 - name: Static-analyze PowerShell scripts
   run: |
-    python3 tools/psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
-    python3 tools/psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
-    python3 tools/psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
+    python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
+    python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+    python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
 ```
 
-See [`tools/README.md`](./tools/README.md) for more details and the rationale for each rule.
+For the full design rationale, output format reference, and an extended CI integration example, see the canonical README at [`scripts/python/powershell-static-analyzer/README.md`](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/README.md) in the [ai-generated-artifacts](https://github.com/usui-tk/ai-generated-artifacts) repository.
 
 ---
 
 ## Developer specification
 
-For the full developer specification — including phase architecture rules, banner / log conventions, parameter naming conventions, CSV / JSONL output format, path-handling rules (`-LiteralPath`), and the quality gates enforced by `tools/psa.py` — see:
+For the full developer specification — including phase architecture rules, banner / log conventions, parameter naming conventions, CSV / JSONL output format, path-handling rules (`-LiteralPath`), and the quality gates enforced by `psa.py` — see:
 
 - [**SPEC.md**](./SPEC.md) — English developer specification (the authoritative reference for contributors and AI assistants working on this codebase)
 - [**SPEC.ja.md**](./SPEC.ja.md) — Japanese translation of SPEC.md
@@ -773,7 +803,7 @@ For the full developer specification — including phase architecture rules, ban
 - **Part B — Script-specific Specifications.** One section per script (Chipset / Graphics / NPU) documenting the unique platform-detection logic, INF inventory filters, installer source resolution tiers, and known platform quirks.
 - **Part C — Quality Gates & Lessons Learned.** What `psa.py` checks for, what regression tests `TESTING.md` covers, and the historical fixes (e.g. timezone-induced DriverDate false positives in chipset r46) that are baked into the current implementation.
 
-If you are adding a new feature, the recommended workflow is: read `SPEC.md` → read the relevant script's existing `Invoke-*Phase*_*` functions → make changes → run `python3 tools/psa.py <script>.ps1` → update `TESTING.md` with any new regression scenarios.
+If you are adding a new feature, the recommended workflow is: read `SPEC.md` → read the relevant script's existing `Invoke-*Phase*_*` functions → make changes → run `python3 psa.py <script>.ps1` (after obtaining it per [Development tools](#development-tools)) → update `TESTING.md` with any new regression scenarios.
 
 ---
 
@@ -830,7 +860,7 @@ The Japanese log strings inside the `.ps1` scripts are designed to render correc
 - [TESTING.ja.md](./TESTING.ja.md) — Japanese translation of TESTING.md.
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — How to contribute.
 - [README.ja.md](./README.ja.md) — Japanese translation of this document.
-- [tools/README.md](./tools/README.md) — Development tools documentation.
+- [`psa.py` canonical location (ai-generated-artifacts)](https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/python/powershell-static-analyzer) — PowerShell static analyzer used by this repository's CI gates.
 
 ---
 
@@ -844,6 +874,6 @@ The MIT licence applies to the **PowerShell scripts and accompanying documentati
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for issue templates, PR guidelines, and how to run the regression test suite (including `tools/psa.py`).
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for issue templates, PR guidelines, and how to run the regression test suite (including `psa.py`).
 
 Issues and pull requests are tracked at: <https://github.com/usui-tk/Deploy-AMD-Drivers-For-WindowsServer>

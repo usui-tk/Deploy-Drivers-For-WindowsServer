@@ -23,7 +23,7 @@ This document consolidates everything needed to test and evaluate `Deploy-AMD-Dr
 
 The NPU script's verification is currently limited to:
 
-1. **Static analysis** with `tools/psa.py` (0 errors, 4 false-positive warnings only).
+1. **Static analysis** with `psa.py` (0 errors, 4 false-positive warnings only). `psa.py` is maintained as a canonical artifact in the [ai-generated-artifacts](https://github.com/usui-tk/ai-generated-artifacts) repository; obtain it per `SPEC.md` §A.11 before running.
 2. **Code review** of the AMD-published `quicktest.py` NPU detection logic translated to PowerShell.
 3. **Dry-run on EPYC AWS hosts** with `-AssumeIfMissing` to confirm the pipeline runs to V06 without the NPU device being present.
 4. **No `-Action Install` execution** has been performed by the maintainers anywhere.
@@ -444,7 +444,7 @@ In other words, **PrepareVerify on Win11 24H2 functions as pre-migration verific
 
 | Verification activity | Status | Evidence |
 |---|---|---|
-| Static analysis with `tools/psa.py` | ✅ done | 0 errors, 4 false-positive warnings only (consistent with chipset/graphics) |
+| Static analysis with `psa.py` (see `SPEC.md` §A.11) | ✅ done | 0 errors, 4 false-positive warnings only (consistent with chipset/graphics) |
 | Code review of NPU detection logic | ✅ done | `Get-AmdNpuPlatform` is a direct PowerShell port of AMD-published `quicktest.py` |
 | Pipeline soundness on AWS EPYC EC2 (NPU absent) | ⚠️ partial / planned | `-Action PrepareVerify -AssumeIfMissing` should run to V06 cleanly; not yet exercised in CI |
 | Detection on physical NPU machine | ❌ **NOT DONE** | No physical NPU hardware in maintainer's lab as of this writing |
@@ -814,11 +814,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch psa.py from canonical repository (ai-generated-artifacts)
+        run: |
+          curl -sSLO https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py
       - name: Run psa.py static analyzer
         run: |
-          python3 tools/psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
-          python3 tools/psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
-          python3 tools/psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
+          python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
+          python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+          python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
 
   ws2025-prepare-verify:
     needs: static-analysis
@@ -856,7 +859,7 @@ jobs:
 
 This workflow has three layers:
 
-1. **static-analysis job**: runs `tools/psa.py` on a Linux runner to check PowerShell syntax and brace/paren/bracket balance for all three scripts (~10 seconds, essentially free).
+1. **static-analysis job**: fetches `psa.py` from the canonical [ai-generated-artifacts](https://github.com/usui-tk/ai-generated-artifacts) repository, then runs it on a Linux runner to check PowerShell syntax and brace/paren/bracket balance for all three scripts (~10 seconds, essentially free).
 2. **ws2025-prepare-verify job (chipset / graphics)**: runs PrepareVerify in parallel across four self-hosted WS2025 runners covering the Naples / Milan / Genoa / Turin generations.
 3. **ws2025-prepare-verify job (NPU)**: extends step 2 by also running the NPU script with `-AssumeIfMissing` and a pre-fetched offline ZIP. This validates pipeline soundness only — not real NPU behaviour, since EPYC has no NPU device.
 

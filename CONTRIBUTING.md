@@ -58,7 +58,7 @@ Any workaround that exists today?
 
 ### Before opening a PR
 
-1. **Run the static analyzer**: `python3 tools/psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1` and confirm 0 errors. Warnings are acceptable but should be justified in the PR description.
+1. **Run the static analyzer**: `python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1` and confirm 0 errors. Warnings are acceptable but should be justified in the PR description. `psa.py` is not bundled in this repository — obtain it per [SPEC.md §A.11](./SPEC.md#a11-static-analysis-with-psapy) (`git clone` of the canonical [`ai-generated-artifacts`](https://github.com/usui-tk/ai-generated-artifacts) repo, or single-file `curl` of `psa.py`).
 2. **Run `-Action PrepareVerify -CleanWorkRoot`** on at least one host (real or AWS EC2 — see [TESTING.md](./TESTING.md)) and confirm the full P00-V06 pipeline completes without errors.
 3. **Update relevant docs** (`README.md`, `README.ja.md`, `TESTING.md`) if you change user-visible behaviour or add new switches.
 4. **Bump the version comment** at the top of the script (`# Version: rNN+1`) when the change is non-trivial.
@@ -75,9 +75,13 @@ Any workaround that exists today?
 Minimum smoke test:
 
 ```powershell
+# 0. (one-time) Obtain psa.py from the canonical repository — see SPEC.md §A.11.
+#    Either: git clone https://github.com/usui-tk/ai-generated-artifacts.git ../ai-generated-artifacts
+#    Or:     curl -sSLO https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py
+
 # 1. Run static analyzer (Linux / WSL / macOS / Windows with Python 3)
-python3 tools/psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
-python3 tools/psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
+python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
 
 # 2. PrepareVerify on a Windows test host
 .\Deploy-AMDChipsetDriverOnWindowsServer.ps1  -Action PrepareVerify -CleanWorkRoot
@@ -111,9 +115,9 @@ Examples:
 - `fix(chipset): correct timezone bug in Compare-InfDriverVer`
 - `feat(graphics): add Strix Halo platform detection`
 - `docs(testing): expand AWS EPYC matrix with M8a Turin`
-- `chore(tools): bump psa.py auto-var list to include $PSCmdlet`
+- `docs: update psa.py canonical-source references after consolidation`
 
-`type` ∈ `fix`, `feat`, `docs`, `chore`, `refactor`, `test`, `perf`. `scope` ∈ `chipset`, `graphics`, `tools`, `docs`, or empty for repository-wide.
+`type` ∈ `fix`, `feat`, `docs`, `chore`, `refactor`, `test`, `perf`. `scope` ∈ `chipset`, `graphics`, `npu`, `docs`, or empty for repository-wide. (Changes to `psa.py` itself live in the canonical [`ai-generated-artifacts`](https://github.com/usui-tk/ai-generated-artifacts) repository and use that repo's commit conventions.)
 
 ## Hardware test reports
 

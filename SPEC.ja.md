@@ -85,13 +85,19 @@ Deploy-AMDNpuDriverOnWindowsServer.ps1       (4-tier installer 解決を持つ N
 ### A.1.2 静的解析ツール
 
 ```
-tools/psa.py
+psa.py  (canonical artifact レポジトリから取得 — A.11 参照)
 ```
 
-`psa.py` は **pure Python** 静的解析ツール (PowerShell インストール不要) で、 10 個のチェック (C1–C10) を持ちます。 以下を遵守してください:
+`psa.py` は **pure Python** 静的解析ツール (PowerShell インストール不要) で、 10 個のチェック (C1–C10) を持ちます。 本レポジトリには**同梱されていません**。 単一の canonical artifact として以下の場所で管理しています:
 
-- as-is で再利用 (上流と協調しないままの fork や改変は不可)
-- 姉妹スクリプトリポジトリの `tools/psa.py` 配下に配置
+```
+https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/python/powershell-static-analyzer/psa.py
+```
+
+以下を遵守してください:
+
+- as-is で再利用 (ローカルでの fork や改変は不可。 変更は canonical レポジトリ側にコントリビュート)
+- `ai-generated-artifacts` を `git clone` するか、 単一ファイル直接ダウンロードのいずれかで取得 (A.11 参照)
 - 全 commit 前のゲートとして使用
 
 詳細は A.11 を参照してください。
@@ -126,7 +132,7 @@ tools/psa.py
 | PowerShell バージョン | 5.1 最低要件、 7.x サポート                                                |
 | 必須属性         | 各 .ps1 ファイル先頭に `#Requires -Version 5.1` および `#Requires -RunAsAdministrator` |
 | `param()` block  | top-of-file の `param()` に `[CmdletBinding()]`、 直後に `$Script:Foo` へ mirror |
-| 静的ゲート       | `tools/psa.py` を errors 0 でパス                                              |
+| 静的ゲート       | `psa.py` (A.11 参照) を errors 0 でパス                                          |
 
 ### ファイル構造 (top-to-bottom)
 
@@ -239,7 +245,7 @@ $Script:PhaseRegistry = @(
 
 - **型**: `[pscustomobject]@{...}` (plain `@{...}` hashtable は NG — 姉妹スクリプト整合のため)。
 - **関数命名**: `Invoke-{Prep|Verify|Inst}Phase{NN}_{Name}` (underscore + group-prefix スタイル)。
-- **1:1 マッピング**: 各 registry エントリは正確に 1 つの関数定義を持つ必要があります。 `psa.py` がミスマッチを検出します。
+- **1:1 マッピング**: 各 registry エントリは正確に 1 つの関数定義を持つ必要があります。 `psa.py` (A.11 参照) がミスマッチを検出します。
 
 ### Phase グループ (semantic)
 
@@ -482,14 +488,55 @@ P00 は無条件で実行され、 全 downstream phase が依存する入力を
 
 ## A.11 psa.py による静的解析
 
+### Canonical source
+
+`psa.py` は **本リポジトリには同梱されていません**。 別レポジトリで管理される単一の canonical artifact です:
+
+```
+レポジトリ : https://github.com/usui-tk/ai-generated-artifacts
+パス        : scripts/python/powershell-static-analyzer/psa.py
+Raw URL    : https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py
+```
+
+`psa.py` への変更 (バグ修正、 新規チェック追加、 auto-variable リスト拡張など) は、 すべて上記 canonical レポジトリ側で行います。 本レポジトリ (`Deploy-AMD-Drivers-For-WindowsServer`) はその **consumer (利用側)** です。
+
 ### Setup
 
+以下のいずれかの方法を選択してください。 どちらも結果は同等で、 操作者の好みで決めて構いません。
+
+**方法 1 — canonical レポジトリを並列ディレクトリに clone する** (継続的な開発で推奨):
+
 ```bash
-# リポジトリルートから
-python3 tools/psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
-python3 tools/psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
-python3 tools/psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
+# 本レポジトリの親ディレクトリで実行
+git clone https://github.com/usui-tk/ai-generated-artifacts.git
+
+# 本レポジトリのルートから:
+python3 ../ai-generated-artifacts/scripts/python/powershell-static-analyzer/psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
+python3 ../ai-generated-artifacts/scripts/python/powershell-static-analyzer/psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+python3 ../ai-generated-artifacts/scripts/python/powershell-static-analyzer/psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
 ```
+
+**方法 2 — 単一ファイルをダウンロード** (one-shot な CI 実行で推奨):
+
+```bash
+# 本レポジトリのルートから (Linux / macOS)
+curl -sSLO https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py
+python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
+python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
+```
+
+```powershell
+# あるいは、 本レポジトリのルートから (Windows PowerShell)
+Invoke-WebRequest `
+    -Uri  "https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py" `
+    -OutFile psa.py
+python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
+python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
+```
+
+本 SPEC、 `TESTING.md` / `CONTRIBUTING.md` における `python3 psa.py <script>.ps1` 形式の記述は、 上記いずれかの方法で `psa.py` を取得済みであり、 任意のパスからアクセス可能であることを前提としています。
 
 ### 必須ゲート
 
@@ -558,7 +605,8 @@ null-guard ブロック内 (例: `if ($var) { ... -match $var }`) の `C7 -match
 
 ```
 1. コードを書く / 修正する
-2. python3 tools/psa.py <script>.ps1     ← ゲート: errors 0 必須
+2. python3 psa.py <script>.ps1            ← ゲート: errors 0 必須
+                                            (psa.py の取得方法は A.11 を参照)
 3. AWS EPYC EC2 でテスト (pipeline-only)  ← TESTING.md §3 準拠
 4. 実物の AMD ハードウェアでテスト        ← TESTING.md §4 準拠 (利用可能なら)
 5. 挙動が変わったら README (en + ja) + SPEC (en + ja) 更新
@@ -737,9 +785,11 @@ NPU kernel driver versioning は Ryzen AI Software versioning と **完全に独
 
 ## C.1 静的チェック
 
-- [ ] `python3 tools/psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1` → errors 0
-- [ ] `python3 tools/psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1` → errors 0
-- [ ] `python3 tools/psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1` → errors 0
+> `psa.py` は本レポジトリには同梱されていません。 これらのチェックを実行する前に A.11 の手順で取得してください。
+
+- [ ] `python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1` → errors 0
+- [ ] `python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1` → errors 0
+- [ ] `python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1` → errors 0
 
 ## C.2 機能チェック (影響を受けたスクリプトに対して)
 
@@ -873,7 +923,7 @@ $pdate = if ($PatchedDate) { $PatchedDate.Date } else { $null }
 1. 最新の既存スクリプト (NPU r3 が最も新しい姉妹整合 reference) を出発テンプレートとしてコピー。
 2. `$Script:ScriptName`、 `$Script:ScriptVersion`、 `$Script:ScriptTag`、 `$Script:CertSubjectCn`、 `$Script:WdacPolicyName`、 `$Script:WdacPolicyGuid`、 `$Script:WorkRoot` を新スクリプト固有の値に置換。
 3. **domain helpers** セクション (platform 検出、 installer 解決、 INF inventory filter) のみ再実装。 他のセクションは全て verbatim で再利用。
-4. `python3 tools/psa.py <new-script>.ps1` を errors 0 になるまで実行。
+4. `python3 psa.py <new-script>.ps1` (取得方法は A.11 参照) を errors 0 になるまで実行。
 5. SPEC.md (および SPEC.ja.md) に B.4 セクションを追加。
 6. `README.md` の「リポジトリの内容物」テーブル、 「パラメータ」セクション、 「リスク分類」テーブルに新スクリプトを追加。
 7. AWS EPYC EC2 回帰テストシナリオを `TESTING.md` に追加。

@@ -85,13 +85,19 @@ When extending these scripts, **copy these helpers verbatim** from the most rece
 ### A.1.2 Static analyzer
 
 ```
-tools/psa.py
+psa.py  (obtained from the canonical artifact repository — see A.11)
 ```
 
-`psa.py` is a **pure Python** static analyzer (no PowerShell installation required) with 10 checks (C1–C10). It must be:
+`psa.py` is a **pure Python** static analyzer (no PowerShell installation required) with 10 checks (C1–C10). It is **not** bundled in this repository. It is maintained as a single canonical artifact at:
 
-- Reused as-is (do not fork or modify without coordinating with upstream)
-- Placed under `tools/psa.py` in any sister-script repo
+```
+https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/python/powershell-static-analyzer/psa.py
+```
+
+It must be:
+
+- Reused as-is (do not fork or modify locally; contribute changes to the canonical repository instead)
+- Obtained via `git clone` of `ai-generated-artifacts` **or** direct download of the single file (see A.11)
 - Used as the gate before every commit
 
 See A.11 for details.
@@ -126,7 +132,7 @@ If a 4th script is added (e.g. ROCm runtime, audio coprocessor), use `C:\AMD-<sh
 | PowerShell ver   | 5.1 minimum; 7.x supported                                                         |
 | Required attrs   | `#Requires -Version 5.1` and `#Requires -RunAsAdministrator` at the top of each .ps1 |
 | `param()` block  | Top-of-file `param()` with `[CmdletBinding()]`; mirror to `$Script:Foo` immediately |
-| Static gate      | `tools/psa.py` must pass with 0 errors                                             |
+| Static gate      | `psa.py` (see A.11) must pass with 0 errors                                        |
 
 ### File structure (top-to-bottom)
 
@@ -239,7 +245,7 @@ $Script:PhaseRegistry = @(
 
 - **Type**: `[pscustomobject]@{...}` (plain `@{...}` hashtable is NOT acceptable — sister-script alignment).
 - **Function naming**: `Invoke-{Prep|Verify|Inst}Phase{NN}_{Name}` (underscore, group-prefix style).
-- **1:1 mapping**: each registry entry must have exactly one function definition; `psa.py` flags mismatches.
+- **1:1 mapping**: each registry entry must have exactly one function definition; `psa.py` (see A.11) flags mismatches.
 
 ### Phase groups (semantic)
 
@@ -482,14 +488,55 @@ Then hard-fails if `<5.1` or if not 64-bit.
 
 ## A.11 Static Analysis with psa.py
 
+### Canonical source
+
+`psa.py` is **not bundled in this repository**. It is maintained as a single canonical artifact in a separate repository:
+
+```
+Repository : https://github.com/usui-tk/ai-generated-artifacts
+Path       : scripts/python/powershell-static-analyzer/psa.py
+Raw URL    : https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py
+```
+
+Any change to `psa.py` (bug fix, new check, new auto-variable entry, etc.) must be made in that canonical repository. This repository (`Deploy-AMD-Drivers-For-WindowsServer`) is one of its **consumers**.
+
 ### Setup
 
+Pick one of the two methods below. Both are equivalent in result; the choice is operator preference.
+
+**Method 1 — Clone the canonical repository as a sibling directory** (recommended for ongoing development):
+
 ```bash
-# From repo root
-python3 tools/psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
-python3 tools/psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
-python3 tools/psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
+# From the parent directory of this repository
+git clone https://github.com/usui-tk/ai-generated-artifacts.git
+
+# Then, from this repository's root:
+python3 ../ai-generated-artifacts/scripts/python/powershell-static-analyzer/psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
+python3 ../ai-generated-artifacts/scripts/python/powershell-static-analyzer/psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+python3 ../ai-generated-artifacts/scripts/python/powershell-static-analyzer/psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
 ```
+
+**Method 2 — Download the single file** (recommended for one-shot CI runs):
+
+```bash
+# From the repository root (Linux / macOS)
+curl -sSLO https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py
+python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
+python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
+```
+
+```powershell
+# Or, from the repository root (Windows PowerShell)
+Invoke-WebRequest `
+    -Uri  "https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py" `
+    -OutFile psa.py
+python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
+python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
+```
+
+The rest of this SPEC, and `TESTING.md` / `CONTRIBUTING.md`, write `python3 psa.py <script>.ps1` as shorthand. This assumes `psa.py` has been obtained via either method and is accessible on a path of your choice.
 
 ### Required gate
 
@@ -558,7 +605,8 @@ Each README must include:
 
 ```
 1. Write or modify code
-2. python3 tools/psa.py <script>.ps1     ← gate: 0 errors required
+2. python3 psa.py <script>.ps1            ← gate: 0 errors required
+                                            (see A.11 for how to obtain psa.py)
 3. Test on AWS EPYC EC2 (pipeline-only)  ← per TESTING.md §3
 4. Test on real AMD hardware             ← per TESTING.md §4 (if available)
 5. Update README (en + ja) + SPEC (en + ja) if behavior changed
@@ -737,9 +785,11 @@ Every commit to `main` must satisfy the following gates.
 
 ## C.1 Static checks
 
-- [ ] `python3 tools/psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1` → 0 errors
-- [ ] `python3 tools/psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1` → 0 errors
-- [ ] `python3 tools/psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1` → 0 errors
+> `psa.py` is not bundled in this repository; obtain it per A.11 before running these checks.
+
+- [ ] `python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1` → 0 errors
+- [ ] `python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1` → 0 errors
+- [ ] `python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1` → 0 errors
 
 ## C.2 Functional checks (per affected script)
 
@@ -873,7 +923,7 @@ If you are creating a 4th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1
 1. Copy the most recent existing script (NPU r3 is the freshest sister-aligned reference) as your starting template.
 2. Replace `$Script:ScriptName`, `$Script:ScriptVersion`, `$Script:ScriptTag`, `$Script:CertSubjectCn`, `$Script:WdacPolicyName`, `$Script:WdacPolicyGuid`, `$Script:WorkRoot` with values specific to your new script.
 3. Re-implement only the **domain helpers** section (platform detection, installer resolution, INF inventory filter). Reuse all other sections verbatim.
-4. Run `python3 tools/psa.py <new-script>.ps1` until 0 errors.
+4. Run `python3 psa.py <new-script>.ps1` (see A.11 for setup) until 0 errors.
 5. Add B.4 section to this SPEC.md (and SPEC.ja.md).
 6. Add the new script to `README.md` "What's in the box" table, "Parameters" section, "Risk classification" table.
 7. Add an AWS EPYC EC2 regression test scenario to `TESTING.md`.

@@ -23,7 +23,7 @@
 
 NPU スクリプトの検証は現時点で以下に限定されています:
 
-1. **静的解析** を `tools/psa.py` で実施 (errors 0、warnings 4 件は false-positive のみ)。
+1. **静的解析** を `psa.py` で実施 (errors 0、warnings 4 件は false-positive のみ)。 `psa.py` は [ai-generated-artifacts](https://github.com/usui-tk/ai-generated-artifacts) レポジトリで canonical artifact として管理されているため、 実行前に `SPEC.ja.md` §A.11 の手順で取得してください。
 2. **コードレビュー** — AMD 公開の `quicktest.py` の NPU 検出ロジックを PowerShell に翻訳した実装をレビュー。
 3. **EPYC AWS ホストでの dry-run** — `-AssumeIfMissing` 付きで NPU デバイス不在環境にて V06 まで通ることを確認。
 4. **`-Action Install` の実行はメンテナーによって一切行われていません。**
@@ -444,7 +444,7 @@ Install 系 phase は自動ブロック (`-AllowWorkstationInstall` で override
 
 | 検証活動 | ステータス | 根拠 |
 |---|---|---|
-| `tools/psa.py` での静的解析 | ✅ 完了 | errors 0、warnings 4 件は false-positive のみ (chipset/graphics と同等) |
+| `psa.py` での静的解析 (`SPEC.ja.md` §A.11 参照) | ✅ 完了 | errors 0、warnings 4 件は false-positive のみ (chipset/graphics と同等) |
 | NPU 検出ロジックのコードレビュー | ✅ 完了 | `Get-AmdNpuPlatform` は AMD 公開の `quicktest.py` を PowerShell に直接ポート |
 | AWS EPYC EC2 (NPU 不在) でのパイプライン健全性 | ⚠️ 部分的 / 計画段階 | `-Action PrepareVerify -AssumeIfMissing` が V06 までクリーンに動作する想定だが、CI ではまだ未実行 |
 | 物理 NPU マシンでの検出 | ❌ **未実施** | 本ドキュメント作成時点でメンテナーの lab に物理 NPU ハードウェアが無い |
@@ -814,11 +814,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Fetch psa.py from canonical repository (ai-generated-artifacts)
+        run: |
+          curl -sSLO https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py
       - name: Run psa.py static analyzer
         run: |
-          python3 tools/psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
-          python3 tools/psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
-          python3 tools/psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
+          python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
+          python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+          python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
 
   ws2025-prepare-verify:
     needs: static-analysis
@@ -856,7 +859,7 @@ jobs:
 
 このワークフローは 3 階層構成:
 
-1. **static-analysis ジョブ**: Linux runner 上で `tools/psa.py` を実行し PowerShell の構文と中括弧/丸括弧/角括弧バランスを 3 スクリプト全てに対してチェック (約 10 秒、ほぼ無料)。
+1. **static-analysis ジョブ**: canonical な [ai-generated-artifacts](https://github.com/usui-tk/ai-generated-artifacts) レポジトリから `psa.py` を取得し、 Linux runner 上で実行して PowerShell の構文と中括弧/丸括弧/角括弧バランスを 3 スクリプト全てに対してチェック (約 10 秒、ほぼ無料)。
 2. **ws2025-prepare-verify ジョブ (chipset / graphics)**: 4 つの self-hosted WS2025 runner (Naples / Milan / Genoa / Turin) で並列に PrepareVerify を実行。
 3. **ws2025-prepare-verify ジョブ (NPU)**: 上記 step 2 を拡張し、NPU スクリプトを `-AssumeIfMissing` と事前取得 offline ZIP 付きで実行。これはパイプライン健全性のみ検証 — EPYC に NPU デバイス無しのため実 NPU 挙動は検証不可。
 
