@@ -88,7 +88,7 @@ When extending these scripts, **copy these helpers verbatim** from the most rece
 psa.py  (obtained from the canonical artifact repository — see A.11)
 ```
 
-`psa.py` is a **pure Python** static analyzer (no PowerShell installation required) with 10 checks (C1–C10). It is **not** bundled in this repository. It is maintained as a single canonical artifact at:
+`psa.py` is a **pure Python** static analyzer (no PowerShell installation required), currently at version **2.3.0**, with a 27-rule check set spanning `PSA1001`..`PSA6006` (legacy v1.x `C1`..`C10` codes accepted as aliases). It is **not** bundled in this repository. It is maintained as a single canonical artifact at:
 
 ```
 https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/python/powershell-static-analyzer/psa.py
@@ -540,28 +540,110 @@ The rest of this SPEC, and `TESTING.md` / `CONTRIBUTING.md`, write `python3 psa.
 
 ### Required gate
 
-Every commit must pass with **0 errors**. Warnings are allowed but should be triaged and either fixed or annotated as false positives.
+Every commit must pass with **0 errors**. Warnings and info entries are
+allowed but must match the documented baseline in §A.11.5 below. Any new
+warning that is not in the baseline must be triaged and either fixed, given
+an inline suppression with a justification (`# psa-disable-line <CODE> -- <reason>`),
+or — for genuinely new findings — be added to the baseline in this SPEC.
 
-### Check coverage (C1–C10)
+For automated gating, the recommended CI filter is `--severity error`:
 
-| Code | Severity | Description                                                              |
-| ---- | -------- | ------------------------------------------------------------------------ |
-| C1   | error    | Brace balance (`{` vs `}`)                                               |
-| C2   | error    | Paren balance (`(` vs `)`)                                               |
-| C3   | error    | Bracket balance (`[` vs `]`)                                             |
-| C4   | warning  | Undefined variable references (heuristic)                                |
-| C5   | warning  | Auto-variable shadowing (`$args`, `$_`, `$matches`, etc.)                |
-| C6   | warning  | `Start-Process -ArgumentList` (prefer `ProcessStartInfo` for spaces)     |
-| C7   | warning  | `-match` against bare `$variable` (returns true if `$null`)              |
-| C8   | info     | TODO / FIXME markers                                                     |
-| C9   | warning  | Trailing backtick before empty line                                      |
-| C10  | warning  | `-match` against empty string (always true)                              |
+```bash
+python3 psa.py --severity error Deploy-AMDChipsetDriverOnWindowsServer.ps1
+# Exit code 0 = no errors. Warnings and info do not gate the build.
+```
 
-Exit codes: `0` = clean, `1` = warnings only, `2` = errors. Useful in CI.
+### Rule coverage (psa.py v2.3.0 — 27 rules)
 
-### Known false positives
+`psa.py` v2.3.0 ships with a 27-rule check set grouped into six categories.
+Legacy v1.x codes `C1`..`C10` are accepted as aliases (for example, `C7`
+is the same rule as `PSA2003`).
 
-`C7 -match against bare $var` warnings inside null-guard blocks (e.g. `if ($var) { ... -match $var }`) are false positives — the guard already excludes the null case. These can be left as warnings.
+| Category               | Code range            | Examples |
+| ---------------------- | --------------------- | -------- |
+| Syntax balance         | `PSA1001`..`PSA1003`  | brace / paren / bracket balance |
+| Semantics              | `PSA2001`..`PSA2006`  | undefined variable, auto-variable shadowing, `-match` against bare variable (legacy `C7`), `$null` on the right of `-eq`/`-ne`, assignment / redirection inside conditional |
+| Style                  | `PSA3001`..`PSA3004`  | `Start-Process -ArgumentList` (legacy `C6`), trailing backtick before empty line (legacy `C9`), `-match` against empty string (legacy `C10`), empty `catch` block |
+| Hygiene                | `PSA4001`..`PSA4004`  | unfinished markers (legacy `C8`), trailing whitespace, long line, trailing semicolon |
+| Security               | `PSA5001`..`PSA5004`  | plain-text password parameter, `Invoke-Expression`, broken hash algorithm, hardcoded `ComputerName` |
+| Best practice          | `PSA6001`..`PSA6006`  | non-approved verb, cmdlet alias, plural function noun, `$global:` definition, mandatory parameter with default, switch defaulting to `$true` |
+
+For the authoritative specification of every rule (severity, examples,
+suppression guidance), see
+`https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md`
+§4.
+
+Exit codes: `0` = clean (or `--severity error` filter passing), `1` =
+warnings/info present, `2` = errors. The default `--severity` floor is
+`info`.
+
+### A.11.5 Documented baseline (warnings and info)
+
+This repository has the following **accepted** warning / info baseline as of
+the psa-baseline-sync revision. Any deviation from these counts must be
+explained in the commit message and either added here or fixed.
+
+| Script | Errors | Warnings | Info | Total |
+| ------ | -----: | -------: | ---: | ----: |
+| `Deploy-AMDChipsetDriverOnWindowsServer.ps1`  | **0** | 42 | 31 | 73 |
+| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | **0** | 44 | 36 | 80 |
+| `Deploy-AMDNpuDriverOnWindowsServer.ps1`      | **0** | 17 |  0 | 17 |
+
+Breakdown by rule:
+
+| Rule (severity)                       | Chipset | Graphics | NPU | Disposition |
+| ------------------------------------- | ------: | -------: | --: | ----------- |
+| `PSA4004` (trailing semicolon, info)  |   31    |    36    |  0  | Cosmetic; existing style accumulated over many revisions. Not fixed in this sync. |
+| `PSA3004` (empty `catch`, warning)    |   19    |    19    |  0  | Mix of fail-soft retry and best-effort diagnostic capture. Not individually annotated in this sync. |
+| `PSA6003` (plural function noun, w.)  |   14    |    15    | 13  | Existing public function names; renaming would be a breaking API change. |
+| `PSA2003` (legacy `C7`, warning)      |    6    |     7    |  4  | All inspected sites use `-match` against a script-scope constant pattern that is never `$null`; the warning is technically true but operationally a known-good shape. |
+| `PSA3001` (Start-Process -ArgumentList, w.) | 3 |    3    |  0  | Existing wrappers; arguments are constructed safely with no shell metacharacters. |
+
+**Note on PSA5001**: previously reported as 1 / 1 / 3 errors. As of the
+psa-baseline-sync revision these are all suppressed inline at the `param()`
+declaration site, because the value flows to `signtool.exe /p` and
+`X509Certificate2(.., String)` — both of which require a plaintext `String`
+at the API boundary. The inline justification comments explain the design
+intent at each site.
+
+### Inline suppression and project-local configuration
+
+Two mechanisms are available for legitimate suppression:
+
+1. **Inline (`# psa-disable-line <CODE> -- <reason>`)** — apply to a single
+   line. The reason text is mandatory in this repository's coding style;
+   suppressions without a reason will be rejected in code review.
+
+2. **Project config (`.psa.config.json`)** — if a rule needs to be disabled
+   for the whole project (for example, after a legacy plural-noun naming
+   convention is grandfathered), drop a `.psa.config.json` next to the
+   scripts:
+
+   ```jsonc
+   // .psa.config.json — rationale comments are mandatory
+   {
+     "disable": ["PSA6003"]
+   }
+   ```
+
+   `psa.py` auto-discovers `.psa.config.json` in the current working
+   directory. No such file is shipped in this repository as of this writing;
+   the baseline above represents the unfiltered analyzer output.
+
+### Common false positives and resolutions
+
+| False positive | Resolution |
+| -------------- | ---------- |
+| `PSA2001` (legacy `C4`) "undefined variable" for `$Script:Foo` set in a different function | Initialize at script load: `$Script:Foo = $null` |
+| `PSA2003` (legacy `C7`) "-match against bare `$variable`" where `$variable` is guaranteed non-null | Wrap with `[string]::IsNullOrEmpty($variable)` guard, or refactor to `[regex]::Match()` |
+| `PSA3004` (empty `catch`) intentional silent failure | Add `# psa-disable-line PSA3004 -- <reason>` |
+| `PSA5001` (plain-text password) where API requires plaintext (signtool / X509Certificate2) | `# psa-disable-line PSA5001 -- <reason>` at the `param()` line |
+| `PSA6003` (plural function noun) for legacy function names | Disable at project level via `.psa.config.json`, or `# psa-disable-line PSA6003` at the function declaration |
+
+If `psa.py` systematically misclassifies a pattern, raise an issue upstream
+in the canonical repository
+(`https://github.com/usui-tk/ai-generated-artifacts`) rather than
+suppressing locally.
 
 ---
 

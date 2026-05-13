@@ -496,7 +496,12 @@ param(
     [switch]$AllowWorkstationInstall,
 
     # === Certificate ==================================================
-    [string]$PfxPassword   = 'ChangeMe!2026',
+    # NOTE: [string] (not [SecureString]) because the password is forwarded to
+    # signtool.exe via /p and to X509Certificate2(.., String) — both of these
+    # APIs require a plaintext String. SecureString would have to be unwrapped
+    # at the call site anyway. The default value below is an intentional
+    # placeholder; rotate this in real deployments.
+    [string]$PfxPassword   = 'ChangeMe!2026',  # psa-disable-line PSA5001 -- signtool /p and X509Certificate2 require plaintext String; default is a placeholder
     [string]$TimestampUrl  = 'http://timestamp.digicert.com',
 
     # === WDAC supplemental policy GUID overrides ======================

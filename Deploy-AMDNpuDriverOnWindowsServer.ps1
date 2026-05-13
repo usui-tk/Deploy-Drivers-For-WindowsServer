@@ -233,7 +233,10 @@ param(
     [string]$WorkRoot = 'C:\AMD-NPU-WS',
 
     [Parameter()]
-    [string]$PfxPassword = '',
+    # NOTE: [string] (not [SecureString]) because the password is forwarded to
+    # signtool.exe via /p and to X509Certificate2(.., String) — both APIs
+    # require a plaintext String. Default is empty (no password).
+    [string]$PfxPassword = '',  # psa-disable-line PSA5001 -- signtool /p and X509Certificate2 require plaintext String
 
     [Parameter()]
     [int]$CertValidityYears = 5,
@@ -2375,7 +2378,7 @@ function New-SelfSignedCodeSigningCert {
         [Parameter(Mandatory)][string]$Subject,
         [Parameter(Mandatory)][string]$PfxPath,
         [Parameter(Mandatory)][string]$CerPath,
-        [string]$PfxPassword = '',
+        [string]$PfxPassword = '',  # psa-disable-line PSA5001 -- forwarded to Export-PfxCertificate -Password (SecureString) via internal conversion; kept [string] for API symmetry with top-level param
         [int]$ValidityYears = 5
     )
 
@@ -2475,7 +2478,7 @@ function Invoke-SignTool {
         [Parameter(Mandatory)][string]$SignToolPath,
         [Parameter(Mandatory)][string]$CatPath,
         [Parameter(Mandatory)][string]$PfxPath,
-        [string]$PfxPassword = '',
+        [string]$PfxPassword = '',  # psa-disable-line PSA5001 -- value flows to signtool.exe /p as a plaintext String; signtool's CLI does not accept SecureString
         [string]$TimestampUrl = 'http://timestamp.digicert.com',
         [string]$HashAlgo = 'SHA384'
     )

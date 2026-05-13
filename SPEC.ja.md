@@ -88,7 +88,7 @@ Deploy-AMDNpuDriverOnWindowsServer.ps1       (4-tier installer 解決を持つ N
 psa.py  (canonical artifact レポジトリから取得 — A.11 参照)
 ```
 
-`psa.py` は **pure Python** 静的解析ツール (PowerShell インストール不要) で、 10 個のチェック (C1–C10) を持ちます。 本レポジトリには**同梱されていません**。 単一の canonical artifact として以下の場所で管理しています:
+`psa.py` は **pure Python** 静的解析ツール (PowerShell インストール不要) で、現時点でのバージョンは **2.3.0**、 `PSA1001`〜`PSA6006` の 27 ルール体系を実装しています (v1.x のレガシーコード `C1`〜`C10` はエイリアスとして引き続き受理されます)。 本レポジトリには**同梱されていません**。 単一の canonical artifact として以下の場所で管理しています:
 
 ```
 https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/python/powershell-static-analyzer/psa.py
@@ -540,28 +540,107 @@ python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
 
 ### 必須ゲート
 
-全 commit は **errors 0** でパスする必要があります。 警告は許可されますが、 トリアージして fix するか false positive として注釈してください。
+全 commit は **errors 0** でパスする必要があります。 warnings と info は許可
+されますが、 §A.11.5 の文書化されたベースラインと一致する必要があります。
+ベースラインに無い新規警告が出た場合は、 トリアージして fix するか、
+理由コメント付きインライン抑制 (`# psa-disable-line <CODE> -- <理由>`) を付与
+するか、 真に新規の検出であれば本 SPEC のベースラインに追記してください。
 
-### チェックカバレッジ (C1–C10)
+自動ゲート (CI) の推奨フィルタは `--severity error` です:
 
-| Code | 重要度  | 説明                                                                     |
-| ---- | ------- | ------------------------------------------------------------------------ |
-| C1   | error   | Brace balance (`{` vs `}`)                                               |
-| C2   | error   | Paren balance (`(` vs `)`)                                               |
-| C3   | error   | Bracket balance (`[` vs `]`)                                             |
-| C4   | warning | 未定義変数参照 (ヒューリスティック)                                      |
-| C5   | warning | Auto-variable shadowing (`$args`、 `$_`、 `$matches` 等)                 |
-| C6   | warning | `Start-Process -ArgumentList` (スペース含むパスでは `ProcessStartInfo` 推奨) |
-| C7   | warning | 裸 `$variable` への `-match` (`$null` の場合 true を返す)                 |
-| C8   | info    | TODO / FIXME マーカー                                                    |
-| C9   | warning | 末尾 backtick の後に空行                                                  |
-| C10  | warning | 空文字列への `-match` (常に true)                                         |
+```bash
+python3 psa.py --severity error Deploy-AMDChipsetDriverOnWindowsServer.ps1
+# Exit code 0 = errors なし。 warnings / info はビルドをブロックしません。
+```
 
-Exit code: `0` = clean、 `1` = warnings のみ、 `2` = errors。 CI で有用。
+### ルールカバレッジ (psa.py v2.3.0 — 27 ルール)
 
-### 既知の false positive
+`psa.py` v2.3.0 は 27 ルール体系を 6 カテゴリに分けて実装しています。
+v1.x のレガシーコード `C1`〜`C10` はエイリアスとして引き続き受理されます
+(例: `C7` は `PSA2003` と同一ルール)。
 
-null-guard ブロック内 (例: `if ($var) { ... -match $var }`) の `C7 -match against bare $var` 警告は false positive — guard が既に null ケースを除外しています。 warnings のままで OK です。
+| カテゴリ              | コード範囲            | 例 |
+| -------------------- | --------------------- | -- |
+| 構文の整合性          | `PSA1001`〜`PSA1003`  | 波括弧 / 丸括弧 / 角括弧の整合性 |
+| 意味解析              | `PSA2001`〜`PSA2006`  | 未定義変数、 auto-variable shadowing、 裸 `$variable` への `-match` (レガシー `C7`)、 `$null` を `-eq`/`-ne` 右辺に置く問題、 条件式内の代入 / リダイレクト |
+| スタイル              | `PSA3001`〜`PSA3004`  | `Start-Process -ArgumentList` (レガシー `C6`)、 末尾 backtick の後に空行 (レガシー `C9`)、 空文字列への `-match` (レガシー `C10`)、 空 `catch` ブロック |
+| 衛生                  | `PSA4001`〜`PSA4004`  | 未完了マーカー (レガシー `C8`)、 行末空白、 長い行、 行末セミコロン |
+| セキュリティ          | `PSA5001`〜`PSA5004`  | 平文パスワードパラメーター、 `Invoke-Expression`、 壊れたハッシュアルゴリズム、 `ComputerName` ハードコード |
+| ベストプラクティス    | `PSA6001`〜`PSA6006`  | 非承認動詞、 コマンドレットエイリアス、 複数形名詞の関数名、 `$global:` 定義、 必須パラメーターのデフォルト値、 `$true` がデフォルトのスイッチパラメーター |
+
+各ルールの正規仕様 (深刻度、 例、 抑制ガイドライン) については
+`https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.ja.md`
+§4 を参照してください。
+
+Exit code: `0` = clean (または `--severity error` フィルタを通過)、 `1` =
+warnings / info あり、 `2` = errors。 デフォルトの `--severity` 下限は `info`。
+
+### A.11.5 文書化されたベースライン (warnings と info)
+
+psa-baseline-sync リビジョン時点で、 本レポジトリは以下の warning / info
+ベースラインを **受容済み** として記録します。 これらの件数からの逸脱は
+commit メッセージで説明し、 このベースラインに追記するか、 修正する必要が
+あります。
+
+| スクリプト | Errors | Warnings | Info | Total |
+| --------- | -----: | -------: | ---: | ----: |
+| `Deploy-AMDChipsetDriverOnWindowsServer.ps1`  | **0** | 42 | 31 | 73 |
+| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | **0** | 44 | 36 | 80 |
+| `Deploy-AMDNpuDriverOnWindowsServer.ps1`      | **0** | 17 |  0 | 17 |
+
+ルール別の内訳:
+
+| ルール (重要度)                            | Chipset | Graphics | NPU | 処置 |
+| ----------------------------------------- | ------: | -------: | --: | --- |
+| `PSA4004` (行末セミコロン、 info)         |   31    |    36    |  0  | 装飾的。 多数リビジョンの蓄積した既存スタイル。 本同期では未対応。 |
+| `PSA3004` (空 `catch`、 warning)          |   19    |    19    |  0  | fail-soft リトライとベストエフォート診断取得の混在。 本同期では個別アノテーション未実施。 |
+| `PSA6003` (複数形名詞関数、 warning)      |   14    |    15    | 13  | 既存の公開関数名。 リネームは破壊的変更となる。 |
+| `PSA2003` (レガシー `C7`、 warning)       |    6    |     7    |  4  | 検査した全箇所で、 `-match` の対象がスクリプトスコープの定数パターン (絶対に `$null` にならない)。 警告は技術的には正しいが運用上は known-good 形状。 |
+| `PSA3001` (Start-Process -ArgumentList、w.) | 3 |    3    |  0  | 既存のラッパー関数。 引数は shell メタ文字を含まず安全に構築。 |
+
+**PSA5001 についての注記**: 過去の検出値は 1 / 1 / 3 errors でした。
+psa-baseline-sync リビジョン以降、 これらはすべて `param()` 宣言行で
+インライン抑制されています。 これは、 値が `signtool.exe /p` および
+`X509Certificate2(.., String)` API へ渡されるためで、 これらは API 境界で
+平文 `String` を要求します。 各サイトのインライン理由コメントが設計意図を
+説明しています。
+
+### インライン抑制とプロジェクトローカル設定
+
+正当な抑制には 2 つの仕組みがあります:
+
+1. **インライン (`# psa-disable-line <CODE> -- <理由>`)** — 単一行に適用。
+   本レポジトリのコーディングスタイルでは理由コメントは必須であり、
+   理由のない抑制はコードレビューで却下されます。
+
+2. **プロジェクト設定 (`.psa.config.json`)** — プロジェクト全体でルールを
+   disable する必要がある場合 (例: 既存の複数形名詞命名規則を grandfather
+   する場合)、 スクリプトと同階層に `.psa.config.json` を配置します:
+
+   ```jsonc
+   // .psa.config.json — 根拠コメントは必須
+   {
+     "disable": ["PSA6003"]
+   }
+   ```
+
+   `psa.py` は CWD から `.psa.config.json` を自動発見します。 本レポジトリには
+   現時点ではそのようなファイルを同梱していません。 上記ベースラインは
+   フィルタなしの解析ツール出力を反映しています。
+
+### よくある false positive と対処
+
+| 誤検出 | 対処 |
+| ------ | ---- |
+| 異なる関数で設定された `$Script:Foo` に対する `PSA2001` (レガシー `C4`)「undefined variable」 | スクリプトロード時に初期化: `$Script:Foo = $null` |
+| 非 null が保証されている `$variable` に対する `PSA2003` (レガシー `C7`)「-match against bare $variable」 | `[string]::IsNullOrEmpty($variable)` でガード、 または `[regex]::Match()` にリファクタ |
+| `PSA3004` (空 `catch`) で意図的にエラーを握り潰している場合 | `# psa-disable-line PSA3004 -- <理由>` を付与 |
+| API が平文を要求する場面 (signtool / X509Certificate2) での `PSA5001` (平文パスワード) | `param()` 宣言行に `# psa-disable-line PSA5001 -- <理由>` を付与 |
+| レガシー関数名の複数形名詞による `PSA6003` | プロジェクト config (`.psa.config.json`) で disable、 または関数宣言に `# psa-disable-line PSA6003` を付与 |
+
+`psa.py` が特定のパターンを体系的に誤分類する場合は、 ローカルで抑制するの
+ではなく、 canonical レポジトリ
+(`https://github.com/usui-tk/ai-generated-artifacts`) に issue を上げてください。
 
 ---
 
