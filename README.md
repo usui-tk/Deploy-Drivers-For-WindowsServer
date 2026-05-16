@@ -96,7 +96,7 @@ All three PowerShell scripts share the same 21-phase architecture, the same self
 
 > This section exists because the NPU script is materially riskier than its sister scripts and operators must understand the difference before running it.
 
-| Aspect | Chipset script (r47) | Graphics script (r16) | **NPU script (r1)** |
+| Aspect | Chipset script (r55) | Graphics script (r23) | **NPU script (r6)** |
 | --- | --- | --- | --- |
 | **Maturity** | Stable, multiple validation cycles | Stable, multiple validation cycles | **🆘 Experimental — first release, not validated on physical NPU hardware** |
 | **Distribution format** | Public EXE direct download | Public EXE direct download | **EULA-gated ZIP, requires AMD account** |

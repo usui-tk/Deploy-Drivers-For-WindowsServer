@@ -17,9 +17,9 @@ This document consolidates everything needed to test and evaluate `Deploy-AMD-Dr
 
 | Script | Pipeline soundness on AWS EPYC | Physical-hardware validation | Real driver install on target HW | Recommended use |
 |---|---|---|---|---|
-| **Chipset (r47)** | ✓ verified across Naples → Turin | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
-| **Graphics (r16)** | ✓ verified across Naples → Turin | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
-| **NPU (r1)** | ⚠️ **partial** (PrepareVerify only on EPYC; NPU absent so V05/V06 outputs limited) | ❌ **none** (no physical NPU machine in maintainer's lab) | ❌ **never executed** | **Experimental / research-grade only. Do not deploy in production.** |
+| **Chipset (r55)** | ✓ verified across Naples → Turin | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
+| **Graphics (r23)** | ✓ verified across Naples → Turin | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
+| **NPU (r6)** | ⚠️ **partial** (PrepareVerify only on EPYC; NPU absent so V05/V06 outputs limited) | ❌ **none** (no physical NPU machine in maintainer's lab) | ❌ **never executed** | **Experimental / research-grade only. Do not deploy in production.** |
 
 The NPU script's verification is currently limited to:
 

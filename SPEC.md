@@ -64,9 +64,9 @@ These are the canonical sources of truth. **Pull from these directly; do not re-
 ### A.1.1 Reference scripts (phase / banner / log patterns)
 
 ```
-Deploy-AMDChipsetDriverOnWindowsServer.ps1   (the most mature implementation; canonical r47)
-Deploy-AMDGraphicsDriverOnWindowsServer.ps1  (graphics-specific platform detection; r16)
-Deploy-AMDNpuDriverOnWindowsServer.ps1       (NPU script with 4-tier installer resolution; r2)
+Deploy-AMDChipsetDriverOnWindowsServer.ps1   (the most mature implementation; canonical r55)
+Deploy-AMDGraphicsDriverOnWindowsServer.ps1  (graphics-specific platform detection; r23)
+Deploy-AMDNpuDriverOnWindowsServer.ps1       (NPU script with 4-tier installer resolution; r6)
 ```
 
 These 21-phase deployment scripts are the canonical source for:
@@ -991,7 +991,7 @@ Older AMD platforms (Renoir, Cezanne) will produce fewer device-driver matches i
 
 ### Identification
 
-- **Current revision**: `npu-2026.05.16-r5` (tag: `npu-secureboot-baseline-r5`)
+- **Current revision**: `npu-2026.05.16-r6` (tag: `npu-secureboot-baseline-r6`)
 - **Workspace**: `C:\AMD-NPU-WS\`
 - **Self-signed cert subject**: `CN=AMD NPU Driver Self-Sign (WS2025 Lab, At Own Risk)`
 - **Self-signed cert files**: `cert\AMD-NPU-Driver-CodeSign.{pfx,cer}` (r3+; pre-r3 used `AMD-NPU-CodeSign.{pfx,cer}`)
