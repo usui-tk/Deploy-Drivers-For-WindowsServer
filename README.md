@@ -83,7 +83,7 @@ For the full at-your-own-risk acknowledgements (BitLocker, anti-cheat software, 
 | **`Deploy-AMDNpuDriverOnWindowsServer.ps1`** | **NPU (Ryzen AI XDNA) driver pipeline (PHX/HPT/STX/KRK).** Source: AMD Ryzen AI Software ZIP, ~250 MB, EULA-gated download (no public direct URL). Kernel-mode driver only — does NOT install Ryzen AI Software user-mode stack. | **🆘 Experimental / research-grade — NOT production-ready.** No physical-NPU validation runs have been performed. AMD account auto-download is best-effort and may break with AMD form changes. Ryzen AI Software is officially unsupported on Windows Server 2025. |
 | `README.md` | This document. |  |
 | `README.ja.md` | Japanese translation. |  |
-| `TESTING.md` | Cloud (AWS) testing procedure and physical-hardware validation results. Includes the NPU script's far weaker validation status. |  |
+| `TESTING.md` | Physical-hardware validation results. Includes the NPU script's far weaker validation status. |  |
 | `TESTING.ja.md` | Japanese translation of TESTING.md. |  |
 | `CONTRIBUTING.md` | How to file issues, propose changes, and run regression tests. |  |
 | `LICENSE` | MIT License. |  |
@@ -113,7 +113,7 @@ All three PowerShell scripts share the same 21-phase architecture, the same self
 
 1. **Do not run `-Action Install` on a host you cannot afford to roll back.** The cleanup path is implemented but driver-store removal is best-effort and may require manual `pnputil /delete-driver oemNN.inf /force` cleanup.
 2. **The Ryzen AI Software user-mode stack** (Python conda env + ONNX Runtime VitisAI EP + OGA) **is officially Windows-11-only.** Even if the kernel driver loads on Server 2025, you will not be able to run inference workloads through the supported stack. Do not expect AI workload functionality on Server 2025; the kernel driver is at most an experiment in driver bring-up.
-3. **There are no physical-NPU validation runs yet.** All current verification is pipeline-soundness on EPYC EC2 (where the NPU is absent) and code-review of the AMD-published `quicktest.py` detection logic translated to PowerShell. **Real hardware behaviour is unconfirmed.**
+3. **There are no physical-NPU validation runs yet.** All current verification is static analysis with `psa.py` and code-review of the AMD-published `quicktest.py` detection logic translated to PowerShell. **Real hardware behaviour is unconfirmed.**
 4. **AMD's account auto-download flow can break without notice.** AMD periodically updates their `account.amd.com` form structure, CSRF token names, and EULA acceptance endpoint. The script's Tier 2 authentication is best-effort. **Always prefer Tier 4 (`-OfflineZip`)** for reproducible runs.
 
 If after reading the above you still want to run the NPU script: see [NPU-specific quick start](#npu-specific-quick-start).
@@ -136,7 +136,7 @@ If after reading the above you still want to run the NPU script: see [NPU-specif
 
 ### Hardware **out of scope**
 
-- **AMD EPYC server chips** (CPUs found in AWS T3a / M5a / M6a / M7a / M8a, Hetzner AX dedicated, etc.): EPYC uses a different chipset model and ships first-party Server-supported drivers via Microsoft Update. This pipeline targets *consumer* Ryzen, not EPYC. AWS instances are nonetheless useful for **pipeline regression testing** — see [TESTING.md](./TESTING.md).
+- **AMD EPYC server chips** (server-class CPUs found in cloud instances, Hetzner AX dedicated, etc.): EPYC uses a different chipset model and ships first-party Server-supported drivers via Microsoft Update. This pipeline targets *consumer* Ryzen, not EPYC.
 - **Real-time GPU compute stacks** (ROCm, HIP SDK, OpenCL beyond the user-mode driver shipped in the Adrenalin package): consult AMD's ROCm documentation for Server.
 - **Ryzen AI Software user-mode stack** (Python conda env, ONNX Runtime VitisAI Execution Provider, OnnxRuntime GenAI/OGA, Vitis AI Quantizer, Lemonade SDK, etc.): **out of scope of the NPU script.** The NPU script installs the kernel-mode driver only. Ryzen AI Software must be installed separately by the operator from the AMD installer at <https://account.amd.com/en/forms/downloads/xef.html?filename=ryzen-ai-lt-1.7.1.exe>, and per AMD documentation it is officially supported on Windows 11 build >= 22621.3527 only.
 
@@ -153,7 +153,7 @@ Deploy-AMD-Drivers-For-WindowsServer/
 ├── Deploy-AMDNpuDriverOnWindowsServer.ps1       NPU (Ryzen AI XDNA) pipeline (21 phases)
 ├── README.md                                    This document (English)
 ├── README.ja.md                                 Japanese translation of README
-├── TESTING.md                                   Cloud (AWS) testing procedure
+├── TESTING.md                                   Physical-hardware validation results
 ├── TESTING.ja.md                                Japanese translation of TESTING
 ├── SPEC.md                                      Developer specification (English)
 ├── SPEC.ja.md                                   Japanese translation of SPEC
@@ -262,7 +262,7 @@ The NPU script supports **four download tiers** in priority order:
 | Tier | Method | When to use |
 | --- | --- | --- |
 | **1** | `-InstallerUrl <url>` explicit URL | You already have a fresh AMD CDN URL (e.g. from an `entitlenow.com` link captured in a browser session). |
-| **2** | `-AmdAccountUser <email> -AmdAccountPassword <SecureString> -ForceAmdAccountAuth` | Attempt EULA acceptance flow automatically. **❌ Disabled by default since 2026-05-10 verification found `account.amd.com` is a JavaScript-driven SPA. Use `-ForceAmdAccountAuth` to opt in (expected to fail on the current AMD portal).** See TESTING.md §4.6 for the full verification report. |
+| **2** | `-AmdAccountUser <email> -AmdAccountPassword <SecureString> -ForceAmdAccountAuth` | Attempt EULA acceptance flow automatically. **❌ Disabled by default since 2026-05-10 verification found `account.amd.com` is a JavaScript-driven SPA. Use `-ForceAmdAccountAuth` to opt in (expected to fail on the current AMD portal).** See TESTING.md §3.6 for the full verification report. |
 | **3** | EULA-gated direct fetch probe | Automatic; almost always falls through (AMD requires JS-driven submission). |
 | **4** ★ | `-OfflineZip <path>` or sibling `NPU_RAI*_WHQL.zip` in the script directory | **Recommended.** Manually download the ZIP once, place it next to the script. Reproducible across runs. |
 
@@ -287,9 +287,10 @@ The recommended pattern is **`-Action PrepareVerify` + `-OfflineZip`**. With `-O
 ```
 
 ```powershell
-# RECOMMENDED for AWS EPYC pipeline regression — same as above plus -AssumeIfMissing.
+# Pipeline-soundness check on a host without an NPU device — same as above plus -AssumeIfMissing.
 # When P03 detects no NPU device, the script falls back to the default Strix Point profile
-# instead of failing. Useful only for testing the pipeline mechanics; produces 0 device bindings.
+# instead of failing. Useful only for testing the pipeline mechanics; produces 0 device bindings
+# and provides no validation of real NPU behaviour.
 .\Deploy-AMDNpuDriverOnWindowsServer.ps1 `
     -Action PrepareVerify `
     -CleanWorkRoot `
@@ -694,7 +695,7 @@ By running these scripts, you acknowledge:
 7. **The 5-year cert expiry is real.** Schedule a renewal task in your calendar for year 4.5 of any production deployment, or accept that drivers stop installing in year 5.
 
 8. **NPU script (`Deploy-AMDNpuDriverOnWindowsServer.ps1`) is markedly higher-risk than its sister scripts.** Specifically:
-   - **No physical-NPU validation** has been performed by the maintainers as of this writing. All testing has been pipeline-soundness on EPYC EC2 hosts (where no NPU is present) and code-review of the AMD-published `quicktest.py` detection logic translated to PowerShell.
+   - **No physical-NPU validation** has been performed by the maintainers as of this writing. All testing has been static analysis with `psa.py` and code-review of the AMD-published `quicktest.py` detection logic translated to PowerShell.
    - **AMD account auto-download (Tier 2) is best-effort and may break without notice** when AMD updates `account.amd.com` form layouts, CSRF handling, or the entitlenow.com CDN URL scheme. Always prefer Tier 4 (`-OfflineZip`) for reproducible runs.
    - **Ryzen AI Software is officially Windows-11-only per AMD documentation** (build >= 22621.3527). Even if the NPU kernel driver loads on Windows Server 2025, the user-mode stack (Python conda env, ONNX Runtime VitisAI EP, OGA) is not expected to function. **Do not deploy the NPU script in environments expecting AI inference workloads on Server 2025.**
    - **Driver-store cleanup is best-effort.** Removing self-signed NPU drivers from the driver store after `-Action Install` may require manual `pnputil /delete-driver oemNN.inf /force` or use of Driver Store Explorer (Rapr.exe).
@@ -733,7 +734,7 @@ This is the most common NPU-script failure. The EULA-gated AMD form requires an 
 
 The host has no AMD NPU device. Either:
 
-- This is intentional (AWS EPYC pipeline regression run): pass `-AssumeIfMissing` to proceed with the default Strix Point + RAI 1.7.1 profile.
+- This is intentional (pipeline-soundness check on a host without NPU): pass `-AssumeIfMissing` to proceed with the default Strix Point + RAI 1.7.1 profile.
 - This was unexpected (you believed you had a Ryzen AI machine): check Device Manager for unbound PCI devices; check Task Manager → Performance for an NPU0 entry; check that the BIOS has not disabled the NPU.
 
 ### "V06 shows MS-GENERIC drivers on AMD hardware that the patched INFs don't cover"
@@ -917,7 +918,7 @@ The Japanese log strings inside the `.ps1` scripts are designed to render correc
 
 ### This repository
 
-- [TESTING.md](./TESTING.md) — Cloud (AWS) testing procedure with multi-generation EPYC instance options, physical-hardware validation results, and the NPU script's far weaker validation status.
+- [TESTING.md](./TESTING.md) — Physical-hardware validation results and the NPU script's far weaker validation status.
 - [TESTING.ja.md](./TESTING.ja.md) — Japanese translation of TESTING.md.
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — How to contribute.
 - [README.ja.md](./README.ja.md) — Japanese translation of this document.
@@ -952,4 +953,4 @@ The new extraction emits a per-OS-variant INF coverage diagnostic so operators c
 | Windows Server 2025 / 2022 (Windows 11-based) | `W11x64\` |
 | Windows Server 2019 / 2016 (Windows 10-based) | `WTx64\` |
 
-For the full architecture (two-layer wrapper, 35 sub-MSIs, AMD's actual driver-registration logic via `pnputil`), see [SPEC.md §B.1 "AMD 8.x installer architecture (r54+)"](SPEC.md#amd-8x-installer-architecture-r54). For the regression test of this extraction path, see [TESTING.md §8 "r54+ — AMD Chipset Software 8.x extraction diagnostic format"](TESTING.md#8-r54--amd-chipset-software-8x-extraction-diagnostic-format).
+For the full architecture (two-layer wrapper, 35 sub-MSIs, AMD's actual driver-registration logic via `pnputil`), see [SPEC.md §B.1 "AMD 8.x installer architecture (r54+)"](SPEC.md#amd-8x-installer-architecture-r54). For the regression test of this extraction path, see [TESTING.md §6 "r54+ — AMD Chipset Software 8.x extraction diagnostic format"](TESTING.md#6-r54--amd-chipset-software-8x-extraction-diagnostic-format).

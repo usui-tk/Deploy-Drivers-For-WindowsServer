@@ -98,8 +98,9 @@
     install banner.
 
 .PARAMETER AssumeIfMissing
-    If NPU is not detected (e.g. running on EPYC machine for pipeline regression),
-    proceed using the default profile (Strix Point + NPU_RAI1.6.1_314 + RAI Software latest).
+    If NPU is not detected (e.g. running on a host without an AMD NPU device for
+    pipeline-soundness regression), proceed using the default profile
+    (Strix Point + NPU_RAI1.6.1_314 + RAI Software latest).
 
 .PARAMETER AllowWorkstationInstall
     Permit Install-phase actions on Workstation OS (Win11). Discouraged. Default behaviour
@@ -127,8 +128,9 @@
     .\Deploy-AMDNpuDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot -OfflineZip .\NPU_RAI1.6.1_314_WHQL.zip
 
 .EXAMPLE
-    # Pipeline soundness check on a non-NPU host (e.g. AWS EPYC EC2) for regression testing.
+    # Pipeline soundness check on a non-NPU host for regression testing.
     # -AssumeIfMissing forces the default Strix Point profile when no NPU is detected.
+    # NOTE: This validates pipeline mechanics only — it does NOT validate real NPU behaviour.
     .\Deploy-AMDNpuDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot `
         -OfflineZip .\NPU_RAI1.6.1_314_WHQL.zip -AssumeIfMissing
 
@@ -2318,7 +2320,7 @@ function Invoke-AmdAccountAuthentication {
         This function is retained as a best-effort fallback only. It will print an
         explicit "verification result" banner and return $null without attempting
         the request unless -ForceAmdAccountAuth is set. The default code path is
-        Tier 4 (-OfflineZip) per the verified-working pattern in TESTING.md §4.3.
+        Tier 4 (-OfflineZip) per the verified-working pattern in TESTING.md §3.3.
 
         If AMD changes their account portal to expose an HTTP-form-friendly endpoint
         in the future, remove the early-return below and re-enable the form posts.

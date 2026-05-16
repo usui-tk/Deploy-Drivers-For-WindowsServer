@@ -59,7 +59,7 @@ Any workaround that exists today?
 ### Before opening a PR
 
 1. **Run the static analyzer**: `python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1` and confirm 0 errors. Warnings are acceptable but should be justified in the PR description. `psa.py` is not bundled in this repository — obtain it per [SPEC.md §A.11](./SPEC.md#a11-static-analysis-with-psapy) (`git clone` of the canonical [`ai-generated-artifacts`](https://github.com/usui-tk/ai-generated-artifacts) repo, or single-file `curl` of `psa.py`).
-2. **Run `-Action PrepareVerify -CleanWorkRoot`** on at least one host (real or AWS EC2 — see [TESTING.md](./TESTING.md)) and confirm the full P00-V06 pipeline completes without errors.
+2. **Run `-Action PrepareVerify -CleanWorkRoot`** on a real Windows host with the target AMD consumer devices (see [TESTING.md](./TESTING.md)) and confirm the full P00-V06 pipeline completes without errors. Because this pipeline targets AMD consumer hardware, meaningful PR validation requires physical access to such devices.
 3. **Update relevant docs** (`README.md`, `README.ja.md`, `TESTING.md`) if you change user-visible behaviour or add new switches.
 4. **Bump the version comment** at the top of the script (`# Version: rNN+1`) when the change is non-trivial.
 
@@ -83,12 +83,9 @@ Minimum smoke test:
 python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
 python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
 
-# 2. PrepareVerify on a Windows test host
+# 2. PrepareVerify on a Windows test host with the target AMD consumer devices
 .\Deploy-AMDChipsetDriverOnWindowsServer.ps1  -Action PrepareVerify -CleanWorkRoot
 .\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot
-
-# 3. (Optional) Re-run on AWS for environment-independent confirmation
-#    See TESTING.md section 1 for the AWS multi-generation EPYC setup
 ```
 
 For PRs touching specific phases:
@@ -114,7 +111,7 @@ Examples:
 
 - `fix(chipset): correct timezone bug in Compare-InfDriverVer`
 - `feat(graphics): add Strix Halo platform detection`
-- `docs(testing): expand AWS EPYC matrix with M8a Turin`
+- `docs(testing): add ThinkPad T14s Gen 6 AMD validation result`
 - `docs: update psa.py canonical-source references after consolidation`
 
 `type` ∈ `fix`, `feat`, `docs`, `chore`, `refactor`, `test`, `perf`. `scope` ∈ `chipset`, `graphics`, `npu`, `docs`, or empty for repository-wide. (Changes to `psa.py` itself live in the canonical [`ai-generated-artifacts`](https://github.com/usui-tk/ai-generated-artifacts) repository and use that repo's commit conventions.)

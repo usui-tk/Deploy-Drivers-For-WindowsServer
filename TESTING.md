@@ -1,11 +1,10 @@
-# TESTING.md — Cloud Testing Procedure and Physical Hardware Validation Results
+# TESTING.md — Physical Hardware Validation Results
 
-This document consolidates everything needed to test and evaluate `Deploy-AMD-Drivers-For-WindowsServer`. It covers four environments:
+This document consolidates the validation results for `Deploy-AMD-Drivers-For-WindowsServer`. Because this repository ships **experimental scripts that target AMD's consumer-class Ryzen chipset / Radeon iGPU / Ryzen AI NPU**, all meaningful validation depends on access to physical AMD consumer hardware. Testing on non-AMD-consumer hardware (server-class EPYC, ARM, Intel, virtual machines without the target devices, etc.) cannot exercise the device-bind, driver-upgrade, or post-install verification paths that this pipeline exists to validate. This document therefore covers only physical-hardware validation:
 
-1. **AWS cloud (Tokyo region)** — testing procedure with multi-generation EPYC instance options (Naples / Milan / Genoa / Turin)
-2. **Validation Result 1: ThinkCentre M75q Tiny Gen 2** (Windows Server 2025 physical / Cezanne Zen 3 — chipset & graphics validated)
-3. **Validation Result 2: ThinkPad X13 Gen 1 AMD (2020)** (Windows 11 Enterprise LTSC 2024 / Renoir Zen 2 — chipset & graphics validated)
-4. **Validation Result 3 (NPU script)** — **🆘 NOT YET VALIDATED on physical NPU hardware. See [§4](#4-validation-result-3-npu-script--currently-unverified) for the current limited validation status.**
+1. **Validation Result 1: ThinkCentre M75q Tiny Gen 2** (Windows Server 2025 physical / Cezanne Zen 3 — chipset & graphics validated)
+2. **Validation Result 2: ThinkPad X13 Gen 1 AMD (2020)** (Windows 11 Enterprise LTSC 2024 / Renoir Zen 2 — chipset & graphics validated)
+3. **Validation Result 3 (NPU script)** — **🆘 NOT YET VALIDATED on physical NPU hardware. See [§3](#3-validation-result-3-npu-script--currently-unverified) for the current limited validation status.**
 
 🇯🇵 **Japanese version: see [TESTING.ja.md](./TESTING.ja.md).**
 
@@ -13,237 +12,28 @@ This document consolidates everything needed to test and evaluate `Deploy-AMD-Dr
 
 ## 0. Validation status summary
 
-> Read this before sections 1-4. The three scripts have **very different validation maturity levels**.
+> Read this before sections 1-3. The three scripts have **very different validation maturity levels**.
 
-| Script | Pipeline soundness on AWS EPYC | Physical-hardware validation | Real driver install on target HW | Recommended use |
-|---|---|---|---|---|
-| **Chipset (r55)** | ✓ verified across Naples → Turin | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
-| **Graphics (r23)** | ✓ verified across Naples → Turin | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
-| **NPU (r6)** | ⚠️ **partial** (PrepareVerify only on EPYC; NPU absent so V05/V06 outputs limited) | ❌ **none** (no physical NPU machine in maintainer's lab) | ❌ **never executed** | **Experimental / research-grade only. Do not deploy in production.** |
+| Script | Physical-hardware validation | Real driver install on target HW | Recommended use |
+|---|---|---|---|
+| **Chipset (r55)** | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
+| **Graphics (r23)** | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
+| **NPU (r6)** | ❌ **none** (no physical NPU machine in maintainer's lab) | ❌ **never executed** | **Experimental / research-grade only. Do not deploy in production.** |
 
 The NPU script's verification is currently limited to:
 
 1. **Static analysis** with `psa.py` v3.1.0 (28-rule check set `PSA1001`..`PSA7001`, **0 errors** with a documented baseline of warnings/info — see `SPEC.md` §A.11.5). `psa.py` is maintained as a canonical artifact in the [ai-generated-artifacts](https://github.com/usui-tk/ai-generated-artifacts) repository; obtain it per `SPEC.md` §A.11 before running.
 2. **Code review** of the AMD-published `quicktest.py` NPU detection logic translated to PowerShell.
-3. **Dry-run on EPYC AWS hosts** with `-AssumeIfMissing` to confirm the pipeline runs to V06 without the NPU device being present.
-4. **No `-Action Install` execution** has been performed by the maintainers anywhere.
+3. **No `-Action Install` execution** has been performed by the maintainers anywhere.
+4. **No end-to-end run on physical NPU hardware** has been performed by the maintainers.
 
 If you have a Ryzen AI 300 / Ryzen AI Max 300 / Ryzen 7040 / 8040 series machine and successfully run any phase of the NPU script, please report results via GitHub Issues so the validation gap can be closed.
 
 ---
 
-## 1. AWS Cloud Testing
+## 1. Validation Result 1: ThinkCentre M75q Tiny Gen 2 (Windows Server 2025)
 
-### 1.1 Positioning of cloud testing
-
-AWS EC2 does not directly provide consumer Ryzen hardware. AMD-based EC2 instances run on **AMD EPYC server CPUs**, which are silicon-distinct from the consumer Ryzen chipset / Radeon iGPU / NPU that this script targets. AWS testing is therefore limited to the following purposes:
-
-| What AWS can verify | What AWS cannot verify |
-|---|---|
-| ✓ Whether the script runs to completion without errors on Windows Server 2025 | ❌ Actual driver install results on real AMD consumer chipset / Radeon / NPU hardware |
-| ✓ AMD package download / extraction / parsing | ❌ Device-bind correctness (the relevant HW is absent) |
-| ✓ Self-signed certificate generation and catalog signing | ❌ Expected driver upgrades like "3 candidates upgrade" in V06 |
-| ✓ WDAC supplemental policy generation (stop at PrepareVerify; do not deploy) | ❌ Post-I03 driver behaviour in a real environment |
-| ✓ inf2cat / signtool tool-chain validation | ❌ BitLocker / TPM (PSP driver) interactions |
-| ✓ CI automated testing (PR validation, regression testing) | ❌ AMD Vega/RDNA GPU rendering paths |
-| ✓ Win32_Processor detection logic across EPYC generations | ❌ Consumer Ryzen detection paths |
-| ✓ NPU script's PrepareVerify completion via `-AssumeIfMissing` (default Strix Point profile) | ❌ NPU script's actual NPU device detection, driver bind, post-install verification |
-
-In short: **"pipeline soundness verification"** is well-served by AWS, while **"driver upgrade outcomes on consumer Ryzen / NPU machines"** require physical hardware. Cloud testing is most valuable as automated regression testing in something like GitHub Actions CI.
-
-### 1.2 Map of all AMD EPYC generations available on AWS
-
-AWS has been adopting AMD EPYC since 2018, and **five generations** of silicon are currently available. For script validation, deliberately spreading tests across generations is recommended (the pipeline must work uniformly on old and new EPYC alike):
-
-| Generation | Codename | Release year | Architecture | Representative instances | Example CPU model | Max frequency | Tokyo region availability |
-|---|---|---|---|---|---|---|---|
-| **1st gen** | **Naples** | 2018 | Zen | T3a / M5a / R5a / C5a | EPYC 7571 (T3a) | 2.5 GHz | ✓ (older instances) |
-| 2nd gen | Rome | 2019 | Zen 2 | (no general AWS adoption) | — | — | — |
-| **3rd gen** | **Milan** | 2021 | Zen 3 | M6a / C6a / R6a / Hpc6a | EPYC 7R13 | 3.6 GHz | ✓ |
-| **4th gen** | **Genoa** | 2023 | Zen 4 | M7a / C7a / R7a | EPYC 9R14 | 3.7 GHz (DDR5) | ✓ |
-| **5th gen** | **Turin** | 2025 | Zen 5 | M8a / R8a / C8a | EPYC 9R45 | 4.5 GHz (M8azn: 5.0 GHz) | ✓ (M8a available in Tokyo since 2025-11-12) |
-
-**Key technical differences**:
-
-- **Naples (T3a/M5a)**: 1 vCPU = 1 SMT thread (2 vCPUs = 1 physical core). T3a has **AZ restrictions in some availability zones** that prevent WS2025 AMI launch (which requires Nitro + UEFI).
-- **Milan (M6a)**: 1 vCPU = 1 SMT thread. AMD SEV-SNP supported (confirmed on M6a/C6a/R6a).
-- **Genoa (M7a)**: **1 vCPU = 1 physical core (SMT disabled)**. DDR5 memory, AVX-512 / VNNI / bfloat16.
-- **Turin (M8a)**: 1 vCPU = 1 physical core. Zen 5, CPU Family 26 (Genoa is Family 25). L1d cache 48 KiB (+50% over previous-generation 32 KiB).
-
-### 1.3 Recommended instance types by use case (Tokyo region, ap-northeast-1)
-
-| Use case | Recommended instance | EPYC generation | vCPU/RAM | Tokyo Windows price (estimate) | Notes |
-|---|---|---|---|---|---|
-| **Cheapest — PrepareVerify** | `t3a.medium` | Naples (1st) | 2 / 4 GiB | ≈ **$0.07–0.10/h** | Watch AZ restrictions (e.g. WS2025 AMI may not launch in us-east-1a) |
-| **Stable burstable** | `t3a.large` | Naples (1st) | 2 / 8 GiB | ≈ $0.13–0.17/h | More headroom for the WDK install |
-| **Modern EPYC — Milan** | `m6a.large` | Milan (3rd) | 2 / 8 GiB | ≈ $0.18–0.22/h | SMT enabled, SEV-SNP testable |
-| **DDR5 — Genoa** | `m7a.large` | Genoa (4th) | 2 / 8 GiB | ≈ $0.22–0.27/h | SMT disabled, AVX-512, validates CPU Family 25 detection |
-| **Latest — Turin** | `m8a.large` | Turin (5th) | 2 / 8 GiB | ≈ $0.23–0.28/h | ≈ +5% vs M7a, Zen 5, validates CPU Family 26 detection |
-| **GPU validation (optional)** | `g4ad.xlarge` | (Naples + Radeon V520) | 4 / 16 GiB | ≈ $0.50–0.60/h | AMD Radeon Pro V520 dGPU; exercises `Win32_VideoController` AMD GPU detection paths |
-
-> **Pricing note**: figures above are approximations as of this document's creation (May 2026), with the Windows Server license cost (≈ $0.046/h) included. Verify the latest exact pricing in [AWS Pricing Calculator](https://calculator.aws/). **Spot instances** can offer up to ~70% savings (a t3a.medium Spot runs around $0.02–0.03/h).
-
-#### Cost estimate for one PrepareVerify run (~10 minutes)
-
-| Instance | Single run | 5 runs/day | Monthly (5/wk × 4 wk) |
-|---|---|---|---|
-| t3a.medium Spot | ≈ $0.005 | ≈ $0.025 | ≈ $0.50 |
-| t3a.medium On-Demand | ≈ $0.014 | ≈ $0.07 | ≈ $1.40 |
-| m6a.large On-Demand | ≈ $0.033 | ≈ $0.165 | ≈ $3.30 |
-| m7a.large On-Demand | ≈ $0.040 | ≈ $0.20 | ≈ $4.00 |
-| m8a.large On-Demand | ≈ $0.043 | ≈ $0.215 | ≈ $4.30 |
-
-**Weekly regression testing across all four generations (Naples / Milan / Genoa / Turin)** can be built for under ~$15/month total. Add ~$5/month for storage (gp3 EBS 50 GB) and the picture remains very affordable.
-
-### 1.4 Recommended AMI and launch constraints
-
-Use the AWS-managed **Microsoft Windows Server 2025 Base** (License Included) AMI. Windows Server 2025 AMIs require **Nitro-based instances with UEFI boot mode**:
-
-- **Supported**: T3a (in newer AZs), M6a, M7a, M8a, C6a, C7a, C8a, R6a, R7a, R8a — all are Nitro + UEFI capable and can launch the WS2025 AMI.
-- **Caveat**: Some AZs (e.g. us-east-1a) cannot launch WS2025 on T3a due to UEFI restrictions. Either use the `BIOS-Windows_Server-2025-English-Full-Base` AMI (Legacy BIOS) or pick a different AZ (e.g. us-east-1f). In Tokyo, T3a launches of WS2025 are most stable in ap-northeast-1c / 1d.
-
-#### Fetching the latest AMI ID
-
-```bash
-# Latest WS2025 (UEFI, English) AMI in Tokyo
-aws ec2 describe-images \
-  --owners 'amazon' \
-  --region ap-northeast-1 \
-  --filters \
-    'Name=platform,Values=windows' \
-    'Name=name,Values=Windows_Server-2025-English-Full-Base-*' \
-  --query 'reverse(sort_by(Images, &CreationDate))[0].{ImageId:ImageId,Name:Name,CreationDate:CreationDate}' \
-  --output table
-
-# Japanese-locale variant (localizes patch logs)
-aws ec2 describe-images \
-  --owners 'amazon' \
-  --region ap-northeast-1 \
-  --filters \
-    'Name=platform,Values=windows' \
-    'Name=name,Values=Windows_Server-2025-Japanese-Full-Base-*' \
-  --query 'reverse(sort_by(Images, &CreationDate))[0].{ImageId:ImageId,Name:Name,CreationDate:CreationDate}' \
-  --output table
-```
-
-AMI names follow the `Windows_Server-2025-{English|Japanese}-Full-Base-YYYY.MM.DD` convention and are refreshed monthly.
-
-### 1.5 Setup procedure (cross-generation validation)
-
-#### Step 1: Launch one EC2 instance per generation (example)
-
-```bash
-AMI_ID=ami-XXXXXXXXXXXXXXXXX  # from describe-images
-KEY=YourKeyPair
-SG=sg-XXXXXXXXXX
-SUBNET=subnet-XXXXXXXXXX  # ap-northeast-1c or 1d recommended
-
-for INST in t3a.medium m6a.large m7a.large m8a.large; do
-  aws ec2 run-instances \
-    --region ap-northeast-1 \
-    --image-id $AMI_ID \
-    --instance-type $INST \
-    --key-name $KEY \
-    --security-group-ids $SG \
-    --subnet-id $SUBNET \
-    --block-device-mappings 'DeviceName=/dev/sda1,Ebs={VolumeSize=50,VolumeType=gp3}' \
-    --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=amd-test-$INST}]"
-done
-```
-
-#### Step 2: Retrieve Administrator password and connect via RDP
-
-```bash
-aws ec2 get-password-data \
-  --region ap-northeast-1 \
-  --instance-id i-XXXXXXXXXX \
-  --priv-launch-key ./YourKeyPair.pem
-```
-
-Allow TCP 3389 from your IP in the security group, then RDP into the public IP.
-
-#### Step 3: Transfer the scripts and run PrepareVerify
-
-```powershell
-# Inside the RDP session, in an elevated PowerShell
-mkdir C:\TEMP
-cd C:\TEMP
-
-# Transfer the scripts (S3 / SSM Run Command / RDP clipboard — your choice)
-$bucket = 'your-test-bucket'
-aws s3 cp s3://$bucket/Deploy-AMDChipsetDriverOnWindowsServer.ps1  .
-aws s3 cp s3://$bucket/Deploy-AMDGraphicsDriverOnWindowsServer.ps1 .
-aws s3 cp s3://$bucket/Deploy-AMDNpuDriverOnWindowsServer.ps1      .
-# Optionally, an offline NPU ZIP (see §4 for download instructions)
-aws s3 cp s3://$bucket/NPU_RAI1.6.1_314_WHQL.zip .
-
-# Confirm the CPU generation
-Get-CimInstance Win32_Processor | Select-Object Name, NumberOfCores, NumberOfLogicalProcessors, MaxClockSpeed
-# Expected output:
-#   t3a.medium: AMD EPYC 7571              2 cores  2 LP  2500 MHz  (Naples, SMT)
-#   m6a.large : AMD EPYC 7R13              2 cores  2 LP  3725 MHz  (Milan, SMT)
-#   m7a.large : AMD EPYC 9R14              2 cores  2 LP  3700 MHz  (Genoa, SMT off, Family 25)
-#   m8a.large : AMD EPYC 9R45              2 cores  2 LP  4500 MHz  (Turin, SMT off, Family 26)
-
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-
-# Run PrepareVerify only (Install is meaningless on EPYC machines and discouraged)
-.\Deploy-AMDChipsetDriverOnWindowsServer.ps1  -Action PrepareVerify -CleanWorkRoot *>&1 |
-  Tee-Object C:\TEMP\chipset-AWS-$env:COMPUTERNAME.log
-.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot *>&1 |
-  Tee-Object C:\TEMP\graphics-AWS-$env:COMPUTERNAME.log
-
-# NPU PrepareVerify with -AssumeIfMissing (NPU absent on EPYC; default Strix Point profile)
-.\Deploy-AMDNpuDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot `
-    -OfflineZip .\NPU_RAI1.6.1_314_WHQL.zip -AssumeIfMissing *>&1 |
-  Tee-Object C:\TEMP\npu-AWS-$env:COMPUTERNAME.log
-
-# Upload logs to S3 for offline review
-aws s3 cp C:\TEMP\chipset-AWS-$env:COMPUTERNAME.log  s3://$bucket/results/
-aws s3 cp C:\TEMP\graphics-AWS-$env:COMPUTERNAME.log s3://$bucket/results/
-aws s3 cp C:\TEMP\npu-AWS-$env:COMPUTERNAME.log      s3://$bucket/results/
-```
-
-#### Step 4: Stop or terminate the instances when done
-
-```bash
-# Stop (storage cost only while stopped)
-aws ec2 stop-instances --region ap-northeast-1 \
-  --instance-ids i-XXXXXXXXXX i-YYYYYYYYYY i-ZZZZZZZZZZ i-WWWWWWWWWW
-
-# Fully terminate after validation
-aws ec2 terminate-instances --region ap-northeast-1 \
-  --instance-ids i-XXXXXXXXXX i-YYYYYYYYYY i-ZZZZZZZZZZ i-WWWWWWWWWW
-```
-
-### 1.6 Expected results across EPYC generations
-
-| Verification item | t3a.medium (Naples) | m6a.large (Milan) | m7a.large (Genoa) | m8a.large (Turin) |
-|---|---|---|---|---|
-| OS detection (P00) | WS2025, ProductType=3 | same | same | same |
-| CPU detection (P03) | EPYC 7571, recognised as Naples (Zen 1) | EPYC 7R13, Milan (Zen 3) | EPYC 9R14, Genoa (Zen 4), CPU Family 25 | EPYC 9R45, Turin (Zen 5), CPU Family 26 |
-| Platform decision (P03) | Server / EPYC family → falls back to consumer Ryzen URL probe | same | same | same |
-| AMD chipset HW detection (V06) | 0 or very few (PCI devices are virtio / Nitro) | same | same | same |
-| AMD GPU HW detection (V06) | 0 (no Radeon GPU on plain EPYC instances; g4ad.* differs) | same | same | same |
-| AMD NPU HW detection (V06, NPU script) | 0 (NPU absent on EPYC); script proceeds with `-AssumeIfMissing` profile | same | same | same |
-| WILL be replaced (V06) | 0 | 0 | 0 | 0 |
-| All P00–V06 phases pass (chipset / graphics / NPU) | ✓ ✓ ✓ | ✓ ✓ ✓ | ✓ ✓ ✓ | ✓ ✓ ✓ |
-| Expected runtime (chipset+graphics) | ~8–12 min (slowest CPU) | ~6–9 min | ~5–8 min | ~4–7 min (fastest) |
-| Expected runtime (NPU script) | ~3–5 min (smaller package) | ~2–4 min | ~2–3 min | ~2–3 min |
-| Pipeline soundness | OK | OK | OK | OK |
-
-**What four-generation cross-validation confirms**:
-
-- The script runs to completion uniformly across all EPYC generations from Naples (Zen) to Turin (Zen 5) — a forward-compatibility guarantee for future silicon.
-- Branch logic on CPU Family numbers (Naples=23, Milan=25, Genoa=25, Turin=26) does not regress.
-- vCPU/SMT topology differences (SMT-on Naples/Milan vs SMT-off Genoa/Turin) do not break parallel-execution paths in the pipeline.
-- For the NPU script: the 4-tier URL resolution falls through cleanly to Tier 4 (`-OfflineZip`), the ZIP is correctly extracted by 7-Zip, the INF parser identifies the target NPU codename's INF, P06 mirrors `ProductType=3` decorations, and signing succeeds.
-
----
-
-## 2. Validation Result 1: ThinkCentre M75q Tiny Gen 2 (Windows Server 2025)
-
-### 2.1 Hardware specifications
+### 1.1 Hardware specifications
 
 | Item | Value |
 |---|---|
@@ -256,7 +46,7 @@ aws ec2 terminate-instances --region ap-northeast-1 \
 | BIOS | UEFI, Secure Boot configurable |
 | TPM | fTPM (via AMD PSP) |
 
-### 2.2 OS configuration
+### 1.2 OS configuration
 
 | Item | Value |
 |---|---|
@@ -267,7 +57,7 @@ aws ec2 terminate-instances --region ap-northeast-1 \
 | HVCI | OS default (varies by environment) |
 | BitLocker | Optional (when enabled, **secure the recovery key in advance**) |
 
-### 2.3 Validation procedure (chipset + graphics only — no NPU on this host)
+### 1.3 Validation procedure (chipset + graphics only — no NPU on this host)
 
 ```powershell
 # Elevated PowerShell
@@ -285,11 +75,10 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 .\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action Install
 
 # NPU script: NOT APPLICABLE on Cezanne hardware (no NPU device present)
-# Running with -AssumeIfMissing would be a pipeline-soundness check only,
-# similar to the AWS regression test above. M75q is more useful for chipset/graphics.
+# M75q has no NPU device, so the NPU script cannot be meaningfully exercised here.
 ```
 
-### 2.4 Key validation results
+### 1.4 Key validation results
 
 #### Chipset script
 
@@ -315,7 +104,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 
 #### NPU script
 
-- **Not applicable on this host** (Cezanne has no NPU). The NPU script would detect 0 NPU devices and require `-AssumeIfMissing` to proceed. Such a run only validates pipeline soundness, not real NPU behaviour.
+- **Not applicable on this host** (Cezanne has no NPU). The NPU script cannot be meaningfully exercised on hardware that lacks an XDNA NPU device.
 
 #### Soundness checks
 
@@ -325,7 +114,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 - All catalogs successfully timestamp-signed by `signtool`
 - After I03 (Install), Device Manager shows 3 chipset + 3 graphics devices bound to `[C] Self-signed`
 
-### 2.5 Known limitations
+### 1.5 Known limitations
 
 - On hosts with BitLocker enabled, a PSP driver upgrade can trigger a recovery prompt at the next boot. **Always have the recovery key available** (Control Panel BitLocker UI, or via Microsoft Account backup).
 - Some `ROOT\AMD*` software-only entities (AMDLOG / AMDXE etc.) are added by I03 but never appear in `Win32_PnPSignedDriver` enumeration; V06 Section 1 reports them as "software-only" for information only.
@@ -333,9 +122,9 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 
 ---
 
-## 3. Validation Result 2: ThinkPad X13 Gen 1 AMD (2020) — Windows 11 Enterprise LTSC 2024
+## 2. Validation Result 2: ThinkPad X13 Gen 1 AMD (2020) — Windows 11 Enterprise LTSC 2024
 
-### 3.1 Hardware specifications
+### 2.1 Hardware specifications
 
 | Item | Value |
 |---|---|
@@ -348,7 +137,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 | BIOS | UEFI, Secure Boot toggleable |
 | TPM | dTPM (Discrete TPM, e.g. Infineon SLB9670) |
 
-### 3.2 OS configuration (at validation time)
+### 2.2 OS configuration (at validation time)
 
 | Item | Value |
 |---|---|
@@ -359,7 +148,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 | HVCI | ON |
 | BitLocker | OFF (lab use) |
 
-### 3.3 Validation procedure
+### 2.3 Validation procedure
 
 Windows 11 Enterprise LTSC 2024 shares NT kernel build 26100 with Windows Server 2025, so the script runs in **WS2025 PRE-MIGRATION PREVIEW MODE** (P00 banner declares it explicitly).
 
@@ -375,7 +164,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 # NPU script: NOT APPLICABLE (no NPU on Renoir)
 ```
 
-### 3.4 Key validation results
+### 2.4 Key validation results
 
 #### P00 OS detection (Workstation preview)
 
@@ -420,7 +209,7 @@ Install phases auto-block (override with `-AllowWorkstationInstall`, but discour
 - 19 catalogs + 19 signtool signatures all succeed
 - AMD HW detected: AMD Audio CoProcessor, AMD Radeon Graphics, AMD HD Audio Device, AMD GPIO Controller, AMD I2C Controller, AMD Micro PEP, AMD SMBus, AMD PSP 10.0 Device, etc.
 
-### 3.5 Expected delta between Win11 and WS2025 on identical hardware
+### 2.5 Expected delta between Win11 and WS2025 on identical hardware
 
 Comparing Validation Result 1 (M75q + WS2025) and Validation Result 2 (X13 Gen 1 + Win11 24H2): **the script's decision logic is identical between the two OSes because they share kernel build 26100**, but **V06 upgrade candidate counts differ because the existing OEM driver baseline differs**:
 
@@ -436,17 +225,16 @@ In other words, **PrepareVerify on Win11 24H2 functions as pre-migration verific
 
 ---
 
-## 4. Validation Result 3 (NPU script) — currently UNVERIFIED
+## 3. Validation Result 3 (NPU script) — currently UNVERIFIED
 
 > **🆘 THIS SECTION DOCUMENTS WHAT HAS NOT BEEN VERIFIED.** Do not interpret it as evidence of working behaviour.
 
-### 4.1 What is currently verified for the NPU script
+### 3.1 What is currently verified for the NPU script
 
 | Verification activity | Status | Evidence |
 |---|---|---|
 | Static analysis with `psa.py` v3.1.0 (see `SPEC.md` §A.11) | ✅ done | 0 errors / 26 warnings / 0 info — fully baselined (see §A.11.5) |
 | Code review of NPU detection logic | ✅ done | `Get-AmdNpuPlatform` is a direct PowerShell port of AMD-published `quicktest.py` |
-| Pipeline soundness on AWS EPYC EC2 (NPU absent) | ⚠️ partial / planned | `-Action PrepareVerify -AssumeIfMissing` should run to V06 cleanly; not yet exercised in CI |
 | Detection on physical NPU machine | ❌ **NOT DONE** | No physical NPU hardware in maintainer's lab as of this writing |
 | INF parsing of real NPU driver ZIP | ❌ **NOT DONE** | NPU driver ZIPs (`NPU_RAI*_WHQL.zip`) are EULA-gated; maintainer does not have a verified copy of every RAI version's INF structure |
 | `-Action Install` on physical NPU machine | ❌ **NOT DONE** | Same as above |
@@ -454,7 +242,9 @@ In other words, **PrepareVerify on Win11 24H2 functions as pre-migration verific
 | AMD account auto-download (Tier 2) | ⚠️ **best-effort, unstable** | Implemented from public form structure observation; AMD form changes can break without notice |
 | Ryzen AI Software user-mode stack on Server 2025 | ❌ **explicitly unsupported by AMD** | AMD documentation states Win11 24H2 (build >= 22621.3527) only |
 
-### 4.2 Validation gaps (what should be done before treating the NPU script as production-ready)
+> **Note on validation scope**: The validation of this NPU script is fundamentally bottlenecked by access to physical Ryzen AI hardware. Because the script is an experimental tool targeting AMD's consumer-class NPU silicon, no meaningful end-to-end validation can be performed on hardware that lacks the target NPU device. Static analysis and code review are the only verification activities completed; everything that depends on actual device-bind behaviour, INF parsing of real driver ZIPs, or post-install verification remains pending until a physical NPU machine becomes available.
+
+### 3.2 Validation gaps (what should be done before treating the NPU script as production-ready)
 
 1. **Acquire a Ryzen AI hardware test fixture.** Candidates:
    - **ThinkPad T14s Gen 6 AMD** (Ryzen AI 7 PRO 360 / Strix Point) — accessible via Lenovo retail.
@@ -479,16 +269,14 @@ In other words, **PrepareVerify on Win11 24H2 functions as pre-migration verific
    - Does Cleanup actually remove the driver from the driver store, or does manual `pnputil /delete-driver oemNN.inf /force` remain necessary?
    - What event log entries appear in `CodeIntegrity / Operational` if WDAC blocks anything unexpected?
 
-5. **Pipeline regression on AWS EPYC** — currently the most accessible substitute for real NPU validation. Run `-Action PrepareVerify -AssumeIfMissing -OfflineZip <path>` weekly on Naples / Milan / Genoa / Turin to catch regressions in the URL-resolution / ZIP-extraction / INF-parsing / signing pipeline.
-
-### 4.3 Recommended invocation patterns and 4-tier evaluation
+### 3.3 Recommended invocation patterns and 4-tier evaluation
 
 The 4-tier URL resolution in `Resolve-AmdNpuDriverUrl` (script line 772) controls how P03 obtains the NPU driver ZIP. The behaviour is **not symmetric across all parameter combinations**, so the table below documents the actual outcome of each invocation pattern. Use this when planning runs.
 
 | # | Invocation | Outcome | Path through 4-tier resolver |
 |---|---|---|---|
 | 1 | `-Action PrepareVerify -CleanWorkRoot -OfflineZip <path>` | ✅ **Recommended for first dry run.** | T4 priority block (line 824) → ZIP copied to workspace → P03 succeeds |
-| 2 | `-Action PrepareVerify -CleanWorkRoot -OfflineZip <path> -AssumeIfMissing` | ✅ **Recommended for AWS EPYC regression.** | Same as #1 plus default Strix Point profile when no NPU detected |
+| 2 | `-Action PrepareVerify -CleanWorkRoot -OfflineZip <path> -AssumeIfMissing` | ⚠️ **Pipeline-soundness check only — does NOT validate real NPU behaviour.** | Same as #1 plus default Strix Point profile when no NPU detected |
 | 3 | `-Action PrepareVerify -CleanWorkRoot` (no `-OfflineZip`) | ⚠️ **Likely fails on a clean machine.** | T1 skip → T4 priority skip → T2 skip → T3 falls through (HTML form) → T4 auto-scan (script dir, ./cache, workspace, ~/Downloads) → if nothing found, throws |
 | 4 | `-Action Install -OfflineZip <path>` | ✅ **Recommended for real-NPU install.** | T4 priority block → I00 prompts for "I AGREE" → I01-I04 |
 | 5 | `-Action Install -AmdAccountUser ... -AmdAccountPassword ...` | ⚠️ **Best-effort. AMD form changes can break this without notice.** | T1 skip → T4 priority skip → T2 attempts authenticated download → falls back to T3/T4 on failure |
@@ -500,11 +288,11 @@ The 4-tier URL resolution in `Resolve-AmdNpuDriverUrl` (script line 772) control
 - **Deterministic**: the Tier 4 priority block at line 824 short-circuits the resolver immediately. No network calls to AMD, no form-parsing fragility, no race against EULA URL expiry.
 - **System-untouched**: `PrepareVerify` runs P00–P09 + V01–V06 only. No certs imported, no WDAC policy deployed, no drivers installed.
 - **Reproducible across hosts**: copy the same ZIP to a new machine, get the same P05/P06/V05/V06 output. Critical for CI regression testing.
-- **Gives you V05/V06 output**: dry-run install plan and hardware impact analysis are produced even on EPYC EC2 (where `-AssumeIfMissing` is needed because no NPU is present).
+- **Gives you V05/V06 output**: dry-run install plan and hardware impact analysis are produced even when the host has no NPU device (in which case `-AssumeIfMissing` is needed to bypass detection failure).
 
 **Common pitfall — pattern #7**: switches like `-NpuOverride`, `-NpuDriverPackage`, and `-RyzenAiSoftwareVersion` *modify resolver behaviour but do not provide a download source*. If you specify them without `-OfflineZip` / `-InstallerUrl` / `-AmdAccountUser`, the resolver falls through to Tier 4 auto-scan. Auto-scan picks up whichever `NPU_RAI*_WHQL.zip` it finds first — and that ZIP **may not match the codename or version you tried to override**. The version check happens inside the ZIP's INFs (P05), not against the filename. Always pin the source explicitly.
 
-### 4.4 Pre-flight checklist before running the NPU script anywhere
+### 3.4 Pre-flight checklist before running the NPU script anywhere
 
 Even before any of the above gaps are closed, follow this checklist before running the NPU script on **any** host:
 
@@ -517,7 +305,7 @@ Even before any of the above gaps are closed, follow this checklist before runni
 - [ ] If running on a host with BitLocker: you have your recovery key recorded.
 - [ ] You will report results to GitHub Issues regardless of success or failure (especially failure — the maintainers need this data to close the validation gap).
 
-### 4.5 Expected NPU script outputs
+### 3.5 Expected NPU script outputs
 
 These are the outputs you should see when the script runs successfully. Deviation indicates a problem.
 
@@ -548,12 +336,12 @@ These are the outputs you should see when the script runs successfully. Deviatio
 [+] Recommended drv  : 32.0.203.380
 ```
 
-#### P03 NPU detection (EPYC AWS, with `-AssumeIfMissing`)
+#### P03 NPU detection (non-NPU host, with `-AssumeIfMissing`)
 
 ```
 [>] Enumerating PCI devices via pnputil /enum-devices /bus PCI /deviceids
 [!] No AMD NPU detected via pnputil. Using default profile (Strix Point + RAI 1.7.1).
-[+] CPU              : AMD EPYC 9R45
+[+] CPU              : (host CPU - no NPU)
 [+] NPU codename     : Strix Point (default - no NPU detected)
 [+] NPU short name   : STX
 [+] Detection source : default-strix-rai1.7.1
@@ -620,11 +408,11 @@ To actually use the NPU for AI inference, install Ryzen AI Software:
          python quicktest.py
 ```
 
-### 4.6 Tier 2 (AMD account auth flow) verification result — 2026-05-10
+### 3.6 Tier 2 (AMD account auth flow) verification result — 2026-05-10
 
 The `Invoke-AmdAccountAuthentication` function in `Deploy-AMDNpuDriverOnWindowsServer.ps1` was reviewed against the actual AMD account portal on **2026-05-10** to determine whether the implemented HTTP form POST flow can succeed against the current `account.amd.com` back-end. The verification used only public sources (no real AMD account credentials were used).
 
-#### 4.6.1 Method
+#### 3.6.1 Method
 
 | Step | What was checked | How |
 |---|---|---|
@@ -634,7 +422,7 @@ The `Invoke-AmdAccountAuthentication` function in `Deploy-AMDNpuDriverOnWindowsS
 | 4 | End-user behavior of the EULA flow | GitHub `amd/RyzenAI-SW#249`, `#328`, and cnx-software.com end-user blog post (Feb 2024) |
 | 5 | Existence of public PowerShell/Python automation | Web search for `account.amd.com` automation, AMD account download scripting |
 
-#### 4.6.2 Findings
+#### 3.6.2 Findings
 
 | # | Finding | Severity | Evidence |
 |---|---|---|---|
@@ -645,13 +433,13 @@ The `Invoke-AmdAccountAuthentication` function in `Deploy-AMDNpuDriverOnWindowsS
 | F5 | **The default driver/RAI mapping `1.7.1 → 32.0.203.380` was not real.** AMD's RAI 1.7.1 documentation reuses the 1.6.1 driver (`32.0.203.314`) and there is no `NPU_RAI1.7.1_380_WHQL.zip` publicly listed. The script's own comment admitted this was a "placeholder build until AMD publishes". | Medium | Cross-check of `ryzenai.docs.amd.com/en/latest/inst.html` and `github.com/amd/ryzen-ai-documentation/blob/main/docs/inst.rst` |
 | F6 | **No public automation script for AMD account login was found.** Web search returned zero PowerShell/Python implementations that successfully drive the form. | Low | Negative search result; informational |
 
-#### 4.6.3 Conclusion
+#### 3.6.3 Conclusion
 
 The `Invoke-AmdAccountAuthentication` function as implemented (HTTP form POST against `https://account.amd.com/en/forms/auth/login.html`) **is highly unlikely to succeed against the current AMD portal**. The portal architecture does not match the assumptions encoded in the function (server-rendered HTML form with hidden CSRF token, simple POST credentials → redirect to authenticated EULA → simple POST EULA accept → redirect to entitlenow.com).
 
 This conclusion was reached without making authenticated requests against AMD's servers — it follows from publicly visible architectural evidence (F1–F3), driver-version inconsistency (F5), and absence of any working public implementation (F6).
 
-#### 4.6.4 Remediation applied to the script
+#### 3.6.4 Remediation applied to the script
 
 | Change | Description | Location |
 |---|---|---|
@@ -663,7 +451,7 @@ This conclusion was reached without making authenticated requests against AMD's 
 | C6 | **All header `.EXAMPLE` filenames** updated from `NPU_RAI1.7.1_380_WHQL.zip` (fictional) to `NPU_RAI1.6.1_314_WHQL.zip` (verified). | Script header lines ~93, 99, 110, 124, 132 |
 | C7 | **Default-Strix profile label** changed from `default-strix-rai1.7.1` to `default-strix-rai1.6.1`. P03 banner reflects the verified driver build. | `Get-AmdNpuPlatform` `$AssumeIfMissing` branch |
 
-#### 4.6.5 What `-ForceAmdAccountAuth` does
+#### 3.6.5 What `-ForceAmdAccountAuth` does
 
 When set, the existing form-based POST sequence is attempted unchanged:
 
@@ -684,7 +472,7 @@ Expected result on the current AMD portal: **failure** at one of the following p
 
 If by some chance AMD has reverted to a server-rendered form, the existing fallback code path handles success; no further changes needed in that case.
 
-#### 4.6.6 Future re-verification
+#### 3.6.6 Future re-verification
 
 Re-run this verification when:
 
@@ -694,11 +482,11 @@ Re-run this verification when:
 
 The verification re-run procedure is the same as in 4.6.1: fetch public AMD pages, cross-check EULA URL patterns in `amd/ryzen-ai-documentation` GitHub repository, and check for end-user reports of successful automation.
 
-### 4.7 Versioning-axis separation verification — 2026-05-10
+### 3.7 Versioning-axis separation verification — 2026-05-10
 
 The NPU script's version-handling logic was redesigned on **2026-05-10** to fully separate the **NPU kernel-mode driver** versioning system from the **Ryzen AI Software (user-mode stack)** versioning system, per AMD's authoritative documentation at <https://ryzenai.docs.amd.com/en/latest/inst.html> (Last updated 2026-04-19).
 
-#### 4.7.1 The two independent versioning systems
+#### 3.7.1 The two independent versioning systems
 
 AMD's installation guide treats NPU drivers and Ryzen AI Software as fully decoupled artefacts:
 
@@ -713,7 +501,7 @@ AMD's installation guide treats NPU drivers and Ryzen AI Software as fully decou
 
 The crucial point: the `1.6.1` in `NPU_RAI1.6.1_314_WHQL.zip` is **NOT** the Ryzen AI Software version. It is a release-channel label inherited from the original RAI 1.6.1 release window. The same driver ZIP is the recommended driver for RAI Software 1.7.1.
 
-#### 4.7.2 Compatibility evaluation as a separate axis
+#### 3.7.2 Compatibility evaluation as a separate axis
 
 AMD documents driver-software compatibility in the Ryzen AI Software installation guide. As of RAI 1.7.1 (the current latest):
 
@@ -728,7 +516,7 @@ This produces the following compatibility matrix (axis C — derived from axes A
 
 The minimum driver requirement (`32.0.203.280`) is consistent across all supported RAI Software versions per AMD's documentation. The script's `Test-NpuDriverRaiCompatibility` function encodes this matrix and emits `OK` or `MISMATCH` at P03.
 
-#### 4.7.3 Code-level changes
+#### 3.7.3 Code-level changes
 
 | Layer | Before | After |
 |---|---|---|
@@ -738,7 +526,7 @@ The minimum driver requirement (`32.0.203.280`) is consistent across all support
 | **P03 banner output** | Single block listing "Preferred RAI ver" and "Recommended drv" | Three labelled blocks: "NPU kernel-mode driver (independent versioning axis)", "Ryzen AI Software (independent versioning axis - always latest unless pinned)", "Driver <-> RAI Software compatibility (separate evaluation axis)" with `OK`/`MISMATCH` status |
 | **Post-install guidance (I04)** | Hardcoded fallback to `1.7.1` if RAI version was missing | Reads `RyzenAiSoftwareInstaller` field directly; falls back to `ryzen-ai-lt-1.7.1.exe` only if the field is empty. Explicitly states "NPU driver and Ryzen AI Software are versioned INDEPENDENTLY. Always use the LATEST Ryzen AI Software for end-user workloads." |
 
-#### 4.7.4 Future maintenance
+#### 3.7.4 Future maintenance
 
 When AMD publishes a new Ryzen AI release, update the script in two places:
 
@@ -749,38 +537,36 @@ The two updates are independent — adding driver support does not require touch
 
 ---
 
-## 5. Summary of validation results
+## 4. Summary of validation results
 
-### 5.1 Per-environment matrix
+### 4.1 Per-environment matrix
 
-| Item | AWS Naples | AWS Milan | AWS Genoa | AWS Turin | M75q Tiny Gen 2 | X13 Gen 1 AMD | **Real NPU machine** |
-|---|---|---|---|---|---|---|---|
-| Instance / model | t3a.medium | m6a.large | m7a.large | m8a.large | ThinkCentre physical | ThinkPad physical | **TBD** |
-| OS | WS2025 | WS2025 | WS2025 | WS2025 | WS2025 | Win11 LTSC 2024 | TBD |
-| ProductType | 3 | 3 | 3 | 3 | 3 | 1 (PREVIEW MODE) | TBD |
-| CPU | EPYC 7571 (Naples) | EPYC 7R13 (Milan) | EPYC 9R14 (Genoa) | EPYC 9R45 (Turin) | Ryzen 7 PRO 5750GE (Cezanne) | Ryzen 5 PRO 4650U (Renoir) | Ryzen AI 300 / 7040 / 8040 |
-| Has NPU | no | no | no | no | no | no | **yes** |
-| Chipset INFs processed | 32/32 | 32/32 | 32/32 | 32/32 | 32/32 + 3 V06 upgrades | 32/32 + 1 V06 upgrade | n/a (out of scope for NPU script) |
-| Graphics INFs processed | 19/19 | 19/19 | 19/19 | 19/19 | 19/19 + 3 V06 upgrades | 19/19 + 3 V06 upgrades | n/a (out of scope for NPU script) |
-| NPU script PrepareVerify | with `-AssumeIfMissing` | with `-AssumeIfMissing` | with `-AssumeIfMissing` | with `-AssumeIfMissing` | with `-AssumeIfMissing` (no NPU device) | with `-AssumeIfMissing` (no NPU device) | **PENDING** |
-| NPU script Install | n/a | n/a | n/a | n/a | n/a | n/a (auto-block) | **PENDING** |
-| Cost / run | ~$0.014 | ~$0.033 | ~$0.040 | ~$0.043 | $0 (physical) | $0 (physical) | $0 (physical) |
-| Validation purpose | Cheapest regression test | Milan compatibility | DDR5 / Zen 4 | Zen 5 forward-compat | Pre-production rehearsal (chipset+graphics) | WS2025 pre-migration check | **NPU end-to-end validation** |
+| Item | M75q Tiny Gen 2 | X13 Gen 1 AMD | **Real NPU machine** |
+|---|---|---|---|
+| Instance / model | ThinkCentre physical | ThinkPad physical | **TBD** |
+| OS | WS2025 | Win11 LTSC 2024 | TBD |
+| ProductType | 3 | 1 (PREVIEW MODE) | TBD |
+| CPU | Ryzen 7 PRO 5750GE (Cezanne) | Ryzen 5 PRO 4650U (Renoir) | Ryzen AI 300 / 7040 / 8040 |
+| Has NPU | no | no | **yes** |
+| Chipset INFs processed | 32/32 + 3 V06 upgrades | 32/32 + 1 V06 upgrade | n/a (out of scope for NPU script) |
+| Graphics INFs processed | 19/19 + 3 V06 upgrades | 19/19 + 3 V06 upgrades | n/a (out of scope for NPU script) |
+| NPU script PrepareVerify | n/a (no NPU device) | n/a (no NPU device) | **PENDING** |
+| NPU script Install | n/a | n/a (auto-block) | **PENDING** |
+| Validation purpose | Pre-production rehearsal (chipset+graphics) | WS2025 pre-migration check | **NPU end-to-end validation** |
 
-### 5.2 Recommended validation patterns
+### 4.2 Recommended validation patterns
 
 | Scenario | Recommended environment |
 |---|---|
-| "Quick PR sanity check" (chipset/graphics) | t3a.medium Spot (one generation) |
-| "Pre-release regression" (chipset/graphics) | t3a.medium + m7a.large (two generations) |
-| "All-generation compatibility" (chipset/graphics + NPU pipeline soundness) | t3a + m6a + m7a + m8a (four-way parallel, all three scripts with `-AssumeIfMissing` for NPU) |
 | "Real driver install validation" (chipset/graphics) | M75q Gen 2 physical (production target) |
 | "Win11 → WS2025 pre-migration evaluation" (chipset/graphics) | X13 Gen 1 physical |
 | **"NPU end-to-end validation"** | **Ryzen AI 300 / 7040 / 8040 series host (NOT YET IN MAINTAINER'S LAB — PRs welcome)** |
 
+> **Why no non-AMD-consumer-hardware testing is documented**: This pipeline is an experimental tool for AMD's consumer Ryzen / Radeon / NPU silicon. Validation outcomes are by definition dependent on physical access to those devices. Running the pipeline on server-class EPYC, ARM, Intel, or virtual hosts cannot exercise the device-bind logic (V06), the actual driver upgrade decisions, or the post-install verification path (I04). The maintainers have concluded that "pipeline-soundness only" testing on non-target hardware adds little value relative to the cost of maintaining such infrastructure, and have therefore restricted validation to physical AMD consumer hardware.
+
 ---
 
-## 6. Discovered bugs and fix history
+## 5. Discovered bugs and fix history
 
 The following bugs were found and fixed during the validation runs above:
 
@@ -802,7 +588,7 @@ For full validation logs and the corresponding fix commits, see <https://github.
 
 ---
 
-## 6a. UEFI Secure Boot baseline validation checklist
+## 5a. UEFI Secure Boot baseline validation checklist
 
 This is the per-script validation checklist for the cross-script UEFI Secure Boot baseline feature (Chipset r50 / Graphics r19 / NPU r5). All three sister scripts share the same six core functions, so the expected output is uniform across them. Validate on at least one Windows Server 2025 host with KB5089549-equivalent updates installed.
 
@@ -844,84 +630,12 @@ Run all three scripts in PrepareVerify mode on the same host with `-CleanWorkRoo
 
 ---
 
-## 7. Outlook on CI/CD automation
 
-For automated regression testing via GitHub Actions, AWS-based self-hosted runners are the practical choice:
-
-```yaml
-# .github/workflows/regression.yml — conceptual example
-name: PrepareVerify regression test (multi-EPYC)
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-jobs:
-  static-analysis:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Fetch psa.py from canonical repository (ai-generated-artifacts)
-        run: |
-          curl -sSLO https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py
-      - name: Run psa.py static analyzer
-        run: |
-          python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
-          python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
-          python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
-
-  ws2025-prepare-verify:
-    needs: static-analysis
-    strategy:
-      matrix:
-        include:
-          - runner-tag: amd-naples   # t3a.medium
-          - runner-tag: amd-milan    # m6a.large
-          - runner-tag: amd-genoa    # m7a.large
-          - runner-tag: amd-turin    # m8a.large
-    runs-on: [self-hosted, windows, server-2025, "${{ matrix.runner-tag }}"]
-    steps:
-      - uses: actions/checkout@v4
-      - name: Run chipset PrepareVerify
-        shell: pwsh
-        run: |
-          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-          .\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot
-      - name: Run graphics PrepareVerify
-        shell: pwsh
-        run: |
-          .\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot
-      - name: Run NPU PrepareVerify (with -AssumeIfMissing, requires offline ZIP fixture)
-        shell: pwsh
-        env:
-          NPU_OFFLINE_ZIP_S3_URI: ${{ secrets.NPU_OFFLINE_ZIP_S3_URI }}
-        run: |
-          # Pre-fetched NPU ZIP from S3 (license-gated; not in repo)
-          aws s3 cp $env:NPU_OFFLINE_ZIP_S3_URI .\NPU_RAI1.6.1_314_WHQL.zip
-          .\Deploy-AMDNpuDriverOnWindowsServer.ps1 `
-              -Action PrepareVerify -CleanWorkRoot `
-              -OfflineZip .\NPU_RAI1.6.1_314_WHQL.zip `
-              -AssumeIfMissing
-```
-
-This workflow has three layers:
-
-1. **static-analysis job**: fetches `psa.py` from the canonical [ai-generated-artifacts](https://github.com/usui-tk/ai-generated-artifacts) repository, then runs it on a Linux runner to check PowerShell syntax and brace/paren/bracket balance for all three scripts (~10 seconds, essentially free).
-2. **ws2025-prepare-verify job (chipset / graphics)**: runs PrepareVerify in parallel across four self-hosted WS2025 runners covering the Naples / Milan / Genoa / Turin generations.
-3. **ws2025-prepare-verify job (NPU)**: extends step 2 by also running the NPU script with `-AssumeIfMissing` and a pre-fetched offline ZIP. This validates pipeline soundness only — not real NPU behaviour, since EPYC has no NPU device.
-
-Combining the self-hosted runners with a scheduler that starts/stops them only on demand (e.g. AWS Lambda + SSM) keeps monthly cost down to roughly $5–10. The workflow stops at PrepareVerify; it does not attempt Install (since EPYC machines have no consumer Ryzen / NPU hardware to bind to).
-
-> **Future**: when a physical NPU machine becomes available, an additional CI job can be added that runs `-Action Install` on a dedicated self-hosted runner (Ryzen AI 9 HX 370 mini-PC or similar). Until then, `-Action Install` for the NPU script must be exercised manually by operators with NPU hardware, and results reported via GitHub Issues.
-
----
-
-## 8. r54+ — AMD Chipset Software 8.x extraction diagnostic format
+## 6. r54+ — AMD Chipset Software 8.x extraction diagnostic format
 
 Starting with the Chipset script's r54 revision, the P04 ExtractInstaller phase includes a new "Strategy 2/3" path designed for AMD Chipset Software 8.x (8.02.18.557 and later). This section documents the expected diagnostic output and the validation procedure for the new extraction path.
 
-### 5.1 Why a new strategy was needed
+### 6.1 Why a new strategy was needed
 
 AMD Chipset Software 8.x ships as a two-layer wrapper:
 
@@ -932,7 +646,7 @@ Pre-r54 revisions detected the 7-Zip failure on the inner layer and fell back to
 
 See `SPEC.md` §B.1 "AMD 8.x installer architecture (r54+)" for the full architecture.
 
-### 5.2 Expected diagnostic output when Strategy 2 succeeds
+### 6.2 Expected diagnostic output when Strategy 2 succeeds
 
 When the installer is AMD 8.x, P04 console output should look approximately like the following (truncated for readability):
 
@@ -956,7 +670,7 @@ When the installer is AMD 8.x, P04 console output should look approximately like
 [+] Extracted to: C:\AMD-Chipset-WS\extract
 ```
 
-### 5.3 Validation checklist
+### 6.3 Validation checklist
 
 When the new path runs successfully, all of these should hold:
 
@@ -969,7 +683,7 @@ When the new path runs successfully, all of these should hold:
 | PREFERRED variant has non-zero INFs | `[PREFERRED] <variant> : >= 25 INF(s)` | Console line; **this is the critical signal** |
 | PREFERRED variant matches host OS | `W11x64` on WS2022/WS2025; `WTx64` on WS2016/WS2019 | Cross-check `$Ctx.Os` from console banner |
 
-### 5.4 Troubleshooting
+### 6.4 Troubleshooting
 
 If the PREFERRED variant shows `0 INF(s)` despite the extraction succeeding, the most likely causes are:
 
@@ -979,7 +693,7 @@ If the PREFERRED variant shows `0 INF(s)` despite the extraction succeeding, the
 
 3. **AMD changed the directory layout in a future version**: If you are running against a Chipset Software version newer than 8.02.18.557 and the `Binaries\<DriverName>\<OS>\` structure changed, the `Get-AmdSourceVariant` classifier (script line ~5003) may need updating. File a GitHub issue with the directory tree under `C:\AMD-Chipset-WS\extract\`.
 
-### 5.5 Fallback behaviour
+### 6.5 Fallback behaviour
 
 If Strategy 2 fails for any reason (caught by the `try { ... } catch` block in `Expand-AmdInstaller`), the script falls through to Strategy 3/3 (launch + watch), preserving the pre-r54 behaviour. The console output in that case will be:
 

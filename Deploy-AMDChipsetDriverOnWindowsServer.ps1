@@ -3299,11 +3299,10 @@ function Install-WindowsWdkFallback {
 #=======================================================================================================================
 #
 # Unlike NVIDIA's processDriver.aspx / lookupValueSearch.aspx XML API
-# (the public structured API documented in legacy AWS Windows-bootstrap
-# scripts where each driver is keyed by numeric psid/pfid/osid/lid),
-# AMD does NOT publish a structured public query API for chipset
-# driver discovery. AMD's chipset driver distribution model has three
-# exposed paths, only the first two of which are scriptable:
+# (a public structured API where each driver is keyed by numeric
+# psid/pfid/osid/lid), AMD does NOT publish a structured public query
+# API for chipset driver discovery. AMD's chipset driver distribution
+# model has three exposed paths, only the first two of which are scriptable:
 #
 #   1. Per-platform HTML LANDING PAGE on www.amd.com that lists the
 #      currently-recommended chipset driver download for each

@@ -106,7 +106,7 @@ See A.11 for details.
 ### A.1.3 Companion specifications
 
 - `README.md` / `README.ja.md` — end-user documentation (installation, quick start, troubleshooting)
-- `TESTING.md` / `TESTING.ja.md` — cloud (AWS EPYC EC2) regression testing procedure + physical-hardware validation results
+- `TESTING.md` / `TESTING.ja.md` — physical-hardware validation results
 - `CONTRIBUTING.md` — issue / PR conventions
 
 ### A.1.4 Workspace path convention
@@ -689,11 +689,14 @@ Each README must include:
 1. Write or modify code
 2. python3 psa.py <script>.ps1            ← gate: 0 errors required
                                             (see A.11 for how to obtain psa.py)
-3. Test on AWS EPYC EC2 (pipeline-only)  ← per TESTING.md §3
-4. Test on real AMD hardware             ← per TESTING.md §4 (if available)
-5. Update README (en + ja) + SPEC (en + ja) if behavior changed
-6. Commit with revision number bump in $Script:ScriptVersion
+3. Test on real AMD consumer hardware    ← per TESTING.md (chipset/graphics: physical
+                                            Ryzen host with target devices; NPU script:
+                                            physical Ryzen AI machine — see TESTING.md §3)
+4. Update README (en + ja) + SPEC (en + ja) if behavior changed
+5. Commit with revision number bump in $Script:ScriptVersion
 ```
+
+> Because the pipeline targets AMD's consumer Ryzen / Radeon / NPU silicon, testing on non-target hardware (server-class EPYC, virtual machines without the target devices, etc.) cannot exercise the device-bind, driver-upgrade, or post-install verification paths. The Iteration cycle therefore mandates testing on real AMD consumer hardware.
 
 ### Revision discipline
 
@@ -1067,7 +1070,7 @@ Every commit to `main` must satisfy the following gates.
 ## C.2 Functional checks (per affected script)
 
 - [ ] `-Action ListPhases` produces the expected 21-phase table.
-- [ ] `-Action PrepareVerify -CleanWorkRoot` on AWS EPYC EC2 (or any non-target host) completes without errors using `-AssumeIfMissing` (NPU script) / appropriate platform override (chipset / graphics).
+- [ ] `-Action PrepareVerify -CleanWorkRoot` on any non-target host (without the target AMD devices) completes without errors using `-AssumeIfMissing` (NPU script) / appropriate platform override (chipset / graphics). Note: this is a pipeline-soundness check only — it does not validate real driver behaviour.
 - [ ] `Show-RunSummary` is rendered regardless of exit path (success or failure).
 - [ ] `Format-Elapsed` produces correct strings for `0.42s`, `1m2.3s`, `1h2m3s`.
 
@@ -1334,6 +1337,6 @@ If you are creating a 4th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1
 4. Run `python3 psa.py <new-script>.ps1` (see A.11 for setup) until 0 errors.
 5. Add B.4 section to this SPEC.md (and SPEC.ja.md).
 6. Add the new script to `README.md` "What's in the box" table, "Parameters" section, "Risk classification" table.
-7. Add an AWS EPYC EC2 regression test scenario to `TESTING.md`.
+7. Add a physical-hardware validation scenario to `TESTING.md` covering the target AMD consumer devices for your new script.
 
 The goal of the strict sister-script convention is exactly this: a new script should be ~80% boilerplate inheritance and ~20% novel logic.
