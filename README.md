@@ -6,7 +6,7 @@ PowerShell pipeline that makes AMD's consumer-targeted Ryzen chipset, Radeon gra
 
 > **Read this twice before running anything.** This is a *last-resort, lab-only* tool. AMD does not officially support Windows Server 2025 for consumer Ryzen platforms (e.g. Cezanne / Renoir / Phoenix APUs in Lenovo ThinkCentre Tiny / ThinkPad / mini-PC builds). When official drivers exist, **always prefer those**. This repository exists for the narrow case where official Server-class drivers are unavailable and you are willing to operate a self-signed driver chain on your own hardware, at your own risk.
 
-> **🆘 EXTRA WARNING for the NPU script (`Deploy-AMDNpuDriverOnWindowsServer.ps1`):** The NPU script is **markedly more dangerous and far less mature** than the chipset and graphics scripts. It is **unvalidated on physical NPU hardware** as of this writing, the AMD account auto-download flow is **best-effort and can break without notice** when AMD changes form layouts, and Ryzen AI Software (the user-mode stack required to actually use the NPU) is **officially unsupported on Windows Server 2025 by AMD**. Treat the NPU script as **experimental / research-grade**, not as a production tool. See [Risk classification](#risk-classification-of-the-three-scripts) below.
+> **🆘 EXTRA WARNING for the NPU script (`Deploy-AMDNpuDriverOnWindowsServer.ps1`):** The NPU script is **markedly more dangerous and far less mature** than the chipset and graphics scripts. It is **unvalidated on physical NPU hardware** as of this writing, the AMD account auto-download flow is **best-effort and can break without notice** when AMD changes form layouts, and Ryzen AI Software (the user-mode stack required to actually use the NPU) is **officially unsupported on Windows Server 2025 by AMD**. Treat the NPU script as **experimental / research-grade**, not as a production tool. See [Risk classification](#risk-classification-of-the-four-scripts) below.
 
 🇯🇵 **日本語版 README は [README.ja.md](./README.ja.md) を参照してください。**
 
@@ -67,7 +67,7 @@ By running these scripts, you acknowledge that:
 * You accept that **WHQL certification is invalidated** for any driver this pipeline replaces; if you rely on Microsoft Premier Support for affected hardware, your support contract may not cover issues caused by self-signed drivers
 * You will record your **BitLocker recovery keys** before running `-Action Install` on the chipset script (the PSP driver replacement interacts with Platform Security Processor firmware and can trigger recovery prompts on next boot)
 * You will review the script source code and understand its behavior before running it in any environment
-* For the **NPU script specifically**, you understand it is **experimental / research-grade** — see [Risk classification](#risk-classification-of-the-three-scripts) below
+* For the **NPU script specifically**, you understand it is **experimental / research-grade** — see [Risk classification](#risk-classification-of-the-four-scripts) below
 
 Operate these tools considerately. **Always prefer official AMD Server-supported drivers when they exist.** This repository targets the narrow case where official Server-class drivers are unavailable and you are willing to operate a self-signed driver chain on your own hardware.
 
@@ -1088,7 +1088,7 @@ The new extraction emits a per-OS-variant INF coverage diagnostic so operators c
 | Windows Server 2025 / 2022 (Windows 11-based) | `W11x64\` |
 | Windows Server 2019 / 2016 (Windows 10-based) | `WTx64\` |
 
-For the full architecture (two-layer wrapper, 35 sub-MSIs, AMD's actual driver-registration logic via `pnputil`), see [SPEC.md §B.1 "AMD 8.x installer architecture (r54+)"](SPEC.md#amd-8x-installer-architecture-r54). For the regression test of this extraction path, see [TESTING.md §7 "r54+ — AMD Chipset Software 8.x extraction diagnostic format"](TESTING.md#7-r54--amd-chipset-software-8x-extraction-diagnostic-format).
+For the full architecture (two-layer wrapper, 35 sub-MSIs, AMD's actual driver-registration logic via `pnputil`), see [SPEC.md §B.1 "AMD 8.x installer architecture (r54+)"](SPEC.md#amd-8x-installer-architecture-r54). For the regression test of this extraction path, see [TESTING.md §8 "r54+ — AMD Chipset Software 8.x extraction diagnostic format"](TESTING.md#8-r54--amd-chipset-software-8x-extraction-diagnostic-format).
 
 ---
 

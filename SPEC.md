@@ -5,8 +5,9 @@
 > This file is the authoritative specification for building and extending the
 > four PowerShell scripts in this repository
 > (`Deploy-AMDChipsetDriverOnWindowsServer.ps1`,
-> `Deploy-AMDGraphicsDriverOnWindowsServer.ps1`, and
-> `Deploy-AMDNpuDriverOnWindowsServer.ps1`). It is written to be picked up
+> `Deploy-AMDGraphicsDriverOnWindowsServer.ps1`,
+> `Deploy-AMDNpuDriverOnWindowsServer.ps1`, and
+> `Deploy-MSBthPanInboxOnWindowsServer.ps1`). It is written to be picked up
 > directly by a human contributor or an LLM (Claude) at the start of a new
 > feature or sister-script project so that conventions do not have to be
 > re-derived from scratch.
@@ -50,6 +51,7 @@
   - [B.1 Chipset script (`Deploy-AMDChipsetDriverOnWindowsServer.ps1`)](#b1-chipset-script-deploy-amdchipsetdriveronwindowsserverps1)
   - [B.2 Graphics script (`Deploy-AMDGraphicsDriverOnWindowsServer.ps1`)](#b2-graphics-script-deploy-amdgraphicsdriveronwindowsserverps1)
   - [B.3 NPU script (`Deploy-AMDNpuDriverOnWindowsServer.ps1`)](#b3-npu-script-deploy-amdnpudriveronwindowsserverps1)
+  - [B.4 BthPan script (`Deploy-MSBthPanInboxOnWindowsServer.ps1`)](#b4-bthpan-script-deploy-msbthpaninboxonwindowsserverps1)
 - [Part C — Quality Gates & Validation Checklist](#part-c--quality-gates--validation-checklist)
 - [Part D — Known Pitfalls & Lessons Learned](#part-d--known-pitfalls--lessons-learned)
 
@@ -67,6 +69,7 @@ These are the canonical sources of truth. **Pull from these directly; do not re-
 Deploy-AMDChipsetDriverOnWindowsServer.ps1   (the most mature implementation; canonical r57)
 Deploy-AMDGraphicsDriverOnWindowsServer.ps1  (graphics-specific platform detection; r25)
 Deploy-AMDNpuDriverOnWindowsServer.ps1       (NPU script with 4-tier installer resolution; r7)
+Deploy-MSBthPanInboxOnWindowsServer.ps1      (Microsoft inbox Bluetooth PAN driver enablement; r1)
 ```
 
 These 21-phase deployment scripts are the canonical source for:
@@ -113,15 +116,16 @@ See A.11 for details.
 
 ### A.1.4 Workspace path convention
 
-Each script writes to a dedicated workspace path under `C:\AMD-<short>-WS\` to guarantee non-collision between scripts:
+Each script writes to a dedicated workspace path under `C:\AMD-<short>-WS\` (or `C:\MSBthPan-WS\` for the Microsoft inbox BthPan script) to guarantee non-collision between scripts:
 
 | Script    | Default workspace path       |
 | --------- | ---------------------------- |
 | Chipset   | `C:\AMD-Chipset-WS`          |
 | Graphics  | `C:\AMD-Graphics-WS`         |
 | NPU       | `C:\AMD-NPU-WS`              |
+| BthPan    | `C:\MSBthPan-WS`             |
 
-If a 4th script is added (e.g. ROCm runtime, audio coprocessor), use `C:\AMD-<short>-WS\` with the same subdirectory layout (`download\`, `extracted\`, `patched\`, `cert\`).
+If a 5th script is added (e.g. ROCm runtime, audio coprocessor), use `C:\AMD-<short>-WS\` (or an equivalent vendor-prefixed path for non-AMD drivers) with the same subdirectory layout (`download\`, `extracted\`, `patched\`, `cert\`).
 
 ---
 
@@ -549,6 +553,7 @@ git clone https://github.com/usui-tk/ai-generated-artifacts.git
 python3 ../ai-generated-artifacts/scripts/python/powershell-static-analyzer/psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
 python3 ../ai-generated-artifacts/scripts/python/powershell-static-analyzer/psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
 python3 ../ai-generated-artifacts/scripts/python/powershell-static-analyzer/psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
+python3 ../ai-generated-artifacts/scripts/python/powershell-static-analyzer/psa.py Deploy-MSBthPanInboxOnWindowsServer.ps1
 ```
 
 **Method 2 — Download the single file** (recommended for one-shot CI runs):
@@ -559,6 +564,7 @@ curl -sSLO https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main
 python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
 python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
 python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
+python3 psa.py Deploy-MSBthPanInboxOnWindowsServer.ps1
 ```
 
 ```powershell
@@ -569,6 +575,7 @@ Invoke-WebRequest `
 python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
 python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
 python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
+python3 psa.py Deploy-MSBthPanInboxOnWindowsServer.ps1
 ```
 
 The rest of this SPEC, and `TESTING.md` / `CONTRIBUTING.md`, write `python3 psa.py <script>.ps1` as shorthand. This assumes `psa.py` has been obtained via either method and is accessible on a path of your choice.
@@ -776,6 +783,7 @@ The seventh function, `Get-OrEnsureSecureBootBaseline`, is **per-script** becaus
 | Chipset | `$Ctx` (pscustomobject) | `param([Parameter(Mandatory)] $Ctx)` |
 | Graphics | `$Ctx` (pscustomobject) | `param([Parameter(Mandatory)] $Ctx)` |
 | NPU | `$Script:DetectedPlatform` (hashtable), `$Script:WorkRoot` | `param()` — accesses script scope directly |
+| BthPan | `$Ctx` (pscustomobject) | `param([Parameter(Mandatory)] $Ctx)` (verbatim from chipset) |
 
 The helper's contract is identical: return the cached snapshot when `(.MsInfo.JsonPath -is $null) -or (Test-Path -LiteralPath $JsonPath -and $JsonPath -like "$WorkRoot*")`; otherwise re-invoke into the current workspace. This handles three real-world cases:
 
@@ -814,7 +822,7 @@ I02 surfaces the class but never blocks — UEFI-layer cert rollout is independe
 
 ### Maintenance rule
 
-When adding a fourth sister script, the 6 cross-script-identical functions are lifted verbatim. The per-script helper is rewritten to match the new script's state-holder pattern. See B.1 / B.2 (chipset / graphics use `$Ctx`) and B.3 (NPU uses script scope) for the two known patterns.
+When adding a fifth sister script, the 6 cross-script-identical functions are lifted verbatim. The per-script helper is rewritten to match the new script's state-holder pattern. See B.1 / B.2 / B.4 (chipset / graphics / BthPan use `$Ctx`) and B.3 (NPU uses script scope) for the two known patterns.
 
 ---
 
@@ -1727,13 +1735,13 @@ Driver install: {ok} ok ({reboot} need reboot, {noop} no-op) / {failed} failed /
 
 ## Appendix: How to seed a new sister script from this SPEC
 
-If you are creating a 4th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1`):
+If you are creating a 5th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1`):
 
 1. Copy the most recent existing script (NPU r7 is the freshest sister-aligned reference) as your starting template.
 2. Replace `$Script:ScriptName`, `$Script:ScriptVersion`, `$Script:ScriptTag`, `$Script:CertSubjectCn`, `$Script:WdacPolicyName`, `$Script:WdacPolicyGuid`, `$Script:WorkRoot` with values specific to your new script.
 3. Re-implement only the **domain helpers** section (platform detection, installer resolution, INF inventory filter). Reuse all other sections verbatim.
 4. Run `python3 psa.py <new-script>.ps1` (see A.11 for setup) until 0 errors.
-5. Add B.4 section to this SPEC.md (and SPEC.ja.md).
+5. Add B.5 section to this SPEC.md (and SPEC.ja.md).
 6. Add the new script to `README.md` "What's in the box" table, "Parameters" section, "Risk classification" table.
 7. Add a physical-hardware validation scenario to `TESTING.md` covering the target AMD consumer devices for your new script.
 

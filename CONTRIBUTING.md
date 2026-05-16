@@ -59,7 +59,7 @@ Any workaround that exists today?
 
 ### Before opening a PR
 
-1. **Run the static analyzer**: `python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1` (and the other two scripts) and confirm 0 errors. The post-r56 / r24 documented baseline in [SPEC.md §A.11.5](./SPEC.md#a115-documented-baseline-warnings-and-info) is 0 errors / 52 warnings / 32 info (chipset), 0 / 53 / 37 (graphics), 0 / 26 / 0 (NPU). Warnings within the baseline are acceptable; any drift must be justified in the PR description. `psa.py` is not bundled in this repository — obtain it per [SPEC.md §A.11](./SPEC.md#a11-static-analysis-with-psapy) (`git clone` of the canonical [`ai-generated-artifacts`](https://github.com/usui-tk/ai-generated-artifacts) repo, or single-file `curl` of `psa.py`).
+1. **Run the static analyzer**: `python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1` (and the other three scripts) and confirm 0 errors. The post-r56 / r24 documented baseline in [SPEC.md §A.11.5](./SPEC.md#a115-documented-baseline-warnings-and-info) is 0 errors / 52 warnings / 32 info (chipset), 0 / 53 / 37 (graphics), 0 / 26 / 0 (NPU), and the BthPan baseline (r1) — refer to SPEC.md §A.11.5 for the current values. Warnings within the baseline are acceptable; any drift must be justified in the PR description. `psa.py` is not bundled in this repository — obtain it per [SPEC.md §A.11](./SPEC.md#a11-static-analysis-with-psapy) (`git clone` of the canonical [`ai-generated-artifacts`](https://github.com/usui-tk/ai-generated-artifacts) repo, or single-file `curl` of `psa.py`).
 2. **Run `-Action PrepareVerify -CleanWorkRoot`** on a real Windows host with the target AMD consumer devices (see [TESTING.md](./TESTING.md)) and confirm the full P00-V06 pipeline completes without errors. Because this pipeline targets AMD consumer hardware, meaningful PR validation requires physical access to such devices.
 3. **Update relevant docs** (`README.md`, `README.ja.md`, `TESTING.md`, `TESTING.ja.md`, `SPEC.md`, `SPEC.ja.md`) if you change user-visible behaviour, phase semantics, output format, or parameter sets. Keep English / Japanese mirrors in the same PR (see [SPEC.md §A.12](./SPEC.md#a12-bilingual-documentation)).
 4. **Bump the revision** (`$Script:ScriptVersion` and `$Script:ScriptTag`) when changing phase semantics, output format, parameter set, or install-decision logic (see [SPEC.md §A.13](./SPEC.md#a13-development-workflow)). Cosmetic-only changes (typo fixes in messages, README rewording) do not require a revision bump.
@@ -86,11 +86,13 @@ Minimum smoke test:
 python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
 python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
 python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
+python3 psa.py Deploy-MSBthPanInboxOnWindowsServer.ps1
 # Expected: 0 errors on all four; warnings/info must match SPEC §A.11.5 baseline.
 
 # 2. PrepareVerify on a Windows test host with the target AMD consumer devices
 .\Deploy-AMDChipsetDriverOnWindowsServer.ps1  -Action PrepareVerify -CleanWorkRoot
 .\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot
+.\Deploy-MSBthPanInboxOnWindowsServer.ps1     -Action PrepareVerify -CleanWorkRoot
 # NPU script only when physical Ryzen AI hardware is available:
 # .\Deploy-AMDNpuDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot `
 #     -OfflineZip .\NPU_RAI1.6.1_314_WHQL.zip

@@ -5,6 +5,7 @@ This document consolidates the validation results for `Deploy-Drivers-For-Window
 1. **Validation Result 1: ThinkCentre M75q Tiny Gen 2** (Windows Server 2025 physical / Cezanne Zen 3 — chipset & graphics validated)
 2. **Validation Result 2: ThinkPad X13 Gen 1 AMD (2020)** (Windows 11 Enterprise LTSC 2024 / Renoir Zen 2 — chipset & graphics validated)
 3. **Validation Result 3 (NPU script)** — **🆘 NOT YET VALIDATED on physical NPU hardware. See [§3](#3-validation-result-3-npu-script--currently-unverified) for the current limited validation status.**
+4. **Validation Result 4 (BthPan script)** — ⏳ **PLANNED.** ThinkPad + Intel AX210 + Windows Server 2025 build 26100.32860 is the first physical-validation target. See [§4](#4-validation-result-4-bthpan-script--planned) for the planned test sequence.
 
 🇯🇵 **Japanese version: see [TESTING.ja.md](./TESTING.ja.md).**
 
@@ -19,7 +20,7 @@ This document consolidates the validation results for `Deploy-Drivers-For-Window
 | **Chipset (r57)** | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD (validated on r55; r56 added a breaking install-decision change; r57 fixes CiTool ENTER-prompt hang + pnputil exit=259 — see note below) | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
 | **Graphics (r25)** | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD (validated on r23; r24 added a breaking install-decision change; r25 fixes CiTool ENTER-prompt hang + pnputil exit=259 — see note below) | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
 | **NPU (r7)** | ❌ **none** (no physical NPU machine in maintainer's lab) | ❌ **never executed** | **Experimental / research-grade only. Do not deploy in production.** |
-| **BthPan (r1)** | ⏳ **planned** — ThinkPad + Intel AX210 + Windows Server 2025 build 26100.32860 is the first target (see §3a below) | ❌ **not yet executed** | New script; physical validation pending. Logic shares the proven Phase / Secure Boot / WDAC framework from the Chipset script (Edit-InfForServer, Get-OsContext, Resolve-PhaseSelection, etc. are verbatim-inherited from Chipset r57). |
+| **BthPan (r1)** | ⏳ **planned** — ThinkPad + Intel AX210 + Windows Server 2025 build 26100.32860 is the first target (see §4 below) | ❌ **not yet executed** | New script; physical validation pending. Logic shares the proven Phase / Secure Boot / WDAC framework from the Chipset script (Edit-InfForServer, Get-OsContext, Resolve-PhaseSelection, etc. are verbatim-inherited from Chipset r57). |
 
 > **Note on r56 / r24 behaviour change**: The category-priority override added in chipset r56 and graphics r24 (see SPEC §D.15) changes the install-decision semantics in a breaking way: self-signed `[C]` drivers now always supersede Microsoft generic `[A]` and vendor `[B]` drivers regardless of version. The pre-r56/r23 physical-hardware validation results below remain *structurally* valid (extraction, patching, signing, WDAC deployment all behave the same), but the **V05/V06/I03 driver-install decisions will differ** — devices that the prior versions classified as `SKIP-newer` are now classified as `INSTALL_UPGRADE`. Re-validation on the M75q Tiny Gen 2 and X13 Gen 1 AMD fixtures is recommended after deploying r56/r24.
 >
@@ -307,7 +308,7 @@ The 4-tier URL resolution in `Resolve-AmdNpuDriverUrl` (script line 772) control
 
 Even before any of the above gaps are closed, follow this checklist before running the NPU script on **any** host:
 
-- [ ] You have read [§ Risk classification](./README.md#risk-classification-of-the-three-scripts) of the README.
+- [ ] You have read [§ Risk classification](./README.md#risk-classification-of-the-four-scripts) of the README.
 - [ ] You have a Ryzen AI 300 / Ryzen AI Max 300 / Ryzen 7040 / 8040 series CPU (or you accept that detection will fall through to `-AssumeIfMissing` and the run is a pipeline-soundness check only).
 - [ ] You have downloaded the appropriate `NPU_RAI*_WHQL.zip` from <https://ryzenai.docs.amd.com/en/latest/inst.html#install-npu-drivers> and placed it next to the script (Tier 4 — recommended).
 - [ ] You have read AMD's Ryzen AI EULA at <https://account.amd.com/en/forms/downloads/ryzenai-eula-public-xef.html> and accepted it.
@@ -548,11 +549,11 @@ The two updates are independent — adding driver support does not require touch
 
 ---
 
-## 3a. Validation Result 3a (BthPan script) — planned
+## 4. Validation Result 4 (BthPan script) — planned
 
 > The BthPan script (r1) is brand-new; physical validation has not yet been performed. This section documents the planned first physical-validation run.
 
-### 3a.1 Planned target hardware
+### 4.1 Planned target hardware
 
 | Item | Value |
 |---|---|
@@ -563,7 +564,7 @@ The two updates are independent — adding driver support does not require touch
 | ProductType | 3 (Server) |
 | Disk | NVMe (free space >5 GB for workspace; BthPan workspace is small ~10 MB) |
 
-### 3a.2 Pre-validation state (expected on a fresh WS2025 install)
+### 4.2 Pre-validation state (expected on a fresh WS2025 install)
 
 After installing the Intel AX210 host controller driver via its vendor installer, `BTH\MS_BTHPAN` should appear in Device Manager. The expected starting state is **one of**:
 
@@ -572,7 +573,7 @@ After installing the Intel AX210 host controller driver via its vendor installer
 
 V06 will diagnose and print the actual starting classification.
 
-### 3a.3 Planned test commands
+### 4.3 Planned test commands
 
 ```powershell
 # Stage 0: confirm host controller is bound
@@ -603,7 +604,7 @@ Get-PnpDevice -Class Bluetooth | Select-Object FriendlyName, Status, InstanceId
 #   logic should detect the now-correct binding and confirm true resolution.
 ```
 
-### 3a.4 Verification commands to run after install
+### 4.4 Verification commands to run after install
 
 ```powershell
 # Runtime artifacts
@@ -634,7 +635,7 @@ CiTool --list-policies --json | ConvertFrom-Json |
 # Expected: one Policy returned, IsActive=True
 ```
 
-### 3a.5 Pass/Fail criteria
+### 4.5 Pass/Fail criteria
 
 The validation run is considered PASS only if **all** of the following hold:
 
@@ -645,17 +646,17 @@ The validation run is considered PASS only if **all** of the following hold:
 5. I02 deploys the WDAC supplemental policy with the BthPan-specific GUID `A6E72D4F-…`
 6. I03 returns exit 0 (or 3010 with subsequent reboot)
 7. I04 reports `*** TRUE RESOLUTION ACHIEVED ***`
-8. Post-install verification commands in §3a.4 all return their expected values
+8. Post-install verification commands in §4.4 all return their expected values
 
-### 3a.6 Strategy A vs Strategy B test plan
+### 4.6 Strategy A vs Strategy B test plan
 
-Once §3a.5 PASS is achieved with the default Strategy A, the planned regression test sequence is:
+Once §4.5 PASS is achieved with the default Strategy A, the planned regression test sequence is:
 
 1. **Strategy B run** — `-DecorationStrategy B -CleanWorkRoot`. Confirm that the patched INF gains four additional `NTamd64.10.0...XXXXX` entries in `[Manufacturer]` and four corresponding mirrored InstallSection blocks. Confirm the same `*** TRUE RESOLUTION ACHIEVED ***` outcome.
 2. **Cleanup test** — `-Action Cleanup`. Confirm the workspace is removed, WDAC supplemental policy is uninstalled, and re-running V06 reports the system has returned to its pre-install state (Phantom OK or Unknown Device).
 3. **Resume-after-reboot test** — simulate the I03 reboot scenario by running `-Action Install` on a Phantom OK host where PnP does not immediately rebind. After reboot, re-run `-Action Install` and confirm the resume-after-reboot logic correctly detects the now-true-resolution state and reports cached/skip for I01/I02/I03 + still runs I04 for the verdict.
 
-### 3a.7 Known unknowns to be resolved by this validation
+### 4.7 Known unknowns to be resolved by this validation
 
 - How reliably does `pnputil /scan-devices` cause an immediate rebind from `bth.inf` (Phantom proxy) to the patched `oem*.inf`, vs requiring a reboot?
 - Are there any DEVPKEY values that differ between Strategy A and Strategy B-installed devices? (Expected: no — both should produce identical Class/Service/DriverInfPath, only the PnP ranking score differs.)
@@ -663,9 +664,9 @@ Once §3a.5 PASS is achieved with the default Strategy A, the planned regression
 
 ---
 
-## 4. Summary of validation results
+## 5. Summary of validation results
 
-### 4.1 Per-environment matrix
+### 5.1 Per-environment matrix
 
 | Item | M75q Tiny Gen 2 | X13 Gen 1 AMD | **Real NPU machine** |
 |---|---|---|---|
@@ -680,7 +681,7 @@ Once §3a.5 PASS is achieved with the default Strategy A, the planned regression
 | NPU script Install | n/a | n/a (auto-block) | **PENDING** |
 | Validation purpose | Pre-production rehearsal (chipset+graphics) | WS2025 pre-migration check | **NPU end-to-end validation** |
 
-### 4.2 Recommended validation patterns
+### 5.2 Recommended validation patterns
 
 | Scenario | Recommended environment |
 |---|---|
@@ -692,7 +693,7 @@ Once §3a.5 PASS is achieved with the default Strategy A, the planned regression
 
 ---
 
-## 5. Discovered bugs and fix history
+## 6. Discovered bugs and fix history
 
 The following bugs were found and fixed during the validation runs above:
 
@@ -714,7 +715,7 @@ For full validation logs and the corresponding fix commits, see <https://github.
 
 ---
 
-## 6. UEFI Secure Boot baseline validation checklist
+## 7. UEFI Secure Boot baseline validation checklist
 
 This is the per-script validation checklist for the cross-script UEFI Secure Boot baseline feature (Chipset r50 / Graphics r19 / NPU r5). All three sister scripts share the same six core functions, so the expected output is uniform across them. Validate on at least one Windows Server 2025 host with KB5089549-equivalent updates installed.
 
@@ -757,11 +758,11 @@ Run all four scripts in PrepareVerify mode on the same host with `-CleanWorkRoot
 ---
 
 
-## 7. r54+ — AMD Chipset Software 8.x extraction diagnostic format
+## 8. r54+ — AMD Chipset Software 8.x extraction diagnostic format
 
 Starting with the Chipset script's r54 revision, the P04 ExtractInstaller phase includes a new "Strategy 2/3" path designed for AMD Chipset Software 8.x (8.02.18.557 and later). This section documents the expected diagnostic output and the validation procedure for the new extraction path.
 
-### 7.1 Why a new strategy was needed
+### 8.1 Why a new strategy was needed
 
 AMD Chipset Software 8.x ships as a two-layer wrapper:
 
@@ -772,7 +773,7 @@ Pre-r54 revisions detected the 7-Zip failure on the inner layer and fell back to
 
 See `SPEC.md` §B.1 "AMD 8.x installer architecture (r54+)" for the full architecture.
 
-### 7.2 Expected diagnostic output when Strategy 2 succeeds
+### 8.2 Expected diagnostic output when Strategy 2 succeeds
 
 When the installer is AMD 8.x, P04 console output should look approximately like the following (truncated for readability):
 
@@ -796,7 +797,7 @@ When the installer is AMD 8.x, P04 console output should look approximately like
 [+] Extracted to: C:\AMD-Chipset-WS\extract
 ```
 
-### 7.3 Validation checklist
+### 8.3 Validation checklist
 
 When the new path runs successfully, all of these should hold:
 
@@ -809,7 +810,7 @@ When the new path runs successfully, all of these should hold:
 | PREFERRED variant has non-zero INFs | `[PREFERRED] <variant> : >= 25 INF(s)` | Console line; **this is the critical signal** |
 | PREFERRED variant matches host OS | `W11x64` on WS2022/WS2025; `WTx64` on WS2016/WS2019 | Cross-check `$Ctx.Os` from console banner |
 
-### 7.4 Troubleshooting
+### 8.4 Troubleshooting
 
 If the PREFERRED variant shows `0 INF(s)` despite the extraction succeeding, the most likely causes are:
 
@@ -819,7 +820,7 @@ If the PREFERRED variant shows `0 INF(s)` despite the extraction succeeding, the
 
 3. **AMD changed the directory layout in a future version**: If you are running against a Chipset Software version newer than 8.02.18.557 and the `Binaries\<DriverName>\<OS>\` structure changed, the `Get-AmdSourceVariant` classifier (script line ~5003) may need updating. File a GitHub issue with the directory tree under `C:\AMD-Chipset-WS\extract\`.
 
-### 7.5 Fallback behaviour
+### 8.5 Fallback behaviour
 
 If Strategy 2 fails for any reason (caught by the `try { ... } catch` block in `Expand-AmdInstaller`), the script falls through to Strategy 3/3 (launch + watch), preserving the pre-r54 behaviour. The console output in that case will be:
 
