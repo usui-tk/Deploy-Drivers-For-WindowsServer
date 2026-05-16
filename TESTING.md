@@ -588,7 +588,7 @@ For full validation logs and the corresponding fix commits, see <https://github.
 
 ---
 
-## 5a. UEFI Secure Boot baseline validation checklist
+## 6. UEFI Secure Boot baseline validation checklist
 
 This is the per-script validation checklist for the cross-script UEFI Secure Boot baseline feature (Chipset r50 / Graphics r19 / NPU r5). All three sister scripts share the same six core functions, so the expected output is uniform across them. Validate on at least one Windows Server 2025 host with KB5089549-equivalent updates installed.
 
@@ -631,11 +631,11 @@ Run all three scripts in PrepareVerify mode on the same host with `-CleanWorkRoo
 ---
 
 
-## 6. r54+ — AMD Chipset Software 8.x extraction diagnostic format
+## 7. r54+ — AMD Chipset Software 8.x extraction diagnostic format
 
 Starting with the Chipset script's r54 revision, the P04 ExtractInstaller phase includes a new "Strategy 2/3" path designed for AMD Chipset Software 8.x (8.02.18.557 and later). This section documents the expected diagnostic output and the validation procedure for the new extraction path.
 
-### 6.1 Why a new strategy was needed
+### 7.1 Why a new strategy was needed
 
 AMD Chipset Software 8.x ships as a two-layer wrapper:
 
@@ -646,7 +646,7 @@ Pre-r54 revisions detected the 7-Zip failure on the inner layer and fell back to
 
 See `SPEC.md` §B.1 "AMD 8.x installer architecture (r54+)" for the full architecture.
 
-### 6.2 Expected diagnostic output when Strategy 2 succeeds
+### 7.2 Expected diagnostic output when Strategy 2 succeeds
 
 When the installer is AMD 8.x, P04 console output should look approximately like the following (truncated for readability):
 
@@ -670,7 +670,7 @@ When the installer is AMD 8.x, P04 console output should look approximately like
 [+] Extracted to: C:\AMD-Chipset-WS\extract
 ```
 
-### 6.3 Validation checklist
+### 7.3 Validation checklist
 
 When the new path runs successfully, all of these should hold:
 
@@ -683,7 +683,7 @@ When the new path runs successfully, all of these should hold:
 | PREFERRED variant has non-zero INFs | `[PREFERRED] <variant> : >= 25 INF(s)` | Console line; **this is the critical signal** |
 | PREFERRED variant matches host OS | `W11x64` on WS2022/WS2025; `WTx64` on WS2016/WS2019 | Cross-check `$Ctx.Os` from console banner |
 
-### 6.4 Troubleshooting
+### 7.4 Troubleshooting
 
 If the PREFERRED variant shows `0 INF(s)` despite the extraction succeeding, the most likely causes are:
 
@@ -693,7 +693,7 @@ If the PREFERRED variant shows `0 INF(s)` despite the extraction succeeding, the
 
 3. **AMD changed the directory layout in a future version**: If you are running against a Chipset Software version newer than 8.02.18.557 and the `Binaries\<DriverName>\<OS>\` structure changed, the `Get-AmdSourceVariant` classifier (script line ~5003) may need updating. File a GitHub issue with the directory tree under `C:\AMD-Chipset-WS\extract\`.
 
-### 6.5 Fallback behaviour
+### 7.5 Fallback behaviour
 
 If Strategy 2 fails for any reason (caught by the `try { ... } catch` block in `Expand-AmdInstaller`), the script falls through to Strategy 3/3 (launch + watch), preserving the pre-r54 behaviour. The console output in that case will be:
 

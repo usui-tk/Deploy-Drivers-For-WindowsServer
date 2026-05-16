@@ -953,4 +953,4 @@ Chipset スクリプト r54 リビジョン以降、 P04 ExtractInstaller phase 
 | Windows Server 2025 / 2022 (Windows 11 ベース) | `W11x64\` |
 | Windows Server 2019 / 2016 (Windows 10 ベース) | `WTx64\` |
 
-完全なアーキテクチャ (2 層構造の wrapper、 35 個の sub-MSI、 `pnputil` を介した AMD の実 driver 登録ロジック) については [SPEC.ja.md §B.1 "AMD 8.x インストーラアーキテクチャ (r54+)"](SPEC.ja.md#amd-8x-インストーラアーキテクチャ-r54) を参照。 この展開パスの回帰テストは [TESTING.ja.md §6 "r54+ — AMD Chipset Software 8.x 展開診断フォーマット"](TESTING.ja.md#6-r54--amd-chipset-software-8x-展開診断フォーマット) を参照。
+完全なアーキテクチャ (2 層構造の wrapper、 35 個の sub-MSI、 `pnputil` を介した AMD の実 driver 登録ロジック) については [SPEC.ja.md §B.1 "AMD 8.x インストーラアーキテクチャ (r54+)"](SPEC.ja.md#amd-8x-インストーラアーキテクチャ-r54) を参照。 この展開パスの回帰テストは [TESTING.ja.md §7 "r54+ — AMD Chipset Software 8.x 展開診断フォーマット"](TESTING.ja.md#7-r54--amd-chipset-software-8x-展開診断フォーマット) を参照。

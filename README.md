@@ -953,4 +953,4 @@ The new extraction emits a per-OS-variant INF coverage diagnostic so operators c
 | Windows Server 2025 / 2022 (Windows 11-based) | `W11x64\` |
 | Windows Server 2019 / 2016 (Windows 10-based) | `WTx64\` |
 
-For the full architecture (two-layer wrapper, 35 sub-MSIs, AMD's actual driver-registration logic via `pnputil`), see [SPEC.md §B.1 "AMD 8.x installer architecture (r54+)"](SPEC.md#amd-8x-installer-architecture-r54). For the regression test of this extraction path, see [TESTING.md §6 "r54+ — AMD Chipset Software 8.x extraction diagnostic format"](TESTING.md#6-r54--amd-chipset-software-8x-extraction-diagnostic-format).
+For the full architecture (two-layer wrapper, 35 sub-MSIs, AMD's actual driver-registration logic via `pnputil`), see [SPEC.md §B.1 "AMD 8.x installer architecture (r54+)"](SPEC.md#amd-8x-installer-architecture-r54). For the regression test of this extraction path, see [TESTING.md §7 "r54+ — AMD Chipset Software 8.x extraction diagnostic format"](TESTING.md#7-r54--amd-chipset-software-8x-extraction-diagnostic-format).
