@@ -805,7 +805,7 @@ In the rest of this document and in `SPEC.md` / `TESTING.md` / `CONTRIBUTING.md`
 
 #### Checks performed
 
-`psa.py` v3.0.0 ships with a 27-rule check set spanning `PSA1001`..`PSA6006`, grouped into six categories:
+`psa.py` v3.1.0 ships with a 28-rule check set spanning `PSA1001`..`PSA7001`, grouped into seven categories:
 
 | Category | Code range | Examples |
 | --- | --- | --- |
@@ -815,6 +815,7 @@ In the rest of this document and in `SPEC.md` / `TESTING.md` / `CONTRIBUTING.md`
 | Hygiene             | `PSA4001`..`PSA4004` | unfinished markers (TODO / FIXME / XXX / HACK), trailing whitespace, long line, trailing semicolon |
 | Security            | `PSA5001`..`PSA5004` | plain-text password parameter, `Invoke-Expression`, broken hash algorithm, hardcoded `ComputerName` |
 | Best practice       | `PSA6001`..`PSA6006` | non-approved verb, cmdlet alias, plural function noun, `$global:` definition, mandatory parameter with default, switch defaulting to `$true` |
+| File format         | `PSA7001`            | missing UTF-8 BOM on `.ps1` (Windows PowerShell 5.1 ja-JP falls back to Shift-JIS / cp932 without BOM) |
 
 For the authoritative specification of every rule, see [`scripts/python/powershell-static-analyzer/SPEC.md`](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md) §4 in the [ai-generated-artifacts](https://github.com/usui-tk/ai-generated-artifacts) repository.
 

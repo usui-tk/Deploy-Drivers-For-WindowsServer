@@ -89,7 +89,7 @@ When extending these scripts, **copy these helpers verbatim** from the most rece
 psa.py  (obtained from the canonical artifact repository — see A.11)
 ```
 
-`psa.py` is a **pure Python** static analyzer (no PowerShell installation required), currently at version **3.0.0**, with a 27-rule check set spanning `PSA1001`..`PSA6006`. It is **not** bundled in this repository. It is maintained as a single canonical artifact at:
+`psa.py` is a **pure Python** static analyzer (no PowerShell installation required), currently at version **3.1.0**, with a 28-rule check set spanning `PSA1001`..`PSA7001`. It is **not** bundled in this repository. It is maintained as a single canonical artifact at:
 
 ```
 https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/python/powershell-static-analyzer/psa.py
@@ -554,9 +554,9 @@ python3 psa.py --severity error Deploy-AMDChipsetDriverOnWindowsServer.ps1
 # Exit code 0 = no errors. Warnings and info do not gate the build.
 ```
 
-### Rule coverage (psa.py v3.0.0 — 27 rules)
+### Rule coverage (psa.py v3.1.0 — 28 rules)
 
-`psa.py` v3.0.0 ships with a 27-rule check set grouped into six categories.
+`psa.py` v3.1.0 ships with a 28-rule check set grouped into seven categories.
 
 | Category               | Code range            | Examples |
 | ---------------------- | --------------------- | -------- |
@@ -566,6 +566,7 @@ python3 psa.py --severity error Deploy-AMDChipsetDriverOnWindowsServer.ps1
 | Hygiene                | `PSA4001`..`PSA4004`  | unfinished markers, trailing whitespace, long line, trailing semicolon |
 | Security               | `PSA5001`..`PSA5004`  | plain-text password parameter, `Invoke-Expression`, broken hash algorithm, hardcoded `ComputerName` |
 | Best practice          | `PSA6001`..`PSA6006`  | non-approved verb, cmdlet alias, plural function noun, `$global:` definition, mandatory parameter with default, switch defaulting to `$true` |
+| File format            | `PSA7001`             | missing UTF-8 BOM on `.ps1` (Windows PowerShell 5.1 ja-JP falls back to Shift-JIS / cp932 without BOM) |
 
 For the authoritative specification of every rule (severity, examples,
 suppression guidance), see
@@ -584,16 +585,16 @@ explained in the commit message and either added here or fixed.
 
 | Script | Errors | Warnings | Info | Total |
 | ------ | -----: | -------: | ---: | ----: |
-| `Deploy-AMDChipsetDriverOnWindowsServer.ps1`  | **0** | 42 | 31 | 73 |
-| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | **0** | 44 | 36 | 80 |
-| `Deploy-AMDNpuDriverOnWindowsServer.ps1`      | **0** | 17 |  0 | 17 |
+| `Deploy-AMDChipsetDriverOnWindowsServer.ps1`  | **0** | 51 | 31 | 82 |
+| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | **0** | 53 | 36 | 89 |
+| `Deploy-AMDNpuDriverOnWindowsServer.ps1`      | **0** | 26 |  0 | 26 |
 
 Breakdown by rule:
 
 | Rule (severity)                       | Chipset | Graphics | NPU | Disposition |
 | ------------------------------------- | ------: | -------: | --: | ----------- |
 | `PSA4004` (trailing semicolon, info)  |   31    |    36    |  0  | Cosmetic; existing style accumulated over many revisions. Not fixed in this sync. |
-| `PSA3004` (empty `catch`, warning)    |   19    |    19    |  0  | Mix of fail-soft retry and best-effort diagnostic capture. Not individually annotated in this sync. |
+| `PSA3004` (empty `catch`, warning)    |   28    |    28    |  9  | Mix of fail-soft retry and best-effort diagnostic capture. Not individually annotated in this sync. Counts re-measured under psa.py v3.1.0. |
 | `PSA6003` (plural function noun, w.)  |   14    |    15    | 13  | Existing public function names; renaming would be a breaking API change. |
 | `PSA2003` (warning)                   |    6    |     7    |  4  | All inspected sites use `-match` against a script-scope constant pattern that is never `$null`; the warning is technically true but operationally a known-good shape. |
 | `PSA3001` (Start-Process -ArgumentList, w.) | 3 |    3    |  0  | Existing wrappers; arguments are constructed safely with no shell metacharacters. |

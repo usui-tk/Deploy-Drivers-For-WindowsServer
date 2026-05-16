@@ -89,7 +89,7 @@ Deploy-AMDNpuDriverOnWindowsServer.ps1       (4-tier installer 解決を持つ N
 psa.py  (canonical artifact レポジトリから取得 — A.11 参照)
 ```
 
-`psa.py` は **pure Python** 静的解析ツール (PowerShell インストール不要) で、現時点でのバージョンは **3.0.0**、 `PSA1001`〜`PSA6006` の 27 ルール体系を実装しています。 本レポジトリには**同梱されていません**。 単一の canonical artifact として以下の場所で管理しています:
+`psa.py` は **pure Python** 静的解析ツール (PowerShell インストール不要) で、現時点でのバージョンは **3.1.0**、 `PSA1001`〜`PSA7001` の 28 ルール体系を実装しています。 本レポジトリには**同梱されていません**。 単一の canonical artifact として以下の場所で管理しています:
 
 ```
 https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/python/powershell-static-analyzer/psa.py
@@ -554,9 +554,9 @@ python3 psa.py --severity error Deploy-AMDChipsetDriverOnWindowsServer.ps1
 # Exit code 0 = errors なし。 warnings / info はビルドをブロックしません。
 ```
 
-### ルールカバレッジ (psa.py v3.0.0 — 27 ルール)
+### ルールカバレッジ (psa.py v3.1.0 — 28 ルール)
 
-`psa.py` v3.0.0 は 27 ルール体系を 6 カテゴリに分けて実装しています。
+`psa.py` v3.1.0 は 28 ルール体系を 7 カテゴリに分けて実装しています。
 
 | カテゴリ              | コード範囲            | 例 |
 | -------------------- | --------------------- | -- |
@@ -566,6 +566,7 @@ python3 psa.py --severity error Deploy-AMDChipsetDriverOnWindowsServer.ps1
 | 衛生                  | `PSA4001`〜`PSA4004`  | 未完了マーカー、 行末空白、 長い行、 行末セミコロン |
 | セキュリティ          | `PSA5001`〜`PSA5004`  | 平文パスワードパラメーター、 `Invoke-Expression`、 壊れたハッシュアルゴリズム、 `ComputerName` ハードコード |
 | ベストプラクティス    | `PSA6001`〜`PSA6006`  | 非承認動詞、 コマンドレットエイリアス、 複数形名詞の関数名、 `$global:` 定義、 必須パラメーターのデフォルト値、 `$true` がデフォルトのスイッチパラメーター |
+| ファイルフォーマット  | `PSA7001`             | `.ps1` の UTF-8 BOM 欠落 (BOM が無いと Windows PowerShell 5.1 ja-JP は Shift-JIS / cp932 にフォールバックして文字化けを引き起こす) |
 
 各ルールの正規仕様 (深刻度、 例、 抑制ガイドライン) については
 `https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.ja.md`
@@ -583,16 +584,16 @@ commit メッセージで説明し、 このベースラインに追記するか
 
 | スクリプト | Errors | Warnings | Info | Total |
 | --------- | -----: | -------: | ---: | ----: |
-| `Deploy-AMDChipsetDriverOnWindowsServer.ps1`  | **0** | 42 | 31 | 73 |
-| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | **0** | 44 | 36 | 80 |
-| `Deploy-AMDNpuDriverOnWindowsServer.ps1`      | **0** | 17 |  0 | 17 |
+| `Deploy-AMDChipsetDriverOnWindowsServer.ps1`  | **0** | 51 | 31 | 82 |
+| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | **0** | 53 | 36 | 89 |
+| `Deploy-AMDNpuDriverOnWindowsServer.ps1`      | **0** | 26 |  0 | 26 |
 
 ルール別の内訳:
 
 | ルール (重要度)                            | Chipset | Graphics | NPU | 処置 |
 | ----------------------------------------- | ------: | -------: | --: | --- |
 | `PSA4004` (行末セミコロン、 info)         |   31    |    36    |  0  | 装飾的。 多数リビジョンの蓄積した既存スタイル。 本同期では未対応。 |
-| `PSA3004` (空 `catch`、 warning)          |   19    |    19    |  0  | fail-soft リトライとベストエフォート診断取得の混在。 本同期では個別アノテーション未実施。 |
+| `PSA3004` (空 `catch`、 warning)          |   28    |    28    |  9  | fail-soft リトライとベストエフォート診断取得の混在。 本同期では個別アノテーション未実施。 psa.py v3.1.0 で再計測した件数。 |
 | `PSA6003` (複数形名詞関数、 warning)      |   14    |    15    | 13  | 既存の公開関数名。 リネームは破壊的変更となる。 |
 | `PSA2003` (warning)                       |    6    |     7    |  4  | 検査した全箇所で、 `-match` の対象がスクリプトスコープの定数パターン (絶対に `$null` にならない)。 警告は技術的には正しいが運用上は known-good 形状。 |
 | `PSA3001` (Start-Process -ArgumentList、w.) | 3 |    3    |  0  | 既存のラッパー関数。 引数は shell メタ文字を含まず安全に構築。 |

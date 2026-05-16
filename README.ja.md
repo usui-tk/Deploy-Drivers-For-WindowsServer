@@ -806,7 +806,7 @@ python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
 
 #### 実施チェック
 
-`psa.py` v3.0.0 は `PSA1001`〜`PSA6006` の 27 ルール体系を 6 カテゴリに分けて実装しています:
+`psa.py` v3.1.0 は `PSA1001`〜`PSA7001` の 28 ルール体系を 7 カテゴリに分けて実装しています:
 
 | カテゴリ | コード範囲 | 例 |
 | --- | --- | --- |
@@ -816,6 +816,7 @@ python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
 | 衛生                  | `PSA4001`〜`PSA4004` | 未完了マーカー (TODO / FIXME / XXX / HACK)、行末空白、長い行、行末セミコロン |
 | セキュリティ          | `PSA5001`〜`PSA5004` | 平文パスワードパラメーター、`Invoke-Expression`、壊れたハッシュアルゴリズム、`ComputerName` ハードコード |
 | ベストプラクティス    | `PSA6001`〜`PSA6006` | 非承認動詞、コマンドレットエイリアス、複数形名詞の関数名、`$global:` 定義、必須パラメーターのデフォルト値、`$true` がデフォルトのスイッチパラメーター |
+| ファイルフォーマット  | `PSA7001`            | `.ps1` の UTF-8 BOM 欠落 (BOM が無いと Windows PowerShell 5.1 ja-JP は Shift-JIS / cp932 にフォールバック) |
 
 各ルールの正規仕様は、[ai-generated-artifacts](https://github.com/usui-tk/ai-generated-artifacts) レポジトリの [`scripts/python/powershell-static-analyzer/SPEC.ja.md`](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.ja.md) §4 を参照。
 
