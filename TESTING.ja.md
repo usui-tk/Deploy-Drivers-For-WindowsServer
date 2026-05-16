@@ -1,6 +1,6 @@
 # TESTING.ja.md — 物理ハードウェア検証結果
 
-本ドキュメントは `Deploy-AMD-Drivers-For-WindowsServer` の検証結果を集約したものです。本レポジトリは **AMD のコンシューマー向け Ryzen チップセット / Radeon iGPU / Ryzen AI NPU をターゲットとした実験的スクリプト** を公開しているため、意味のある検証は対象 AMD コンシューマー向けハードウェアへの物理アクセスに依存します。AMD コンシューマー向け以外のハードウェア (サーバー級 EPYC、ARM、Intel、対象デバイスが存在しない仮想マシンなど) でのテストでは、本パイプラインが本来検証すべきデバイスバインド・ドライバアップグレード・post-install verification の経路を一切実行できません。したがって本ドキュメントは物理ハードウェア検証のみを取り扱います:
+本ドキュメントは `Deploy-Drivers-For-WindowsServer` の検証結果を集約したものです。本レポジトリは **AMD のコンシューマー向け Ryzen チップセット / Radeon iGPU / Ryzen AI NPU をターゲットとした実験的スクリプト** を公開しているため、意味のある検証は対象 AMD コンシューマー向けハードウェアへの物理アクセスに依存します。AMD コンシューマー向け以外のハードウェア (サーバー級 EPYC、ARM、Intel、対象デバイスが存在しない仮想マシンなど) でのテストでは、本パイプラインが本来検証すべきデバイスバインド・ドライバアップグレード・post-install verification の経路を一切実行できません。したがって本ドキュメントは物理ハードウェア検証のみを取り扱います:
 
 1. **検証結果 1: ThinkCentre M75q Tiny Gen 2** (Windows Server 2025 物理機 / Cezanne Zen 3 — チップセット・グラフィックス検証済み)
 2. **検証結果 2: ThinkPad X13 Gen 1 AMD (2020)** (Windows 11 Enterprise LTSC 2024 / Renoir Zen 2 — チップセット・グラフィックス検証済み)
@@ -12,13 +12,14 @@
 
 ## 0. 検証ステータスサマリ
 
-> セクション 1〜3 を読む前にこのセクションを必ず確認してください。3 つのスクリプトは **検証成熟度が大きく異なります**。
+> セクション 1〜3 を読む前にこのセクションを必ず確認してください。 4 つのスクリプトは **検証成熟度が大きく異なります**。
 
 | スクリプト | 物理ハードウェア検証 | ターゲット HW 上での実ドライバインストール | 推奨用途 |
 |---|---|---|---|
 | **Chipset (r57)** | ✓ M75q Tiny Gen 2、X13 Gen 1 AMD (r55 で検証済み; r56 はインストール判定の破壊的変更を導入; r57 は CiTool ENTER プロンプト hang + pnputil exit=259 を修正 — 下の注記参照) | ✓ M75q (WS2025) でインストール成功 | Lab + 慎重な production |
 | **Graphics (r25)** | ✓ M75q Tiny Gen 2、X13 Gen 1 AMD (r23 で検証済み; r24 はインストール判定の破壊的変更を導入; r25 は CiTool ENTER プロンプト hang + pnputil exit=259 を修正 — 下の注記参照) | ✓ M75q (WS2025) でインストール成功 | Lab + 慎重な production |
 | **NPU (r7)** | ❌ **なし** (メンテナーの lab に物理 NPU マシンが存在しない) | ❌ **未実行** | **実験的・研究用途のみ。本番環境への deploy は不可。** |
+| **BthPan (r1)** | ⏳ **予定** — ThinkPad + Intel AX210 + Windows Server 2025 build 26100.32860 が初回検証ターゲット (下記 §3a 参照) | ❌ **未実行** | 新規スクリプト; 物理検証は計画段階。 ロジックは Chipset スクリプトの検証済 Phase / Secure Boot / WDAC フレームワークを共有 (Edit-InfForServer・ Get-OsContext・ Resolve-PhaseSelection 等は Chipset r57 から verbatim 継承)。 |
 
 > **r56 / r24 の挙動変更に関する注記**: チップセット r56 とグラフィックス r24 で追加されたカテゴリ優先度オーバーライド (SPEC §D.15 参照) はインストール判定セマンティクスを破壊的に変更します: 自己署名 `[C]` ドライバはバージョンに関係なく、 マイクロソフト汎用 `[A]` および ベンダー `[B]` ドライバより常に優先されます。 r56/r23 以前の物理ハードウェア検証結果は*構造的*には引き続き有効ですが (抽出、 パッチング、 署名、 WDAC 展開はすべて同じ挙動)、 **V05/V06/I03 のドライバインストール判定が異なります** — 以前のバージョンが `SKIP-newer` に分類していたデバイスは `INSTALL_UPGRADE` に分類されるようになります。 r56/r24 を deploy した後は M75q Tiny Gen 2 と X13 Gen 1 AMD fixture での再検証を推奨します。
 >
@@ -543,7 +544,122 @@ AMD が新しい Ryzen AI リリースを公開した際、スクリプトを 2 
 1. **新しい NPU ドライバ ZIP が公開された場合** (例: `NPU_RAI1.8_400_WHQL.zip`): `Get-NpuDriverPackageInfo` カタログと `-NpuDriverPackage` の `ValidateSet` にエントリを追加。新しいドライバが現行 RAI Software に異なる最小要件を導入する場合は `Test-NpuDriverRaiCompatibility` も更新。
 2. **新しい Ryzen AI Software バージョンがリリースされた場合** (例: `1.8.0`): `Get-LatestRyzenAiSoftwareInfo` カタログにエントリを追加し、`$latestVersion` を新バージョンに更新、 `-RyzenAiSoftwareVersion` の `ValidateSet` にも追加。AMD release notes で新しい最小ドライバ要件をクロスチェックし、必要に応じて `Test-NpuDriverRaiCompatibility` の `$minimumPerRai` を更新。
 
-この 2 つの更新は独立しています — ドライバサポート追加にソフトウェアメタデータの変更は不要で、その逆も同様です。これが本再設計が達成する中心的な設計特性です。
+この 2 つの更新は独立しています — ドライバサポート追加にソフトウェアメタデータの変更は不要で、 その逆も同様です。 これが本再設計が達成する中心的な設計特性です。
+
+---
+
+## 3a. 検証結果 3a (BthPan スクリプト) — 予定
+
+> BthPan スクリプト (r1) は新規実装で、 物理検証はまだ実施されていません。 本セクションは初回物理検証の計画を文書化します。
+
+### 3a.1 検証ターゲット予定 HW
+
+| 項目 | 値 |
+|---|---|
+| 機種 | Lenovo ThinkPad (具体的な SKU は未定; Intel AX210 が bind された任意のモデル) |
+| Bluetooth host controller | Intel AX210 (`USB\VID_8087&PID_0032`、 `USB\VID_8087&PID_0033` でも見える) |
+| host controller driver source | Intel 公開 `Bluetooth_22.x.x.x_64UWD-RetailWHCK.zip` (ベンダー署名済; パッチ不要で Server に load 可能) |
+| OS | Windows Server 2025 (build 26100.32860 — WS2025 初回 GA build) |
+| ProductType | 3 (Server) |
+| ディスク | NVMe (workspace 用空き 5 GB 以上; BthPan workspace は ~10 MB と小さい) |
+
+### 3a.2 検証前の状態 (クリーン WS2025 インストール想定)
+
+ベンダーインストーラ経由で Intel AX210 host controller ドライバをインストール後、 `BTH\MS_BTHPAN` が Device Manager に出現するはずです。 想定される開始状態は **以下のいずれか**:
+
+- **Unknown Device (code 28)**: `BTH\MS_BTHPAN` は enumeration されているがドライバが bind されていない。 I04 が真の解消を検証するうえで最もクリーンなケース。
+- **Phantom OK**: `BTH\MS_BTHPAN` が Status=OK を表示するが、 `DriverInfPath=bth.inf`・ `Class=Bluetooth`・ `Service=(空)`。 本スクリプトが特に検出するように設計された厄介なケース。
+
+V06 が実際の開始分類を診断・出力します。
+
+### 3a.3 検証用コマンド予定
+
+```powershell
+# Stage 0: host controller が bind 済みであることを確認
+Get-PnpDevice -Class Bluetooth | Select-Object FriendlyName, Status, InstanceId
+
+# Stage 1: 診断のみ (システム未変更)
+.\Deploy-MSBthPanInboxOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot
+
+# V05 + V06 出力を注意深く読み、 以下を確認:
+#   - V05 が device count と classification を報告
+#   - V06 risk class が LOW (BthPan デフォルト; Phantom OK 検出時のみ MEDIUM)
+#   - パッチ済 bthpan.inf が C:\MSBthPan-WS\patched\bthpan\bthpan.inf に存在
+#   - inf2cat catalog が Server2025_X64 + ServerFE_X64 + ServerRS5_X64 + Server2016_X64 をターゲット
+
+# Stage 2: フルインストール
+.\Deploy-MSBthPanInboxOnWindowsServer.ps1 -Action Install
+
+# I03 期待出力:
+#   pnputil /add-driver bthpan.inf /install   -> exit=0 (再起動必要なら 3010)
+#   pnputil /scan-devices                     -> exit=0
+
+# I04 期待出力:
+#   [OK]   TRUE resolution: oem*.inf bound, Class=Net, Service=BthPan
+#   *** TRUE RESOLUTION ACHIEVED ***
+
+# I04 が `*** TRUE RESOLUTION NOT YET ACHIEVED ***` を報告した場合:
+#   再起動後、 同じコマンドを再実行。 スクリプトの resume-after-reboot ロジックが
+#   正しい bind 状態を検出し、 真の解消を確認するはずです。
+```
+
+### 3a.4 インストール後の検証コマンド
+
+```powershell
+# Runtime artifacts
+Test-Path C:\Windows\System32\drivers\bthpan.sys           # 期待値: True
+Get-Service BthPan                                          # 期待値: 存在し Status=Running または Stopped
+(Get-Service BthPan).StartType                              # 期待値: Manual (デフォルト)
+
+# Device レベル bind
+$dev = Get-PnpDevice -InstanceId 'BTH\MS_BTHPAN*'
+$dev | Get-PnpDeviceProperty -KeyName DEVPKEY_Device_DriverInfPath, DEVPKEY_Device_Class, DEVPKEY_Device_Service
+# 期待値:
+#   DriverInfPath = oem<N>.inf  (例: oem17.inf)
+#   Class         = Net
+#   Service       = BthPan
+
+# NetAdapter 可視性
+Get-NetAdapter | Where-Object InterfaceDescription -Match 'Bluetooth.*Personal Area Network'
+# 期待値: 1 つの NetAdapter が存在、 MediaType=Bluetooth
+
+# 自己署名 catalog が引き続き信頼されているか
+signtool verify /pa /v C:\MSBthPan-WS\patched\bthpan\bthpan.cat
+# 期待値: "Successfully verified"
+
+# WDAC supplemental policy がアクティブか
+CiTool --list-policies --json | ConvertFrom-Json |
+    Select-Object -ExpandProperty Policies |
+    Where-Object PolicyID -eq '{A6E72D4F-3B98-4C5A-9E1D-7F8B2A4C6E5D}'
+# 期待値: 1 つの Policy が返り、 IsActive=True
+```
+
+### 3a.5 PASS / FAIL 基準
+
+検証実行が PASS と判定されるのは、 **以下のすべて** が満たされる場合のみです:
+
+1. P03 が DriverStore source を locate (エラーなし、 `bthpan.inf_amd64_*` ディレクトリが存在)
+2. P06 が server decoration を 1 つ以上含むパッチ済 bthpan.inf を生成 (`ServerDecCount >= 1`)
+3. P08 が 4 つの Server SKU すべてをターゲットとする署名済 catalog を生成
+4. I01 が証明書を LocalMachine\Root + LocalMachine\TrustedPublisher にエラーなく import
+5. I02 が BthPan 固有 GUID `A6E72D4F-…` で WDAC supplemental policy を deploy
+6. I03 が exit 0 (もしくは 3010 と再起動後の追加実行) を返す
+7. I04 が `*** TRUE RESOLUTION ACHIEVED ***` を報告
+8. §3a.4 のインストール後検証コマンドがすべて期待値を返す
+
+### 3a.6 戦略 A vs 戦略 B のテスト計画
+
+デフォルト戦略 A で §3a.5 PASS が達成された後、 計画されている回帰テストシーケンス:
+
+1. **戦略 B 実行** — `-DecorationStrategy B -CleanWorkRoot`。 パッチ済 INF の `[Manufacturer]` に追加で 4 つの `NTamd64.10.0...XXXXX` エントリと、 対応する 4 つの mirror InstallSection ブロックが付加されていることを確認。 同じ `*** TRUE RESOLUTION ACHIEVED ***` の結果が出ることを確認。
+2. **Cleanup テスト** — `-Action Cleanup`。 workspace が削除され、 WDAC supplemental policy がアンインストールされ、 V06 を再実行するとシステムがインストール前状態 (Phantom OK もしくは Unknown Device) に戻っていることを確認。
+3. **Resume-after-reboot テスト** — PnP がすぐに rebind しない Phantom OK ホストで `-Action Install` を実行することで I03 再起動シナリオをシミュレート。 再起動後、 `-Action Install` を再実行し、 resume-after-reboot ロジックが現在の真の解消状態を正しく検出して I01/I02/I03 を cached/skip と報告しつつ、 I04 を実行して結果判定することを確認。
+
+### 3a.7 本検証で解明されるべき未知事項
+
+- `pnputil /scan-devices` がどの程度確実に `bth.inf` (Phantom 代理マッチ) からパッチ済 `oem*.inf` への即時 rebind を発生させるか? それとも再起動が必要なケースが多いか?
+- 戦略 A と戦略 B のインストールで DEVPKEY 値に差異が生じるか? (期待値: なし — Class/Service/DriverInfPath は両方同じであるべき、 PnP ranking スコアのみ異なるはず)
+- 戦略 B の per-build decoration は実際に戦略 A より高い PnP ranking 優位性を提供するか、 それとも機能的には区別不能か?
 
 ---
 
@@ -594,7 +710,7 @@ AMD が新しい Ryzen AI リリースを公開した際、スクリプトを 2 
 | Windows Server 2025 クリーンインストール (対話型コンソール) | chipset r54 / graphics r19→r22 | chipset r55 / graphics r23 | 同一の PowerShell ホスト内での連続 run で workspace lock がリーク。 ロックファイル `<WorkRoot>\.markers\RUN.lock` は現在の `$PID` で書き込まれるが、 解放は `Register-EngineEvent PowerShell.Exiting` アクションにのみ依存していた。 このイベントは対話型コンソール内では発火しない。 そのため、 同じコンソールでの次の run が leftover lock の PID をホスト自身の PID と一致するものとして検出し、 「別インスタンスが動作中」として拒否されていた。 修正: (a) `Test-WorkspaceLockHeld` での自 PID 検出 (`Pid==$PID` のロックは stale 扱いで silent 引き継ぎ)、 (b) メインフェーズループを `try { ... } finally { Clear-WorkspaceLock ... }` で wrap し、 あらゆる exit path でロック解放を保証。 NPU スクリプトには workspace lock が実装されていないため影響なし (SPEC §D.13 参照)。 |
 | Windows Server 2025 クリーンインストール | chipset r54 | r55 | r54 で新規追加された `Expand-AmdInstaller_ViaInstallShield` が `installshield-admin.log` と 12 個のサブ MSI ごとの `msiexec-admin-*.log` ファイルを workspace ルートに drop していた (既存の `inf2cat_*.log` / `signtool_*.log` / `verify_*.log` / `pnputil_*.log` のように `<WorkRoot>\logs\` に集約されていなかった)。 Root cause: `$parentDir = Split-Path $DestinationPath -Parent` が workspace ルートに resolve されていた (caller が `$Ctx.Paths.Extract` (= `<WorkRoot>\extracted`) を渡していたため)。 修正: `Expand-AmdInstaller` および `Expand-AmdInstaller_ViaInstallShield` にオプショナル `-LogDir` パラメータを追加し、 `Invoke-PrepPhase04_ExtractInstaller` から `$Ctx.Paths.Logs` を渡すよう変更。 Chipset のみ — Graphics は単一の `msiexec /i` invocation を使用しており影響なし。 SPEC §D.14 参照。 |
 
-詳細な検証ログと修正コミットは <https://github.com/usui-tk/Deploy-AMD-Drivers-For-WindowsServer/commits/main> を参照してください。
+詳細な検証ログと修正コミットは <https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/commits/main> を参照してください。
 
 ---
 

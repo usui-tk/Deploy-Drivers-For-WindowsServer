@@ -1,10 +1,10 @@
-# Contributing to Deploy-AMD-Drivers-For-WindowsServer
+# Contributing to Deploy-Drivers-For-WindowsServer
 
 Thanks for considering a contribution! This is a small, focused project; all kinds of contributions are welcome — bug reports, documentation fixes, new INF parsers, additional verification phases, hardware test reports.
 
 ## Filing an Issue
 
-Before opening an issue at <https://github.com/usui-tk/Deploy-AMD-Drivers-For-WindowsServer/issues>:
+Before opening an issue at <https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/issues>:
 
 1. **Search existing issues** to avoid duplicates.
 2. **Run `-Action PrepareVerify -CleanWorkRoot`** and capture the full log via `Tee-Object`. Attach the relevant sections (P03 detection, P05 inventory summary, V06 hardware impact) — not the entire 8000+ line log. Redact the cert PFX path / thumbprint if you don't want them public (the thumbprint by itself is not sensitive, but personalising it helps nobody).
@@ -82,7 +82,7 @@ Minimum smoke test:
 #    Either: git clone https://github.com/usui-tk/ai-generated-artifacts.git ../ai-generated-artifacts
 #    Or:     curl -sSLO https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py
 
-# 1. Run static analyzer (Linux / WSL / macOS / Windows with Python 3) on all three scripts
+# 1. Run static analyzer (Linux / WSL / macOS / Windows with Python 3) on all four scripts
 python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
 python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
 python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1

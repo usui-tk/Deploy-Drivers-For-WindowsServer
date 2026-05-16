@@ -3,7 +3,7 @@
 > **Purpose of this document**
 >
 > This file is the authoritative specification for building and extending the
-> three PowerShell scripts in this repository
+> four PowerShell scripts in this repository
 > (`Deploy-AMDChipsetDriverOnWindowsServer.ps1`,
 > `Deploy-AMDGraphicsDriverOnWindowsServer.ps1`, and
 > `Deploy-AMDNpuDriverOnWindowsServer.ps1`). It is written to be picked up
@@ -20,7 +20,7 @@
 >
 > Use **Part B** as the per-script reference for the unique platform
 > detection, INF inventory filter, installer source resolution tier, and
-> known platform quirks of each of the three scripts. **Part C** documents
+> known platform quirks of each of the four scripts. **Part C** documents
 > the quality gates (`psa.py`, `TESTING.md`) that any change must pass.
 > **Part D** preserves the historical lessons that the current
 > implementation already accounts for.
@@ -226,7 +226,7 @@ Color: Magenta border + entry line, DarkGray script-tag line. Status colors: Gre
 
 ## A.4 Phase Architecture (21 phases)
 
-All three scripts share the same 21-phase model. Adding a 4th script means populating the same 21 phase functions; do NOT change phase count or IDs without a strong reason (and a SPEC.md revision).
+All four scripts share the same 21-phase model. Adding a 5th script means populating the same 21 phase functions; do NOT change phase count or IDs without a strong reason (and a SPEC.md revision).
 
 ### Numbering rules
 
@@ -452,7 +452,7 @@ foreach ($line in ($_.ScriptStackTrace -split "`n")) {
 
 ## A.9 CSV Column Conventions
 
-### `inf_inventory.csv` (P05 output, all three scripts)
+### `inf_inventory.csv` (P05 output, all four scripts)
 
 | Column                | Type   | Notes                                                          |
 | --------------------- | ------ | -------------------------------------------------------------- |
@@ -533,7 +533,7 @@ Path       : scripts/python/powershell-static-analyzer/psa.py
 Raw URL    : https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py
 ```
 
-Any change to `psa.py` (bug fix, new check, new auto-variable entry, etc.) must be made in that canonical repository. This repository (`Deploy-AMD-Drivers-For-WindowsServer`) is one of its **consumers**.
+Any change to `psa.py` (bug fix, new check, new auto-variable entry, etc.) must be made in that canonical repository. This repository (`Deploy-Drivers-For-WindowsServer`) is one of its **consumers**.
 
 ### Setup
 
@@ -746,7 +746,7 @@ Cosmetic-only changes (typo fixes in messages, README rewording) do not require 
 
 Before writing any new helper function:
 
-1. Search the existing 3 scripts for an equivalent (`grep -rn 'function <NewName>' .`).
+1. Search the existing 4 scripts for an equivalent (`grep -rn 'function <NewName>' .`).
 2. If found, copy verbatim from the most recent revision.
 3. If not found, add it to the canonical helper section (under "Output helpers" or "Environment helpers" near the top of the file) so future scripts can reuse it.
 
@@ -754,7 +754,7 @@ Before writing any new helper function:
 
 ## A.14 UEFI Secure Boot Baseline (cross-script feature)
 
-A cross-cutting feature introduced to give operators consistent insight into the host's UEFI Secure Boot certificate rollout state. The feature is purely informational — UEFI-layer trust is independent of the OS-layer self-signing trust chain these scripts operate on — but it shares vocabulary and presentation across all three scripts so logs are correlatable.
+A cross-cutting feature introduced to give operators consistent insight into the host's UEFI Secure Boot certificate rollout state. The feature is purely informational — UEFI-layer trust is independent of the OS-layer self-signing trust chain these scripts operate on — but it shares vocabulary and presentation across all four scripts so logs are correlatable.
 
 ### Function set (7 functions, 6 cross-script-identical + 1 per-script helper)
 
@@ -1089,6 +1089,146 @@ Compatibility evaluation is a **separate** axis (`Test-NpuDriverRaiCompatibility
 
 ---
 
+## B.4 BthPan script (`Deploy-MSBthPanInboxOnWindowsServer.ps1`)
+
+### Identification
+
+- **ScriptVersion**: `msbthpan-2026.05.17-r1`
+- **ScriptTag**: `msbthpan-initial-implementation-r1`
+- **Default workspace**: `C:\MSBthPan-WS`
+- **Cert subject CN**: `Microsoft BthPan Driver Self-Sign (<OsCode> Lab, At Own Risk)` (where `<OsCode>` is `WS2016` / `WS2019` / `WS2022` / `WS2025` depending on the host)
+- **Cert filename**: `MS-BthPan-Driver-CodeSign.{pfx,cer}`
+- **WDAC supplemental policy GUID** (default, fixed): `A6E72D4F-3B98-4C5A-9E1D-7F8B2A4C6E5D` — newly minted for this script, does not collide with the Chipset (`503860EA-…`), Graphics (`85336828-…`), or NPU (`8B2C4F12-…`) scripts.
+- **WDAC supplemental policy name**: `MS-BthPan-Driver-SelfSign-Lab`
+
+### Driver source — DriverStore, not download
+
+Unlike the AMD sister scripts which fetch installers from `drivers.amd.com` or AMD account portals, the BthPan script's driver source is the host's own DriverStore staging directory:
+
+```
+C:\Windows\System32\DriverStore\FileRepository\bthpan.inf_amd64_<hash>\
+├── bthpan.inf       Microsoft inbox INF (Workstation-decorated only)
+├── bthpan.sys       Microsoft-signed binary
+├── bthpan.PNF       precompiled INF cache
+└── <localized MUI resources>
+```
+
+The `Get-BthPanDriverStoreSource` helper enumerates `bthpan.inf_amd64_*` directories under `FileRepository`, filters to those that contain both `bthpan.inf` AND `bthpan.sys` AND at least one `.cat`, and picks the most recently modified directory. On a typical host there is exactly one such directory; multiple copies can appear after a Windows feature update.
+
+**The Microsoft-signed bthpan.sys is never modified.** Only the catalog is re-signed (because the INF has been patched, breaking the original catalog's INF-content hash attestation).
+
+### The root cause this script addresses
+
+Microsoft's inbox `bthpan.inf` declares only the Workstation decoration `NTamd64...1`:
+
+```ini
+[Manufacturer]
+%MfgName% = Msft,NTamd64...1
+```
+
+The fifth segment (`1`) is the ProductType restriction (1 = Workstation, 2 = Domain Controller, 3 = Server). On a Windows Server SKU (ProductType=3), the PnP matcher discards every `Msft.NTamd64...1` entry during HWID resolution. As a result:
+
+1. `bthpan.inf`'s `[BthPan.Install]` section (AddService, CopyFiles, AddReg) never runs.
+2. `bthpan.sys` is never copied to `C:\Windows\System32\drivers`.
+3. The `BthPan` service is never registered.
+4. No Bluetooth PAN network adapter (Class=Net) is ever created.
+
+### Phantom OK vs True Resolution
+
+A particularly subtle failure mode: even on Server SKUs, `BTH\MS_BTHPAN` may show `Status=OK` in Device Manager. This is because the generic `bth.inf` proxy-matches the device. However, `bthpan.sys` is NOT actually loaded and the `BthPan` service is NOT actually running — PAN networking functionality is still completely broken.
+
+V05 / V06 / I04 use `Get-PnpDeviceProperty` to read three DEVPKEY properties and classify the state:
+
+| Property                       | Phantom OK             | True Resolution         | Unknown (code 28) |
+| ------------------------------ | ---------------------- | ----------------------- | ----------------- |
+| `DEVPKEY_Device_DriverInfPath` | `bth.inf`              | `oem<N>.inf`            | (empty)           |
+| `DEVPKEY_Device_Class`         | `Bluetooth`            | `Net`                   | (empty)           |
+| `DEVPKEY_Device_Service`       | (empty)                | `BthPan`                | (empty)           |
+| Status                         | OK                     | OK                      | Error             |
+
+The script ALSO checks three runtime artifacts (`Test-BthPanRuntimeArtifacts`):
+
+- `C:\Windows\System32\drivers\bthpan.sys` exists
+- `HKLM:\SYSTEM\CurrentControlSet\Services\BthPan` registry key exists
+- A `NetAdapter` with `InterfaceDescription` matching `Bluetooth.*Personal Area Network` is enumerable via `Get-NetAdapter`
+
+I04 declares `*** TRUE RESOLUTION ACHIEVED ***` only when **all** of the following hold:
+
+1. Every `BTH\MS_BTHPAN*` device classifies as `True` (or device count is zero)
+2. `bthpan.sys` is present in `System32\drivers`
+3. `BthPan` service key is registered
+
+### INF patching strategy
+
+`Edit-InfForServer` (verbatim from the Chipset script) is used to mirror the Workstation decoration `NTamd64...1` with `NTamd64...3`:
+
+```ini
+; Before patching
+[Manufacturer]
+%MfgName% = Msft,NTamd64...1
+
+; After Strategy A (default)
+[Manufacturer]
+%MfgName% = Msft,NTamd64...1,NTamd64...3
+```
+
+The `ConvertTo-ServerDecoration` helper parses `NTamd64...1` (`NT`+`amd64`+`.`+empty+`.`+empty+`.`+empty+`.`+`1`) into a 4-element array `['NTamd64','','','1']`, sets `parts[3]='3'`, and re-joins to produce `NTamd64...3`. This generates exactly one new server decoration entry which covers all Server SKUs (ProductType=3 is build-agnostic).
+
+**Strategy B (optional)**: `Add-BthPanExplicitServerDecorations` additionally appends four build-explicit decorations:
+
+```ini
+[Manufacturer]
+%MfgName% = Msft,NTamd64...1,NTamd64...3,NTamd64.10.0...14393,NTamd64.10.0...17763,NTamd64.10.0...20348,NTamd64.10.0...26100
+```
+
+This provides a deterministic PnP-ranking tie-break when multiple bthpan packages compete for the binding slot but requires manual update for any future Server SKU build that Microsoft ships.
+
+### Catalog generation — four-SKU simultaneous targeting
+
+P08 invokes `inf2cat` with `/os:Server2025_X64,ServerFE_X64,ServerRS5_X64,Server2016_X64` so that a single signed catalog covers all four Windows Server SKUs. The script first probes the installed `inf2cat.exe` for its supported `/os:` tokens via `Get-Inf2catSupportedOsValues` and intersects the desired list with what inf2cat actually understands. If the full 4-SKU list fails (rare; usually because `Server2016_X64` is not recognised by very old inf2cat builds), the script retries without `Server2016_X64`.
+
+### Phase quirks (differences from sister scripts)
+
+| Phase | BthPan-specific behaviour                                                                                |
+| ----- | -------------------------------------------------------------------------------------------------------- |
+| P02   | 7-Zip is NOT required (no archive extraction). Only SDK (signtool) + WDK (inf2cat) are needed.           |
+| P03   | No network calls. Locates `bthpan.inf_amd64_*` in DriverStore via `Get-BthPanDriverStoreSource`.         |
+| P04   | Simple file copy from DriverStore to `workspace\extracted\bthpan\`. No archive extraction.               |
+| P05   | Single-row CSV (one INF: `bthpan.inf`). No source-variant disambiguation.                                |
+| P06   | Strategy A by default (single `NTamd64...3` mirror); Strategy B optional via `-DecorationStrategy B`.    |
+| P08   | Targets all four Server SKUs (`Server2025_X64,ServerFE_X64,ServerRS5_X64,Server2016_X64`) simultaneously.|
+| V05   | Diagnoses every `BTH\MS_BTHPAN*` instance; classifies Phantom/True/Unknown.                              |
+| V06   | Sections: device disposition, runtime artifacts, existing oem*.inf mappings, risk classification, UEFI Secure Boot baseline. No per-device "AS-IS / TO-BE" matrix (only one driver, one HWID). |
+| I03   | After `pnputil /add-driver /install`, runs `pnputil /scan-devices` to force PnP re-evaluation and rebind from `bth.inf` proxy match to patched `oem*.inf`. |
+| I04   | Verdict: `*** TRUE RESOLUTION ACHIEVED ***` requires per-device classification + runtime artifact checks. Phantom OK is explicitly flagged as a FAIL. |
+
+### Parameters
+
+The BthPan script intentionally does NOT expose:
+
+- `-InstallerUrl`, `-AmdLandingUrls`, `-AmdFallbackUrl` (Chipset/Graphics-specific — there is no AMD installer to fetch)
+- `-OfflineZip`, `-AmdAccountUser`, `-AmdAccountPassword`, `-ForceAmdAccountAuth` (NPU-specific)
+- `-NpuOverride`, `-NpuDriverPackage`, `-RyzenAiSoftwareVersion`, `-AssumeIfMissing` (NPU-specific)
+- `-CertValidityYears` (hard-coded per OS context: 3 years on WS2016, 5 years on WS2019+)
+
+It DOES expose:
+
+- All common parameters per A.6 (`-Action`, `-OnlyPhases`, `-CleanWorkRoot`, `-AllowWorkstationInstall`, `-UseTestSigning`, `-WorkRoot`, `-PfxPassword`, `-WdacPolicyGuid`, `-WdacBasePolicyGuid`)
+- `-Help` / `-h` / `-?` (alias-bound switch)
+- `-References` (curated Microsoft Learn link index)
+- `-Force` (bypass cached Phase markers)
+- `-TimestampUrl` (default `http://timestamp.digicert.com`)
+- **`-DecorationStrategy A|B`** — BthPan-specific. A (default): `NTamd64...3` only; B: also adds `NTamd64.10.0...14393 / 17763 / 20348 / 26100` per-build entries.
+
+### Known constraints
+
+- Requires a bound Bluetooth host controller. If the host controller itself is unknown-device, the script's V05 / V06 will still run (and report no `BTH\MS_BTHPAN` device present), but `Install` will not produce a functional outcome until the host controller is bound first.
+- `pnputil /scan-devices` after `/add-driver` *usually* triggers an immediate rebind from `bth.inf` to the patched `oem*.inf`. In some cases (observed on WS2025 build 26100.32860), a reboot is required for PnP to fully re-evaluate the device. I04 detects this case and reports `*** TRUE RESOLUTION NOT YET ACHIEVED ***`; re-running the same `-Action Install` command after reboot resolves the binding.
+- The script does NOT cover Bluetooth host controller drivers (Intel AX2xx, Realtek RTL88xx, etc.). Vendor host controller drivers must be installed via their respective vendor channels first.
+- The script does NOT remove inbox `bthpan.inf` from `C:\Windows\INF\`. The patched `oem*.inf` simply outranks the inbox INF in PnP ranking due to its newer effective decoration (`NTamd64...3` matches ProductType=3 exactly, while inbox `NTamd64...1` is filtered out entirely).
+
+---
+
 # Part C — Quality Gates & Validation Checklist
 
 Every commit to `main` must satisfy the following gates.
@@ -1100,11 +1240,13 @@ Every commit to `main` must satisfy the following gates.
 - [ ] `python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1` → 0 errors
 - [ ] `python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1` → 0 errors
 - [ ] `python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1` → 0 errors
+- [ ] `python3 psa.py Deploy-MSBthPanInboxOnWindowsServer.ps1` → 0 errors
 
 ## C.2 Functional checks (per affected script)
 
 - [ ] `-Action ListPhases` produces the expected 21-phase table.
 - [ ] `-Action PrepareVerify -CleanWorkRoot` on any non-target host (without the target AMD devices) completes without errors using `-AssumeIfMissing` (NPU script) / appropriate platform override (chipset / graphics). Note: this is a pipeline-soundness check only — it does not validate real driver behaviour.
+- [ ] `-Action PrepareVerify -CleanWorkRoot` for the BthPan script completes on any Server SKU and produces a single-row `inf_inventory.csv`, even on hosts without a Bluetooth host controller (V05 / V06 will report "No BTH\MS_BTHPAN device on host" but the prepare phases still complete cleanly).
 - [ ] `Show-RunSummary` is rendered regardless of exit path (success or failure).
 - [ ] `Format-Elapsed` produces correct strings for `0.42s`, `1m2.3s`, `1h2m3s`.
 
@@ -1117,10 +1259,11 @@ Every commit to `main` must satisfy the following gates.
 
 ## C.4 Cross-script consistency checks
 
-- [ ] All three scripts use `[pscustomobject]@{...}` in `$Script:PhaseRegistry` (not `@{...}`).
-- [ ] All three scripts use sister-aligned function naming: `Invoke-{Group}Phase{NN}_{Name}`.
-- [ ] All three scripts use the same `-Action` ValidateSet: `'Prepare','Verify','PrepareVerify','Install','All','Cleanup','ListPhases'`.
-- [ ] All three scripts use the same marker semantics: `[*]` Cyan / `[+]` Green / `[!]` Yellow / `[X]` Red / `[~]` DarkGray.
+- [ ] All four scripts use `[pscustomobject]@{...}` in `$Script:PhaseRegistry` (not `@{...}`).
+- [ ] All four scripts use sister-aligned function naming: `Invoke-{Group}Phase{NN}_{Name}`.
+- [ ] All four scripts use the same `-Action` ValidateSet: `'Prepare','Verify','PrepareVerify','Install','All','Cleanup','ListPhases'`.
+- [ ] All four scripts use the same marker semantics: `[*]` Cyan / `[+]` Green / `[!]` Yellow / `[X]` Red / `[~]` DarkGray.
+- [ ] All four scripts use unique WDAC supplemental policy GUIDs that do NOT collide.
 
 ---
 

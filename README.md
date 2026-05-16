@@ -1,6 +1,6 @@
-# Deploy-AMD-Drivers-For-WindowsServer
+# Deploy-Drivers-For-WindowsServer
 
-PowerShell pipeline that makes AMD's consumer-targeted Ryzen chipset, Radeon graphics, and Ryzen AI NPU (XDNA) drivers installable on Windows Server 2025 by patching the INF `ProductType=3` decoration and re-signing the catalog with a self-generated certificate.
+PowerShell pipeline that makes AMD's consumer-targeted Ryzen chipset, Radeon graphics, and Ryzen AI NPU (XDNA) drivers — **plus Microsoft's inbox Bluetooth PAN driver (`bthpan.inf` / `bthpan.sys`)** — installable on Windows Server 2016 / 2019 / 2022 / 2025 by patching the INF `ProductType=3` decoration and re-signing the catalog with a self-generated certificate.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) [![PowerShell 5.1+](https://img.shields.io/badge/PowerShell-5.1%2B-blue.svg)](https://learn.microsoft.com/en-us/powershell/) [![Target: Windows Server 2025](https://img.shields.io/badge/Target-Windows%20Server%202025-success.svg)](https://learn.microsoft.com/en-us/windows-server/get-started/windows-server-2025)
 
@@ -17,10 +17,11 @@ PowerShell pipeline that makes AMD's consumer-targeted Ryzen chipset, Radeon gra
 - [Why this exists](#why-this-exists)
 - [⚠️ Disclaimer (read before running)](#%EF%B8%8F-disclaimer-read-before-running)
 - [What's in the box](#whats-in-the-box)
-- [Risk classification of the three scripts](#risk-classification-of-the-three-scripts)
+- [Risk classification of the four scripts](#risk-classification-of-the-four-scripts)
 - [Scope of coverage](#scope-of-coverage)
 - [Folder layout](#folder-layout)
 - [Quick start](#quick-start)
+- [BthPan-specific quick start](#bthpan-specific-quick-start)
 - [NPU-specific quick start](#npu-specific-quick-start)
 - [Pipeline architecture (21 phases)](#pipeline-architecture-21-phases)
 - [Parameters (per script)](#parameters-per-script)
@@ -81,33 +82,36 @@ For the full at-your-own-risk acknowledgements (BitLocker, anti-cheat software, 
 | `Deploy-AMDChipsetDriverOnWindowsServer.ps1` | Chipset driver pipeline (GPIO, SMBus, PSP, MicroPEP, PMF, etc.). Source: AMD Chipset Software ~75 MB EXE, ~67 INFs. | **Stable** — validated on M75q Tiny Gen 2 (WS2025) and X13 Gen 1 AMD (Win11 LTSC 2024). |
 | `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | Graphics driver pipeline (Display, HD Audio, Audio CoProcessor, ACP, USB-C UCSI, etc.). Source: AMD Adrenalin Edition ~600 MB EXE, ~19 INFs (Vega-Polaris Legacy branch) or ~67 INFs (Main Adrenalin branch for Phoenix+). | **Stable** — same validation hosts as chipset. |
 | **`Deploy-AMDNpuDriverOnWindowsServer.ps1`** | **NPU (Ryzen AI XDNA) driver pipeline (PHX/HPT/STX/KRK).** Source: AMD Ryzen AI Software ZIP, ~250 MB, EULA-gated download (no public direct URL). Kernel-mode driver only — does NOT install Ryzen AI Software user-mode stack. | **🆘 Experimental / research-grade — NOT production-ready.** No physical-NPU validation runs have been performed. AMD account auto-download is best-effort and may break with AMD form changes. Ryzen AI Software is officially unsupported on Windows Server 2025. |
+| `Deploy-MSBthPanInboxOnWindowsServer.ps1` | **Microsoft inbox Bluetooth PAN driver (`bthpan.inf` / `bthpan.sys`) enablement pipeline.** Source: the host's own `C:\Windows\System32\DriverStore\FileRepository\bthpan.inf_amd64_*` directory — **no remote download required.** Single INF, single HWID (`BTH\MS_BTHPAN`). Distinguishes Phantom OK (bth.inf proxy match) from true resolution (Class=Net, Service=BthPan) on Windows Server. | **New** (r1) — initial release. Logic shares the same Phase / Secure Boot / WDAC framework as the AMD scripts; INF patch surface is much smaller (1 INF, 1 HWID). Physical validation on ThinkPad + Intel AX210 + WS2025 build 26100.32860 is the planned first test target. |
 | `README.md` | This document. |  |
 | `README.ja.md` | Japanese translation. |  |
+| `SPEC.md` | Developer specification (per-script details, INF parsing strategy, WDAC policy structure). |  |
+| `SPEC.ja.md` | Japanese translation of SPEC.md. |  |
 | `TESTING.md` | Physical-hardware validation results. Includes the NPU script's far weaker validation status. |  |
 | `TESTING.ja.md` | Japanese translation of TESTING.md. |  |
 | `CONTRIBUTING.md` | How to file issues, propose changes, and run regression tests. |  |
 | `LICENSE` | MIT License. |  |
 
-All three PowerShell scripts share the same 21-phase architecture, the same self-signing model, and the same WDAC authorisation path. They write to separate workspaces (`C:\AMD-Chipset-WS`, `C:\AMD-Graphics-WS`, `C:\AMD-NPU-WS`) and use separate self-signed certificates so they never collide.
+All four PowerShell scripts share the same 21-phase architecture, the same self-signing model, and the same WDAC authorisation path. They write to separate workspaces (`C:\AMD-Chipset-WS`, `C:\AMD-Graphics-WS`, `C:\AMD-NPU-WS`, `C:\MSBthPan-WS`) and use separate self-signed certificates + separate WDAC supplemental policy GUIDs so they never collide.
 
 ---
 
-## Risk classification of the three scripts
+## Risk classification of the four scripts
 
-> This section exists because the NPU script is materially riskier than its sister scripts and operators must understand the difference before running it.
+> This section exists because the NPU script is materially riskier than its sister scripts and operators must understand the difference before running it. The BthPan script is the lowest-risk of the four because its driver source is the host's own DriverStore (no remote download), the INF surface is exactly one file with one HWID, and Microsoft itself signs the inbox driver — only the catalog must be re-signed.
 
-| Aspect | Chipset script (r57) | Graphics script (r25) | **NPU script (r7)** |
-| --- | --- | --- | --- |
-| **Maturity** | Stable, multiple validation cycles | Stable, multiple validation cycles | **🆘 Experimental — first release, not validated on physical NPU hardware** |
-| **Distribution format** | Public EXE direct download | Public EXE direct download | **EULA-gated ZIP, requires AMD account** |
-| **Public download URL** | Yes (direct) | Yes (direct) | **No — requires AMD account login + EULA acceptance per release** |
-| **AMD account auto-download** | N/A | N/A | **Best-effort; depends on AMD's form HTML staying stable; can break without notice** |
-| **OS support stance** | AMD does not officially support, but drivers run | AMD does not officially support, but drivers run | **Driver loads on Server 2025, but Ryzen AI Software (user-mode stack) does NOT work on Server 2025 per AMD docs** |
-| **Hardware availability** | Common (any AMD APU machine) | Common (any AMD GPU/APU machine) | **Limited to Ryzen AI 300 / Ryzen AI Max 300 / Ryzen 7040/8040 series** |
-| **Test fixtures available in repo** | M75q Tiny Gen 2, X13 Gen 1 AMD | M75q Tiny Gen 2, X13 Gen 1 AMD | **NONE — no physical NPU machine in the maintainer's lab as of this writing** |
-| **Inference workload viability on Server 2025** | N/A | Limited (no DirectX) | **Effectively zero — kernel driver alone is insufficient; user-mode VitisAI EP / OGA stack are Windows-11-only per AMD** |
-| **Recommended use** | Lab + cautious production | Lab + cautious production | **Lab / research only. Do not deploy on production hosts.** |
-| **Recommended Action mode** | `Install` after `PrepareVerify` review | `Install` after `PrepareVerify` review | **`PrepareVerify` ONLY until you can confirm the host is a real NPU machine and you accept that Ryzen AI Software won't function on Server 2025** |
+| Aspect | Chipset script (r57) | Graphics script (r25) | **NPU script (r7)** | **BthPan script (r1)** |
+| --- | --- | --- | --- | --- |
+| **Maturity** | Stable, multiple validation cycles | Stable, multiple validation cycles | **🆘 Experimental — first release, not validated on physical NPU hardware** | **New (r1)** — initial release. Logic shares the proven Phase / Secure Boot / WDAC framework. Single-INF surface is small enough that physical validation is feasible in one session. |
+| **Distribution format** | Public EXE direct download | Public EXE direct download | **EULA-gated ZIP, requires AMD account** | **No download** — `bthpan.inf` is already staged at `C:\Windows\System32\DriverStore\FileRepository\bthpan.inf_amd64_*` on every Windows install. |
+| **Public download URL** | Yes (direct) | Yes (direct) | **No — requires AMD account login + EULA acceptance per release** | **N/A — driver is on the host.** |
+| **AMD account auto-download** | N/A | N/A | **Best-effort; depends on AMD's form HTML staying stable; can break without notice** | **N/A.** |
+| **OS support stance** | AMD does not officially support, but drivers run | AMD does not officially support, but drivers run | **Driver loads on Server 2025, but Ryzen AI Software (user-mode stack) does NOT work on Server 2025 per AMD docs** | **Microsoft inbox driver — fully supported by Microsoft on Workstation SKUs.** Filtered out on Server SKUs only because of the `NTamd64...1` ProductType decoration. This script supplies the missing ProductType=3 decoration without touching Microsoft's binary at all. |
+| **Hardware availability** | Common (any AMD APU machine) | Common (any AMD GPU/APU machine) | **Limited to Ryzen AI 300 / Ryzen AI Max 300 / Ryzen 7040/8040 series** | Common — any machine with a Bluetooth host controller bound and `BTH\MS_BTHPAN` enumerated. Most ThinkPads, mini-PCs, NUCs ship one. |
+| **Test fixtures available in repo** | M75q Tiny Gen 2, X13 Gen 1 AMD | M75q Tiny Gen 2, X13 Gen 1 AMD | **NONE — no physical NPU machine in the maintainer's lab as of this writing** | ThinkPad + Intel AX210 + WS2025 build 26100.32860 (planned first physical validation). |
+| **Failure modes specific to this script** | PSP / TPM driver replacement may trigger BitLocker recovery | Display reset on signed-cat install | NPU device may not enumerate; Ryzen AI Software won't work | **Phantom OK trap** — bth.inf may proxy-match and report Status=OK even though bthpan.sys is NOT loaded. V06 / I04 must explicitly distinguish Phantom OK (DriverInfPath=bth.inf, Class=Bluetooth) from true resolution (DriverInfPath=oem*.inf, Class=Net, Service=BthPan). |
+| **Recommended use** | Lab + cautious production | Lab + cautious production | **Lab / research only. Do not deploy on production hosts.** | **Lab + cautious production.** Risk is low because the script does not replace any vendor driver — it only enables the Microsoft-published inbox driver on a SKU class where Microsoft chose not to ship it by default. |
+| **Recommended Action mode** | `Install` after `PrepareVerify` review | `Install` after `PrepareVerify` review | **`PrepareVerify` ONLY until you can confirm the host is a real NPU machine and you accept that Ryzen AI Software won't function on Server 2025** | `PrepareVerify` first to confirm Phantom-OK vs true-resolution state, then `Install`. |
 
 **Practical rules of thumb for the NPU script**:
 
@@ -133,6 +137,11 @@ If after reading the above you still want to run the NPU script: see [NPU-specif
   - **Phoenix / Hawk Point** (`PCI\VEN_1022&DEV_1502&REV_00`) — Ryzen 7040 / 8040 / 8040 PRO mobile series. Driver build `32.0.203.280` (RAI 1.5).
   - **Strix Point / Strix Halo** (`PCI\VEN_1022&DEV_17F0&REV_00/10/11`) — Ryzen AI 300 / Ryzen AI Max 300 series. Driver build `32.0.203.314` (RAI 1.6.1) or newer.
   - **Krackan Point** (`PCI\VEN_1022&DEV_17F0&REV_20`) — Ryzen AI 200 series. Driver build `32.0.203.314` (RAI 1.6.1) or newer.
+- **Microsoft inbox Bluetooth PAN** *(BthPan script only)*:
+  - **HWID**: `BTH\MS_BTHPAN` — child device exposed by every Microsoft-supported Bluetooth host controller after the host controller binds. Vendor-agnostic (Intel AX2xx, Realtek RTL88xx, MediaTek MT7xxx, Broadcom BCM43xx, etc.).
+  - **Prerequisite**: a Bluetooth host controller driver is bound and showing Status=OK in Device Manager. If the host controller itself is unknown-device, install its vendor driver first; this script does NOT cover host controllers.
+  - **Symptom this script solves**: on Windows Server SKU, `BTH\MS_BTHPAN` shows as Unknown Device (code 28), or shows Status=OK but with `DriverInfPath=bth.inf` and `Class=Bluetooth` (Phantom OK; `bthpan.sys` is NOT loaded and `BthPan` service is NOT running).
+  - **Verified true-resolution criteria**: `DriverInfPath=oem*.inf`, `Class=Net`, `Service=BthPan`, `C:\Windows\System32\drivers\bthpan.sys` present, `BthPan` service registered, a Bluetooth PAN NetAdapter visible to `Get-NetAdapter`.
 
 ### Hardware **out of scope**
 
@@ -147,20 +156,21 @@ If after reading the above you still want to run the NPU script: see [NPU-specif
 Repository structure (after `git clone`):
 
 ```
-Deploy-AMD-Drivers-For-WindowsServer/
-├── Deploy-AMDChipsetDriverOnWindowsServer.ps1   Chipset driver pipeline (21 phases)
-├── Deploy-AMDGraphicsDriverOnWindowsServer.ps1  Graphics driver pipeline (21 phases)
-├── Deploy-AMDNpuDriverOnWindowsServer.ps1       NPU (Ryzen AI XDNA) pipeline (21 phases)
-├── README.md                                    This document (English)
-├── README.ja.md                                 Japanese translation of README
-├── TESTING.md                                   Physical-hardware validation results
-├── TESTING.ja.md                                Japanese translation of TESTING
-├── SPEC.md                                      Developer specification (English)
-├── SPEC.ja.md                                   Japanese translation of SPEC
-├── CONTRIBUTING.md                              Issue / PR guidelines
-├── LICENSE                                      MIT License
-├── .gitattributes                               Git line-ending normalization
-└── .gitignore                                   Standard ignores
+Deploy-Drivers-For-WindowsServer/
+├── Deploy-AMDChipsetDriverOnWindowsServer.ps1     Chipset driver pipeline (21 phases)
+├── Deploy-AMDGraphicsDriverOnWindowsServer.ps1    Graphics driver pipeline (21 phases)
+├── Deploy-AMDNpuDriverOnWindowsServer.ps1         NPU (Ryzen AI XDNA) pipeline (21 phases)
+├── Deploy-MSBthPanInboxOnWindowsServer.ps1        Microsoft inbox bthpan pipeline (21 phases)
+├── README.md                                      This document (English)
+├── README.ja.md                                   Japanese translation of README
+├── TESTING.md                                     Physical-hardware validation results
+├── TESTING.ja.md                                  Japanese translation of TESTING
+├── SPEC.md                                        Developer specification (English)
+├── SPEC.ja.md                                     Japanese translation of SPEC
+├── CONTRIBUTING.md                                Issue / PR guidelines
+├── LICENSE                                        MIT License
+├── .gitattributes                                 Git line-ending normalization
+└── .gitignore                                     Standard ignores
 ```
 
 ### What the scripts produce
@@ -168,15 +178,19 @@ Deploy-AMD-Drivers-For-WindowsServer/
 After `-Action PrepareVerify` (or `-Action All`), each script populates its workspace:
 
 ```
-C:\AMD-Chipset-WS\               (or C:\AMD-Graphics-WS\, or C:\AMD-NPU-WS\)
-├── download\        AMD installer EXE / NPU driver ZIP
-├── extracted\       Original INFs and binaries from the EXE / ZIP
-├── patched\         Patched INFs with mirrored ProductType=3 sections
-│                    + generated .cat files + signtool signatures
-├── cert\            Self-signed code-signing cert (PFX + CER) +
-│                    WDAC supplemental policy XML/CIP (NPU + others)
+C:\AMD-Chipset-WS\         (or C:\AMD-Graphics-WS\, C:\AMD-NPU-WS\, C:\MSBthPan-WS\)
+├── download\              AMD installer EXE / NPU driver ZIP
+│                          (BthPan: empty — driver source is DriverStore, not downloaded)
+├── extracted\             Original INFs and binaries from the EXE / ZIP / DriverStore
+│                          (BthPan: extracted\bthpan\bthpan.inf / .sys / .cat)
+├── patched\               Patched INFs with mirrored ProductType=3 sections
+│                          + generated .cat files + signtool signatures
+│                          (BthPan: patched\bthpan\ — single INF directory)
+├── cert\                  Self-signed code-signing cert (PFX + CER) +
+│                          WDAC supplemental policy XML/CIP
 └── inf_inventory.csv / inf_inventory_report.txt
-                     P05 inventory and per-INF analysis
+                           P05 inventory and per-INF analysis
+                           (BthPan: single-row CSV — exactly one INF)
 ```
 
 After `-Action Install` (or phases I01-I04), the script also deploys:
@@ -200,11 +214,11 @@ After `-Action Install` (or phases I01-I04), the script also deploys:
 
 ```powershell
 # Option 1: clone the repository
-git clone https://github.com/usui-tk/Deploy-AMD-Drivers-For-WindowsServer.git
-cd Deploy-AMD-Drivers-For-WindowsServer
+git clone https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer.git
+cd Deploy-Drivers-For-WindowsServer
 
 # Option 2: download a release ZIP from
-# https://github.com/usui-tk/Deploy-AMD-Drivers-For-WindowsServer/releases
+# https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/releases
 ```
 
 ### One-shot dry run (safe; modifies nothing)
@@ -213,8 +227,9 @@ cd Deploy-AMD-Drivers-For-WindowsServer
 # In an elevated PowerShell session
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
-.\Deploy-AMDChipsetDriverOnWindowsServer.ps1  -Action PrepareVerify -CleanWorkRoot
-.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1   -Action PrepareVerify -CleanWorkRoot
+.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1  -Action PrepareVerify -CleanWorkRoot
+.\Deploy-MSBthPanInboxOnWindowsServer.ps1      -Action PrepareVerify -CleanWorkRoot
 
 # NPU script — REQUIRES an offline ZIP (or other download source) to actually run P03.
 # On a clean machine without -OfflineZip, P03 will throw "All 4 download tiers exhausted".
@@ -223,16 +238,21 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
     -OfflineZip .\NPU_RAI1.6.1_314_WHQL.zip -AssumeIfMissing
 ```
 
-`PrepareVerify` runs `P00-P09` (download, extract, patch, generate catalog, sign) followed by `V01-V06` (verify artefacts, dry-run install plan, hardware impact analysis). **No system state is modified** — no certs are imported, no WDAC policy is deployed, no drivers are installed. Read the V05 / V06 output to understand exactly what `Install` *would* do.
+`PrepareVerify` runs `P00-P09` (locate / extract source, patch, generate catalog, sign) followed by `V01-V06` (verify artefacts, dry-run install plan, hardware impact analysis). **No system state is modified** — no certs are imported, no WDAC policy is deployed, no drivers are installed. Read the V05 / V06 output to understand exactly what `Install` *would* do.
 
-### Full installation (chipset and graphics)
+> **BthPan-specific note**: the BthPan script's P03 (FetchInstaller) does NOT download anything — it locates `bthpan.inf` in the host's own `C:\Windows\System32\DriverStore\FileRepository\bthpan.inf_amd64_*` directory. P03 fails only on hosts where the inbox driver has been deliberately removed (extremely rare).
+
+### Full installation (chipset, graphics, BthPan)
 
 ```powershell
-.\Deploy-AMDChipsetDriverOnWindowsServer.ps1  -Action Install
-.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action Install
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1   -Action Install
+.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1  -Action Install
+.\Deploy-MSBthPanInboxOnWindowsServer.ps1      -Action Install
 ```
 
-Run on a Windows Server 2025 host. Both scripts are idempotent and cleanup-safe (`-Action Cleanup` removes the workspace, the certs from the trust stores, and the deployed WDAC policy).
+Run on a Windows Server 2025 host. All scripts are idempotent and cleanup-safe (`-Action Cleanup` removes the workspace, the certs from the trust stores, and the deployed WDAC policy).
+
+> **BthPan-specific outcome check**: after the BthPan script's `Install` action completes, I04 (PostInstallVerification) explicitly distinguishes Phantom OK from true resolution. The script prints `*** TRUE RESOLUTION ACHIEVED ***` only when `bthpan.sys` is loaded, `BthPan` service is running, and `BTH\MS_BTHPAN` reports `Class=Net, Service=BthPan, DriverInfPath=oem*.inf`. If you instead see `*** TRUE RESOLUTION NOT YET ACHIEVED ***`, a reboot is the typical fix (PnP rebind sometimes requires a fresh boot).
 
 > **NPU script `Install`**: see [NPU-specific quick start](#npu-specific-quick-start). The `Install` action requires extra preconditions (offline ZIP availability or AMD account credentials) and is **not recommended without physical NPU hardware**.
 
@@ -245,15 +265,94 @@ Run on a Windows Server 2025 host. Both scripts are idempotent and cleanup-safe 
 # Run only the cert-trust phase
 .\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -OnlyPhases I01
 
+# Run only the BthPan Phantom-OK readiness analysis (no system change)
+.\Deploy-MSBthPanInboxOnWindowsServer.ps1 -OnlyPhases V06
+
 # List all phases the script knows about
 .\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action ListPhases
 ```
 
 ---
 
+## BthPan-specific quick start
+
+> The BthPan script is the simplest of the four to run because the driver source is the host's own DriverStore — no network download, no AMD account, no EULA-gated ZIP.
+
+### Step 1 — confirm the Bluetooth host controller is bound
+
+The BthPan script handles only `BTH\MS_BTHPAN` (the Personal Area Network child device exposed after the Bluetooth host controller is bound). The host controller itself is **out of scope**.
+
+```powershell
+# Confirm the host controller is showing Status=OK (NOT "Unknown device").
+Get-PnpDevice -Class Bluetooth -ErrorAction SilentlyContinue |
+    Select-Object FriendlyName, Status, InstanceId
+
+# If the host controller (e.g. Intel AX210, Realtek RTL8852, MediaTek MT7921)
+# is "Unknown device", install its vendor driver first. The bthpan script
+# does NOT install host-controller drivers.
+```
+
+### Step 2 — diagnose the current state (no system change)
+
+```powershell
+.\Deploy-MSBthPanInboxOnWindowsServer.ps1 -OnlyPhases V06
+```
+
+V06 prints the per-instance classification of every `BTH\MS_BTHPAN*` device on the host. Three states are possible:
+
+| Classification | Meaning | Recommended next step |
+| --- | --- | --- |
+| **Unknown** | Status=Error (code 28). No driver is bound. | Run `-Action Install`. |
+| **Phantom** | Status=OK, but `DriverInfPath=bth.inf`, `Class=Bluetooth`, `Service=(empty)`. `bthpan.sys` is **NOT** loaded; PAN networking is broken even though Device Manager looks fine. | Run `-Action Install`. After install, I04 verifies the rebind. |
+| **True** | `DriverInfPath=oem*.inf`, `Class=Net`, `Service=BthPan`. `bthpan.sys` is loaded; BthPan service is running. | No action needed. The host is already at true resolution. |
+
+### Step 3 — full installation
+
+```powershell
+.\Deploy-MSBthPanInboxOnWindowsServer.ps1 -Action All -CleanWorkRoot
+```
+
+`-Action All` runs all 21 phases (`P00-P09` → `V01-V06` → `I00-I04`) in a single command. I03 includes `pnputil /scan-devices` to force the PnP manager to re-evaluate `BTH\MS_BTHPAN` so it rebinds from `bth.inf` (the Phantom proxy match) to the patched `oem*.inf` (true resolution).
+
+If I04 reports `*** TRUE RESOLUTION NOT YET ACHIEVED ***`, a reboot is the typical fix; sometimes the PnP rebind only takes effect on next boot. Re-run the same command after reboot — the script's resume-after-reboot logic detects the new state and reports `*** TRUE RESOLUTION ACHIEVED ***`.
+
+### Step 4 — decoration strategy choice (advanced)
+
+```powershell
+# Strategy A (default): NTamd64...3 only (ProductType=3 covers all Server SKUs).
+.\Deploy-MSBthPanInboxOnWindowsServer.ps1 -DecorationStrategy A
+
+# Strategy B: also add NTamd64.10.0...14393 / 17763 / 20348 / 26100 explicitly.
+# Provides slightly higher PnP-ranking advantage when a future Microsoft inbox
+# update adds Server decorations of its own. Requires manual update for any
+# new Server SKU build that ships in the future.
+.\Deploy-MSBthPanInboxOnWindowsServer.ps1 -DecorationStrategy B
+```
+
+In practice **Strategy A is sufficient** on all four supported Server builds (14393 / 17763 / 20348 / 26100). Strategy B exists for environments where multiple coexisting bthpan packages compete for the binding slot and per-build entries give a deterministic tie-break.
+
+### Step 5 — verify the outcome
+
+```powershell
+# bthpan.sys present?
+Test-Path C:\Windows\System32\drivers\bthpan.sys
+
+# BthPan service registered + running?
+Get-Service BthPan -ErrorAction SilentlyContinue
+
+# Bluetooth PAN NetAdapter visible?
+Get-NetAdapter | Where-Object InterfaceDescription -Match 'Bluetooth.*Personal Area Network'
+
+# Device-level state (Class should be Net, Service should be BthPan):
+Get-PnpDevice -InstanceId 'BTH\MS_BTHPAN*' |
+    Get-PnpDeviceProperty -KeyName DEVPKEY_Device_Class, DEVPKEY_Device_Service, DEVPKEY_Device_DriverInfPath
+```
+
+---
+
 ## NPU-specific quick start
 
-> **Reminder**: this script is experimental. Read [Risk classification of the three scripts](#risk-classification-of-the-three-scripts) before continuing.
+> **Reminder**: this script is experimental. Read [Risk classification of the four scripts](#risk-classification-of-the-four-scripts) before continuing.
 
 ### Step 1 — obtain the NPU driver ZIP (one of the four tiers)
 
@@ -408,20 +507,20 @@ $cred = Get-Credential -UserName 'you@example.com' -Message 'AMD account passwor
 
 ## Parameters (per script)
 
-All three scripts share a common parameter contract for `-Action`, `-OnlyPhases`, `-CleanWorkRoot`, `-AllowWorkstationInstall`, `-UseTestSigning`, `-WorkRoot`, and `-PfxPassword`. The chipset and graphics scripts share additional source-discovery and help switches; the NPU script adds a 4-tier installer source resolution and platform override block.
+All four scripts share a common parameter contract for `-Action`, `-OnlyPhases`, `-CleanWorkRoot`, `-AllowWorkstationInstall`, `-UseTestSigning`, `-WorkRoot`, and `-PfxPassword`. The chipset and graphics scripts share additional source-discovery and help switches; the NPU script adds a 4-tier installer source resolution and platform override block; the BthPan script adds a single `-DecorationStrategy A|B` switch and otherwise reuses the common contract.
 
-### Common parameters (chipset, graphics, NPU)
+### Common parameters (chipset, graphics, NPU, BthPan)
 
 | Parameter                  | Default              | Description                                                                                       |
 | -------------------------- | -------------------- | ------------------------------------------------------------------------------------------------- |
 | `-Action`                  | `PrepareVerify`      | `Prepare` / `Verify` / `PrepareVerify` / `Install` / `All` / `Cleanup` / `ListPhases`             |
 | `-OnlyPhases`              | `@()`                | Phase IDs (e.g. `P05`, `P06`, `P08`, `P09`) or short names (e.g. `PatchInfs`); overrides `-Action` |
-| `-CleanWorkRoot`           | (off)                | Delete the workspace directory before starting (forces a fresh download/extract)                  |
+| `-CleanWorkRoot`           | (off)                | Delete the workspace directory before starting (forces a fresh download/extract/copy)             |
 | `-AllowWorkstationInstall` | (off)                | Permit Install-phase actions on Workstation OS (Win11). Discouraged — default blocks Install      |
 | `-UseTestSigning`          | (off)                | Fall back to `bcdedit /set testsigning on` instead of WDAC supplemental policy. Discouraged       |
-| `-WorkRoot`                | per-script           | Override workspace path (chipset: `C:\AMD-Chipset-WS`, graphics: `C:\AMD-Graphics-WS`, NPU: `C:\AMD-NPU-WS`) |
-| `-PfxPassword`             | per-script           | Password for the self-signed PFX (chipset/graphics: `'ChangeMe!2026'`, NPU: `''`)                 |
-| `-WdacPolicyGuid`          | per-script (fixed UUID v4) | Override the fixed WDAC supplemental policy GUID. Default is per-script (chipset: `503860EA-…`, graphics: `85336828-…`, NPU: `8B2C4F12-…`). Used for legacy-deploy cleanup or side-by-side multi-instance deploy |
+| `-WorkRoot`                | per-script           | Override workspace path (chipset: `C:\AMD-Chipset-WS`, graphics: `C:\AMD-Graphics-WS`, NPU: `C:\AMD-NPU-WS`, BthPan: `C:\MSBthPan-WS`) |
+| `-PfxPassword`             | per-script           | Password for the self-signed PFX (chipset/graphics/BthPan: `'ChangeMe!2026'`, NPU: `''`)          |
+| `-WdacPolicyGuid`          | per-script (fixed UUID v4) | Override the fixed WDAC supplemental policy GUID. Default is per-script (chipset: `503860EA-…`, graphics: `85336828-…`, NPU: `8B2C4F12-…`, BthPan: `A6E72D4F-3B98-4C5A-9E1D-7F8B2A4C6E5D`). Used for legacy-deploy cleanup or side-by-side multi-instance deploy |
 
 ### Chipset / Graphics-specific parameters
 
@@ -455,36 +554,53 @@ All three scripts share a common parameter contract for `-Action`, `-OnlyPhases`
 
 > **Note** on NPU driver vs Ryzen AI Software versioning: per AMD documentation at <https://ryzenai.docs.amd.com/en/latest/inst.html>, NPU kernel driver and Ryzen AI Software are versioned **independently**. `-NpuDriverPackage` and `-RyzenAiSoftwareVersion` are therefore independent switches; you can combine any driver with any software (e.g. `-NpuDriverPackage NPU_RAI1.6.1_314 -RyzenAiSoftwareVersion 1.7.1`).
 
+### BthPan-specific parameters
+
+| Parameter             | Default | Description                                                                                                |
+| --------------------- | ------- | ---------------------------------------------------------------------------------------------------------- |
+| `-Help` / `-h` / `-?` | (off)   | Show formatted usage information and exit                                                                  |
+| `-References`         | (off)   | Display curated list of Microsoft Learn documentation links and exit                                       |
+| `-Force`              | (off)   | Force overwrite of existing workspace files (bypass cached Phase markers)                                  |
+| `-TimestampUrl`       | `http://timestamp.digicert.com` | RFC 3161 timestamp server for `signtool sign /tr`                                            |
+| `-DecorationStrategy` | `A`     | `A` (default): add only `NTamd64...3` (ProductType=3 covers all Server SKUs). Simple, durable against future Server SKUs. |
+|                       |         | `B`: also add `NTamd64.10.0...14393 / 17763 / 20348 / 26100` per-build entries. Useful when explicit PnP-ranking tie-break is required, but needs manual update for any new Server SKU build. |
+| `-WdacBasePolicyGuid` | `A244370E-44C9-4C06-B551-F6016E563076` (Windows-shipped base CI policy) | Override the SupplementsBasePolicyID that the WDAC supplemental policy targets |
+
+> **Note**: the BthPan script intentionally does NOT expose `-InstallerUrl` / `-AmdLandingUrls` / `-AmdFallbackUrl` / `-OfflineZip` parameters, because there is no remote installer to fetch — the driver is the host's own `bthpan.inf` from `C:\Windows\System32\DriverStore\FileRepository\bthpan.inf_amd64_*`.
+
 ---
 
 ## Output files
 
-Each script writes the following artifacts under its workspace (`C:\AMD-{Chipset,Graphics,NPU}-WS\`):
+Each script writes the following artifacts under its workspace (`C:\AMD-{Chipset,Graphics,NPU}-WS\` or `C:\MSBthPan-WS\`):
 
 | Path (relative to workspace)                | Content                                                                                                          |
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `download\<installer>`                      | AMD installer EXE (chipset/graphics) or NPU driver ZIP (NPU)                                                     |
-| `extracted\`                                | Unpacked installer contents (original INFs, SYS, DLL, CAT files)                                                 |
-| `patched\<inf>`                             | Patched INF files with `ProductType=3` decoration mirrors                                                        |
-| `patched\<cat>`                             | Regenerated catalog files (`inf2cat /os:Server2025_X64` output)                                                  |
-| `cert\AMD-Chipset-Driver-CodeSign.pfx` (chipset) / `cert\AMD-Graphics-Driver-CodeSign.pfx` (graphics) / `cert\AMD-NPU-Driver-CodeSign.pfx` (NPU) | Self-signed code-signing certificate (PFX format) |
-| `cert\AMD-Chipset-Driver-CodeSign.cer` (chipset) / `cert\AMD-Graphics-Driver-CodeSign.cer` (graphics) / `cert\AMD-NPU-Driver-CodeSign.cer` (NPU) | Public certificate (CER format) for trust-store import |
-| `cert\AmdSuppPolicyId.txt` (chipset/graphics) | Marker file recording the dynamically-generated WDAC supplemental PolicyId for later cleanup                   |
+| `download\<installer>`                      | AMD installer EXE (chipset/graphics) or NPU driver ZIP (NPU); empty for BthPan (no remote source)                |
+| `extracted\`                                | Unpacked installer contents (original INFs, SYS, DLL, CAT files); for BthPan: `extracted\bthpan\` with the DriverStore copy |
+| `patched\<inf>`                             | Patched INF files with `ProductType=3` decoration mirrors (BthPan: `patched\bthpan\bthpan.inf`)                  |
+| `patched\<cat>`                             | Regenerated catalog files (`inf2cat /os:Server2025_X64,...` output)                                              |
+| `cert\AMD-Chipset-Driver-CodeSign.pfx` (chipset) / `cert\AMD-Graphics-Driver-CodeSign.pfx` (graphics) / `cert\AMD-NPU-Driver-CodeSign.pfx` (NPU) / `cert\MS-BthPan-Driver-CodeSign.pfx` (BthPan) | Self-signed code-signing certificate (PFX format) |
+| `cert\AMD-Chipset-Driver-CodeSign.cer` (chipset) / `cert\AMD-Graphics-Driver-CodeSign.cer` (graphics) / `cert\AMD-NPU-Driver-CodeSign.cer` (NPU) / `cert\MS-BthPan-Driver-CodeSign.cer` (BthPan) | Public certificate (CER format) for trust-store import |
+| `cert\AmdSuppPolicyId.txt` (chipset/graphics) / `cert\MsBthPanSuppPolicyId.txt` (BthPan) | Marker file recording the WDAC supplemental PolicyId for later cleanup                   |
 | `cert\WDAC-Supplemental-NPU.xml` / `.cip` (NPU) | WDAC supplemental Code Integrity policy (XML source + binary deployed to `C:\Windows\System32\CodeIntegrity\CiPolicies\Active\`) |
-| `inf_inventory.csv`                         | Per-INF inventory from P05 (file name, provider, class, HWID count, decoration status, etc.)                     |
-| `inf_inventory_report.txt`                  | Human-readable summary of P05 INF analysis                                                                       |
+| `inf_inventory.csv`                         | Per-INF inventory from P05 (file name, provider, class, HWID count, decoration status, etc.). BthPan: single-row CSV |
+| `inf_inventory_report.txt`                  | Human-readable summary of P05 INF analysis (includes UEFI Secure Boot baseline appendix)                          |
+| `logs\inf2cat_bthpan.log` (BthPan) | inf2cat verbose log; useful for diagnosing catalog generation failures                                                |
+| `logs\pnputil_bthpan.log` (BthPan) | pnputil add-driver/install output                                                                                     |
+| `logs\pnputil_scan-devices.log` (BthPan) | pnputil /scan-devices output (I03 forces PnP rebind)                                                            |
 
 ### CSV column conventions
 
-`inf_inventory.csv` follows these conventions across all three scripts:
+`inf_inventory.csv` follows these conventions across all four scripts:
 
 | Column                | Type   | Meaning                                                                            |
 | --------------------- | ------ | ---------------------------------------------------------------------------------- |
-| `FileName`            | string | INF filename (e.g. `kipudrv.inf`)                                                  |
+| `FileName`            | string | INF filename (e.g. `kipudrv.inf`, `bthpan.inf`)                                    |
 | `FullPath`            | string | Absolute path inside the workspace                                                 |
-| `Provider`            | string | INF `[Version]` Provider field (e.g. `AdvancedMicroDevicesInc.`)                   |
+| `Provider`            | string | INF `[Version]` Provider field (e.g. `AdvancedMicroDevicesInc.`, `Microsoft`)      |
 | `DriverVer`           | string | INF `DriverVer` line (e.g. `07/08/2025,32.0.203.314`)                              |
-| `Class`               | string | Device class (e.g. `Computer`, `Display`, `System`)                                |
+| `Class`               | string | Device class (e.g. `Computer`, `Display`, `System`, `Net`)                         |
 | `HwidCount`           | int    | Total Hardware IDs referenced in the INF                                           |
 | `MatchesTargetNpu`    | bool   | (NPU only) INF references the target NPU PCI HWID pattern                          |
 | `MatchedHwidCount`    | int    | Number of HWIDs in this INF that match the target device                           |
@@ -496,7 +612,7 @@ Each script writes the following artifacts under its workspace (`C:\AMD-{Chipset
 
 ## UEFI Secure Boot baseline
 
-All three scripts (chipset / graphics / NPU) capture the host's UEFI Secure Boot certificate rollout state once at P00 and reuse the snapshot throughout the pipeline. This is informational only — the OS-layer self-signing trust chain that these scripts operate on is **independent** of the firmware-layer UEFI Secure Boot certificate database. Operators who run multiple sister scripts on the same host see consistent baseline reporting and can correlate UEFI cert-rollout state with driver-install outcomes.
+All four scripts (chipset / graphics / NPU / BthPan) capture the host's UEFI Secure Boot certificate rollout state once at P00 and reuse the snapshot throughout the pipeline. This is informational only — the OS-layer self-signing trust chain that these scripts operate on is **independent** of the firmware-layer UEFI Secure Boot certificate database. Operators who run multiple sister scripts on the same host see consistent baseline reporting and can correlate UEFI cert-rollout state with driver-install outcomes.
 
 ### What gets captured
 
@@ -541,7 +657,7 @@ These are retained as part of the workspace artefact set and survive subsequent 
 
 ## Console output format
 
-Every line written by the scripts follows a structured, time-stamped format that is **identical across all three scripts** (chipset, graphics, NPU). This is intentional — operators reading logs from mixed runs see the same vocabulary and visual layout.
+Every line written by the scripts follows a structured, time-stamped format that is **identical across all four scripts** (chipset, graphics, NPU, BthPan). This is intentional — operators reading logs from mixed runs see the same vocabulary and visual layout.
 
 ### Marker semantics
 
@@ -562,7 +678,7 @@ Continuation lines that sit inside a section-banner table (PowerShell environmen
  Deploy-AMDNpuDriverOnWindowsServer
  Version: npu-2026.05.10-r2  [npu-sister-aligned-r2]  SHA256: 09129eebb04b
  Action : PrepareVerify
- Repo   : https://github.com/usui-tk/Deploy-AMD-Drivers-For-WindowsServer
+ Repo   : https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer
 ========================================================================
 
 ========================================================================
@@ -595,12 +711,13 @@ The phase header banner (`=` × 72, Magenta) is emitted by the dispatcher; phase
 
 ## System requirements
 
-- **CPU**: AMD Ryzen 4000 series or newer (the script's `Get-AmdChipsetPlatform` heuristic recognises 4000 → AI 300, AI Max 300; older silicon may run but is untested). For the NPU script: Ryzen 7040 / 8040 / AI 300 / AI Max 300 / AI 200 series with an integrated NPU.
-- **OS**: Windows Server 2025 (build 26100) is the production target. Windows 11 24H2 (build 26100) is supported as a *preview* host (see [TESTING.md](./TESTING.md)). Windows Server 2016 / 2019 / 2022 are recognised by the OS profile matrix and inf2cat will pick a corresponding `/os:` switch (e.g. `Server2016_X64`, `ServerRS5_X64`, `ServerFE_X64`), but production usage on those versions is out of scope for this README.
+- **CPU**: For AMD scripts: AMD Ryzen 4000 series or newer (the script's `Get-AmdChipsetPlatform` heuristic recognises 4000 → AI 300, AI Max 300; older silicon may run but is untested). For the NPU script: Ryzen 7040 / 8040 / AI 300 / AI Max 300 / AI 200 series with an integrated NPU. For the BthPan script: any CPU; the prerequisite is a bound Bluetooth host controller (vendor-agnostic — Intel AX2xx, Realtek RTL88xx, MediaTek MT79xx, Broadcom BCM43xx all qualify).
+- **OS**: Windows Server 2025 (build 26100) is the production target. Windows 11 24H2 (build 26100) is supported as a *preview* host (see [TESTING.md](./TESTING.md)). Windows Server 2016 / 2019 / 2022 are recognised by the OS profile matrix and inf2cat will pick a corresponding `/os:` switch (e.g. `Server2016_X64`, `ServerRS5_X64`, `ServerFE_X64`). The BthPan script's P08 explicitly targets all four (`Server2025_X64,ServerFE_X64,ServerRS5_X64,Server2016_X64`) in a single inf2cat invocation, so one signed catalog covers all Server SKUs.
 - **PowerShell**: 5.1 (Windows PowerShell Desktop) or 7.x (PowerShell Core). The script's `Show-PowerShellEnvironment` phase prints the compatibility matrix it sees.
-- **Disk**: ~5 GB on the workspace volume (~7 GB if you also run the NPU script).
-- **Network**: outbound HTTPS to `*.amd.com`, `download.microsoft.com`, `go.microsoft.com`, `aka.ms` (winget), `timestamp.digicert.com` (signing timestamp), and (for the NPU script with Tier 2 download) `account.amd.com` and `*.entitlenow.com`.
+- **Disk**: ~5 GB on the workspace volume (~7 GB if you also run the NPU script). BthPan workspace is small (<10 MB — single INF/SYS/CAT).
+- **Network**: outbound HTTPS to `*.amd.com`, `download.microsoft.com`, `go.microsoft.com`, `aka.ms` (winget), `timestamp.digicert.com` (signing timestamp), and (for the NPU script with Tier 2 download) `account.amd.com` and `*.entitlenow.com`. **The BthPan script needs network access only for timestamp signing** (`timestamp.digicert.com`); no AMD or Microsoft download endpoints are contacted.
 - **Privileges**: Administrator on the local machine. No domain rights are required.
+- **BthPan-specific**: a Bluetooth host controller bound and showing `Status=OK` in Device Manager (the script's V05 / V06 explicitly checks this before running Install). Without a host controller, the patched bthpan driver is still staged in the driver store but cannot bind to any device.
 
 ---
 
@@ -614,10 +731,11 @@ The certificate generated in P07 is the **trust anchor** for every patched drive
   - `CN=AMD Chipset Driver Self-Sign (WS2025 Lab, At Own Risk)` (chipset)
   - `CN=AMD Graphics Driver Self-Sign (WS2025 Lab, At Own Risk)` (graphics)
   - `CN=AMD NPU Driver Self-Sign (WS2025 Lab, At Own Risk)` (NPU)
-- **Key**: RSA 4096-bit, SHA-384 signature algorithm.
+  - `CN=Microsoft BthPan Driver Self-Sign (<OsCode> Lab, At Own Risk)` (BthPan; `<OsCode>` is the host OS short name, e.g. `WS2025`)
+- **Key**: RSA 4096-bit on WS2019+ / Win11+, RSA 2048-bit on WS2016. SHA-384 signature algorithm on WS2025, SHA-256 on WS2016/2019/2022.
 - **EKU**: Code Signing (`1.3.6.1.5.5.7.3.3`).
-- **Validity**: **5 years from the day P07 ran**. Hard-coded in the script.
-- **Storage**: PFX in `C:\AMD-{Chipset,Graphics,NPU}-WS\cert\`. The PFX is **not** password-protected by default (this is a lab tool; if you need a real password, change `[string]$PfxPassword = ''` in the param block).
+- **Validity**: **5 years from the day P07 ran** (WS2019+); 3 years on WS2016. Hard-coded in the script.
+- **Storage**: PFX in `C:\AMD-{Chipset,Graphics,NPU}-WS\cert\` or `C:\MSBthPan-WS\cert\`. The PFX is **not** password-protected by default (this is a lab tool; if you need a real password, change `[string]$PfxPassword = ''` in the param block).
 - **Trust anchor for**: every `.cat` file under `patched\`, the WDAC supplemental policy, and (via I01) `LocalMachine\Root` + `LocalMachine\TrustedPublisher`.
 
 ### What happens at year 5
@@ -704,7 +822,7 @@ By running these scripts, you acknowledge:
    - **Ryzen AI Software is officially Windows-11-only per AMD documentation** (build >= 22621.3527). Even if the NPU kernel driver loads on Windows Server 2025, the user-mode stack (Python conda env, ONNX Runtime VitisAI EP, OGA) is not expected to function. **Do not deploy the NPU script in environments expecting AI inference workloads on Server 2025.**
    - **Driver-store cleanup is best-effort.** Removing self-signed NPU drivers from the driver store after `-Action Install` may require manual `pnputil /delete-driver oemNN.inf /force` or use of Driver Store Explorer (Rapr.exe).
 
-10. **No commercial support is offered through this repository.** GitHub Issues at <https://github.com/usui-tk/Deploy-AMD-Drivers-For-WindowsServer/issues> are best-effort for bug reports and clarification questions. Pull requests are welcome but not guaranteed to be reviewed on any timeline.
+10. **No commercial support is offered through this repository.** GitHub Issues at <https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/issues> are best-effort for bug reports and clarification questions. Pull requests are welcome but not guaranteed to be reviewed on any timeline.
 
 ---
 
@@ -724,7 +842,7 @@ AMD periodically reorganises their support pages. The script probes 3-6 candidat
 
 - Pass `-InstallerUrl https://drivers.amd.com/drivers/...` to skip URL discovery and download a specific version.
 - Open the `Probe results:` block in P03 output and visit each URL manually to confirm AMD's site changed.
-- File an issue: <https://github.com/usui-tk/Deploy-AMD-Drivers-For-WindowsServer/issues>
+- File an issue: <https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/issues>
 
 ### NPU script "All 4 download tiers exhausted"
 
@@ -863,7 +981,7 @@ For the full developer specification — including phase architecture rules, ban
 
 `SPEC.md` is structured in three parts:
 
-- **Part A — Common Specification.** Reusable rules across the three scripts (phase architecture, banner / log markers, parameter conventions, error handling, CSV column conventions, path-handling rules). Pick this up first if you are extending any of the three scripts or adding a fourth.
+- **Part A — Common Specification.** Reusable rules across the four scripts (phase architecture, banner / log markers, parameter conventions, error handling, CSV column conventions, path-handling rules). Pick this up first if you are extending any of the four scripts or adding a fifth.
 - **Part B — Script-specific Specifications.** One section per script (Chipset / Graphics / NPU) documenting the unique platform-detection logic, INF inventory filters, installer source resolution tiers, and known platform quirks.
 - **Part C — Quality Gates & Lessons Learned.** What `psa.py` checks for, what regression tests `TESTING.md` covers, and the historical fixes (e.g. timezone-induced DriverDate false positives in chipset r46) that are baked into the current implementation.
 
@@ -885,7 +1003,7 @@ A note on git's internal storage: git applies standard text normalization at com
 
 **Caveat for raw downloads**: if you download a `.ps1` file via the GitHub "Raw" button or `curl https://raw.githubusercontent.com/.../*.ps1`, you receive the blob form directly (**BOM + LF**) — git's checkout-time conversion does not apply to raw blob downloads. PowerShell 5.1 and 7.x handle both LF and CRLF in scripts correctly, so the file still executes, but if you need the exact canonical form (BOM + CRLF) you should clone the repository rather than downloading individual raw files. Practical recommendations:
 
-- **For execution on Windows**: clone the repo (`git clone https://github.com/usui-tk/Deploy-AMD-Drivers-For-WindowsServer.git`), don't right-click → "Save raw as" individual files.
+- **For execution on Windows**: clone the repo (`git clone https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer.git`), don't right-click → "Save raw as" individual files.
 - **For inspection or quick patching**: raw downloads are fine; PowerShell tolerates LF line endings.
 - **For re-publication or mirroring**: if you re-host the scripts elsewhere, regenerate them as BOM + CRLF to match the canonical form.
 
@@ -954,7 +1072,7 @@ The MIT licence applies to the **PowerShell scripts and accompanying documentati
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for issue templates, PR guidelines, and how to run the regression test suite (including `psa.py`).
 
-Issues and pull requests are tracked at: <https://github.com/usui-tk/Deploy-AMD-Drivers-For-WindowsServer>
+Issues and pull requests are tracked at: <https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer>
 
 ---
 

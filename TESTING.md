@@ -1,6 +1,6 @@
 # TESTING.md — Physical Hardware Validation Results
 
-This document consolidates the validation results for `Deploy-AMD-Drivers-For-WindowsServer`. Because this repository ships **experimental scripts that target AMD's consumer-class Ryzen chipset / Radeon iGPU / Ryzen AI NPU**, all meaningful validation depends on access to physical AMD consumer hardware. Testing on non-AMD-consumer hardware (server-class EPYC, ARM, Intel, virtual machines without the target devices, etc.) cannot exercise the device-bind, driver-upgrade, or post-install verification paths that this pipeline exists to validate. This document therefore covers only physical-hardware validation:
+This document consolidates the validation results for `Deploy-Drivers-For-WindowsServer`. Because this repository ships **experimental scripts that target AMD's consumer-class Ryzen chipset / Radeon iGPU / Ryzen AI NPU**, all meaningful validation depends on access to physical AMD consumer hardware. Testing on non-AMD-consumer hardware (server-class EPYC, ARM, Intel, virtual machines without the target devices, etc.) cannot exercise the device-bind, driver-upgrade, or post-install verification paths that this pipeline exists to validate. This document therefore covers only physical-hardware validation:
 
 1. **Validation Result 1: ThinkCentre M75q Tiny Gen 2** (Windows Server 2025 physical / Cezanne Zen 3 — chipset & graphics validated)
 2. **Validation Result 2: ThinkPad X13 Gen 1 AMD (2020)** (Windows 11 Enterprise LTSC 2024 / Renoir Zen 2 — chipset & graphics validated)
@@ -12,13 +12,14 @@ This document consolidates the validation results for `Deploy-AMD-Drivers-For-Wi
 
 ## 0. Validation status summary
 
-> Read this before sections 1-3. The three scripts have **very different validation maturity levels**.
+> Read this before sections 1-3. The four scripts have **very different validation maturity levels**.
 
 | Script | Physical-hardware validation | Real driver install on target HW | Recommended use |
 |---|---|---|---|
 | **Chipset (r57)** | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD (validated on r55; r56 added a breaking install-decision change; r57 fixes CiTool ENTER-prompt hang + pnputil exit=259 — see note below) | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
 | **Graphics (r25)** | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD (validated on r23; r24 added a breaking install-decision change; r25 fixes CiTool ENTER-prompt hang + pnputil exit=259 — see note below) | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
 | **NPU (r7)** | ❌ **none** (no physical NPU machine in maintainer's lab) | ❌ **never executed** | **Experimental / research-grade only. Do not deploy in production.** |
+| **BthPan (r1)** | ⏳ **planned** — ThinkPad + Intel AX210 + Windows Server 2025 build 26100.32860 is the first target (see §3a below) | ❌ **not yet executed** | New script; physical validation pending. Logic shares the proven Phase / Secure Boot / WDAC framework from the Chipset script (Edit-InfForServer, Get-OsContext, Resolve-PhaseSelection, etc. are verbatim-inherited from Chipset r57). |
 
 > **Note on r56 / r24 behaviour change**: The category-priority override added in chipset r56 and graphics r24 (see SPEC §D.15) changes the install-decision semantics in a breaking way: self-signed `[C]` drivers now always supersede Microsoft generic `[A]` and vendor `[B]` drivers regardless of version. The pre-r56/r23 physical-hardware validation results below remain *structurally* valid (extraction, patching, signing, WDAC deployment all behave the same), but the **V05/V06/I03 driver-install decisions will differ** — devices that the prior versions classified as `SKIP-newer` are now classified as `INSTALL_UPGRADE`. Re-validation on the M75q Tiny Gen 2 and X13 Gen 1 AMD fixtures is recommended after deploying r56/r24.
 >
@@ -547,6 +548,121 @@ The two updates are independent — adding driver support does not require touch
 
 ---
 
+## 3a. Validation Result 3a (BthPan script) — planned
+
+> The BthPan script (r1) is brand-new; physical validation has not yet been performed. This section documents the planned first physical-validation run.
+
+### 3a.1 Planned target hardware
+
+| Item | Value |
+|---|---|
+| Model | Lenovo ThinkPad (specific SKU TBD; any model with bound Intel AX210) |
+| Bluetooth host controller | Intel AX210 (`USB\VID_8087&PID_0032`, also seen as `USB\VID_8087&PID_0033`) |
+| Host controller driver source | Intel published `Bluetooth_22.x.x.x_64UWD-RetailWHCK.zip` (vendor-signed; loads on Server with no patching) |
+| OS | Windows Server 2025 (build 26100.32860 — the first WS2025 GA build) |
+| ProductType | 3 (Server) |
+| Disk | NVMe (free space >5 GB for workspace; BthPan workspace is small ~10 MB) |
+
+### 3a.2 Pre-validation state (expected on a fresh WS2025 install)
+
+After installing the Intel AX210 host controller driver via its vendor installer, `BTH\MS_BTHPAN` should appear in Device Manager. The expected starting state is **one of**:
+
+- **Unknown Device (code 28)**: `BTH\MS_BTHPAN` enumerated but no driver bound. This is the cleanest case for I04 to verify true resolution against.
+- **Phantom OK**: `BTH\MS_BTHPAN` showing Status=OK, with `DriverInfPath=bth.inf`, `Class=Bluetooth`, `Service=(empty)`. This is the trickier case the script is specifically designed to detect.
+
+V06 will diagnose and print the actual starting classification.
+
+### 3a.3 Planned test commands
+
+```powershell
+# Stage 0: confirm host controller is bound
+Get-PnpDevice -Class Bluetooth | Select-Object FriendlyName, Status, InstanceId
+
+# Stage 1: diagnosis only (no system change)
+.\Deploy-MSBthPanInboxOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot
+
+# Read V05 + V06 output carefully. Confirm:
+#   - V05 reports the device count and classification
+#   - V06 risk class is LOW (BthPan default; only MEDIUM if Phantom OK detected)
+#   - Patched bthpan.inf is at C:\MSBthPan-WS\patched\bthpan\bthpan.inf
+#   - inf2cat catalog targets Server2025_X64 + ServerFE_X64 + ServerRS5_X64 + Server2016_X64
+
+# Stage 2: full install
+.\Deploy-MSBthPanInboxOnWindowsServer.ps1 -Action Install
+
+# Expected I03 output:
+#   pnputil /add-driver bthpan.inf /install   -> exit=0 (or 3010 if reboot needed)
+#   pnputil /scan-devices                     -> exit=0
+
+# Expected I04 output:
+#   [OK]   TRUE resolution: oem*.inf bound, Class=Net, Service=BthPan
+#   *** TRUE RESOLUTION ACHIEVED ***
+
+# If I04 reports `*** TRUE RESOLUTION NOT YET ACHIEVED ***`:
+#   Reboot, then re-run the same command. The script's resume-after-reboot
+#   logic should detect the now-correct binding and confirm true resolution.
+```
+
+### 3a.4 Verification commands to run after install
+
+```powershell
+# Runtime artifacts
+Test-Path C:\Windows\System32\drivers\bthpan.sys           # expected: True
+Get-Service BthPan                                          # expected: present, Status=Running or Stopped
+(Get-Service BthPan).StartType                              # expected: Manual (default)
+
+# Device-level binding
+$dev = Get-PnpDevice -InstanceId 'BTH\MS_BTHPAN*'
+$dev | Get-PnpDeviceProperty -KeyName DEVPKEY_Device_DriverInfPath, DEVPKEY_Device_Class, DEVPKEY_Device_Service
+# Expected:
+#   DriverInfPath = oem<N>.inf  (e.g. oem17.inf)
+#   Class         = Net
+#   Service       = BthPan
+
+# NetAdapter visibility
+Get-NetAdapter | Where-Object InterfaceDescription -Match 'Bluetooth.*Personal Area Network'
+# Expected: one NetAdapter present, MediaType=Bluetooth
+
+# Self-signed catalog still trusted
+signtool verify /pa /v C:\MSBthPan-WS\patched\bthpan\bthpan.cat
+# Expected: "Successfully verified"
+
+# WDAC supplemental policy active
+CiTool --list-policies --json | ConvertFrom-Json |
+    Select-Object -ExpandProperty Policies |
+    Where-Object PolicyID -eq '{A6E72D4F-3B98-4C5A-9E1D-7F8B2A4C6E5D}'
+# Expected: one Policy returned, IsActive=True
+```
+
+### 3a.5 Pass/Fail criteria
+
+The validation run is considered PASS only if **all** of the following hold:
+
+1. P03 locates the DriverStore source without errors (`bthpan.inf_amd64_*` directory exists)
+2. P06 generates a patched bthpan.inf with at least one server decoration (`ServerDecCount >= 1`)
+3. P08 generates a signed catalog targeting all four Server SKUs
+4. I01 imports the cert into LocalMachine\Root + LocalMachine\TrustedPublisher without error
+5. I02 deploys the WDAC supplemental policy with the BthPan-specific GUID `A6E72D4F-…`
+6. I03 returns exit 0 (or 3010 with subsequent reboot)
+7. I04 reports `*** TRUE RESOLUTION ACHIEVED ***`
+8. Post-install verification commands in §3a.4 all return their expected values
+
+### 3a.6 Strategy A vs Strategy B test plan
+
+Once §3a.5 PASS is achieved with the default Strategy A, the planned regression test sequence is:
+
+1. **Strategy B run** — `-DecorationStrategy B -CleanWorkRoot`. Confirm that the patched INF gains four additional `NTamd64.10.0...XXXXX` entries in `[Manufacturer]` and four corresponding mirrored InstallSection blocks. Confirm the same `*** TRUE RESOLUTION ACHIEVED ***` outcome.
+2. **Cleanup test** — `-Action Cleanup`. Confirm the workspace is removed, WDAC supplemental policy is uninstalled, and re-running V06 reports the system has returned to its pre-install state (Phantom OK or Unknown Device).
+3. **Resume-after-reboot test** — simulate the I03 reboot scenario by running `-Action Install` on a Phantom OK host where PnP does not immediately rebind. After reboot, re-run `-Action Install` and confirm the resume-after-reboot logic correctly detects the now-true-resolution state and reports cached/skip for I01/I02/I03 + still runs I04 for the verdict.
+
+### 3a.7 Known unknowns to be resolved by this validation
+
+- How reliably does `pnputil /scan-devices` cause an immediate rebind from `bth.inf` (Phantom proxy) to the patched `oem*.inf`, vs requiring a reboot?
+- Are there any DEVPKEY values that differ between Strategy A and Strategy B-installed devices? (Expected: no — both should produce identical Class/Service/DriverInfPath, only the PnP ranking score differs.)
+- Does Strategy B's per-build decoration actually improve PnP ranking over Strategy A, or is it functionally indistinguishable?
+
+---
+
 ## 4. Summary of validation results
 
 ### 4.1 Per-environment matrix
@@ -594,7 +710,7 @@ The following bugs were found and fixed during the validation runs above:
 | Clean Windows Server 2025 install (interactive console) | chipset r54 / graphics r19→r22 | chipset r55 / graphics r23 | Workspace lock leaked across runs in the same PowerShell host. The lock file `<WorkRoot>\.markers\RUN.lock` was written with the current `$PID` but the only cleanup was a `Register-EngineEvent PowerShell.Exiting` action that never fires inside an interactive console. The next run in the same console then saw the leftover lock with PID == its own host PID and was rejected as "another instance is already running". Fixed by (a) self-PID detection in `Test-WorkspaceLockHeld` (treat lock with `Pid==$PID` as stale and overtake silently) and (b) wrapping the main phase loop in `try { ... } finally { Clear-WorkspaceLock ... }` so the lock is released on every exit path. NPU script is unaffected (no workspace lock implemented; see SPEC §D.13). |
 | Clean Windows Server 2025 install | chipset r54 | r55 | r54's new `Expand-AmdInstaller_ViaInstallShield` dropped `installshield-admin.log` and 12 per-sub-MSI `msiexec-admin-*.log` files at the workspace root, instead of `<WorkRoot>\logs\` alongside the existing `inf2cat_*.log` / `signtool_*.log` / `verify_*.log` / `pnputil_*.log` files. Root cause: `$parentDir = Split-Path $DestinationPath -Parent` resolved to the workspace root because the caller passed `$Ctx.Paths.Extract` (= `<WorkRoot>\extracted`). Fixed by adding an optional `-LogDir` parameter to both `Expand-AmdInstaller` and `Expand-AmdInstaller_ViaInstallShield`; `Invoke-PrepPhase04_ExtractInstaller` now passes `$Ctx.Paths.Logs`. Chipset only — graphics uses a single `msiexec /i` invocation and is not affected. See SPEC §D.14. |
 
-For full validation logs and the corresponding fix commits, see <https://github.com/usui-tk/Deploy-AMD-Drivers-For-WindowsServer/commits/main>.
+For full validation logs and the corresponding fix commits, see <https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/commits/main>.
 
 ---
 
@@ -636,7 +752,7 @@ Notes:
 
 ### Cross-script consistency check
 
-Run all three scripts in PrepareVerify mode on the same host with `-CleanWorkRoot`. The captured `BucketId`, `Confidence`, and event counts in V06 should be **identical** across all three scripts (the MS sample script returns deterministic results for the same host state).
+Run all four scripts in PrepareVerify mode on the same host with `-CleanWorkRoot`. The captured `BucketId`, `Confidence`, and event counts in V06 should be **identical** across all four scripts (the MS sample script returns deterministic results for the same host state).
 
 ---
 

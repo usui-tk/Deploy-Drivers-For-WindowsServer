@@ -2,7 +2,7 @@
 
 > **本ドキュメントの目的**
 >
-> 本ファイルは、本リポジトリ配下の 3 つの PowerShell スクリプト
+> 本ファイルは、 本リポジトリ配下の 4 つの PowerShell スクリプト
 > (`Deploy-AMDChipsetDriverOnWindowsServer.ps1`、
 > `Deploy-AMDGraphicsDriverOnWindowsServer.ps1`、
 > `Deploy-AMDNpuDriverOnWindowsServer.ps1`) の構築・拡張のための authoritative
@@ -69,7 +69,7 @@ Deploy-AMDGraphicsDriverOnWindowsServer.ps1  (graphics 固有の platform 検出
 Deploy-AMDNpuDriverOnWindowsServer.ps1       (4-tier installer 解決を持つ NPU script、 r7)
 ```
 
-これら 3 つの 21-phase デプロイスクリプトは、 以下の正本です:
+これら 4 つの 21-phase デプロイスクリプトは、 以下の正本です:
 
 - `Write-PhaseHeader` / `Write-PhaseFooter` / `Format-Elapsed`
 - `Write-Step` / `Write-Ok` / `Write-Warn2` / `Write-Fail` / `Write-Skip`
@@ -533,7 +533,7 @@ P00 は無条件で実行され、 全 downstream phase が依存する入力を
 Raw URL    : https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py
 ```
 
-`psa.py` への変更 (バグ修正、 新規チェック追加、 auto-variable リスト拡張など) は、 すべて上記 canonical レポジトリ側で行います。 本レポジトリ (`Deploy-AMD-Drivers-For-WindowsServer`) はその **consumer (利用側)** です。
+`psa.py` への変更 (バグ修正、 新規チェック追加、 auto-variable リスト拡張など) は、 すべて上記 canonical レポジトリ側で行います。 本レポジトリ (`Deploy-Drivers-For-WindowsServer`) はその **consumer (利用側)** です。
 
 ### Setup
 
@@ -1087,6 +1087,146 @@ NPU kernel driver versioning は Ryzen AI Software versioning と **完全に独
 
 ---
 
+## B.4 BthPan スクリプト (`Deploy-MSBthPanInboxOnWindowsServer.ps1`)
+
+### 識別
+
+- **ScriptVersion**: `msbthpan-2026.05.17-r1`
+- **ScriptTag**: `msbthpan-initial-implementation-r1`
+- **デフォルトワークスペース**: `C:\MSBthPan-WS`
+- **証明書 Subject CN**: `Microsoft BthPan Driver Self-Sign (<OsCode> Lab, At Own Risk)` (`<OsCode>` はホスト OS 短縮名: `WS2016` / `WS2019` / `WS2022` / `WS2025`)
+- **証明書ファイル名**: `MS-BthPan-Driver-CodeSign.{pfx,cer}`
+- **WDAC supplemental policy GUID** (デフォルト、 固定値): `A6E72D4F-3B98-4C5A-9E1D-7F8B2A4C6E5D` — 本スクリプト用に新規発行。 Chipset (`503860EA-…`)・ Graphics (`85336828-…`)・ NPU (`8B2C4F12-…`) と非衝突。
+- **WDAC supplemental policy 名**: `MS-BthPan-Driver-SelfSign-Lab`
+
+### ドライバソース — DriverStore 経由 (ダウンロードなし)
+
+AMD 姉妹スクリプトが `drivers.amd.com` や AMD アカウントポータルからインストーラを取得するのに対し、 BthPan スクリプトのドライバソースはホスト自身の DriverStore staging ディレクトリです:
+
+```
+C:\Windows\System32\DriverStore\FileRepository\bthpan.inf_amd64_<hash>\
+├── bthpan.inf       Microsoft inbox INF (Workstation decoration のみ)
+├── bthpan.sys       Microsoft 署名済みバイナリ
+├── bthpan.PNF       precompiled INF cache
+└── <localized MUI resources>
+```
+
+`Get-BthPanDriverStoreSource` helper は `FileRepository` 配下の `bthpan.inf_amd64_*` ディレクトリを列挙し、 `bthpan.inf` と `bthpan.sys` の両方および少なくとも 1 つの `.cat` を含むものに絞り込み、 最も新しく更新されたディレクトリを選択します。 通常のホストではこのディレクトリは 1 つだけですが、 Windows feature update 後には複数コピーが存在しうるためです。
+
+**Microsoft 署名済みの bthpan.sys は変更されません。** 再署名されるのは catalog のみです (INF をパッチした時点で、 元 catalog の INF-content hash attestation が無効化されるため)。
+
+### このスクリプトが解消する根本原因
+
+Microsoft inbox `bthpan.inf` は `NTamd64...1` という Workstation decoration しか宣言していません:
+
+```ini
+[Manufacturer]
+%MfgName% = Msft,NTamd64...1
+```
+
+5 番目のセグメント (`1`) は ProductType 制限です (1 = Workstation、 2 = Domain Controller、 3 = Server)。 Windows Server SKU (ProductType=3) 上では、 PnP マッチャーが HWID 解決時にすべての `Msft.NTamd64...1` エントリを破棄します。 結果として:
+
+1. `bthpan.inf` の `[BthPan.Install]` section (AddService、 CopyFiles、 AddReg) が実行されない。
+2. `bthpan.sys` が `C:\Windows\System32\drivers` にコピーされない。
+3. `BthPan` サービスが登録されない。
+4. Bluetooth PAN network adapter (Class=Net) が生成されない。
+
+### Phantom OK と真の解消 (True Resolution)
+
+特に注意すべき失敗モード: Server SKU 上であっても `BTH\MS_BTHPAN` が Device Manager で `Status=OK` を表示することがあります。 これは汎用 `bth.inf` がデバイスを代理マッチするためです。 しかし `bthpan.sys` は実際には load されておらず、 `BthPan` サービスも稼働していません — PAN ネットワーキング機能は完全に壊れたままです。
+
+V05 / V06 / I04 は `Get-PnpDeviceProperty` で 3 つの DEVPKEY プロパティを読み出し、 状態を分類します:
+
+| プロパティ                         | Phantom OK             | True Resolution         | Unknown (code 28) |
+| ---------------------------------- | ---------------------- | ----------------------- | ----------------- |
+| `DEVPKEY_Device_DriverInfPath`     | `bth.inf`              | `oem<N>.inf`            | (空)              |
+| `DEVPKEY_Device_Class`             | `Bluetooth`            | `Net`                   | (空)              |
+| `DEVPKEY_Device_Service`           | (空)                   | `BthPan`                | (空)              |
+| Status                             | OK                     | OK                      | Error             |
+
+スクリプトはさらに 3 つの runtime artifact (`Test-BthPanRuntimeArtifacts`) もチェックします:
+
+- `C:\Windows\System32\drivers\bthpan.sys` が存在する
+- `HKLM:\SYSTEM\CurrentControlSet\Services\BthPan` レジストリキーが存在する
+- `InterfaceDescription` が `Bluetooth.*Personal Area Network` にマッチする `NetAdapter` が `Get-NetAdapter` で列挙可能
+
+I04 が `*** TRUE RESOLUTION ACHIEVED ***` と宣言するのは、 以下の **すべて** が満たされる場合のみです:
+
+1. すべての `BTH\MS_BTHPAN*` デバイスが `True` 分類 (もしくはデバイス数 0)
+2. `bthpan.sys` が `System32\drivers` に存在する
+3. `BthPan` サービスキーが登録済み
+
+### INF パッチ戦略
+
+`Edit-InfForServer` (Chipset スクリプトから verbatim 継承) を用いて Workstation decoration `NTamd64...1` を `NTamd64...3` で mirror します:
+
+```ini
+; パッチ前
+[Manufacturer]
+%MfgName% = Msft,NTamd64...1
+
+; 戦略 A (デフォルト) 適用後
+[Manufacturer]
+%MfgName% = Msft,NTamd64...1,NTamd64...3
+```
+
+`ConvertTo-ServerDecoration` helper は `NTamd64...1` を 4 要素配列 (`NT` + `amd64` + `.` + 空 + `.` + 空 + `.` + 空 + `.` + `1`) = `['NTamd64','','','1']` にパースし、 `parts[3]='3'` を代入して `NTamd64...3` を再結合生成します。 これにより新規 Server decoration エントリが 1 つ生成され、 すべての Server SKU をカバーします (ProductType=3 は build 非依存)。
+
+**戦略 B (オプション)**: `Add-BthPanExplicitServerDecorations` がさらに 4 つの build-explicit decoration を追加します:
+
+```ini
+[Manufacturer]
+%MfgName% = Msft,NTamd64...1,NTamd64...3,NTamd64.10.0...14393,NTamd64.10.0...17763,NTamd64.10.0...20348,NTamd64.10.0...26100
+```
+
+これは複数の bthpan パッケージが bind スロットを競合した場合に決定論的な tie-break を提供しますが、 将来 Microsoft が新規 Server SKU build をリリースした場合は手動更新が必要です。
+
+### Catalog 生成 — 4 SKU 同時ターゲット
+
+P08 は `inf2cat` を `/os:Server2025_X64,ServerFE_X64,ServerRS5_X64,Server2016_X64` で起動し、 1 つの署名済 catalog が 4 つすべての Windows Server SKU をカバーするようにします。 スクリプトはまずインストール済 `inf2cat.exe` がサポートする `/os:` トークンを `Get-Inf2catSupportedOsValues` で probe し、 希望リストと inf2cat が実際に理解する集合の積集合を取ります。 4 SKU full リストが失敗した場合 (`Server2016_X64` を認識しない極古い inf2cat build のみ稀発生)、 `Server2016_X64` を除外して再試行します。
+
+### Phase の特殊性 (姉妹スクリプトとの差異)
+
+| Phase | BthPan 固有の挙動                                                                                       |
+| ----- | ------------------------------------------------------------------------------------------------------- |
+| P02   | 7-Zip は不要 (アーカイブ展開なし)。 SDK (signtool) + WDK (inf2cat) のみ取得。                            |
+| P03   | ネットワーク呼び出しなし。 `Get-BthPanDriverStoreSource` で DriverStore 内の `bthpan.inf_amd64_*` を locate。 |
+| P04   | DriverStore から `workspace\extracted\bthpan\` への単純ファイルコピー。 アーカイブ展開なし。            |
+| P05   | 単一行 CSV (INF は 1 ファイル: `bthpan.inf`)。 source-variant 曖昧性解消なし。                          |
+| P06   | デフォルトで戦略 A (`NTamd64...3` mirror)。 `-DecorationStrategy B` で戦略 B 追加適用可能。              |
+| P08   | 4 Server SKU (`Server2025_X64,ServerFE_X64,ServerRS5_X64,Server2016_X64`) を同時ターゲット。            |
+| V05   | すべての `BTH\MS_BTHPAN*` インスタンスを診断し、 Phantom/True/Unknown に分類。                            |
+| V06   | セクション: device disposition、 runtime artifacts、 既存 oem*.inf マッピング、 risk classification、 UEFI Secure Boot baseline。 per-device "AS-IS / TO-BE" マトリクスなし (ドライバ・ HWID が各 1 のため)。 |
+| I03   | `pnputil /add-driver /install` の後、 `pnputil /scan-devices` で PnP 再評価を強制し、 `bth.inf` 代理マッチからパッチ済み `oem*.inf` への rebind を発生させる。 |
+| I04   | 判定: `*** TRUE RESOLUTION ACHIEVED ***` には per-device classification と runtime artifact チェックが必要。 Phantom OK は明示的に FAIL とフラグ。 |
+
+### パラメータ
+
+BthPan スクリプトが **意図的に公開しない**もの:
+
+- `-InstallerUrl`・ `-AmdLandingUrls`・ `-AmdFallbackUrl` (Chipset/Graphics 固有 — 取得すべき AMD インストーラが存在しない)
+- `-OfflineZip`・ `-AmdAccountUser`・ `-AmdAccountPassword`・ `-ForceAmdAccountAuth` (NPU 固有)
+- `-NpuOverride`・ `-NpuDriverPackage`・ `-RyzenAiSoftwareVersion`・ `-AssumeIfMissing` (NPU 固有)
+- `-CertValidityYears` (OS context から hard-code: WS2016 で 3 年、 WS2019+ で 5 年)
+
+公開しているもの:
+
+- A.6 に従う共通パラメータすべて (`-Action`・ `-OnlyPhases`・ `-CleanWorkRoot`・ `-AllowWorkstationInstall`・ `-UseTestSigning`・ `-WorkRoot`・ `-PfxPassword`・ `-WdacPolicyGuid`・ `-WdacBasePolicyGuid`)
+- `-Help` / `-h` / `-?` (alias-bound switch)
+- `-References` (Microsoft Learn 厳選リンクインデックス)
+- `-Force` (キャッシュされた Phase marker を bypass)
+- `-TimestampUrl` (デフォルト `http://timestamp.digicert.com`)
+- **`-DecorationStrategy A|B`** — BthPan 固有。 A (デフォルト): `NTamd64...3` のみ。 B: `NTamd64.10.0...14393 / 17763 / 20348 / 26100` を per-build エントリで追加。
+
+### 既知の制約
+
+- bind 済の Bluetooth host controller が必要です。 host controller 自体が unknown-device の場合、 V05 / V06 は依然として実行されます (`BTH\MS_BTHPAN` デバイス非検出として報告)。 しかし `Install` で機能的成果が出るのは host controller が先に bind された後だけです。
+- `pnputil /add-driver` 後の `pnputil /scan-devices` は *通常* `bth.inf` からパッチ済み `oem*.inf` への即時 rebind を発生させます。 一部のケース (WS2025 build 26100.32860 で確認) では、 PnP が完全にデバイスを再評価するために再起動が必要です。 I04 はこのケースを検出し `*** TRUE RESOLUTION NOT YET ACHIEVED ***` を報告します。 再起動後に同じ `-Action Install` コマンドを再実行することで bind が解決されます。
+- 本スクリプトは Bluetooth host controller ドライバ (Intel AX2xx・ Realtek RTL88xx 等) を対象外とします。 ベンダー host controller ドライバは事前にそれぞれのベンダーチャネル経由でインストールが必要です。
+- 本スクリプトは inbox `bthpan.inf` を `C:\Windows\INF\` から削除しません。 パッチ済み `oem*.inf` の方が PnP ランキングで上位になるためです (`NTamd64...3` decoration が ProductType=3 と完全一致し、 inbox `NTamd64...1` は完全にフィルタアウトされるため)。
+
+---
+
 # Part C — 品質ゲートと検証チェックリスト
 
 `main` への全 commit は以下のゲートを満たす必要があります。
@@ -1098,11 +1238,13 @@ NPU kernel driver versioning は Ryzen AI Software versioning と **完全に独
 - [ ] `python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1` → errors 0
 - [ ] `python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1` → errors 0
 - [ ] `python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1` → errors 0
+- [ ] `python3 psa.py Deploy-MSBthPanInboxOnWindowsServer.ps1` → errors 0
 
 ## C.2 機能チェック (影響を受けたスクリプトに対して)
 
 - [ ] `-Action ListPhases` が期待される 21-phase テーブルを出力。
 - [ ] `-Action PrepareVerify -CleanWorkRoot` が対象 AMD デバイス非搭載の任意のホスト上で `-AssumeIfMissing` (NPU script) / 適切な platform override (chipset / graphics) を使ってエラーなく完了。注: これはパイプライン健全性のチェックのみであり、実ドライバ挙動の検証にはなりません。
+- [ ] BthPan スクリプトの `-Action PrepareVerify -CleanWorkRoot` が任意の Server SKU 上で完了し、 単一行の `inf_inventory.csv` を生成 (Bluetooth host controller 非搭載ホストでも V05 / V06 が "No BTH\MS_BTHPAN device on host" と報告するだけで prepare phase は正常完了)。
 - [ ] `Show-RunSummary` が exit path に関わらずレンダリングされる (成功 / 失敗どちらでも)。
 - [ ] `Format-Elapsed` が `0.42s`、 `1m2.3s`、 `1h2m3s` に対して正しい文字列を生成する。
 
@@ -1115,10 +1257,11 @@ NPU kernel driver versioning は Ryzen AI Software versioning と **完全に独
 
 ## C.4 スクリプト間整合性チェック
 
-- [ ] 3 スクリプトとも `$Script:PhaseRegistry` で `[pscustomobject]@{...}` を使用 (`@{...}` ではない)。
-- [ ] 3 スクリプトとも姉妹スクリプト整合の関数命名を使用: `Invoke-{Group}Phase{NN}_{Name}`。
-- [ ] 3 スクリプトとも同じ `-Action` ValidateSet を使用: `'Prepare','Verify','PrepareVerify','Install','All','Cleanup','ListPhases'`。
-- [ ] 3 スクリプトとも同じマーカー semantic を使用: `[*]` Cyan / `[+]` Green / `[!]` Yellow / `[X]` Red / `[~]` DarkGray。
+- [ ] 4 スクリプトとも `$Script:PhaseRegistry` で `[pscustomobject]@{...}` を使用 (`@{...}` ではない)。
+- [ ] 4 スクリプトとも姉妹スクリプト整合の関数命名を使用: `Invoke-{Group}Phase{NN}_{Name}`。
+- [ ] 4 スクリプトとも同じ `-Action` ValidateSet を使用: `'Prepare','Verify','PrepareVerify','Install','All','Cleanup','ListPhases'`。
+- [ ] 4 スクリプトとも同じマーカー semantic を使用: `[*]` Cyan / `[+]` Green / `[!]` Yellow / `[X]` Red / `[~]` DarkGray。
+- [ ] 4 スクリプトとも互いに衝突しない一意な WDAC supplemental policy GUID を使用。
 
 ---
 
