@@ -64,9 +64,9 @@ These are the canonical sources of truth. **Pull from these directly; do not re-
 ### A.1.1 Reference scripts (phase / banner / log patterns)
 
 ```
-Deploy-AMDChipsetDriverOnWindowsServer.ps1   (the most mature implementation; canonical r56)
-Deploy-AMDGraphicsDriverOnWindowsServer.ps1  (graphics-specific platform detection; r24)
-Deploy-AMDNpuDriverOnWindowsServer.ps1       (NPU script with 4-tier installer resolution; r6)
+Deploy-AMDChipsetDriverOnWindowsServer.ps1   (the most mature implementation; canonical r57)
+Deploy-AMDGraphicsDriverOnWindowsServer.ps1  (graphics-specific platform detection; r25)
+Deploy-AMDNpuDriverOnWindowsServer.ps1       (NPU script with 4-tier installer resolution; r7)
 ```
 
 These 21-phase deployment scripts are the canonical source for:
@@ -318,7 +318,25 @@ For these cases use the dedicated helper:
 
 ### Console encoding
 
-P00 must enforce `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8` so that Japanese log strings render correctly on ja-JP Windows. (Without this, the default code page is 932 / Shift-JIS and Japanese garbles.)
+P00 must enforce all THREE console encodings to UTF-8 so that:
+
+1. **Japanese log strings** written via `Write-Host` render correctly on ja-JP Windows (otherwise the default code page is 932 / Shift-JIS and Japanese garbles).
+2. **External tool stdout** captured via `& tool ... | Out-String` is decoded as UTF-8. CiTool.exe and modern signtool.exe write UTF-8 on Windows Server 2025, and without this setting their Japanese output renders as mojibake like `蜃ｦ逅・・謌仙粥縺励∪縺励◆` (the UTF-8 byte sequence of `処理が成功しました` interpreted as cp932).
+3. **PowerShell-to-native stdin** pipes (`$json | tool.exe`) send UTF-8 bytes to the external tool.
+
+The canonical implementation, defined as a dedicated helper `Set-ConsoleUtf8` and called from P00 immediately after `Set-Tls12` (chipset/graphics) or `Set-NetworkProtocol` (NPU):
+
+```powershell
+function Set-ConsoleUtf8 {
+    try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
+    try { [Console]::InputEncoding  = [System.Text.Encoding]::UTF8 } catch { }
+    try { Set-Variable -Name OutputEncoding -Scope Global -Value ([System.Text.Encoding]::UTF8) -ErrorAction SilentlyContinue } catch { }
+}
+```
+
+The `try/catch` wrappers handle pinned-redirected console hosts (e.g. CI runners writing to a file with no real console) where the assignment may throw. See SPEC §D.16 for the root-cause analysis (CiTool.exe mojibake on ja-JP WS2025).
+
+> **Historical note**: Before Chipset r57 / Graphics r25 / NPU r7 (2026-05-17), this SPEC §A.5 / §D.5 requirement was documented but **not implemented in the scripts**. Only `Show-PowerShellEnvironment` displayed the *current* encoding without changing it. The fix is now mandatory before any phase that captures external tool stdout (I02, I03).
 
 ### TLS hardening
 
@@ -806,7 +824,7 @@ When adding a fourth sister script, the 6 cross-script-identical functions are l
 
 ### Identification
 
-- **Current revision**: `chipset-2026.05.17-r56` (tag: `chipset-category-priority-and-detail-helper-r56`)
+- **Current revision**: `chipset-2026.05.17-r57` (tag: `chipset-citool-json-and-pnputil-259-r57`)
 - **Workspace**: `C:\AMD-Chipset-WS\`
 - **Self-signed cert subject**: `CN=AMD Chipset Driver Self-Sign (WS2025 Lab, At Own Risk)`
 - **Self-signed cert files**: `cert\AMD-Chipset-Driver-CodeSign.{pfx,cer}` (r48+; pre-r48 used `AMD-Driver-CodeSign.{pfx,cer}`)
@@ -977,7 +995,7 @@ Older AMD platforms (Renoir, Cezanne) will produce fewer device-driver matches i
 
 ### Identification
 
-- **Current revision**: `graphics-2026.05.17-r24` (tag: `graphics-category-priority-and-detail-helper-r24`)
+- **Current revision**: `graphics-2026.05.17-r25` (tag: `graphics-citool-json-and-pnputil-259-r25`)
 - **Workspace**: `C:\AMD-Graphics-WS\`
 - **Self-signed cert subject**: `CN=AMD Graphics Driver Self-Sign (WS2025 Lab, At Own Risk)`
 - **Self-signed cert files**: `cert\AMD-Graphics-Driver-CodeSign.{pfx,cer}` (r17+; pre-r17 used `AMD-Driver-CodeSign.{pfx,cer}`)
@@ -1010,7 +1028,7 @@ Older AMD platforms (Renoir, Cezanne) will produce fewer device-driver matches i
 
 ### Identification
 
-- **Current revision**: `npu-2026.05.16-r6` (tag: `npu-secureboot-baseline-r6`)
+- **Current revision**: `npu-2026.05.17-r7` (tag: `npu-citool-json-and-console-utf8-r7`)
 - **Workspace**: `C:\AMD-NPU-WS\`
 - **Self-signed cert subject**: `CN=AMD NPU Driver Self-Sign (WS2025 Lab, At Own Risk)`
 - **Self-signed cert files**: `cert\AMD-NPU-Driver-CodeSign.{pfx,cer}` (r3+; pre-r3 used `AMD-NPU-CodeSign.{pfx,cer}`)
@@ -1143,9 +1161,11 @@ Preserved verbatim across chipset / graphics / NPU scripts.
 
 ## D.5 ja-JP console encoding (chcp 932)
 
-**Symptom**: Japanese log strings garble on default ja-JP Windows console (code page 932, Shift-JIS).
+**Symptom**: Japanese log strings garble on default ja-JP Windows console (code page 932, Shift-JIS), AND external tool output (CiTool.exe, modern signtool.exe) writing UTF-8 to stdout is mojibake when captured via `& tool | Out-String`.
 
-**Fix**: P00 enforces `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8`. Operators using `*>&1 | Tee-Object` must also set the file encoding explicitly.
+**Fix (Chipset r57 / Graphics r25 / NPU r7)**: P00 calls `Set-ConsoleUtf8` which enforces all three encodings ( `[Console]::OutputEncoding`, `[Console]::InputEncoding`, `$OutputEncoding`) to `[System.Text.Encoding]::UTF8`. Operators using `*>&1 | Tee-Object` must also set the file encoding explicitly. See §A.5 for the canonical implementation.
+
+**Pre-r57 / pre-r25 / pre-r6 history**: This SPEC entry was documented from the earliest revisions, but the implementation was missing. `Show-PowerShellEnvironment` displayed `Default Encoding: shift_jis (cp932)` / `Console OutputEnc.: shift_jis (cp932)` but no code path actually set them to UTF-8. The defect surfaced as `CiTool: 蜃ｦ逅・・謌仙粥縺励∪縺励◆` in I02 log output on ja-JP WS2025 hosts. See §D.16 for the full root-cause and verification trail.
 
 ## D.6 `-LiteralPath` not supported on `Invoke-WebRequest -OutFile` (PS 5.1)
 
@@ -1406,11 +1426,11 @@ A one-off Python conversion script (`convert_writehost.py`) was used to mechanic
 
 **Documented as the sanctioned exception**: SPEC §A.5 was updated to list `Write-Detail` as the single approved continuation-line helper. Bare `Write-Host "    ..."` is now a SPEC violation.
 
-**Scope**: Chipset and Graphics. The NPU script (currently r6) did not have the same accretion of bare `Write-Host` indentation patterns (audit count: 0) and was not modified; if a future r7+ revision introduces section-banner tables, it should adopt `Write-Detail` from the start.
+**Scope**: Chipset and Graphics. The NPU script (r6 baseline) did not have the same accretion of bare `Write-Host` indentation patterns (audit count: 0) and was not modified at that revision; NPU r7 (2026-05-17) introduces console UTF-8 enforcement and CiTool `--json` but does not change the Write-Host pattern profile.
 
 ### 3. psa.py baseline drift after r56 / r24
 
-The mechanical conversion added ~1 trailing-semicolon info finding per file. Updated baseline per `§A.11.5`:
+The mechanical conversion added ~1 trailing-semicolon info finding per file. Baseline as of r56 / r24 (re-measured for r57 / r25 / r7 in §D.16 below):
 
 | Script | Errors | Warnings | Info | Total |
 | ------ | -----: | -------: | ---: | ----: |
@@ -1420,11 +1440,151 @@ The mechanical conversion added ~1 trailing-semicolon info finding per file. Upd
 
 ---
 
+## D.16 Chipset r57 / Graphics r25 / NPU r7 — CiTool.exe interactive ENTER prompt + Console UTF-8 enforcement
+
+**Symptom (reported on a clean Windows Server 2025 Datacenter / ja-JP)**: Running `-Action Install` on the chipset and graphics scripts produced a hang of roughly 60-75 seconds in I02 (AuthorizeDriverSigning) between the two log lines:
+
+```
+[04:32:43] [+1.17s]   [*] Converting XML to .cip binary and deploying to active CI policies...
+[04:33:57] [+1m15.2s] [+] Deployed: C:\WINDOWS\System32\CodeIntegrity\CiPolicies\Active\{503860EA-...}.cip
+```
+
+Operators reported that pressing **ENTER** in the console caused immediate progression. Tee-Object log captures showed `CiTool: 蜃ｦ逅・・謌仙粥縺励∪縺励◆` (mojibake) at the boundary.
+
+**Investigation (verification trail, 2026-05-17)**: Standalone `Measure-Command` calls on the cmdlets/tools inside `Install-AmdWdacPolicy` showed:
+
+| Component | Solo elapsed | Prompts? |
+|---|---|---|
+| `ConvertFrom-CIPolicy -XmlFilePath ... -BinaryFilePath ...` | 0.28 s | NO |
+| `& CiTool.exe --update-policy <cip>` | 5.6 s (with ENTER press) | **YES — prints "続行するには、Enter キーを押してください"** |
+| `& CiTool.exe` (any subcommand) | varies | **YES — every CiTool invocation prints "Press Enter to Exit"** |
+
+The CiTool.exe `--help` output documents an undocumented-in-MS-docs flag (verified ja-JP, WS2025 build 26100, 2026-05-17):
+
+```
+グローバル フラグ
+  --json
+     出力を json として書式設定し、入力を抑制する
+     エイリアス: -j
+```
+
+I.e. `--json` (or `-j`) instructs CiTool to emit machine-readable JSON **and** suppress the interactive ENTER prompt. This is the canonical non-interactive mode on Windows 11 / Windows Server 2025.
+
+**Two-part root cause**:
+
+1. **CiTool.exe blocks on stdin without `--json`.** All `CiTool.exe --update-policy <cip>` and `CiTool.exe --remove-policy <id>` invocations in `Install-AmdWdacPolicy` / `Uninstall-AmdWdacPolicy` were missing the flag, so each one stalled until the operator pressed ENTER.
+2. **Console encoding stayed at cp932.** SPEC §A.5 / §D.5 mandated `[Console]::OutputEncoding = UTF8` but the implementation only *displayed* the current encoding in `Show-PowerShellEnvironment` and never actually set it. The byproduct was that CiTool's UTF-8 stdout was decoded as cp932 (`処理が成功しました` → `蜃ｦ逅・・謌仙粥縺励∪縺励◆`).
+
+**Fix (r57 / r25 / r7)**:
+
+1. **CiTool `--json` flag applied at all 6 call sites** (3 update + 3 remove across Chipset / Graphics / NPU). Output is parsed with `ConvertFrom-Json`; the canonical status line (`OperationResult` / `Status` / `PolicyGUID`) is extracted for `Write-Detail` display, with a raw-stdout fallback when JSON parsing fails.
+
+2. **`Set-ConsoleUtf8` helper added next to `Set-Tls12` (chipset/graphics) / `Set-NetworkProtocol` (NPU)** and called from P00 immediately after TLS setup. Wraps `[Console]::OutputEncoding` / `InputEncoding` / `$OutputEncoding` assignments in `try/catch` for redirected-host compatibility.
+
+3. **I02 output migrated to `Write-Detail`** for the activation method and CiTool status lines (sweep miss from r56 / r24 Write-Detail conversion). Re-classified as a sub-fix under §A.5 compliance.
+
+**Verification commands the operator can run to confirm the fix locally** (no script execution required):
+
+```powershell
+# (a) CiTool.exe should NOT print "Press Enter to Exit" when invoked with --json
+& CiTool.exe --list-policies --json | Select-Object -First 3
+
+# (b) CiTool.exe stdout should NOT garble (after Set-ConsoleUtf8 has run)
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$tmpXml = 'C:\AMD-Chipset-WS\cert\AmdSelfSignedSupplementalPolicy.xml'
+$tmpCip = "$env:TEMP\verify_$(Get-Random).cip"
+ConvertFrom-CIPolicy -XmlFilePath $tmpXml -BinaryFilePath $tmpCip | Out-Null
+Copy-Item $tmpCip "$env:windir\System32\CodeIntegrity\CiPolicies\Active\verify_test.cip" -Force
+& CiTool.exe --update-policy "$env:windir\System32\CodeIntegrity\CiPolicies\Active\verify_test.cip" --json
+# Expected: clean JSON output, no "Press Enter" prompt, no mojibake
+```
+
+**Scope**: All three scripts. The same one-line `--json` addition applies to NPU's `Install-WdacPolicy` / `Remove-WdacPolicy` (parallel-named NPU functions; same intent).
+
+**psa.py baseline impact (r57 / r25 / r7)**: The Set-ConsoleUtf8 + CiTool/JSON parse blocks add a small number of trailing-semicolon `PSA4004` info findings. Re-measure after merge:
+
+| Script | Errors | Warnings | Info | Total | Delta vs r56/r24/r6 |
+| ------ | -----: | -------: | ---: | ----: | --- |
+| `Deploy-AMDChipsetDriverOnWindowsServer.ps1`  | **0** | TBD | TBD | TBD | TBD |
+| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | **0** | TBD | TBD | TBD | TBD |
+| `Deploy-AMDNpuDriverOnWindowsServer.ps1`      | **0** | TBD | TBD | TBD | TBD |
+
+The baseline numbers will be updated to specific values in the commit message of the next CI run that exercises `psa.py` against this revision; the **0 errors** invariant is the only gate.
+
+---
+
+## D.17 Chipset r57 / Graphics r25 — pnputil exit=259 reclassification
+
+**Symptom**: On a clean Windows Server 2025 install, the chipset script's I03 summary reported `52 ok (2 need reboot) / 3 failed`, but the I04 PostInstallVerification immediately afterwards reported `FAILED: 0` and listed the same three devices under `REBOOT_NEEDED`. The summary classification was inconsistent.
+
+**Affected INFs (chipset only)**: `SMBUSamd.inf`, `AMDInterface.inf`, `AmdMicroPEP.inf`. Each had a sibling copy under a different source path (e.g. `Chipset_Software\SMBus Driver\W11x64\` vs `SMBus Driver\W11x64\` — see SPEC §B.1 r54 "OS variant selection logic"), so `pnputil.exe /add-driver` was invoked twice with effectively the same package contents. The first call returned `exit=0` (or `3010` for reboot-required) and queued the new driver. The second call returned `exit=259` because the driver store now already contained an equivalent package.
+
+**Investigation (verification trail, 2026-05-17)**: The pnputil logs for the three exit=259 cases on WS2025 read:
+
+```
+Microsoft PnP ユーティリティ
+ドライバー パッケージの追加:  SMBUSamd.inf
+ドライバー パッケージが正常に追加されました。
+公開名:         oem35.inf
+デバイスのドライバー パッケージは最新の状態です:  PCI\VEN_1022&DEV_790B&SUBSYS_508217AA&REV_51\3&2411e6fe&0&A0
+ドライバー パッケージの合計:  1
+追加されたドライバー パッケージ:  0
+```
+
+I.e. pnputil reports the operation as **successful** (`正常に追加されました`) but did not register a *new* package (`追加されたドライバー パッケージ: 0`) because the device is already on the same-or-better driver. The exit code is `0x103` = `259` = `ERROR_NO_MORE_ITEMS`, used here as a "no-op completion" signal — analogous to `ERROR_ALREADY_EXISTS` in idempotent operations.
+
+**Root cause**: The classification table in `Invoke-InstPhase03_InstallDrivers`:
+
+```powershell
+$rebootRequired = ($exit -eq 3010)
+$isSuccess      = ($exit -eq 0 -or $exit -eq 3010)   # exit=259 fell into the failure branch
+```
+
+mapped exit=259 to `failed`. I04's PostInstallVerification reads the actual device state and correctly inferred `REBOOT_NEEDED` (because the first sibling-INF call had queued the binding), creating the I03/I04 divergence.
+
+**Fix (r57 / r25)**: Reclassify exit=259 as a third success status:
+
+```powershell
+$rebootRequired = ($exit -eq 3010)
+$isNoOp         = ($exit -eq 259)
+$isSuccess      = ($exit -eq 0 -or $exit -eq 3010 -or $exit -eq 259)
+
+$status = if ($isSuccess -and $rebootRequired) { 'reboot-required' }
+          elseif ($isNoOp)                      { 'no-op (already present)' }
+          elseif ($isSuccess)                   { 'installed' }
+          else                                  { 'failed' }
+```
+
+Console output for the no-op branch uses `Write-Skip` (DarkGray, marker `[~]`) — SPEC §A.5 "Skip / cached" semantic — rather than `Write-Ok` to clearly distinguish "package was added to the store and bound" from "package was already in the store, nothing changed."
+
+The I03 summary now reports four categories:
+
+```
+Driver install: {ok} ok ({reboot} need reboot, {noop} no-op) / {failed} failed / {skipped} skipped (current newer)
+```
+
+**I04 alignment**: PostInstallVerification was already correct (read live device state); no change required.
+
+**Scope**: Chipset and Graphics. The NPU script's I03 path is intentionally simpler (single pnputil invocation per matched device, no sibling-INF iteration) and the exit=259 code path is not currently exercised. NPU is unaffected by this fix, but the same code pattern would apply if a future revision introduces multi-source INF iteration.
+
+**Why exit=259 is NOT a real failure**:
+
+| Exit code | Meaning | Should script treat as |
+|---|---|---|
+| `0` | Success, driver added & bound (or queued for binding) | Success |
+| `3010` (`ERROR_SUCCESS_REBOOT_REQUIRED`) | Success, REBOOT required to bind | Success + REBOOT |
+| `259` (`ERROR_NO_MORE_ITEMS`) | Driver package already present in store; no new package added | Success (no-op) |
+| any other non-zero | Real failure (signature rejection, ACL, etc.) | Failure |
+
+**Operator-facing implication**: The pre-r57 / pre-r25 logs that show "3 failed" on chipset Install runs are NOT actually failures — they are duplicate-INF no-ops. The post-r57 / post-r25 logs will report the same scenarios as `no-op (already present)` and the failure count will be 0.
+
+---
+
 ## Appendix: How to seed a new sister script from this SPEC
 
 If you are creating a 4th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1`):
 
-1. Copy the most recent existing script (NPU r3 is the freshest sister-aligned reference) as your starting template.
+1. Copy the most recent existing script (NPU r7 is the freshest sister-aligned reference) as your starting template.
 2. Replace `$Script:ScriptName`, `$Script:ScriptVersion`, `$Script:ScriptTag`, `$Script:CertSubjectCn`, `$Script:WdacPolicyName`, `$Script:WdacPolicyGuid`, `$Script:WorkRoot` with values specific to your new script.
 3. Re-implement only the **domain helpers** section (platform detection, installer resolution, INF inventory filter). Reuse all other sections verbatim.
 4. Run `python3 psa.py <new-script>.ps1` (see A.11 for setup) until 0 errors.

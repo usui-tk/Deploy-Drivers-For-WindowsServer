@@ -277,8 +277,8 @@ $Script:CertValidityYears       = $CertValidityYears
 # =============================================================================
 # Script-scope state
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.05.16-r6'
-$Script:ScriptTag           = 'npu-secureboot-baseline-r6'
+$Script:ScriptVersion       = 'npu-2026.05.17-r7'
+$Script:ScriptTag           = 'npu-citool-json-and-console-utf8-r7'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-AMD-Drivers-For-WindowsServer'
 $Script:CertSubjectCn       = 'AMD NPU Driver Self-Sign (WS2025 Lab, At Own Risk)'
@@ -673,6 +673,35 @@ function Set-NetworkProtocol {
             Write-Warn2 ("Could not configure TLS protocols: {0}" -f $_.Exception.Message)
         }
     }
+}
+
+function Set-ConsoleUtf8 {
+    # ====================================================================
+    # SPEC A.5 / D.5: enforce UTF-8 console encoding so ja-JP Japanese
+    # log strings (and external tool output such as CiTool.exe) render
+    # correctly instead of mojibake in cp932 (Shift-JIS). See SPEC D.16
+    # for the r7 root-cause analysis (CiTool.exe writes UTF-8 stdout).
+    # ====================================================================
+    # On ja-JP Windows, the console defaults to cp932 (Shift-JIS). When
+    # external programs that write UTF-8 to stdout (CiTool.exe, modern
+    # signtool, etc.) are captured via "& tool ... | Out-String", PS
+    # decodes the bytes using [Console]::OutputEncoding. If that is
+    # cp932 and the tool wrote UTF-8, every multibyte character becomes
+    # mojibake (e.g. "処理が成功しました" -> "蜃ｦ逅・・謌仙粥縺励∪縺励◆").
+    #
+    # The fix is to set ALL three encodings:
+    #   - [Console]::OutputEncoding : how PS decodes external tool stdout
+    #                                  AND how Write-Host writes to console
+    #   - [Console]::InputEncoding  : how external tools see piped stdin
+    #   - $OutputEncoding           : how PS writes piped data to external
+    #                                  tools (e.g. "$json | tool.exe")
+    # All three must be UTF-8 for consistent round-trip behaviour.
+    [CmdletBinding()]
+    param()
+    try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
+    try { [Console]::InputEncoding  = [System.Text.Encoding]::UTF8 } catch { }
+    try { Set-Variable -Name OutputEncoding -Scope Global -Value ([System.Text.Encoding]::UTF8) -ErrorAction SilentlyContinue } catch { }
+    Write-Skip 'Console encoding set to UTF-8'
 }
 
 # =============================================================================
@@ -3446,17 +3475,34 @@ function Install-WdacPolicy {
 
     $citool = Get-Command CiTool.exe -ErrorAction SilentlyContinue
     if ($citool) {
-        Write-Step ('CiTool --update-policy "{0}"' -f $BinPath)
-        $stdout = & $citool.Source --update-policy $BinPath 2>&1
+        # r7: --json flag REQUIRED to suppress "Press Enter to Exit"
+        # interactive prompt CiTool prints by default. Without it the
+        # script blocks at I02 waiting for stdin. See SPEC D.16.
+        Write-Step ('CiTool --update-policy --json "{0}"' -f $BinPath)
+        $stdout = & $citool.Source --update-policy $BinPath --json 2>&1
         $exitCode = $LASTEXITCODE
-        foreach ($line in $stdout) {
-            Write-Skip ("    {0}" -f $line)
+        # Parse JSON for the canonical status line; fall back to raw.
+        $statusLine = ''
+        try {
+            $j = ($stdout | Out-String) | ConvertFrom-Json -ErrorAction SilentlyContinue
+            if ($j) {
+                if ($j.OperationResult) { $statusLine = [string]$j.OperationResult }
+                elseif ($j.Status)      { $statusLine = [string]$j.Status }
+            }
+        } catch { }
+        if ($statusLine) {
+            Write-Skip ("    {0}" -f $statusLine)
+        } else {
+            foreach ($line in $stdout) {
+                if ([string]$line -and [string]$line -ne '') { Write-Skip ("    {0}" -f $line) }
+            }
         }
         return @{
             ExitCode = $exitCode
             Output   = $stdout
             Success  = ($exitCode -eq 0)
             Method   = 'CiTool'
+            Status   = $statusLine
         }
     } else {
         # Older systems: copy CIP to active policy folder
@@ -3482,8 +3528,11 @@ function Remove-WdacPolicy {
     param([Parameter(Mandatory)][string]$PolicyGuid)
     $citool = Get-Command CiTool.exe -ErrorAction SilentlyContinue
     if ($citool) {
-        Write-Step ('CiTool --remove-policy {{{0}}}' -f $PolicyGuid)
-        & $citool.Source --remove-policy ('{' + $PolicyGuid + '}') 2>&1 | ForEach-Object { Write-Skip ("    {0}" -f $_) }
+        # r7: --json flag suppresses CiTool's interactive ENTER prompt.
+        Write-Step ('CiTool --remove-policy --json {{{0}}}' -f $PolicyGuid)
+        & $citool.Source --remove-policy ('{' + $PolicyGuid + '}') --json 2>&1 | ForEach-Object {
+            if ([string]$_ -and [string]$_ -ne '') { Write-Skip ("    {0}" -f $_) }
+        }
     }
     # Also delete from Active dir if present
     $activePath = "$env:windir\System32\CodeIntegrity\CiPolicies\Active\{$PolicyGuid}.cip"
@@ -3650,6 +3699,7 @@ function Invoke-PrepPhase00_Initialize {
     Show-PowerShellEnvironment
     Test-AdminPrivilege | Out-Null
     Set-NetworkProtocol
+    Set-ConsoleUtf8
 
     $os = Show-OperatingSystemDetail
     $Script:DetectedPlatform.OsCaption       = $os.OsCaption
@@ -5006,6 +5056,7 @@ function Invoke-MainEntryPoint {
         # Best-effort: even Cleanup needs admin + TLS for cert removal
         try { Test-AdminPrivilege | Out-Null } catch { throw }
         Set-NetworkProtocol
+        Set-ConsoleUtf8
         Invoke-Cleanup
         return
     }

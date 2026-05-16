@@ -96,7 +96,7 @@ All three PowerShell scripts share the same 21-phase architecture, the same self
 
 > This section exists because the NPU script is materially riskier than its sister scripts and operators must understand the difference before running it.
 
-| Aspect | Chipset script (r56) | Graphics script (r24) | **NPU script (r6)** |
+| Aspect | Chipset script (r57) | Graphics script (r25) | **NPU script (r7)** |
 | --- | --- | --- | --- |
 | **Maturity** | Stable, multiple validation cycles | Stable, multiple validation cycles | **🆘 Experimental — first release, not validated on physical NPU hardware** |
 | **Distribution format** | Public EXE direct download | Public EXE direct download | **EULA-gated ZIP, requires AMD account** |
@@ -753,6 +753,18 @@ Check `eventvwr` → `Applications and Services Logs` → `Microsoft` → `Windo
 
 Run `pnputil /scan-devices` to force a re-enumeration. If still bound to MS, the patched INF's HWID may not match the device's PNP ID exactly. Check V06 Section 2 ("WILL be replaced" / "have no patched INF") — if the device falls into the latter category, no patched driver claims that HWID, which is expected for some devices (USB hubs, generic xHCI controllers, etc.).
 
+### "I02 appears to hang for 60+ seconds between 'Converting XML to .cip binary...' and 'Deployed:' lines"
+
+**Pre-r57 / pre-r25 / pre-r6 only.** CiTool.exe was invoked without the `--json` flag and printed "続行するには、Enter キーを押してください" (Press Enter to Exit) to the console, blocking the script on stdin. Pressing ENTER in the active console window resumed the script. This is fixed in chipset r57 / graphics r25 / NPU r7 by passing `--json` to all CiTool.exe invocations, which suppresses the interactive prompt per Microsoft's CiTool design (the `--json` flag documents itself as "出力を json として書式設定し、入力を抑制する"). Upgrade the script and the hang will no longer occur. See SPEC §D.16 for the full root-cause analysis.
+
+### "CiTool log line shows mojibake like '蜃ｦ逅・・謌仙粥縺励∪縺励◆'"
+
+**Pre-r57 / pre-r25 / pre-r6 only.** This is the UTF-8 byte sequence of `処理が成功しました` interpreted as cp932 (Shift-JIS). CiTool.exe writes UTF-8 to stdout, but PowerShell decoded it using the default ja-JP `[Console]::OutputEncoding` (cp932). SPEC §A.5 / §D.5 mandated UTF-8 enforcement at P00 but the implementation was missing. Fixed in chipset r57 / graphics r25 / NPU r7 via `Set-ConsoleUtf8` at P00. See SPEC §D.16.
+
+### "I03 says '3 failed' but I04 says 'Failed: 0' on the same install run"
+
+**Pre-r57 / pre-r25 only.** I03's classification logic treated pnputil `exit=259` (`ERROR_NO_MORE_ITEMS`) as a failure, but I04's PostInstallVerification reads the actual device state and correctly identifies these as `REBOOT_NEEDED` (when a sibling-INF first install already queued the binding) or as no-op (driver package already in store). The exit=259 cases are typically from duplicate-source INFs (e.g. `Chipset_Software\SMBus Driver\W11x64\SMBUSamd.inf` and `SMBus Driver\W11x64\SMBUSamd.inf` are both visited by I03, the second returns 259). Fixed in chipset r57 / graphics r25: the new I03 summary reports four categories — `ok` / `need reboot` / `no-op` / `failed` — and exit=259 maps to the new `no-op (already present)` status (Write-Skip / DarkGray). See SPEC §D.17.
+
 ### NPU script "I04 shows the device is bound but Ryzen AI Software won't initialize"
 
 This is the expected outcome on Windows Server 2025. The kernel-mode driver loads, but the Ryzen AI Software user-mode stack (Python conda env, ONNX Runtime VitisAI EP, OGA) is officially Windows-11-only. Do not expect AI workload functionality on Server 2025. Either:
@@ -958,3 +970,23 @@ The new extraction emits a per-OS-variant INF coverage diagnostic so operators c
 | Windows Server 2019 / 2016 (Windows 10-based) | `WTx64\` |
 
 For the full architecture (two-layer wrapper, 35 sub-MSIs, AMD's actual driver-registration logic via `pnputil`), see [SPEC.md §B.1 "AMD 8.x installer architecture (r54+)"](SPEC.md#amd-8x-installer-architecture-r54). For the regression test of this extraction path, see [TESTING.md §7 "r54+ — AMD Chipset Software 8.x extraction diagnostic format"](TESTING.md#7-r54--amd-chipset-software-8x-extraction-diagnostic-format).
+
+---
+
+## r57+ / r25+ / r7+ — CiTool non-interactive mode + Console UTF-8 enforcement
+
+Starting with Chipset r57 / Graphics r25 / NPU r7, the script no longer hangs at I02 waiting for ENTER input, and Japanese log output (especially the CiTool.exe status line) renders correctly on ja-JP Windows.
+
+### What changed
+
+| Aspect | Pre-r57 / pre-r25 / pre-r6 (broken) | Post-r57 / r25 / r7 (fixed) |
+| --- | --- | --- |
+| CiTool.exe invocation | `& CiTool.exe --update-policy <cip>` blocks on `"Press Enter to Exit"` (~60-75s wait for operator ENTER per call) | `& CiTool.exe --update-policy <cip> --json` — the `--json` flag suppresses the interactive prompt (Microsoft's documented non-interactive mode) |
+| ja-JP console encoding | `[Console]::OutputEncoding` stays at cp932; CiTool's UTF-8 stdout displays as mojibake (`蜃ｦ逅・・謌仙粥縺励∪縺励◆`) | P00 calls `Set-ConsoleUtf8` which sets `[Console]::OutputEncoding`, `[Console]::InputEncoding`, and `$OutputEncoding` to UTF-8 |
+| pnputil exit=259 (chipset / graphics) | Classified as `failed` in the I03 summary, diverging from I04's `REBOOT_NEEDED` / no-op recognition | New `no-op (already present)` status surfaced via `Write-Skip [~]`. I03 summary now reports `{ok} ok ({reboot} need reboot, {noop} no-op) / {failed} failed / {skipped} skipped` |
+| I02 console output | Bare `Write-Host '    Activation method: ...'` (SPEC §A.5 violation; r56/r24 Write-Detail sweep miss) | Migrated to `Write-Detail` helper for SPEC §A.5 compliance |
+
+For root-cause analyses and verification trails, see:
+
+- **SPEC §D.16** — CiTool.exe `--json` and Console UTF-8 enforcement (full verification commands operators can run locally)
+- **SPEC §D.17** — pnputil exit=259 reclassification (duplicate-source-INF behaviour on chipset)

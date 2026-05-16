@@ -16,11 +16,19 @@ This document consolidates the validation results for `Deploy-AMD-Drivers-For-Wi
 
 | Script | Physical-hardware validation | Real driver install on target HW | Recommended use |
 |---|---|---|---|
-| **Chipset (r56)** | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD (validated on r55; r56 carries a breaking install-decision change — see note below) | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
-| **Graphics (r24)** | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD (validated on r23; r24 carries a breaking install-decision change — see note below) | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
-| **NPU (r6)** | ❌ **none** (no physical NPU machine in maintainer's lab) | ❌ **never executed** | **Experimental / research-grade only. Do not deploy in production.** |
+| **Chipset (r57)** | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD (validated on r55; r56 added a breaking install-decision change; r57 fixes CiTool ENTER-prompt hang + pnputil exit=259 — see note below) | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
+| **Graphics (r25)** | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD (validated on r23; r24 added a breaking install-decision change; r25 fixes CiTool ENTER-prompt hang + pnputil exit=259 — see note below) | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
+| **NPU (r7)** | ❌ **none** (no physical NPU machine in maintainer's lab) | ❌ **never executed** | **Experimental / research-grade only. Do not deploy in production.** |
 
 > **Note on r56 / r24 behaviour change**: The category-priority override added in chipset r56 and graphics r24 (see SPEC §D.15) changes the install-decision semantics in a breaking way: self-signed `[C]` drivers now always supersede Microsoft generic `[A]` and vendor `[B]` drivers regardless of version. The pre-r56/r23 physical-hardware validation results below remain *structurally* valid (extraction, patching, signing, WDAC deployment all behave the same), but the **V05/V06/I03 driver-install decisions will differ** — devices that the prior versions classified as `SKIP-newer` are now classified as `INSTALL_UPGRADE`. Re-validation on the M75q Tiny Gen 2 and X13 Gen 1 AMD fixtures is recommended after deploying r56/r24.
+>
+> **Note on r57 / r25 / r7 fixes (2026-05-17)**: Three operational issues were identified in r56 / r24 / r6 logs from a clean WS2025 install and fixed in r57 / r25 / r7 — see [§9 r57+ regression scenarios](#9-r57--r25--r7--regression-scenarios) for the regression test scenarios. Briefly:
+>
+> 1. CiTool.exe was invoked without `--json` and blocked at I02 on "Press Enter to Exit" stdin prompt (SPEC §D.16);
+> 2. Console encoding was never set to UTF-8 so CiTool's ja-JP stdout displayed as mojibake (SPEC §D.5 / §D.16);
+> 3. pnputil exit=259 (`ERROR_NO_MORE_ITEMS`) was misclassified as failure in the I03 summary, diverging from I04's correct REBOOT_NEEDED/no-op recognition (SPEC §D.17).
+>
+> These fixes do NOT alter the structural pipeline behaviour validated on the M75q / X13 Gen 1 AMD fixtures (extraction, patching, signing, WDAC deployment all behave the same). The user-visible improvements are: I02 no longer hangs ~60-75 s waiting for ENTER; the CiTool log line reads `処理が成功しました` instead of `蜃ｦ逅・・謌仙粥縺励∪縺励◆`; the I03 summary reports `no-op (already present)` instead of mis-counted failures.
 
 The NPU script's verification is currently limited to:
 
@@ -705,3 +713,130 @@ If Strategy 2 fails for any reason (caught by the `try { ... } catch` block in `
 ```
 
 This is the same fallback path used by pre-r54 revisions and should be considered a regression fallback only.
+
+---
+
+## 9. r57+ / r25+ / r7+ — Regression scenarios
+
+These regression scenarios validate the three fixes introduced in chipset r57 / graphics r25 / NPU r7 (2026-05-17). All three can be exercised on the same WS2025 install used for §1 (M75q Tiny Gen 2) without re-imaging.
+
+### 9.1 CiTool ENTER-prompt hang (SPEC §D.16)
+
+**Pre-r57 / r25 / r6 symptom**: I02 stalls ~60-75 s between the two log lines below; pressing ENTER in the active console resumes the script:
+
+```
+[*] Converting XML to .cip binary and deploying to active CI policies...
+[+] Deployed: ...
+```
+
+**Regression test**: After running `-Action Install -OnlyPhases I02` with the new revision:
+
+| Observation | Pre-fix | Post-fix |
+|---|---|---|
+| Wall-clock elapsed for I02 | 60-75 s with ENTER input ~mid-phase | < 10 s end-to-end, no input required |
+| Stdin requirement | Operator must press ENTER once per CiTool invocation (I02 + Cleanup) | No stdin interaction |
+| CiTool stdout in log | `処理は成功しました\n続行するには、Enter キーを押してください` (literal) OR mojibake under cp932 | Clean JSON envelope, no "Press Enter" line |
+
+**Pass criterion**: I02 completes without any stdin interaction; the operator can walk away from the console.
+
+**Verification commands (operator can run in any elevated PS console)**:
+
+```powershell
+# This is a SAFE no-input test: CiTool --list-policies --json prints JSON and exits
+# WITHOUT the "Press Enter to Exit" prompt. Without --json, it prints the prompt
+# and blocks on stdin.
+& CiTool.exe --list-policies --json | ConvertFrom-Json | Select-Object -First 3
+```
+
+If this returns control to the prompt immediately, the `--json` mechanism is functioning on this host.
+
+### 9.2 Console UTF-8 enforcement (SPEC §D.5 / §D.16)
+
+**Pre-r57 / r25 / r6 symptom**: I02 log line reads:
+
+```
+CiTool: 蜃ｦ逅・・謌仙粥縺励∪縺励◆
+```
+
+(The UTF-8 byte sequence of `処理が成功しました` decoded as cp932.)
+
+**Regression test**: With the fixed revision, the same line reads:
+
+```
+CiTool: 処理は成功しました
+```
+
+OR (when the CiTool `--json` parse extracts the canonical OperationResult):
+
+```
+CiTool: Success
+```
+
+**Pass criterion**: No CJK mojibake in any CiTool, signtool, or pnputil stdout captured in the run log.
+
+**Verification commands**:
+
+```powershell
+# (a) Confirm the three encodings are UTF-8 after P00 has run.
+# Run AFTER any phase of the script has executed.
+[Console]::OutputEncoding.WebName   # expected: utf-8
+[Console]::InputEncoding.WebName    # expected: utf-8
+$OutputEncoding.WebName             # expected: utf-8
+
+# (b) Confirm CiTool's ja-JP stdout decodes correctly.
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$stdout = & CiTool.exe --list-policies --json 2>&1 | Out-String
+$stdout | Select-String '"OperationResult"' -CaseSensitive
+# Expected: a line like  "OperationResult": "Success"
+# NOT mojibake.
+```
+
+### 9.3 pnputil exit=259 reclassification (SPEC §D.17)
+
+**Pre-r57 / r25 symptom (chipset)**: On a clean WS2025 install, I03 final summary reports:
+
+```
+Driver install: 52 ok (2 need reboot) / 3 failed / 0 skipped (current newer)
+```
+
+but I04 PostInstallVerification immediately reports `FAILED: 0`. The three "failed" cases were duplicate-source INFs (`SMBUSamd.inf`, `AMDInterface.inf`, `AmdMicroPEP.inf`) where the second invocation returned exit=259 because the driver package was already in the store.
+
+**Regression test**: With the fixed revision, the same I03 run reports:
+
+```
+Driver install: 52 ok (2 need reboot, 3 no-op) / 0 failed / 0 skipped (current newer)
+```
+
+And the I03 per-INF lines previously rendered as `[!]   exit=259 (see ...)` now render as `[~]   no-op (driver store already up-to-date)`.
+
+**Pass criterion**:
+1. I03 failure count is 0 on a clean install (modulo any genuine pnputil errors).
+2. I04 `FAILED` count matches I03 `failed` count (both should be 0 or both should be the same non-zero number).
+3. Devices that pre-r57 showed under both "I03: 3 failed" AND "I04: REBOOT_NEEDED" now show only under "I04: REBOOT_NEEDED" with the corresponding I03 entries marked `no-op`.
+
+**Verification command (post-install state inspection)**:
+
+```powershell
+# Compare I03 install result count vs I04 device classification
+# Read the persisted I03 results
+$ws = 'C:\AMD-Chipset-WS'
+# I03 writes to install_results.csv if Export-Csv is wired in (otherwise check console log)
+# Easier: re-run the script and compare summary line vs Section 1 of I04.
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -OnlyPhases I04
+# Expected: "FAILED : 0 device(s)" and no devices in the [FAILED] sub-list.
+```
+
+### 9.4 Combined regression checklist
+
+When validating r57 / r25 / r7 on the M75q Tiny Gen 2 or X13 Gen 1 AMD fixtures:
+
+| # | Check | Pass criterion |
+|---|---|---|
+| 1 | Banner shows `chipset-2026.05.17-r57` (or `graphics-2026.05.17-r25` / `npu-2026.05.17-r7`) at script startup | ✓ correct version string |
+| 2 | P00 log emits `[~] Console encoding set to UTF-8` (NPU only) or simply does not display mojibake later | ✓ no cp932 indicator in CiTool output |
+| 3 | I02 completes in < 10 s WITHOUT operator stdin input | ✓ no hang at "Converting XML to .cip binary..." |
+| 4 | I02 final line includes `Activation method: CiTool (immediate, no reboot)` rendered via `Write-Detail` (4-space indent, Gray) | ✓ visually subordinate to the preceding `[+] Deployed:` marker line |
+| 5 | I03 final summary line includes a `, N no-op` segment for chipset / graphics | ✓ matches the new 5-tuple format |
+| 6 | I04 `FAILED` count = I03 `failed` count | ✓ both 0 on the clean-install scenario |
+| 7 | All ja-JP strings in the log are readable (no `蜃ｦ`, `謌仙` etc.) | ✓ no mojibake |
+

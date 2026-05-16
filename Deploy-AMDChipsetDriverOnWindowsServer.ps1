@@ -562,8 +562,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.05.17-r56'
-$Script:ScriptTag     = 'chipset-category-priority-and-detail-helper-r56'
+$Script:ScriptVersion = 'chipset-2026.05.17-r57'
+$Script:ScriptTag     = 'chipset-citool-json-and-pnputil-259-r57'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -1048,6 +1048,37 @@ function Set-Tls12 {
         # downloads.
     }
     [Net.ServicePointManager]::SecurityProtocol = $protos
+}
+
+function Set-ConsoleUtf8 {
+    # ====================================================================
+    # SPEC A.5 / D.5: enforce UTF-8 console encoding so ja-JP Japanese
+    # log strings (and external tool output such as CiTool.exe) render
+    # correctly instead of mojibake in cp932 (Shift-JIS). See SPEC D.16
+    # for the r57 root-cause analysis (CiTool.exe writes UTF-8 stdout).
+    # ====================================================================
+    # On ja-JP Windows, the console defaults to cp932 (Shift-JIS). When
+    # external programs that write UTF-8 to stdout (CiTool.exe, modern
+    # signtool, etc.) are captured via "& tool ... | Out-String", PS
+    # decodes the bytes using [Console]::OutputEncoding. If that is
+    # cp932 and the tool wrote UTF-8, every multibyte character becomes
+    # mojibake (e.g. "処理が成功しました" -> "蜃ｦ逅・・謌仙粥縺励∪縺励◆").
+    #
+    # The fix is to set ALL three encodings:
+    #   - [Console]::OutputEncoding : how PS decodes external tool stdout
+    #                                  AND how Write-Host writes to console
+    #   - [Console]::InputEncoding  : how external tools see piped stdin
+    #   - $OutputEncoding           : how PS writes piped data to external
+    #                                  tools (e.g. "$json | tool.exe")
+    # All three must be UTF-8 for consistent round-trip behaviour.
+    #
+    # This is wrapped in try/catch because some pinned-redirected
+    # console hosts (e.g. CI runners writing to a file with no real
+    # console) may throw on the assignment; in that case the original
+    # encoding is preserved and we continue without UTF-8 enforcement.
+    try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
+    try { [Console]::InputEncoding  = [System.Text.Encoding]::UTF8 } catch { }
+    try { Set-Variable -Name OutputEncoding -Scope Global -Value ([System.Text.Encoding]::UTF8) -ErrorAction SilentlyContinue } catch { }
 }
 
 #####################################################################
@@ -2504,6 +2535,14 @@ function Install-AmdWdacPolicy {
     # platforms with CiTool.exe, refresh the active policy stack so
     # the new supplemental takes effect WITHOUT a reboot. Returns a
     # status object the caller can display.
+    #
+    # r57: CiTool is invoked with the --json flag. Per CiTool --help,
+    # the --json flag "formats the output as JSON and suppresses
+    # input" - i.e. it removes the "Press Enter to Exit" interactive
+    # prompt that CiTool prints by default when run in a console host.
+    # Without --json, CiTool blocked at I02 waiting for ENTER, causing
+    # the script to appear hung for the duration of the user's wait.
+    # See SPEC D.16 for the root-cause analysis.
     param(
         [Parameter(Mandatory)] [string]$XmlPath,
         [string]$BinaryOutPath
@@ -2528,11 +2567,32 @@ function Install-AmdWdacPolicy {
     $immediate = $false
     $citoolStdout = ''
     $citoolStderr = ''
+    $citoolStatusLine = ''
     if (Get-Command CiTool.exe -ErrorAction SilentlyContinue) {
         try {
             # CiTool returns 0 on success and prints a confirmation line.
-            $citoolStdout = & CiTool.exe --update-policy $deployedPath 2>&1 | Out-String
+            # --json flag is REQUIRED (r57+): without it, CiTool prints
+            # "Press Enter to Exit" and waits for stdin, blocking I02.
+            $citoolStdout = & CiTool.exe --update-policy $deployedPath --json 2>&1 | Out-String
             if ($LASTEXITCODE -eq 0) { $immediate = $true }
+            # Parse the JSON envelope so callers can display a friendly
+            # status line. CiTool --json emits an object with keys like
+            # "OperationResult" and "FriendlyName"; we extract the
+            # canonical success message for log display.
+            try {
+                $j = $citoolStdout | ConvertFrom-Json -ErrorAction SilentlyContinue
+                if ($j) {
+                    if ($j.OperationResult) { $citoolStatusLine = [string]$j.OperationResult }
+                    elseif ($j.Status)      { $citoolStatusLine = [string]$j.Status }
+                    elseif ($j.PSObject.Properties.Name -contains 'PolicyGUID') {
+                        $citoolStatusLine = ('PolicyGUID={0}' -f $j.PolicyGUID)
+                    }
+                }
+            } catch {
+                # JSON parse failure is non-fatal; fall back to the raw
+                # first non-empty stdout line for display.
+                $citoolStatusLine = ($citoolStdout -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
+            }
         } catch {
             $citoolStderr = $_.Exception.Message
         }
@@ -2547,12 +2607,15 @@ function Install-AmdWdacPolicy {
         RebootRequired   = -not $immediate
         CiToolStdout     = $citoolStdout
         CiToolStderr     = $citoolStderr
+        CiToolStatusLine = $citoolStatusLine
     }
 }
 
 function Uninstall-AmdWdacPolicy {
     # Remove a previously-deployed supplemental policy. Used by the
     # Cleanup action and by I02 when redeploying with -Force.
+    #
+    # r57: --json flag suppresses CiTool's interactive ENTER prompt.
     param(
         [Parameter(Mandatory)] [string]$PolicyId
     )
@@ -2562,7 +2625,7 @@ function Uninstall-AmdWdacPolicy {
 
     if ($existed) {
         if (Get-Command CiTool.exe -ErrorAction SilentlyContinue) {
-            try { & CiTool.exe --remove-policy $PolicyId 2>&1 | Out-Null } catch { }
+            try { & CiTool.exe --remove-policy $PolicyId --json 2>&1 | Out-Null } catch { }
         }
         Remove-Item -LiteralPath $deployedPath -Force -ErrorAction SilentlyContinue
     }
@@ -4949,10 +5012,13 @@ function Invoke-PrepPhase00_Initialize {
     # Hard pre-flight checks that the script cannot continue without.
     # Order matters: PS version & bitness first (a 32-bit / PS4 host
     # cannot even reliably parse this script), then Administrator,
-    # then network TLS configuration.
+    # then network TLS configuration, then UTF-8 console encoding (SPEC
+    # A.5 / D.5 / D.16 — required for CiTool.exe and signtool.exe ja-JP
+    # output to decode correctly instead of becoming mojibake).
     Assert-PowerShellCompatibility
     Assert-Admin
     Set-Tls12
+    Set-ConsoleUtf8
 
     $Ctx.Os = Get-OsContext
     $isWorkstation = ($Ctx.Os.ProductType -eq 1)
@@ -9176,10 +9242,15 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
         Write-Step 'Converting XML to .cip binary and deploying to active CI policies...'
         $deploy = Install-AmdWdacPolicy -XmlPath $xmlPath -BinaryOutPath $cipPath
         Write-Ok ('Deployed: {0}' -f $deploy.DeployedPath)
-        Write-Host ('    Activation method: {0}' -f $deploy.ActivationMethod)
-        if ($deploy.CiToolStdout) {
+        # r57: migrated from bare Write-Host '    ...' to Write-Detail
+        # for SPEC A.5 compliance. CiToolStatusLine is parsed from the
+        # --json envelope and is the canonical success message string.
+        Write-Detail ('Activation method: {0}' -f $deploy.ActivationMethod) -Color Gray
+        if ($deploy.CiToolStatusLine) {
+            Write-Detail ('CiTool: {0}' -f $deploy.CiToolStatusLine) -Color DarkGray
+        } elseif ($deploy.CiToolStdout) {
             $line = ($deploy.CiToolStdout -split "`r?`n" | Where-Object { $_.Trim() } | Select-Object -First 1)
-            if ($line) { Write-Host ('    CiTool: {0}' -f $line.Trim()) -ForegroundColor DarkGray }
+            if ($line) { Write-Detail ('CiTool: {0}' -f $line.Trim()) -Color DarkGray }
         }
         Write-Host ''
 
@@ -9196,9 +9267,12 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
             Write-Host '  You can proceed to I03 (InstallDrivers) right away.' -ForegroundColor Green
         }
         Write-Host ''
-        Write-Host '  Reversal (when you are done with this lab):' -ForegroundColor DarkGray
-        Write-Host  '    .\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Cleanup' -ForegroundColor DarkGray
-        Write-Host ('    or: CiTool.exe --remove-policy {0}' -f $policyId) -ForegroundColor DarkGray
+        # r57: bare Write-Host '    ...' continuation lines migrated to
+        # Write-Detail (SPEC A.5). The two CiTool.exe command strings
+        # below stay at column 4 visually but go through the helper.
+        Write-Detail 'Reversal (when you are done with this lab):' -Color DarkGray
+        Write-Detail ('  .\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Cleanup') -Color DarkGray
+        Write-Detail ('  or: CiTool.exe --remove-policy {0}' -f $policyId) -Color DarkGray
 
         $reverseInstr = @(
             'To revert the WDAC supplemental policy:',
@@ -9433,7 +9507,7 @@ function Invoke-InstPhase03_InstallDrivers {
 
     Write-Step "Installing $($infs.Count) INF(s) via pnputil..."
 
-    $okCount = 0; $failCount = 0; $rebootCount = 0; $skipNewerCount = 0
+    $okCount = 0; $failCount = 0; $rebootCount = 0; $skipNewerCount = 0; $noOpCount = 0
     $installResults = @()
     foreach ($inf in $infs) {
         $dec = $infDecisions[$inf.FullName]
@@ -9516,12 +9590,26 @@ function Invoke-InstPhase03_InstallDrivers {
         }
         Set-Content -LiteralPath $logFile -Value $logBody.ToString() -Encoding UTF8
 
-        # Classify result. Windows convention:
+        # Classify result. Windows convention (refined in r57):
         #   exit 0    = success, no reboot required
         #   exit 3010 = success, reboot required (ERROR_SUCCESS_REBOOT_REQUIRED)
+        #   exit 259  = success, no-op (ERROR_NO_MORE_ITEMS; driver package
+        #               was either already present in the driver store, or
+        #               the device's current driver is already same-or-better
+        #               so the new package was added to the store but not
+        #               bound to the device). NOT a failure - investigation
+        #               on WS2025 r57 confirmed the pnputil stdout always
+        #               reads "ドライバー パッケージが正常に追加されました"
+        #               with "追加されたドライバー パッケージ: 0".
         #   anything else = failure (per pnputil)
+        # r57: exit 259 was previously misclassified as failure; this
+        # diverged from I04's PostInstallVerification which read the
+        # actual device state and correctly classified those drivers as
+        # REBOOT_NEEDED (when a sibling-INF first install had already
+        # queued the binding). See SPEC D.17 for the root-cause.
         $rebootRequired = ($exit -eq 3010)
-        $isSuccess      = ($exit -eq 0 -or $exit -eq 3010)
+        $isNoOp         = ($exit -eq 259)
+        $isSuccess      = ($exit -eq 0 -or $exit -eq 3010 -or $exit -eq 259)
         # pnputil text sometimes includes "Restart required: yes" in stdout
         # even on exit 0 (depends on Windows version), so honor either signal
         if (-not $rebootRequired -and $stdoutText -match '(?im)^\s*Restart required:\s*yes') {
@@ -9529,7 +9617,8 @@ function Invoke-InstPhase03_InstallDrivers {
         }
 
         $status = if ($isSuccess -and $rebootRequired) { 'reboot-required' }
-                  elseif ($isSuccess)                  { 'installed' }
+                  elseif ($isNoOp)                      { 'no-op (already present)' }
+                  elseif ($isSuccess)                   { 'installed' }
                   else                                  { 'failed' }
 
         $installResults += [pscustomobject]@{
@@ -9546,6 +9635,9 @@ function Invoke-InstPhase03_InstallDrivers {
             if ($rebootRequired) {
                 $rebootCount++
                 Write-Warn2 '  installed (REBOOT REQUIRED)'
+            } elseif ($isNoOp) {
+                $noOpCount++
+                Write-Skip '  no-op (driver store already up-to-date)'
             } else {
                 Write-Ok '  installed'
             }
@@ -9555,7 +9647,7 @@ function Invoke-InstPhase03_InstallDrivers {
             Write-Warn2 "  exit=$exitDisplay (see $logFile)"
         }
     }
-    Write-Ok ('Driver install: {0} ok ({1} need reboot) / {2} failed / {3} skipped (current newer)' -f $okCount, $rebootCount, $failCount, $skipNewerCount)
+    Write-Ok ('Driver install: {0} ok ({1} need reboot, {2} no-op) / {3} failed / {4} skipped (current newer)' -f $okCount, $rebootCount, $noOpCount, $failCount, $skipNewerCount)
 
     # Persist state to context for I04 to consume
     $Ctx | Add-Member -NotePropertyName InstallResults     -NotePropertyValue $installResults -Force

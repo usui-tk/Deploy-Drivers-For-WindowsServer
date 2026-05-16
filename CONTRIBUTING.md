@@ -23,8 +23,8 @@ Before opening an issue at <https://github.com/usui-tk/Deploy-AMD-Drivers-For-Wi
 **Environment**
 - OS:      Windows Server 2025 (build 26100) / Win11 24H2 / ...
 - CPU:     AMD Ryzen 7 PRO 5750GE (Cezanne)
-- Script:  Deploy-AMDChipsetDriverOnWindowsServer.ps1 r56
-           (or Graphics r24, or NPU r6 — see top-of-file $Script:ScriptVersion)
+- Script:  Deploy-AMDChipsetDriverOnWindowsServer.ps1 r57
+           (or Graphics r25, or NPU r7 — see top-of-file $Script:ScriptVersion)
 - Phase:   V06 (or specific phase ID where it fails)
 
 **What happened**
