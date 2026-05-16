@@ -585,7 +585,7 @@ explained in the commit message and either added here or fixed.
 
 | Script | Errors | Warnings | Info | Total |
 | ------ | -----: | -------: | ---: | ----: |
-| `Deploy-AMDChipsetDriverOnWindowsServer.ps1`  | **0** | 51 | 31 | 82 |
+| `Deploy-AMDChipsetDriverOnWindowsServer.ps1`  | **0** | 52 | 31 | 83 |
 | `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | **0** | 53 | 36 | 89 |
 | `Deploy-AMDNpuDriverOnWindowsServer.ps1`      | **0** | 26 |  0 | 26 |
 
@@ -594,10 +594,10 @@ Breakdown by rule:
 | Rule (severity)                       | Chipset | Graphics | NPU | Disposition |
 | ------------------------------------- | ------: | -------: | --: | ----------- |
 | `PSA4004` (trailing semicolon, info)  |   31    |    36    |  0  | Cosmetic; existing style accumulated over many revisions. Not fixed in this sync. |
-| `PSA3004` (empty `catch`, warning)    |   28    |    28    |  9  | Mix of fail-soft retry and best-effort diagnostic capture. Not individually annotated in this sync. Counts re-measured under psa.py v3.1.0. |
+| `PSA3004` (empty `catch`, warning)    |   28    |    28    |  9  | Mix of fail-soft retry and best-effort diagnostic capture. Not individually annotated in this sync. Counts re-measured under psa.py v3.1.0. The Chipset r55 / Graphics r23 `finally`-block lock-release catch is suppressed inline (`# psa-disable-line PSA3004`) so it does not contribute. |
 | `PSA6003` (plural function noun, w.)  |   14    |    15    | 13  | Existing public function names; renaming would be a breaking API change. |
 | `PSA2003` (warning)                   |    6    |     7    |  4  | All inspected sites use `-match` against a script-scope constant pattern that is never `$null`; the warning is technically true but operationally a known-good shape. |
-| `PSA3001` (Start-Process -ArgumentList, w.) | 3 |    3    |  0  | Existing wrappers; arguments are constructed safely with no shell metacharacters. |
+| `PSA3001` (Start-Process -ArgumentList, w.) | 4 |    3    |  0  | Existing wrappers; arguments are constructed safely with no shell metacharacters. Chipset counts 4 because r54's `Expand-AmdInstaller_ViaInstallShield` added a 4th call for the per-sub-MSI `msiexec /a` admin install. |
 
 **Note on PSA5001**: previously reported as 1 / 1 / 3 errors. As of the
 psa-baseline-sync revision these are all suppressed inline at the `param()`
@@ -787,7 +787,7 @@ When adding a fourth sister script, the 6 cross-script-identical functions are l
 
 ### Identification
 
-- **Current revision**: `chipset-2026.05.16-r54` (tag: `chipset-secureboot-baseline-r54`)
+- **Current revision**: `chipset-2026.05.16-r55` (tag: `chipset-lock-release-and-log-aggregation-r55`)
 - **Workspace**: `C:\AMD-Chipset-WS\`
 - **Self-signed cert subject**: `CN=AMD Chipset Driver Self-Sign (WS2025 Lab, At Own Risk)`
 - **Self-signed cert files**: `cert\AMD-Chipset-Driver-CodeSign.{pfx,cer}` (r48+; pre-r48 used `AMD-Driver-CodeSign.{pfx,cer}`)
@@ -958,7 +958,7 @@ Older AMD platforms (Renoir, Cezanne) will produce fewer device-driver matches i
 
 ### Identification
 
-- **Current revision**: `graphics-2026.05.16-r19` (tag: `graphics-secureboot-baseline-r19`)
+- **Current revision**: `graphics-2026.05.16-r23` (tag: `graphics-lock-release-r23`)
 - **Workspace**: `C:\AMD-Graphics-WS\`
 - **Self-signed cert subject**: `CN=AMD Graphics Driver Self-Sign (WS2025 Lab, At Own Risk)`
 - **Self-signed cert files**: `cert\AMD-Graphics-Driver-CodeSign.{pfx,cer}` (r17+; pre-r17 used `AMD-Driver-CodeSign.{pfx,cer}`)
@@ -1248,6 +1248,79 @@ After Strategy 2 succeeds, the existing P05 / P06 / I03 pipeline picks up the fu
 **Scope**: Chipset only. Graphics and NPU installers use different formats (Graphics is a WIX BURN bootstrapper, NPU is a plain ZIP) and don't need this strategy.
 
 **Renoir-specific note**: Even with the r54 fix, X13 Gen 1 will see ~27 of the 35 INF packages remain "no device" because their Hardware IDs target Phoenix Point and later CPUs. The ~5-8 packages that DO match real devices are the meaningful coverage improvement. This is expected and documented in B.1's "35 sub-MSIs" table.
+
+---
+
+## D.13 Chipset r55 / Graphics r23 — Workspace lock leaked across runs in the same PowerShell console
+
+**Symptom**: Running the chipset (or graphics) script with `-Action PrepareVerify` and then immediately re-running it (with the same or a different `-Action`) in the **same interactive PowerShell console** failed at P01 with:
+
+```
+*** Another instance of this script is already running in workspace C:\AMD-Chipset-WS ***
+    PID         : 3088
+    StartedAt   : 2026-05-16 23:38:05
+    CommandLine : C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe
+```
+
+The PID shown (3088) was the PID of the PowerShell host process itself, not of a second script invocation. The first invocation had already completed cleanly.
+
+**Root cause**: The workspace lock file (`<WorkRoot>\.markers\RUN.lock`) was written by `Set-WorkspaceLock` in P01 with the current `$PID`. Cleanup relied solely on a `Register-EngineEvent -SourceIdentifier PowerShell.Exiting` action; this event only fires when the PowerShell **host process** terminates, not when a script returns. In an interactive console (where the host is reused for many script invocations) the lock therefore leaked. Run 2 then ran `Test-WorkspaceLockHeld`, found the leftover lock with PID=3088, called `Get-Process -Id 3088` (which returned the PowerShell host itself), and incorrectly concluded that "another instance is running".
+
+The Graphics script had the same code pattern with the same defect (file-locally numbered r19 → r22; the catch-up bump to r23 includes this fix). The NPU script does not have a workspace lock and is unaffected (it uses script scope rather than `$Ctx.Paths.Markers`).
+
+**Fix (Chipset r55 / Graphics r23)**: Two complementary changes (defense-in-depth):
+
+1. **Self-PID detection in `Test-WorkspaceLockHeld`** — if the recorded PID in the lock file equals the current `$PID`, the lock is classified as `Stale` with a new `SelfPid=$true` field. `Assert-NoConcurrentRun` then silently supersedes it with an informational `[+] Reusing workspace lock from earlier run in this PowerShell session` message instead of the loud "stale lock" warning intended for crashed prior runs.
+
+2. **`try { ... } finally { Clear-WorkspaceLock ... }` around the main phase loop** — the existing top-level `foreach ($phase in $queue) { ... }` and the run summary block are now wrapped in `try { ... } finally { ... }`. The `finally` calls `Clear-WorkspaceLock -Ctx $Ctx` so the lock file is removed on every exit path (normal completion, phase throw, top-level error). The inner cleanup uses an intentionally empty `catch { }` annotated with `# psa-disable-line PSA3004 -- intentional best-effort cleanup in finally; a failure here must not mask the original exception`.
+
+The two changes are complementary: `try/finally` prevents the lock from leaking on every exit path going forward; the self-PID detection handles the historic case where a pre-r55 / pre-r23 leftover lock is encountered, and any future case where a hard `Stop-Process`/`Ctrl-C` bypasses `finally` entirely.
+
+**Scope**: Chipset and Graphics. The NPU script does not implement a workspace lock and is intentionally exempt — see SPEC §A.1.4 cross-script consistency check rules (the lock is not on the cross-script-mandatory list).
+
+---
+
+## D.14 Chipset r55 — Per-tool installer logs leaked to workspace root
+
+**Symptom**: After running `-Action PrepareVerify` on a clean Windows Server 2025 host, the workspace root (`C:\AMD-Chipset-WS\`) contained the following loose log files alongside the documented subdirectory layout (`download\`, `extracted\`, `patched\`, `cert\`, `logs\`, `.markers\`):
+
+```
+C:\AMD-Chipset-WS\installshield-admin.log
+C:\AMD-Chipset-WS\msiexec-admin-AMD-AS4-ACPI-Driver.log
+C:\AMD-Chipset-WS\msiexec-admin-AMD-Consumer_Infrared-Driver.log
+C:\AMD-Chipset-WS\msiexec-admin-AMD-GPIO2-Driver.log
+C:\AMD-Chipset-WS\msiexec-admin-AMD-I2C-Driver.log
+C:\AMD-Chipset-WS\msiexec-admin-AMD-IOV-WT-Driver.log
+C:\AMD-Chipset-WS\msiexec-admin-AMD-PCI-Driver.log
+C:\AMD-Chipset-WS\msiexec-admin-AMD-PMF-7736Series-Driver.log
+C:\AMD-Chipset-WS\msiexec-admin-AMD-PMF-Ryzen-AI-300-Series-Driver.log
+C:\AMD-Chipset-WS\msiexec-admin-AMD-PSP-Driver.log
+C:\AMD-Chipset-WS\msiexec-admin-AMD-SBxxxSMBus-Driver.log
+C:\AMD-Chipset-WS\msiexec-admin-AMD-UART-Driver.log
+C:\AMD-Chipset-WS\msiexec-admin-AMD-USB_Filter-Driver.log
+```
+
+The workspace already had a `logs\` subdirectory used by P08 (inf2cat), P09 (signtool), V03 (signtool verify), and I03 (pnputil) — but the InstallShield admin install and the per-sub-MSI msiexec admin installs added in r54 did not route their logs there.
+
+**Root cause**: `Expand-AmdInstaller_ViaInstallShield` (r54-new) computed `$parentDir = Split-Path $DestinationPath -Parent`. Because the caller (`Invoke-PrepPhase04_ExtractInstaller`) passed `$Ctx.Paths.Extract` (= `<WorkRoot>\extracted`) as `$DestinationPath`, `$parentDir` resolved to `<WorkRoot>` itself. Both `$isLog` and the per-sub-MSI `$subLog` were then computed as `Join-Path $parentDir <filename>`, dropping every log file in the workspace root.
+
+**Fix (Chipset r55)**: New optional `[string]$LogDir` parameter on `Expand-AmdInstaller` and `Expand-AmdInstaller_ViaInstallShield`. The downstream function resolves a `$logRoot` variable: if the caller passed a `$LogDir` (and the directory exists or can be created), `$logRoot` is set to `$LogDir`; otherwise `$logRoot` falls back to the legacy `$parentDir` for backwards compatibility. Both `$isLog` and `$subLog` are then computed against `$logRoot`. The caller (`Invoke-PrepPhase04_ExtractInstaller`) was updated to pass `-LogDir $Ctx.Paths.Logs`. Existing P08/P09/V03/I03 log files are unaffected (they already wrote to `$Ctx.Paths.Logs`).
+
+**Effect on workspace layout**:
+
+| File                                  | Pre-r55 location | Post-r55 location          |
+| ------------------------------------- | ---------------- | -------------------------- |
+| `installshield-admin.log`             | `<WorkRoot>\`    | `<WorkRoot>\logs\`         |
+| `msiexec-admin-<sub-MSI>.log` (×12)   | `<WorkRoot>\`    | `<WorkRoot>\logs\`         |
+| `inf2cat_<rel>.log` (existing)        | `<WorkRoot>\logs\` | unchanged                |
+| `signtool_<rel>.log` (existing)       | `<WorkRoot>\logs\` | unchanged                |
+| `verify_<basename>.log` (existing)    | `<WorkRoot>\logs\` | unchanged                |
+| `pnputil_<basename>.log` (existing)   | `<WorkRoot>\logs\` | unchanged                |
+| `inf_inventory.csv`                   | `<WorkRoot>\`    | unchanged (documented)     |
+| `inf_inventory_report.txt`            | `<WorkRoot>\`    | unchanged (documented)     |
+| `secureboot_ms_sample\*` (existing)   | `<WorkRoot>\secureboot_ms_sample\` | unchanged |
+
+**Scope**: Chipset only. Graphics does not use the InstallShield admin install / `msiexec /a` chain (its installer is a WIX BURN bootstrapper which uses a single `msiexec /i` invocation). NPU does not use any installer-level logging at this layer.
 
 ---
 

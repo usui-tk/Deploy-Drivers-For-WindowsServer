@@ -697,8 +697,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'graphics-2026.05.16-r22'
-$Script:ScriptTag     = 'graphics-secureboot-baseline-r22'
+$Script:ScriptVersion = 'graphics-2026.05.16-r23'
+$Script:ScriptTag     = 'graphics-lock-release-r23'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -2819,10 +2819,18 @@ function Get-WorkspaceLockPath {
 }
 
 function Test-WorkspaceLockHeld {
-    # Returns @{ Held=$bool; Pid=$int; ProcessRunning=$bool; Stale=$bool }
+    # Returns @{ Held=$bool; Pid=$int; ProcessRunning=$bool; Stale=$bool; SelfPid=$bool }
     # If no lock exists, Held=$false and other fields are blank.
     # If a lock exists but the recorded PID is no longer running, the
     # lock is stale (Held=$true, ProcessRunning=$false, Stale=$true).
+    # r23: If a lock exists AND the recorded PID matches our current
+    # PowerShell process ($PID), the lock is treated as stale and
+    # taken over silently. This handles the interactive-console case
+    # where a previous run completed but the PowerShell.Exiting hook
+    # did not fire (because the console host is still alive); without
+    # this, the next run in the same console would mis-detect the
+    # leftover lock as "another instance running" and refuse to start.
+    # Mirrors Chipset r55 fix; see SPEC §A.1.4 sister-script symmetry.
     param([Parameter(Mandatory)] $Ctx)
     $info = [pscustomobject]@{
         Held           = $false
@@ -2831,6 +2839,7 @@ function Test-WorkspaceLockHeld {
         CommandLine    = $null
         ProcessRunning = $false
         Stale          = $false
+        SelfPid        = $false
     }
     $path = Get-WorkspaceLockPath -Ctx $Ctx
     if (-not $path -or -not (Test-Path $path)) { return $info }
@@ -2844,11 +2853,23 @@ function Test-WorkspaceLockHeld {
         }
     } catch { }
     if ($info.Pid) {
-        $proc = Get-Process -Id $info.Pid -ErrorAction SilentlyContinue
-        if ($proc) {
-            $info.ProcessRunning = $true
+        # r23: lock written by the very same PowerShell process we are
+        # running in. This happens when a previous script invocation in
+        # the same interactive console completed without firing the
+        # Register-EngineEvent PowerShell.Exiting hook (the hook only
+        # fires when the host process itself exits). Mark as stale so
+        # Assert-NoConcurrentRun can supersede silently.
+        if ($info.Pid -eq $PID) {
+            $info.SelfPid        = $true
+            $info.ProcessRunning = $false
+            $info.Stale          = $true
         } else {
-            $info.Stale = $true
+            $proc = Get-Process -Id $info.Pid -ErrorAction SilentlyContinue
+            if ($proc) {
+                $info.ProcessRunning = $true
+            } else {
+                $info.Stale = $true
+            }
         }
     }
     return $info
@@ -2916,7 +2937,16 @@ function Assert-NoConcurrentRun {
         throw $msg
     }
     if ($info.Held -and $info.Stale) {
-        Write-Warn2 ('Found stale lock from PID {0} (process no longer running) - taking over.' -f $info.Pid)
+        # r23: distinguish "stale because the recorded PID is dead" from
+        # "stale because the recorded PID is OUR pid" (interactive
+        # PowerShell re-run scenario). The second case is benign and
+        # frequent enough that it deserves a non-alarming message.
+        # Mirrors Chipset r55 fix; see SPEC §A.1.4 sister-script symmetry.
+        if ($info.SelfPid) {
+            Write-Host ('    [+] Reusing workspace lock from earlier run in this PowerShell session (PID {0}).' -f $info.Pid) -ForegroundColor DarkGray
+        } else {
+            Write-Warn2 ('Found stale lock from PID {0} (process no longer running) - taking over.' -f $info.Pid)
+        }
         Clear-WorkspaceLock -Ctx $Ctx
     }
     Set-WorkspaceLock -Ctx $Ctx
@@ -10726,60 +10756,84 @@ $queue = @($mandatory) + @($selected)
 $Ctx.SelectedPhaseIds = @($queue | ForEach-Object Id)
 
 # ----- Execute -----
-foreach ($phase in $queue) {
-    try {
-        & $phase.Func -Ctx $Ctx
-    } catch {
-        Write-Fail "$($phase.Id) [$($phase.Name)] failed: $($_.Exception.Message)"
-        Write-PhaseFooter $phase.Id 'failed'
-        throw
-    }
-}
-
-# ----- Summary -----
-$totalElapsed = (Get-Date) - $Script:ScriptStartTime
-$endedAtStr   = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
-
-Write-Host ''
-Write-Host '============================================================' -ForegroundColor Magenta
-Write-Host ' RUN SUMMARY' -ForegroundColor Magenta
-Write-Host '============================================================' -ForegroundColor Magenta
-Write-Host " Script version  : $($Script:ScriptVersion) [$($Script:ScriptTag)]" -ForegroundColor Cyan
-Write-Host " Script SHA256   : $($Script:ScriptHash)" -ForegroundColor DarkCyan
-Write-Host " OS              : $($Ctx.Os.Name) (build $($Ctx.Os.ActualBuild))"
-Write-Host " Workspace       : $($Ctx.WorkRoot)"
-if ($Ctx.Installer)       { Write-Host " Installer       : $(Split-Path $Ctx.Installer -Leaf)" }
-if ($Ctx.InfInventory)    { Write-Host " INFs analyzed   : $($Ctx.InfInventory.Count)" }
-if ($Ctx.PatchResults)    { Write-Host " INFs patched    : $($Ctx.PatchResults.Count)" }
-if ($Ctx.CertThumbprint)  { Write-Host " Cert thumbprint : $($Ctx.CertThumbprint)" }
-Write-Host " Phases run      : $((($queue | ForEach-Object Id)) -join ' -> ')"
-Write-Host " Started at      : $startedAtStr"
-Write-Host " Ended at        : $endedAtStr"
-Write-Host (" Total elapsed   : {0}" -f (Format-Elapsed $totalElapsed)) -ForegroundColor Cyan
-
-# Per-phase timing breakdown
-if ($Script:PhaseTimings.Count -gt 0) {
-    Write-Host ''
-    Write-Host ' Phase timings:' -ForegroundColor Cyan
-    Write-Host ('   {0,-5} {1,-23} {2,-8} {3,10}' -f 'ID','Name','Status','Elapsed')
-    Write-Host ('   {0}' -f ('-' * 50))
-    $sumSeconds = 0.0
-    foreach ($t in $Script:PhaseTimings) {
-        $name = ($Script:PhaseRegistry | Where-Object Id -eq $t.Id | Select-Object -First 1).Name
-        if (-not $name) { $name = '(unknown)' }
-        $color = switch ($t.Status) {
-            'done'    { 'Green' }
-            'cached'  { 'DarkGray' }
-            'skipped' { 'DarkGray' }
-            'failed'  { 'Red' }
-            default   { 'White' }
+# r23: wrap the whole phase loop + summary in a try/finally so the
+# workspace lock (acquired in P01 via Assert-NoConcurrentRun) is
+# released on EVERY exit path - normal completion, phase throw, or
+# top-level error. The pre-r23 design relied solely on the
+# Register-EngineEvent PowerShell.Exiting hook in Set-WorkspaceLock,
+# which only fires when the PowerShell host process itself exits.
+# In an interactive console (where the host is reused across many
+# script invocations), the hook never fires and the lock file leaks
+# - the next run in the same console then mis-detects its own host's
+# PID in the leftover lock and refuses to start with "Another
+# instance is already running". The finally block + the new self-PID
+# detection in Test-WorkspaceLockHeld together close that gap.
+# Mirrors Chipset r55 fix; see SPEC §A.1.4 sister-script symmetry.
+try {
+    foreach ($phase in $queue) {
+        try {
+            & $phase.Func -Ctx $Ctx
+        } catch {
+            Write-Fail "$($phase.Id) [$($phase.Name)] failed: $($_.Exception.Message)"
+            Write-PhaseFooter $phase.Id 'failed'
+            throw
         }
-        Write-Host ('   {0,-5} {1,-23} {2,-8} {3,10}' -f `
-                       $t.Id, $name, $t.Status, (Format-Elapsed $t.Elapsed)) `
-                  -ForegroundColor $color
-        $sumSeconds += $t.Elapsed.TotalSeconds
     }
-    Write-Host ('   {0}' -f ('-' * 50))
-    Write-Host ('   {0,-5} {1,-23} {2,-8} {3,10}' -f 'SUM','(phase total)','', (Format-Elapsed ([TimeSpan]::FromSeconds($sumSeconds)))) -ForegroundColor Cyan
+
+    # ----- Summary -----
+    $totalElapsed = (Get-Date) - $Script:ScriptStartTime
+    $endedAtStr   = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
+
+    Write-Host ''
+    Write-Host '============================================================' -ForegroundColor Magenta
+    Write-Host ' RUN SUMMARY' -ForegroundColor Magenta
+    Write-Host '============================================================' -ForegroundColor Magenta
+    Write-Host " Script version  : $($Script:ScriptVersion) [$($Script:ScriptTag)]" -ForegroundColor Cyan
+    Write-Host " Script SHA256   : $($Script:ScriptHash)" -ForegroundColor DarkCyan
+    Write-Host " OS              : $($Ctx.Os.Name) (build $($Ctx.Os.ActualBuild))"
+    Write-Host " Workspace       : $($Ctx.WorkRoot)"
+    if ($Ctx.Installer)       { Write-Host " Installer       : $(Split-Path $Ctx.Installer -Leaf)" }
+    if ($Ctx.InfInventory)    { Write-Host " INFs analyzed   : $($Ctx.InfInventory.Count)" }
+    if ($Ctx.PatchResults)    { Write-Host " INFs patched    : $($Ctx.PatchResults.Count)" }
+    if ($Ctx.CertThumbprint)  { Write-Host " Cert thumbprint : $($Ctx.CertThumbprint)" }
+    Write-Host " Phases run      : $((($queue | ForEach-Object Id)) -join ' -> ')"
+    Write-Host " Started at      : $startedAtStr"
+    Write-Host " Ended at        : $endedAtStr"
+    Write-Host (" Total elapsed   : {0}" -f (Format-Elapsed $totalElapsed)) -ForegroundColor Cyan
+
+    # Per-phase timing breakdown
+    if ($Script:PhaseTimings.Count -gt 0) {
+        Write-Host ''
+        Write-Host ' Phase timings:' -ForegroundColor Cyan
+        Write-Host ('   {0,-5} {1,-23} {2,-8} {3,10}' -f 'ID','Name','Status','Elapsed')
+        Write-Host ('   {0}' -f ('-' * 50))
+        $sumSeconds = 0.0
+        foreach ($t in $Script:PhaseTimings) {
+            $name = ($Script:PhaseRegistry | Where-Object Id -eq $t.Id | Select-Object -First 1).Name
+            if (-not $name) { $name = '(unknown)' }
+            $color = switch ($t.Status) {
+                'done'    { 'Green' }
+                'cached'  { 'DarkGray' }
+                'skipped' { 'DarkGray' }
+                'failed'  { 'Red' }
+                default   { 'White' }
+            }
+            Write-Host ('   {0,-5} {1,-23} {2,-8} {3,10}' -f `
+                           $t.Id, $name, $t.Status, (Format-Elapsed $t.Elapsed)) `
+                      -ForegroundColor $color
+            $sumSeconds += $t.Elapsed.TotalSeconds
+        }
+        Write-Host ('   {0}' -f ('-' * 50))
+        Write-Host ('   {0,-5} {1,-23} {2,-8} {3,10}' -f 'SUM','(phase total)','', (Format-Elapsed ([TimeSpan]::FromSeconds($sumSeconds)))) -ForegroundColor Cyan
+    }
+    Write-Host '============================================================' -ForegroundColor Magenta
 }
-Write-Host '============================================================' -ForegroundColor Magenta
+finally {
+    # r23: release the workspace lock regardless of how we got here.
+    # Safe to call when the lock was never acquired (e.g. failure
+    # before P01) because Clear-WorkspaceLock is idempotent and a
+    # no-op when the lock file does not exist or $Ctx.Paths is null.
+    if ($Ctx -and $Ctx.Paths -and $Ctx.Paths.Markers) {
+        try { Clear-WorkspaceLock -Ctx $Ctx } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup in finally; a failure here must not mask the original exception
+    }
+}
