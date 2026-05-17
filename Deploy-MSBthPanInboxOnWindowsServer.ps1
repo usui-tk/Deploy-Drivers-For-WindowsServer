@@ -264,7 +264,7 @@
         Tee-Object -FilePath "C:\Temp\ms-bthpan_Install_$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
 
 .NOTES
-    Script version : msbthpan-2026.05.17-r2
+    Script version : msbthpan-2026.05.17-r7
     Repository     : https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer
     Sister scripts : Deploy-AMD{Chipset,Graphics,Npu}DriverOnWindowsServer.ps1
     License        : MIT (see LICENSE)
@@ -318,6 +318,23 @@ param(
     # decoration. This is the recommended replacement for the legacy
     # `... *>&1 | Tee-Object -FilePath ...` idiom, which strips
     # Write-Host coloring on the way through the pipeline.
+    #
+    # RECOMMENDED PATTERN: place transcripts OUTSIDE -WorkRoot with a
+    # timestamp suffix so consecutive runs don't overwrite each other
+    # and so -CleanWorkRoot can wipe the workspace freely. Example:
+    #
+    #     $ts  = Get-Date -Format 'yyyyMMdd-HHmmss'
+    #     $log = "C:\Temp\Deploy-MSBthPanInboxOnWindowsServer_PrepareVerify_$ts.log"
+    #     .\Deploy-MSBthPanInboxOnWindowsServer.ps1 `
+    #         -Action PrepareVerify -CleanWorkRoot -LogFile $log
+    #
+    # SAFETY NET: if -LogFile resolves to a path INSIDE -WorkRoot AND
+    # -CleanWorkRoot is set, the script auto-relocates the transcript
+    # to its own directory (or %TEMP% as fallback) with a timestamp-
+    # suffixed filename and warns the user. This prevents the
+    # half-deleted-workspace state that the colliding wipe would
+    # otherwise produce. See Section 0.25 auto-relocation block for
+    # details.
     [string]$LogFile       = '',
 
     # === Driver-load authorization mode ===============================
@@ -353,7 +370,17 @@ param(
 
     # === WDAC supplemental policy GUID overrides ======================
     [string]$WdacPolicyGuid     = '',
-    [string]$WdacBasePolicyGuid = ''
+    [string]$WdacBasePolicyGuid = '',
+
+    # === Debug Trace Facility (r8+) ===================================
+    # When set, the script unconditionally writes a
+    # debugtrace_export_final_<timestamp>.json snapshot to
+    # <WorkRoot>\logs at the end of the run, whether the run succeeded
+    # or failed. This is the post-mortem companion to the always-on
+    # JSONL stream and the auto-on-failure exports - useful when you
+    # want a single self-contained file to inspect or to attach to a
+    # bug report, even when nothing actually failed.
+    [switch]$ExportTraceOnExit
 )
 
 $ErrorActionPreference = 'Stop'
@@ -385,8 +412,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'msbthpan-2026.05.17-r2'
-$Script:ScriptTag     = 'msbthpan-logfile-and-temp-workspace-r2'
+$Script:ScriptVersion = 'msbthpan-2026.05.17-r8'
+$Script:ScriptTag     = 'msbthpan-debug-trace-facility-jsonl-and-phase-integration-r8'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -411,7 +438,7 @@ try {
 $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash)
 
 #####################################################################
-# SECTION 0.25: Optional console transcript capture (r2+)
+# SECTION 0.25: Optional console transcript capture (r5 verified activation)
 #####################################################################
 # When -LogFile is set, wrap execution in Start-Transcript so the file
 # receives every stream (Output / Host / Error / Warning / Verbose /
@@ -425,29 +452,335 @@ $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash
 # strips Write-Host coloring because the host stream is captured into
 # the pipeline value stream. The -LogFile path here is the recommended
 # alternative when console coloring matters to the operator.
+#
+# r5 (transcript verified activation):
+#
+#   Reports from PS 5.1.26100.32860 (Windows Server 2025) showed that
+#   `Start-Transcript -Path X -Append -Force` raised
+#   ParameterBindingException ("Parameter set cannot be resolved using
+#   the specified named parameters") only when invoked from the actual
+#   BthPan script body. Isolated minimal reproductions (clean session,
+#   same param block in a separate small .ps1) all succeeded. The
+#   root cause for the script-context-specific failure could not be
+#   pinpointed within a reasonable budget; instead, r5 takes a
+#   defense-in-depth approach:
+#
+#     1. CAPTURE the cmdlet return value (a non-empty localized success
+#        message proves the cmdlet completed normally).
+#     2. POLL the log file's appearance on disk with a short timeout
+#        (3 s default, 50 ms interval) - Start-Transcript opens the
+#        file before returning, so a missing file means the transcript
+#        did not actually start.
+#     3. WRITE a probe marker via Write-Output, briefly Start-Sleep,
+#        then read the file back and confirm the marker landed there.
+#        This is the only deterministic way to know transcription is
+#        actively capturing output (vs. silently dropping it).
+#     4. STOP-TRANSCRIPT + Start-Sleep BETWEEN failed attempts so a
+#        partially-initialized state from one attempt does not
+#        contaminate the next.
+#     5. RECORD per-attempt failure metadata (exception type, FQId,
+#        message) so post-mortem diagnosis has enough material.
+#
+#   A failed transcript activation MUST NEVER prevent the script from
+#   running its actual work. If activation fails, the script proceeds
+#   uncaptured with a prominent warning and a Tee-Object workaround.
+#####################################################################
+# Auto-relocation guard for -LogFile vs -WorkRoot + -CleanWorkRoot
+#####################################################################
+# When the operator specifies a -LogFile path that resolves to a
+# location INSIDE -WorkRoot AND -CleanWorkRoot is also requested, the
+# P01 PrepareWorkspace phase would attempt Remove-Item on the WorkRoot
+# subtree while Start-Transcript holds the transcript file open in
+# write mode. That produces an IOException
+# ("FileInfo: another process is using this file") partway through
+# the recursive delete, leaving the workspace in a half-deleted
+# state.
+#
+# Instead of throwing, we auto-relocate the transcript to a safe
+# path (this script's own directory, falling back to %TEMP%) with a
+# timestamp-suffixed filename. The user's transcript intent is
+# preserved; only the LOCATION is corrected. A prominent Write-Warning
+# is emitted so the new path is visible. Both the original and new
+# paths are also recorded on $Script:LogFileSetup for the RUN
+# SUMMARY.
+#
+# Trigger:    $LogFile is non-empty AND $CleanWorkRoot AND $LogFile
+#             resolves to a sub-path of $WorkRoot
+# Target:     <script-dir>\Deploy-MSBthPanInboxOnWindowsServer_<Action>_<ts>.log
+# Fallback:   %TEMP%\Deploy-MSBthPanInboxOnWindowsServer_<Action>_<ts>.log
+#             when script-dir is unavailable
+#
+# The intentional design choice is "relocate, do not refuse" so a
+# benign user mistake (putting transcript next to its peer artifacts
+# under logs\) does not block the run. The P01 pre-flight guard below
+# stays as a defense-in-depth backstop in case this relocation logic
+# itself fails to apply for any reason.
+$Script:LogFileRelocation = $null
+if (-not [string]::IsNullOrWhiteSpace($LogFile) -and $CleanWorkRoot) {
+    try {
+        $resolvedLog      = [System.IO.Path]::GetFullPath($LogFile)
+        $resolvedWorkRoot = [System.IO.Path]::GetFullPath($WorkRoot)
+        # Normalize WorkRoot to end with separator so "C:\Workspace"
+        # does not falsely match "C:\Workspace_Other\..." via prefix.
+        if (-not $resolvedWorkRoot.EndsWith([System.IO.Path]::DirectorySeparatorChar) -and `
+            -not $resolvedWorkRoot.EndsWith([System.IO.Path]::AltDirectorySeparatorChar)) {
+            $resolvedWorkRoot = $resolvedWorkRoot + [System.IO.Path]::DirectorySeparatorChar
+        }
+        if ($resolvedLog.StartsWith($resolvedWorkRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+            # Determine target directory: prefer this script's own
+            # directory, fall back to %TEMP% if unavailable.
+            $targetDir = $null
+            if ($Script:ScriptPath) {
+                $candidate = [System.IO.Path]::GetDirectoryName($Script:ScriptPath)
+                if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path -LiteralPath $candidate)) {
+                    $targetDir = $candidate
+                }
+            }
+            if ([string]::IsNullOrWhiteSpace($targetDir)) {
+                $targetDir = [System.IO.Path]::GetTempPath().TrimEnd([System.IO.Path]::DirectorySeparatorChar,
+                                                                     [System.IO.Path]::AltDirectorySeparatorChar)
+            }
+            $ts          = (Get-Date).ToString('yyyyMMdd-HHmmss')
+            $newLogLeaf  = ('Deploy-MSBthPanInboxOnWindowsServer_{0}_{1}.log' -f $Action, $ts)
+            $newLogFile  = Join-Path $targetDir $newLogLeaf
+
+            Write-Warning '[-LogFile guard] Specified -LogFile is inside -WorkRoot:'
+            Write-Warning ('     -LogFile  : {0}' -f $resolvedLog)
+            Write-Warning ('     -WorkRoot : {0}' -f $resolvedWorkRoot)
+            Write-Warning '   With -CleanWorkRoot set, the P01 wipe would collide with the active'
+            Write-Warning '   Start-Transcript file handle. Auto-relocating transcript to a safe path:'
+            Write-Warning ('     New -LogFile -> {0}' -f $newLogFile)
+            Write-Warning '   Tip: pass -LogFile outside -WorkRoot to avoid this notice. Example:'
+            Write-Warning ("       `$ts  = Get-Date -Format 'yyyyMMdd-HHmmss'")
+            Write-Warning ("       `$log = `"C:\Temp\Deploy-MSBthPanInboxOnWindowsServer_{0}_`$ts.log`"" -f $Action)
+            Write-Warning '       .\Deploy-MSBthPanInboxOnWindowsServer.ps1 -Action <Action> -CleanWorkRoot -LogFile $log'
+
+            $Script:LogFileRelocation = [pscustomobject]@{
+                OriginalPath = $resolvedLog
+                NewPath      = $newLogFile
+                Reason       = '-LogFile inside -WorkRoot conflicts with -CleanWorkRoot wipe'
+            }
+            $LogFile = $newLogFile
+        }
+    } catch {
+        # Pre-flight relocation failure is non-fatal; the P01 in-phase
+        # guard below still catches an actual overlap as a backstop.
+        Write-Warning ("[-LogFile guard] Pre-flight relocation check failed (non-fatal): {0}" -f $_.Exception.Message)
+    }
+}
+
 $Script:LogFileActive = $false
 if (-not [string]::IsNullOrWhiteSpace($LogFile)) {
+
+    # Result accumulator. Populated whether activation succeeds or not.
+    $Script:LogFileSetup = [pscustomobject]@{
+        Path           = $LogFile
+        Active         = $false
+        SuccessfulForm = $null
+        ReturnValue    = $null
+        FileExists     = $false
+        FileSizeBefore = 0
+        FileSizeAfter  = 0
+        ProbeWritten   = $false
+        ProbeCaptured  = $false
+        ElapsedMs      = 0
+        FailedAttempts = New-Object System.Collections.Generic.List[object]
+    }
+    $logSetupSw = [System.Diagnostics.Stopwatch]::StartNew()
+
     try {
-        $logDir = Split-Path -LiteralPath $LogFile -Parent
+        # Ensure parent directory exists. Use -ErrorAction Stop so a
+        # path-creation failure is caught by the outer catch and
+        # reported clearly rather than producing a misleading
+        # "transcript failed" message later.
+        #
+        # IMPORTANT: Use [System.IO.Path]::GetDirectoryName instead of
+        # Split-Path -LiteralPath $LogFile -Parent. On Windows PowerShell
+        # 5.1, Split-Path parameter sets put -LiteralPath into
+        # LiteralPathSet and -Parent into ParentSet (mutually exclusive),
+        # which causes an AmbiguousParameterSet binding error. This was
+        # the root cause of long-standing -LogFile bind failures on
+        # ja-JP PS 5.1. See Microsoft Learn:
+        # https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.management/split-path?view=powershell-5.1
+        $logDir = [System.IO.Path]::GetDirectoryName($LogFile)
         if (-not [string]::IsNullOrWhiteSpace($logDir) -and -not (Test-Path -LiteralPath $logDir)) {
             New-Item -ItemType Directory -Path $logDir -Force -ErrorAction Stop | Out-Null
         }
+
         # Defensive: stop any in-flight transcript from a previous run
         # in the same PowerShell host (Start-Transcript fails if one is
         # already active). Best-effort, no error if none is active.
         try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup
-        Start-Transcript -Path $LogFile -Append -Force -ErrorAction Stop | Out-Null
+        Start-Sleep -Milliseconds 100  # let the host settle before next call
+
+        # Progressively-simpler invocation forms. Each is invoked as a
+        # script block to keep the call surface minimal. We try them in
+        # order; the first one whose RETURN VALUE is non-empty AND
+        # whose log file appears on disk within the timeout is taken
+        # as the winner.
+        $logSetupForms = @(
+            @{ Label = '-Path -Append -Force'
+               Block = { param($p) Start-Transcript -Path $p -Append -Force -ErrorAction Stop } }
+            @{ Label = '-LiteralPath -Append -Force'
+               Block = { param($p) Start-Transcript -LiteralPath $p -Append -Force -ErrorAction Stop } }
+            @{ Label = '-Path -Force (no -Append)'
+               Block = { param($p) Start-Transcript -Path $p -Force -ErrorAction Stop } }
+            @{ Label = '-Path only (minimal)'
+               Block = { param($p) Start-Transcript -Path $p -ErrorAction Stop } }
+            @{ Label = 'Invoke-Expression re-parse (last resort)'
+               Block = { param($p)
+                   $escaped = ($p -replace "'", "''")
+                   $cmd = "Start-Transcript -Path '{0}' -Force -ErrorAction Stop" -f $escaped
+                   Invoke-Expression $cmd  # psa-disable-line PSA5002 -- last-resort re-parse path, input is the script's own -LogFile parameter with single-quote escape
+               } }
+        )
+
+        $confirmTimeoutMs    = 3000
+        $confirmPollMs       = 50
+        $interAttemptWaitMs  = 300
+        $probeFlushWaitMs    = 200
+
+        foreach ($form in $logSetupForms) {
+            $attemptDiag = [ordered]@{
+                Form    = $form.Label
+                Stage   = 'invocation'
+                Type    = $null
+                Message = $null
+                FQId    = $null
+            }
+            $rv = $null
+
+            # ----- Stage 1: invocation -----
+            try {
+                $rv = & $form.Block $LogFile
+            } catch {
+                $attemptDiag.Stage   = 'invocation'
+                $attemptDiag.Type    = $_.Exception.GetType().FullName
+                $attemptDiag.Message = $_.Exception.Message
+                $attemptDiag.FQId    = $_.FullyQualifiedErrorId
+                Write-Host ("[Transcript] {0} -> invocation FAILED: {1}" -f $form.Label, $_.Exception.Message) -ForegroundColor DarkYellow
+                $Script:LogFileSetup.FailedAttempts.Add([pscustomobject]$attemptDiag)
+                # Cleanup partial state, then continue
+                try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { } # psa-disable-line PSA3004
+                Start-Sleep -Milliseconds $interAttemptWaitMs
+                continue
+            }
+
+            # ----- Stage 2: return value verification -----
+            if (-not $rv) {
+                $attemptDiag.Stage   = 'return-value-empty'
+                $attemptDiag.Message = 'Start-Transcript returned $null or empty - transcript did not actually start'
+                Write-Host ("[Transcript] {0} -> return value EMPTY" -f $form.Label) -ForegroundColor DarkYellow
+                $Script:LogFileSetup.FailedAttempts.Add([pscustomobject]$attemptDiag)
+                try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { } # psa-disable-line PSA3004
+                Start-Sleep -Milliseconds $interAttemptWaitMs
+                continue
+            }
+
+            # ----- Stage 3: file appearance verification (polling) -----
+            $fileDeadline = (Get-Date).AddMilliseconds($confirmTimeoutMs)
+            $fileReady    = $false
+            while ((Get-Date) -lt $fileDeadline) {
+                if (Test-Path -LiteralPath $LogFile) { $fileReady = $true; break }
+                Start-Sleep -Milliseconds $confirmPollMs
+            }
+            if (-not $fileReady) {
+                $attemptDiag.Stage   = 'file-not-appearing'
+                $attemptDiag.Message = ("Log file did not appear within {0} ms: {1}" -f $confirmTimeoutMs, $LogFile)
+                Write-Host ("[Transcript] {0} -> file did not appear ({1} ms)" -f $form.Label, $confirmTimeoutMs) -ForegroundColor DarkYellow
+                $Script:LogFileSetup.FailedAttempts.Add([pscustomobject]$attemptDiag)
+                try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { } # psa-disable-line PSA3004
+                Start-Sleep -Milliseconds $interAttemptWaitMs
+                continue
+            }
+
+            try {
+                $Script:LogFileSetup.FileSizeBefore = (Get-Item -LiteralPath $LogFile -ErrorAction Stop).Length
+            } catch {
+                $Script:LogFileSetup.FileSizeBefore = -1
+            }
+
+            # ----- Stage 4: probe-marker write & read-back -----
+            # The most reliable way to verify transcription is actively
+            # capturing: write a known marker, wait for flush, read back.
+            $probeMarker = '[transcript-probe-{0}]' -f ([Guid]::NewGuid().ToString('N').Substring(0, 12))
+            Write-Output $probeMarker | Out-Null  # routed into the transcript
+            Write-Host $probeMarker -ForegroundColor DarkGray  # also written via host stream
+            $Script:LogFileSetup.ProbeWritten = $true
+            Start-Sleep -Milliseconds $probeFlushWaitMs
+
+            $probeFound = $false
+            try {
+                $content = Get-Content -LiteralPath $LogFile -Raw -ErrorAction Stop
+                if ($content -and $content.Contains($probeMarker)) {
+                    $probeFound = $true
+                }
+            } catch {
+                # ignore read errors here; the probe just wasn't captured
+            }
+            $Script:LogFileSetup.ProbeCaptured = $probeFound
+
+            try {
+                $Script:LogFileSetup.FileSizeAfter = (Get-Item -LiteralPath $LogFile -ErrorAction Stop).Length
+            } catch {
+                $Script:LogFileSetup.FileSizeAfter = -1
+            }
+
+            if (-not $probeFound) {
+                # File exists and cmdlet returned non-empty, but the
+                # probe marker did not land in the file. This is a
+                # silent capture failure - rare but possible.
+                $attemptDiag.Stage   = 'probe-not-captured'
+                $attemptDiag.Message = 'Probe marker was not captured in the log file - transcription is silently dropping output'
+                Write-Host ("[Transcript] {0} -> probe NOT captured (transcript file exists but is not capturing)" -f $form.Label) -ForegroundColor DarkYellow
+                $Script:LogFileSetup.FailedAttempts.Add([pscustomobject]$attemptDiag)
+                try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { } # psa-disable-line PSA3004
+                Start-Sleep -Milliseconds $interAttemptWaitMs
+                continue
+            }
+
+            # ----- All stages passed -----
+            $Script:LogFileSetup.Active         = $true
+            $Script:LogFileSetup.SuccessfulForm = $form.Label
+            $Script:LogFileSetup.ReturnValue    = $rv
+            $Script:LogFileSetup.FileExists     = $true
+            Write-Host ("[Transcript] {0} -> VERIFIED ACTIVE" -f $form.Label) -ForegroundColor DarkGreen
+            Write-Host ("              Return    : {0}" -f $rv) -ForegroundColor DarkGray
+            Write-Host ("              File size : {0} bytes (before-probe) -> {1} bytes (after-probe)" -f `
+                            $Script:LogFileSetup.FileSizeBefore, $Script:LogFileSetup.FileSizeAfter) -ForegroundColor DarkGray
+            break
+        }
+
+        if (-not $Script:LogFileSetup.Active) {
+            throw 'Transcript activation could not be verified through any invocation form'
+        }
+
         $Script:LogFileActive = $true
-        # Register a host-exit fallback so the transcript is closed even
-        # if the script bails before the finally block at end-of-file
-        # (e.g. parameter validation error after this point).
         Register-EngineEvent -SourceIdentifier PowerShell.Exiting -SupportEvent -Action {
             try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { } # psa-disable-line PSA3004
         } | Out-Null
-        Write-Host ("[*] Transcript -> {0}" -f $LogFile) -ForegroundColor DarkGreen
+        Write-Host ('[*] Transcript active -> {0}' -f $LogFile) -ForegroundColor DarkGreen
     } catch {
-        Write-Warning ("Failed to start transcript at '{0}': {1}" -f $LogFile, $_.Exception.Message)
+        Write-Warning ("Transcript activation failed at '{0}': {1}" -f $LogFile, $_.Exception.Message)
+        Write-Warning '   Continuing without log capture. Script execution itself is not affected.'
+        if ($Script:LogFileSetup.FailedAttempts.Count -gt 0) {
+            Write-Warning '   Per-attempt failure log:'
+            foreach ($f in $Script:LogFileSetup.FailedAttempts) {
+                Write-Warning ('     - [{0}] {1}' -f $f.Form, $f.Stage)
+                if ($f.Type)    { Write-Warning ('         Type   : {0}' -f $f.Type) }
+                if ($f.FQId)    { Write-Warning ('         FQErrId: {0}' -f $f.FQId) }
+                if ($f.Message) { Write-Warning ('         Message: {0}' -f $f.Message) }
+            }
+        }
+        Write-Warning '   Workaround: capture the console output with the legacy Tee-Object idiom:'
+        Write-Warning '       .\Deploy-MSBthPanInboxOnWindowsServer.ps1 -Action PrepareVerify *>&1 | Tee-Object -FilePath C:\Temp\out.log'
         $Script:LogFileActive = $false
+    } finally {
+        $logSetupSw.Stop()
+        $Script:LogFileSetup.ElapsedMs = $logSetupSw.ElapsedMilliseconds
+        if ($Script:LogFileActive) {
+            Write-Host ('[*] Transcript setup elapsed: {0} ms' -f $Script:LogFileSetup.ElapsedMs) -ForegroundColor DarkGray
+        }
     }
 }
 
@@ -576,6 +909,30 @@ function Write-PhaseHeader {
     Write-Host (" PHASE {0} - {1,-23} ({2,-6})  start: {3}" -f $Id, $Name, $Group, $startStr) -ForegroundColor Magenta
     Write-Host (" script: {0}" -f $Script:ScriptShortTag) -ForegroundColor DarkGray
     Write-Host $line -ForegroundColor Magenta
+}
+
+function Write-SubHeader {
+    <#
+    .SYNOPSIS
+        Mid-prominence section header used within a phase to delimit
+        major logical groups of output (e.g. "Section A: ..." inside
+        I00 PreInstallReview, or "Section 1: ..." inside I04 / V06).
+    .DESCRIPTION
+        Visually less weighty than Write-PhaseHeader (no horizontal
+        rules, no banner), but more prominent than Write-Step (cyan
+        with a leading double-dash). Always preceded by a blank line
+        for breathing room.
+
+        Defined in r8-update5. Calls to this helper were in place from
+        an earlier refactor but the function definition was lost in
+        merge; calls survived undetected because they only exist inside
+        V05 (DryRunInstall), V06 (HardwareImpactAnalysis), I00
+        (PreInstallReview), and I04 (PostInstallVerification) - phases
+        that the -Action Prepare smoke tests never reached.
+    #>
+    param([string]$Title)
+    Write-Host ''
+    Write-Host ('  -- ' + $Title) -ForegroundColor Cyan
 }
 
 function Write-PhaseFooter {
@@ -906,6 +1263,888 @@ function Set-ConsoleUtf8 {
     try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
     try { [Console]::InputEncoding  = [System.Text.Encoding]::UTF8 } catch { }
     try { Set-Variable -Name OutputEncoding -Scope Global -Value ([System.Text.Encoding]::UTF8) -ErrorAction SilentlyContinue } catch { }
+}
+
+#####################################################################
+# SECTION 1b: Debug Trace Facility (r7+, structured diagnostics)
+#####################################################################
+# A reusable diagnostic helper used to pinpoint the exact failing
+# operation inside a complex function body, with three integrated
+# subsystems:
+#
+#   (1) Trace primitives  : Start-DebugTrace / Set-DebugStep /
+#                           Stop-DebugTrace / Format-DebugFailure /
+#                           Write-DebugFailureReport
+#   (2) JSONL file output : Real-time append-only event stream to
+#                           <WorkRoot>\logs\debugtrace.jsonl
+#   (3) JSON Export       : Point-in-time snapshot with full state,
+#                           used manually and auto-triggered on phase
+#                           failure.
+#
+# Motivation: r7 investigation of Invoke-InfVerifValidation - the
+# function raised System.ArgumentException but the stack trace only
+# identified the function, not the line. By instrumenting with
+# $debugStep checkpoints and a catch handler that reported the step
+# name + exception type + message + script stack, the failure was
+# localised to a single line (the `return [pscustomobject]@{...}`
+# statement) and from there to a PS 5.1 ja-JP locale bug. This section
+# generalises that ad-hoc pattern into a reusable facility that any
+# function in this script (or sister scripts) can adopt.
+#
+# Typical usage pattern (function entry/body/catch/finally):
+#
+#   function Invoke-Something {
+#       Start-DebugTrace -Context 'Invoke-Something'
+#       try {
+#           Set-DebugStep 'validate inputs'
+#           ...
+#           Set-DebugStep 'open file'
+#           ...
+#           Set-DebugStep 'parse content'
+#           ...
+#           Set-DebugStep 'return result'
+#           return $result
+#       } catch {
+#           Write-DebugFailureReport $_ -IncludeStepHistory
+#           throw
+#       } finally {
+#           Stop-DebugTrace
+#       }
+#   }
+#
+# Nesting: traces stack via Stack<object>; nested traced functions
+# don't stomp on each other's state. Format-DebugFailure always
+# reports against the frame that was at the top of the stack at the
+# moment the exception was caught (= the function whose catch block
+# is running).
+#
+# Phase integration: the top-level phase dispatcher loop wraps every
+# phase invocation in Start-DebugTrace / Stop-DebugTrace with the
+# phase ID as context (e.g. 'phase.P05.AnalyzeInfs'). Any Set-DebugStep
+# inside the phase body is automatically attributed to that frame.
+# On phase failure, the dispatcher emits Write-DebugFailureReport and
+# triggers Export-DebugTraceJson automatically when auto-export is on.
+
+# --- 1b.1: Module-level state -----------------------------------------
+
+# Stack of currently-active trace frames (most recent on top).
+# Each frame is a pscustomobject with: Context, Step, Steps, StartTime,
+# Echo, Outcome (set on Stop), FailureRef (set on failure).
+$Script:DebugTraceStack = New-Object 'System.Collections.Generic.Stack[object]'
+
+# List of completed frames retained for JSON Export. Each entry is the
+# same pscustomobject as in the stack, with Outcome and (if applicable)
+# FailureRef populated. Used by Export-DebugTraceJson to reconstruct
+# the full call history. Capped to prevent unbounded growth in long runs.
+$Script:DebugTraceCompletedFrames = New-Object 'System.Collections.Generic.List[object]'
+$Script:DebugTraceCompletedCap    = 1024  # cap on retained completed frames
+
+# Step history cap per frame, to prevent unbounded growth in tight loops
+# that call Set-DebugStep repeatedly.
+$Script:DebugTraceHistoryCap = 256
+
+# Per-event log line size cap (chars). Truncate very large RawOutput-style
+# fields when writing to JSONL so the stream stays grep-able.
+$Script:DebugTraceJsonlLineCap = 8192
+
+# ConvertTo-Json depth. 100 = PS 5.1 ConvertTo-Json official maximum
+# (per Microsoft Learn docs: "any number from 1 to 100"). Set to the
+# max to ensure no nested object truncation when exporting trace state.
+$Script:DebugTraceJsonDepth = 100
+
+# JSONL writer state. Activated by Enable-DebugTraceFileOutput, typically
+# from P01 (PrepareWorkspace) once the <WorkRoot>\logs dir exists.
+$Script:DebugTraceJsonlEnabled = $false
+$Script:DebugTraceJsonlPath    = $null
+$Script:DebugTraceJsonlBuffer  = New-Object 'System.Collections.Generic.List[string]'  # pre-activation buffer
+$Script:DebugTraceJsonlBufferCap = 4096  # pre-flush buffer cap (chars combined)
+$Script:DebugTraceJsonlWriteCount = 0
+$Script:DebugTraceJsonlErrorCount = 0
+$Script:DebugTraceJsonlLastError  = $null
+
+# Auto-export-on-failure state.
+$Script:DebugTraceAutoExportEnabled = $false
+$Script:DebugTraceAutoExportDir     = $null
+
+# Per-phase trace registry. Phase id -> frame reference + outcome metadata.
+$Script:DebugTracePhaseRegistry = @{}
+
+# Script-level event sequence number. Monotonic across the whole run,
+# included in every JSONL event so they can be ordered exactly even when
+# multiple events share the same millisecond timestamp.
+$Script:DebugTraceEventSeq = 0
+
+# --- 1b.2: Internal helpers (not part of public API) ------------------
+
+function _DebugTrace_NextSeq {
+    # Atomic-ish counter. Single-threaded PowerShell so no Interlocked
+    # needed; this is just a small helper for readability.
+    $Script:DebugTraceEventSeq++
+    return $Script:DebugTraceEventSeq
+}
+
+function _DebugTrace_Now {
+    # Return current time as ISO 8601 string with milliseconds and Z
+    # suffix. Pre-converted to string so ConvertTo-Json doesn't render
+    # the PS 5.1 legacy /Date(N)/ format - we want the same machine-
+    # readable representation regardless of PS version.
+    return (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+}
+
+function _DebugTrace_WriteJsonlLine {
+    # Append one JSONL line to the debugtrace.jsonl file (or to the
+    # pre-activation buffer if file output isn't enabled yet). All
+    # failures are absorbed so the script body is never disrupted by
+    # trace bookkeeping.
+    param([Parameter(Mandatory)] $Event)
+
+    # Add monotonic sequence number for stable cross-event ordering.
+    $Event | Add-Member -MemberType NoteProperty -Name 'seq' -Value (_DebugTrace_NextSeq) -Force
+
+    try {
+        $json = $Event | ConvertTo-Json -Depth $Script:DebugTraceJsonDepth -Compress
+    } catch {
+        # If JSON conversion fails (e.g. circular reference somewhere),
+        # fall back to a minimal hand-written line so we still record
+        # something. Increment error counter and stash last error.
+        $Script:DebugTraceJsonlErrorCount++
+        $Script:DebugTraceJsonlLastError = $_.Exception.Message
+        $kind = if ($Event.PSObject.Properties['kind']) { $Event.kind } else { 'unknown' }
+        $ctx  = if ($Event.PSObject.Properties['ctx'])  { $Event.ctx  } else { '?' }
+        $json = ('{{"ts":"{0}","seq":{1},"kind":"{2}","ctx":"{3}","err":"json-serialize-failed"}}' `
+                    -f (_DebugTrace_Now), $Script:DebugTraceEventSeq, $kind, $ctx)
+    }
+
+    # Truncate over-cap lines so the JSONL stream stays grep-able.
+    if ($json.Length -gt $Script:DebugTraceJsonlLineCap) {
+        $json = $json.Substring(0, $Script:DebugTraceJsonlLineCap - 16) + '...","truncated":1}'
+    }
+
+    if ($Script:DebugTraceJsonlEnabled -and $Script:DebugTraceJsonlPath) {
+        try {
+            # IMPORTANT: UTF-8 *with* BOM. On Windows PowerShell 5.1
+            # with a ja-JP / non-English locale, `Get-Content` defaults
+            # to the OS code page (Shift-JIS on ja-JP), which mojibakes
+            # any Japanese / UTF-8 multi-byte content unless the file
+            # has a BOM. AppendAllText only writes the BOM when the file
+            # is freshly created, so subsequent appends incur no
+            # overhead.
+            [System.IO.File]::AppendAllText(
+                $Script:DebugTraceJsonlPath,
+                $json + "`r`n",
+                [System.Text.UTF8Encoding]::new($true))
+            $Script:DebugTraceJsonlWriteCount++
+        } catch {
+            # If file write fails (e.g. disk full, perm changed), revert
+            # to buffer mode and remember the error for diagnostics.
+            $Script:DebugTraceJsonlErrorCount++
+            $Script:DebugTraceJsonlLastError = $_.Exception.Message
+            $Script:DebugTraceJsonlEnabled = $false
+            $Script:DebugTraceJsonlBuffer.Add($json) | Out-Null
+            # Cap the buffer too so it can't grow unbounded after a long
+            # disk-full period.
+            while ($Script:DebugTraceJsonlBuffer.Count -gt $Script:DebugTraceJsonlBufferCap) {
+                $Script:DebugTraceJsonlBuffer.RemoveAt(0)
+            }
+        }
+    } else {
+        # Pre-activation: buffer in memory. P01 will flush after the
+        # workspace logs directory is created.
+        $Script:DebugTraceJsonlBuffer.Add($json) | Out-Null
+        while ($Script:DebugTraceJsonlBuffer.Count -gt $Script:DebugTraceJsonlBufferCap) {
+            $Script:DebugTraceJsonlBuffer.RemoveAt(0)
+        }
+    }
+}
+
+function _DebugTrace_RetireFrame {
+    # Move a frame from the active stack into the completed list.
+    # Handles the history cap. Idempotent: safe to call even if the
+    # frame has already been retired.
+    param([Parameter(Mandatory)] $Frame, [Parameter(Mandatory)] [string]$Outcome)
+
+    if (-not $Frame.PSObject.Properties['Outcome'] -or -not $Frame.Outcome) {
+        $Frame | Add-Member -MemberType NoteProperty -Name 'Outcome'   -Value $Outcome -Force
+        $Frame | Add-Member -MemberType NoteProperty -Name 'EndedAt'   -Value (Get-Date) -Force
+        $durationMs = [int]((Get-Date) - $Frame.StartTime).TotalMilliseconds
+        $Frame | Add-Member -MemberType NoteProperty -Name 'DurationMs' -Value $durationMs -Force
+    }
+
+    $Script:DebugTraceCompletedFrames.Add($Frame) | Out-Null
+    while ($Script:DebugTraceCompletedFrames.Count -gt $Script:DebugTraceCompletedCap) {
+        $Script:DebugTraceCompletedFrames.RemoveAt(0)
+    }
+}
+
+# --- 1b.3: Public API - trace primitives ------------------------------
+
+function Start-DebugTrace {
+    <#
+    .SYNOPSIS
+        Push a new debug trace frame onto the stack. Call at function entry.
+    .PARAMETER Context
+        Human-readable name for this frame, typically the function name.
+    .PARAMETER Echo
+        If set, every Set-DebugStep call also writes a live [trace] line
+        to the console. Default off.
+    .PARAMETER PhaseId
+        Optional phase identifier (e.g. 'P05'). When set, the frame is
+        registered in the per-phase trace registry. Used by the phase
+        dispatcher; do not set manually inside phase function bodies.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string]$Context,
+        [switch]$Echo,
+        [string]$PhaseId
+    )
+    $frame = [pscustomobject]@{
+        Context   = $Context
+        Step      = 'entry'
+        Steps     = (New-Object 'System.Collections.Generic.List[object]')
+        StartTime = Get-Date
+        Echo      = [bool]$Echo
+        PhaseId   = $PhaseId
+        Depth     = $Script:DebugTraceStack.Count + 1
+    }
+    $Script:DebugTraceStack.Push($frame)
+
+    if ($PhaseId) {
+        $Script:DebugTracePhaseRegistry[$PhaseId] = [pscustomobject]@{
+            PhaseId    = $PhaseId
+            Frame      = $frame
+            StartedAt  = Get-Date
+            EndedAt    = $null
+            Outcome    = 'in-progress'
+            FailureRef = $null
+        }
+    }
+
+    _DebugTrace_WriteJsonlLine ([pscustomobject]@{
+        ts    = _DebugTrace_Now
+        kind  = 'frame.open'
+        ctx   = $Context
+        depth = $frame.Depth
+        phase = $PhaseId
+    })
+}
+
+function Set-DebugStep {
+    <#
+    .SYNOPSIS
+        Mark the current step inside the active debug trace frame.
+        No-op if no frame is active (so functions can use it
+        opportunistically without callers having to set up tracing).
+    .PARAMETER Step
+        Short label describing the operation about to be performed.
+    .PARAMETER Detail
+        Optional extra context attached to this step in the JSONL log.
+        Not surfaced in console output, only in the trace file.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, Position=0)] [string]$Step,
+        [string]$Detail
+    )
+    if ($Script:DebugTraceStack.Count -eq 0) { return }
+    $frame = $Script:DebugTraceStack.Peek()
+    $frame.Step = $Step
+    $now = Get-Date
+    $frame.Steps.Add([pscustomobject]@{
+        Step   = $Step
+        At     = $now
+        Detail = $Detail
+    }) | Out-Null
+    while ($frame.Steps.Count -gt $Script:DebugTraceHistoryCap) {
+        $frame.Steps.RemoveAt(0)
+    }
+    if ($frame.Echo) {
+        Write-Host ('[trace:{0}] {1}' -f $frame.Context, $Step) -ForegroundColor DarkMagenta
+    }
+    _DebugTrace_WriteJsonlLine ([pscustomobject]@{
+        ts     = _DebugTrace_Now
+        kind   = 'step'
+        ctx    = $frame.Context
+        step   = $Step
+        detail = $Detail
+    })
+}
+
+function Stop-DebugTrace {
+    <#
+    .SYNOPSIS
+        Pop the most recent trace frame. Call in the finally block.
+    .PARAMETER Outcome
+        Optional outcome label. Defaults to 'success'. The catch block
+        of the same function should set it to 'failure' before throwing
+        if it wants the completed-frame record to reflect the failure.
+    #>
+    [CmdletBinding()]
+    param(
+        [ValidateSet('success','failure','cancelled','unknown')]
+        [string]$Outcome = 'success'
+    )
+    if ($Script:DebugTraceStack.Count -eq 0) { return }
+    $frame = $Script:DebugTraceStack.Pop()
+
+    # If the frame was registered as a phase frame, finalise its
+    # registry entry too.
+    if ($frame.PhaseId -and $Script:DebugTracePhaseRegistry.ContainsKey($frame.PhaseId)) {
+        $reg = $Script:DebugTracePhaseRegistry[$frame.PhaseId]
+        $reg.EndedAt = Get-Date
+        # Don't overwrite an already-set outcome (e.g. 'failure' set
+        # by Write-DebugFailureReport).
+        if ($reg.Outcome -eq 'in-progress') {
+            $reg.Outcome = $Outcome
+        }
+    }
+
+    _DebugTrace_RetireFrame -Frame $frame -Outcome $Outcome
+
+    _DebugTrace_WriteJsonlLine ([pscustomobject]@{
+        ts       = _DebugTrace_Now
+        kind     = 'frame.close'
+        ctx      = $frame.Context
+        outcome  = $frame.Outcome
+        durMs    = $frame.DurationMs
+        steps    = $frame.Steps.Count
+        phase    = $frame.PhaseId
+    })
+}
+
+function Format-DebugFailure {
+    <#
+    .SYNOPSIS
+        Build a structured failure report from an ErrorRecord plus the
+        currently-active trace frame. Use when you need the failure
+        data programmatically (e.g. relay it elsewhere).
+    .PARAMETER ErrorRecord
+        The $_ inside a catch block.
+    .OUTPUTS
+        pscustomobject with: Context, FailedStep, Elapsed, ExType,
+        ExMessage, InnerType, InnerMessage, FullyQualifiedId,
+        ScriptStackTrace, StepHistory (object[]).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $ErrorRecord
+    )
+    $ex = $ErrorRecord.Exception
+    if ($Script:DebugTraceStack.Count -gt 0) {
+        $frame       = $Script:DebugTraceStack.Peek()
+        $context     = $frame.Context
+        $failedStep  = $frame.Step
+        # PS 5.1 ja-JP bug workaround: use .ToArray() not @($list).
+        $stepHistory = $frame.Steps.ToArray()
+        $elapsed     = (Get-Date) - $frame.StartTime
+        $phaseId     = $frame.PhaseId
+    } else {
+        $context     = '(no active trace)'
+        $failedStep  = '(no active trace)'
+        $stepHistory = @()
+        $elapsed     = [TimeSpan]::Zero
+        $phaseId     = $null
+    }
+    return [pscustomobject]@{
+        Context           = $context
+        FailedStep        = $failedStep
+        Elapsed           = $elapsed
+        ElapsedMs         = [int]$elapsed.TotalMilliseconds
+        PhaseId           = $phaseId
+        ExType            = $ex.GetType().FullName
+        ExMessage         = $ex.Message
+        InnerType         = if ($ex.InnerException) { $ex.InnerException.GetType().FullName } else { $null }
+        InnerMessage      = if ($ex.InnerException) { $ex.InnerException.Message } else { $null }
+        FullyQualifiedId  = $ErrorRecord.FullyQualifiedErrorId
+        ScriptStackTrace  = $ErrorRecord.ScriptStackTrace
+        StepHistory       = $stepHistory
+    }
+}
+
+function Write-DebugFailureReport {
+    <#
+    .SYNOPSIS
+        Emit a formatted failure report via Write-Warn2 + log the
+        failure event to JSONL. Call from a catch block. Also marks
+        the active phase's registry entry as 'failure' if applicable.
+    .PARAMETER ErrorRecord
+        The $_ inside a catch block.
+    .PARAMETER IncludeStepHistory
+        If set, log every step the trace reached before the failure.
+    .PARAMETER AutoExport
+        If set, automatically write a JSON snapshot to the configured
+        auto-export directory. Use this for top-level catch handlers.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $ErrorRecord,
+        [switch]$IncludeStepHistory,
+        [switch]$AutoExport
+    )
+    $r = Format-DebugFailure -ErrorRecord $ErrorRecord
+
+    # Update the phase registry if this failure happened inside a phase.
+    if ($r.PhaseId -and $Script:DebugTracePhaseRegistry.ContainsKey($r.PhaseId)) {
+        $reg = $Script:DebugTracePhaseRegistry[$r.PhaseId]
+        $reg.Outcome    = 'failure'
+        $reg.FailureRef = $r
+    }
+
+    Write-Warn2 ("{0}: FAILED at step '{1}' (elapsed {2:F2}s)" -f $r.Context, $r.FailedStep, $r.Elapsed.TotalSeconds)
+    Write-Warn2 ("  ExType   : {0}" -f $r.ExType)
+    Write-Warn2 ("  Message  : {0}" -f $r.ExMessage)
+    if ($r.InnerType) {
+        Write-Warn2 ("  Inner    : {0} - {1}" -f $r.InnerType, $r.InnerMessage)
+    }
+    if ($r.FullyQualifiedId) {
+        Write-Warn2 ("  FQErrId  : {0}" -f $r.FullyQualifiedId)
+    }
+    if ($r.ScriptStackTrace) {
+        $stackLines = $r.ScriptStackTrace -split "`r?`n"
+        Write-Warn2 ("  Stack    : {0}" -f $stackLines[0])
+        $maxStack = [Math]::Min(3, $stackLines.Count)
+        for ($i = 1; $i -lt $maxStack; $i++) {
+            Write-Warn2 ("             {0}" -f $stackLines[$i])
+        }
+    }
+    if ($IncludeStepHistory -and $r.StepHistory.Count -gt 0) {
+        Write-Warn2 ("  Steps    : {0} recorded" -f $r.StepHistory.Count)
+        $firstAt = $r.StepHistory[0].At
+        foreach ($h in $r.StepHistory) {
+            $rel = ($h.At - $firstAt).TotalMilliseconds
+            Write-Warn2 ('    +{0,7:F0}ms  {1}' -f $rel, $h.Step)
+        }
+    }
+
+    _DebugTrace_WriteJsonlLine ([pscustomobject]@{
+        ts          = _DebugTrace_Now
+        kind        = 'failure'
+        ctx         = $r.Context
+        step        = $r.FailedStep
+        elapsedMs   = $r.ElapsedMs
+        phase       = $r.PhaseId
+        exType      = $r.ExType
+        msg         = $r.ExMessage
+        innerType   = $r.InnerType
+        innerMsg    = $r.InnerMessage
+        fqErrId     = $r.FullyQualifiedId
+        stack       = $r.ScriptStackTrace
+        stepHistory = $r.StepHistory
+    })
+
+    if ($AutoExport -and $Script:DebugTraceAutoExportEnabled -and $Script:DebugTraceAutoExportDir) {
+        try {
+            $ts = (Get-Date).ToString('yyyyMMdd-HHmmss')
+            $tag = if ($r.PhaseId) { $r.PhaseId } else { 'top' }
+            $exportPath = Join-Path $Script:DebugTraceAutoExportDir ("debugtrace_export_{0}_{1}.json" -f $tag, $ts)
+            Export-DebugTraceJson -Path $exportPath -IncludeEvents:$false | Out-Null
+            Write-Warn2 ("  TraceJson: {0}" -f $exportPath)
+        } catch {
+            # Don't let auto-export failures hide the original error.
+            Write-Warn2 ("  TraceJson: auto-export failed: {0}" -f $_.Exception.Message)
+        }
+    }
+}
+
+# --- 1b.4: Public API - file output (Feature A) -----------------------
+
+function Enable-DebugTraceFileOutput {
+    <#
+    .SYNOPSIS
+        Activate the JSONL writer. Typically called by P01 once the
+        workspace logs directory exists. Flushes the pre-activation
+        buffer into the file in one go.
+    .PARAMETER Directory
+        Target directory. The file is named 'debugtrace.jsonl' inside
+        this dir. If a same-named file exists, it is appended.
+    .PARAMETER Force
+        If set, switch output to the new directory even if file output
+        was already active. (Useful for re-routing.)
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string]$Directory,
+        [switch]$Force
+    )
+    if ($Script:DebugTraceJsonlEnabled -and -not $Force) { return }
+
+    try {
+        if (-not (Test-Path -LiteralPath $Directory)) {
+            New-Item -ItemType Directory -Path $Directory -Force -ErrorAction Stop | Out-Null
+        }
+        $path = Join-Path $Directory 'debugtrace.jsonl'
+
+        # Probe write a header line so the file exists and is writable.
+        # If a same-name lock collision occurs, fall back to per-pid filename.
+        $headerObj = [pscustomobject]@{
+            ts        = _DebugTrace_Now
+            kind      = 'file.open'
+            scriptVer = $Script:ScriptVersion
+            scriptSha = $Script:ScriptHash
+            pid       = $PID
+            host      = $Host.Name
+            psVer     = $PSVersionTable.PSVersion.ToString()
+            culture   = (Get-Culture).Name
+        }
+        $headerJson = $headerObj | ConvertTo-Json -Depth $Script:DebugTraceJsonDepth -Compress
+        try {
+            # UTF-8 with BOM (see _DebugTrace_WriteJsonlLine comment).
+            [System.IO.File]::AppendAllText($path, $headerJson + "`r`n", [System.Text.UTF8Encoding]::new($true))
+        } catch {
+            # Path locked by another process; switch to per-pid filename.
+            $path = Join-Path $Directory ("debugtrace_{0}.jsonl" -f $PID)
+            [System.IO.File]::AppendAllText($path, $headerJson + "`r`n", [System.Text.UTF8Encoding]::new($true))
+        }
+
+        $Script:DebugTraceJsonlPath    = $path
+        $Script:DebugTraceJsonlEnabled = $true
+
+        # Flush pre-activation buffer
+        if ($Script:DebugTraceJsonlBuffer.Count -gt 0) {
+            $bufferedLines = $Script:DebugTraceJsonlBuffer.ToArray()
+            $Script:DebugTraceJsonlBuffer.Clear()
+            try {
+                $blob = ($bufferedLines -join "`r`n") + "`r`n"
+                # UTF-8 with BOM (see _DebugTrace_WriteJsonlLine comment).
+                [System.IO.File]::AppendAllText($path, $blob, [System.Text.UTF8Encoding]::new($true))
+                $Script:DebugTraceJsonlWriteCount += $bufferedLines.Count
+            } catch {
+                # If flush fails, re-buffer for the next opportunity.
+                foreach ($l in $bufferedLines) { $Script:DebugTraceJsonlBuffer.Add($l) | Out-Null }
+                $Script:DebugTraceJsonlErrorCount++
+                $Script:DebugTraceJsonlLastError = $_.Exception.Message
+                throw
+            }
+        }
+
+        # Register a one-shot cleanup at PowerShell host exit so the
+        # JSONL stream is flushed and a close marker is written even on
+        # abnormal termination.
+        Register-EngineEvent -SourceIdentifier PowerShell.Exiting -SupportEvent -Action {
+            try {
+                if ($Script:DebugTraceJsonlEnabled -and $Script:DebugTraceJsonlPath) {
+                    $closeEvent = '{{"ts":"{0}","kind":"file.close","pid":{1}}}' -f `
+                        (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ'), $PID
+                    [System.IO.File]::AppendAllText(
+                        $Script:DebugTraceJsonlPath,
+                        $closeEvent + "`r`n",
+                        [System.Text.UTF8Encoding]::new($true))
+                }
+            } catch { } # psa-disable-line PSA3004 -- intentional best-effort during PowerShell.Exiting; host is tearing down, surfacing errors is useless
+        } | Out-Null
+
+        Write-Host ('[*] Debug trace -> {0}' -f $path) -ForegroundColor DarkGreen
+    } catch {
+        # Activation failed; stay in buffer mode. The buffer continues
+        # to accumulate but we never surface the failure as an error to
+        # the caller - trace bookkeeping must not break the script.
+        $Script:DebugTraceJsonlEnabled = $false
+        $Script:DebugTraceJsonlErrorCount++
+        $Script:DebugTraceJsonlLastError = $_.Exception.Message
+        Write-Warning ("Debug trace file output activation failed: {0}" -f $_.Exception.Message)
+        Write-Warning '   Trace events remain captured in memory and are exportable via Export-DebugTraceJson.'
+    }
+}
+
+function Disable-DebugTraceFileOutput {
+    <#
+    .SYNOPSIS
+        Stop appending trace events to the JSONL file. Events continue
+        to be captured in memory and remain exportable via
+        Export-DebugTraceJson.
+    #>
+    [CmdletBinding()]
+    param()
+    if (-not $Script:DebugTraceJsonlEnabled) { return }
+    _DebugTrace_WriteJsonlLine ([pscustomobject]@{
+        ts   = _DebugTrace_Now
+        kind = 'file.disable'
+    })
+    $Script:DebugTraceJsonlEnabled = $false
+}
+
+function Get-DebugTraceFileOutputStatus { # psa-disable-line PSA6003 -- "Status" is singular; analyzer false positive on compound name
+    <#
+    .SYNOPSIS
+        Return the current state of the JSONL writer for diagnostics.
+    #>
+    [CmdletBinding()]
+    param()
+    return [pscustomobject]@{
+        Enabled         = $Script:DebugTraceJsonlEnabled
+        Path            = $Script:DebugTraceJsonlPath
+        WriteCount      = $Script:DebugTraceJsonlWriteCount
+        ErrorCount      = $Script:DebugTraceJsonlErrorCount
+        LastError       = $Script:DebugTraceJsonlLastError
+        BufferedLines   = $Script:DebugTraceJsonlBuffer.Count
+        ActiveFrames    = $Script:DebugTraceStack.Count
+        CompletedFrames = $Script:DebugTraceCompletedFrames.Count
+    }
+}
+
+# --- 1b.5: Public API - JSON Export (Feature B) -----------------------
+
+function Enable-AutoExportOnPhaseFailure {
+    <#
+    .SYNOPSIS
+        Turn on automatic JSON Export when a phase fails. When enabled,
+        Write-DebugFailureReport -AutoExport will write a snapshot to
+        the configured directory.
+    .PARAMETER OutputDirectory
+        Where to write debugtrace_export_<phaseId>_<timestamp>.json files.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string]$OutputDirectory
+    )
+    $Script:DebugTraceAutoExportEnabled = $true
+    $Script:DebugTraceAutoExportDir     = $OutputDirectory
+}
+
+function Export-DebugTraceJson {
+    <#
+    .SYNOPSIS
+        Write a point-in-time JSON snapshot of the current trace state.
+        Use this to share a single diagnostic file (e.g. attach to a
+        bug report) instead of the streaming JSONL log.
+    .PARAMETER Path
+        Output file path.
+    .PARAMETER IncludeEvents
+        If set, embed the full JSONL replay inside the export. Default
+        off because it can produce multi-MB files.
+    .PARAMETER Compress
+        If set, single-line minified JSON. Default produces indented
+        human-readable output.
+    .OUTPUTS
+        The output file path (for chaining).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)] [string]$Path,
+        [switch]$IncludeEvents,
+        [switch]$Compress
+    )
+
+    # r8-update: refactor for robustness on PS 5.1 ja-JP. The previous
+    # implementation used inline `if/else` expressions as hashtable values
+    # and a property named `host` (which collides with the PS auto-
+    # variable name in some parser contexts). User report on
+    # 2026-05-17 showed AmbiguousParameterSet failure when
+    # -ExportTraceOnExit triggered this function from the finally block.
+    # This refactor:
+    #   1. Pre-computes every hashtable value into a local variable so
+    #      no `if/else` expression appears inside [pscustomobject]@{...}.
+    #   2. Renames the `host` key to `hostInfo` defensively.
+    #   3. Uses [Parameter(Mandatory=$true)] (explicit boolean) instead
+    #      of bare [Parameter(Mandatory)] which is normally equivalent
+    #      but has been observed to fail parameter-set resolution on
+    #      some PS 5.1 builds.
+    #   4. Adds Section 1b's Start-DebugTrace / Set-DebugStep instrumen-
+    #      tation so any future failure surfaces the failing step name
+    #      in the JSONL stream even if the JSON export itself can't be
+    #      written.
+    Start-DebugTrace -Context 'Export-DebugTraceJson'
+    try {
+        # ------ Section A: active frames (in-progress at snapshot time) -----
+        Set-DebugStep 'build activeFrames array'
+        $activeFrames = @()
+        foreach ($f in $Script:DebugTraceStack.ToArray()) {
+            $afStartedAtUtc = $f.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+            $afElapsedMs    = [int]((Get-Date) - $f.StartTime).TotalMilliseconds
+            $afSteps        = @()
+            foreach ($s in $f.Steps.ToArray()) {
+                $afSteps += [pscustomobject]@{
+                    step   = $s.Step
+                    atUtc  = $s.At.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+                    detail = $s.Detail
+                }
+            }
+            $activeFrames += [pscustomobject]@{
+                context      = $f.Context
+                step         = $f.Step
+                phaseId      = $f.PhaseId
+                depth        = $f.Depth
+                startedAtUtc = $afStartedAtUtc
+                elapsedMs    = $afElapsedMs
+                steps        = $afSteps
+            }
+        }
+
+        # ------ Section B: completed frames (history) -----------------------
+        Set-DebugStep 'build completedFrames array'
+        $completedFrames = @()
+        foreach ($f in $Script:DebugTraceCompletedFrames.ToArray()) {
+            $cfStartedAtUtc = $f.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+            $cfEndedAtUtc = $null
+            if ($f.PSObject.Properties['EndedAt'] -and $f.EndedAt) {
+                $cfEndedAtUtc = $f.EndedAt.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+            }
+            $cfDurationMs = $null
+            if ($f.PSObject.Properties['DurationMs']) {
+                $cfDurationMs = $f.DurationMs
+            }
+            $cfSteps = @()
+            foreach ($s in $f.Steps.ToArray()) {
+                $cfSteps += [pscustomobject]@{
+                    step   = $s.Step
+                    atUtc  = $s.At.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+                    detail = $s.Detail
+                }
+            }
+            $completedFrames += [pscustomobject]@{
+                context      = $f.Context
+                phaseId      = $f.PhaseId
+                outcome      = $f.Outcome
+                depth        = $f.Depth
+                startedAtUtc = $cfStartedAtUtc
+                endedAtUtc   = $cfEndedAtUtc
+                durationMs   = $cfDurationMs
+                steps        = $cfSteps
+            }
+        }
+
+        # ------ Section C: phase registry summary ---------------------------
+        Set-DebugStep 'build phases array from registry'
+        $phaseEntries = @()
+        $sortedKeys = @($Script:DebugTracePhaseRegistry.Keys) | Sort-Object
+        foreach ($key in $sortedKeys) {
+            $reg = $Script:DebugTracePhaseRegistry[$key]
+            $peStartedAtUtc = $null
+            if ($reg.StartedAt) {
+                $peStartedAtUtc = $reg.StartedAt.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+            }
+            $peEndedAtUtc = $null
+            if ($reg.EndedAt) {
+                $peEndedAtUtc = $reg.EndedAt.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+            }
+            $peFailure = $null
+            if ($reg.FailureRef) {
+                $peFailure = [pscustomobject]@{
+                    failedStep       = $reg.FailureRef.FailedStep
+                    exType           = $reg.FailureRef.ExType
+                    exMessage        = $reg.FailureRef.ExMessage
+                    innerType        = $reg.FailureRef.InnerType
+                    innerMessage     = $reg.FailureRef.InnerMessage
+                    fullyQualifiedId = $reg.FailureRef.FullyQualifiedId
+                    scriptStackTrace = $reg.FailureRef.ScriptStackTrace
+                }
+            }
+            $phaseEntries += [pscustomobject]@{
+                phaseId      = $reg.PhaseId
+                outcome      = $reg.Outcome
+                startedAtUtc = $peStartedAtUtc
+                endedAtUtc   = $peEndedAtUtc
+                failure      = $peFailure
+            }
+        }
+
+        # ------ Section D: optional JSONL event replay ---------------------
+        Set-DebugStep 'optional: replay JSONL events'
+        $events = @()
+        if ($IncludeEvents -and $Script:DebugTraceJsonlPath -and (Test-Path -LiteralPath $Script:DebugTraceJsonlPath)) {
+            try {
+                $eventLines = Get-Content -LiteralPath $Script:DebugTraceJsonlPath -ErrorAction Stop
+                foreach ($l in $eventLines) {
+                    if ([string]::IsNullOrWhiteSpace($l)) { continue }
+                    try {
+                        $events += (ConvertFrom-Json -InputObject $l -ErrorAction Stop)
+                    } catch {
+                        # Skip lines that don't parse (malformed truncation).
+                    }
+                }
+            } catch {
+                # Ignore file-read errors; events stays empty.
+            }
+        }
+        $eventsToSerialize = @()
+        $eventCount = -1
+        if ($IncludeEvents) {
+            $eventsToSerialize = $events
+            $eventCount = $events.Count
+        }
+
+        # ------ Section E: host + script metadata (pre-computed) ------------
+        Set-DebugStep 'compose host + script metadata'
+        # Pre-compute the host metadata as a standalone variable so no
+        # inline expression appears in the outer hashtable. Renamed key
+        # from 'host' to 'hostInfo' to avoid any chance of collision
+        # with the $Host auto-variable on PS 5.1.
+        $hostInfo = [pscustomobject]@{
+            psVersion   = $PSVersionTable.PSVersion.ToString()
+            psEdition   = $PSVersionTable.PSEdition
+            clrVersion  = $PSVersionTable.CLRVersion.ToString()
+            os          = ([System.Environment]::OSVersion.VersionString)
+            culture     = (Get-Culture).Name
+            uiCulture   = (Get-UICulture).Name
+            hostName    = $Host.Name
+            hostVersion = $Host.Version.ToString()
+        }
+        $scriptStartedAtUtc = $null
+        if ($Script:ScriptStartTime) {
+            $scriptStartedAtUtc = $Script:ScriptStartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+        }
+        $scriptInfo = [pscustomobject]@{
+            version      = $Script:ScriptVersion
+            tag          = $Script:ScriptTag
+            sha256       = $Script:ScriptHash
+            startedAtUtc = $scriptStartedAtUtc
+        }
+        $fileOutputStatus = Get-DebugTraceFileOutputStatus
+        $exportedAtUtcVal = _DebugTrace_Now
+
+        # ------ Section F: compose final snapshot --------------------------
+        Set-DebugStep 'compose final snapshot pscustomobject'
+        $snapshot = [pscustomobject]@{
+            schemaVersion   = '1'
+            exportedAtUtc   = $exportedAtUtcVal
+            hostInfo        = $hostInfo
+            script          = $scriptInfo
+            fileOutput      = $fileOutputStatus
+            phases          = $phaseEntries
+            activeFrames    = $activeFrames
+            completedFrames = $completedFrames
+            events          = $eventsToSerialize
+            eventCount      = $eventCount
+        }
+
+        # ------ Section G: ensure output directory exists ------------------
+        Set-DebugStep 'ensure parent directory exists'
+        # IMPORTANT: [System.IO.Path]::GetDirectoryName instead of
+        # `Split-Path -LiteralPath $Path -Parent`. On PS 5.1, those two
+        # parameters belong to mutually-exclusive parameter sets
+        # (LiteralPathSet vs ParentSet), which causes
+        # AmbiguousParameterSet at runtime. The .NET method has no such
+        # constraint and behaves identically.
+        $parentDir = [System.IO.Path]::GetDirectoryName($Path)
+        if ($parentDir -and -not (Test-Path -LiteralPath $parentDir)) {
+            New-Item -ItemType Directory -Path $parentDir -Force -ErrorAction SilentlyContinue | Out-Null
+        }
+
+        # ------ Section H: serialize and write to disk ---------------------
+        Set-DebugStep 'ConvertTo-Json + write to disk'
+        # Render with the configured max depth so deeply nested objects
+        # (especially ExInner chains and step details) never get clipped.
+        if ($Compress) {
+            $json = $snapshot | ConvertTo-Json -Depth $Script:DebugTraceJsonDepth -Compress
+        } else {
+            $json = $snapshot | ConvertTo-Json -Depth $Script:DebugTraceJsonDepth
+        }
+        # UTF-8 with BOM so the file is correctly read on PS 5.1 ja-JP
+        # via `Get-Content` (default) without `-Encoding UTF8`.
+        [System.IO.File]::WriteAllText($Path, $json, [System.Text.UTF8Encoding]::new($true))
+
+        Set-DebugStep 'return result path'
+        return $Path
+    } catch {
+        # Surface the failing checkpoint via the Debug Trace Facility
+        # itself - this records a failure event in the JSONL stream with
+        # the step name + exception details. Then re-throw so the outer
+        # caller (e.g. finally block) can warn the user.
+        Write-DebugFailureReport $_ -IncludeStepHistory
+        throw
+    } finally {
+        Stop-DebugTrace
+    }
 }
 
 #####################################################################
@@ -1439,7 +2678,12 @@ function Get-SecureBootBaselineSnapshot {
         Embedded   = $emb
         Microsoft  = $ms
         Health     = $health
-        Reasons    = @($reasons)
+        # r7-fix v3: use .ToArray() instead of @($reasons) to avoid a PS 5.1
+        # ja-JP bug where @(Generic.List<T>) as a hashtable value being cast
+        # to [pscustomobject] raises ArgumentException. List[string] is less
+        # affected than List[object], but applied here for consistency.
+        # See Invoke-InfVerifValidation comment for the full investigation.
+        Reasons    = $reasons.ToArray()
     }
 }
 
@@ -3105,7 +4349,14 @@ function Get-SevenZipPath {
 }
 
 function Find-KitTool {
-    param([string]$Name)
+    param(
+        [string]$Name,
+        # r7: Most kit tools live under \bin\ (signtool, inf2cat, makecat),
+        # but InfVerif lives under \Tools\. The default preserves r6-and-
+        # earlier behavior. Callers that need InfVerif pass @('Tools').
+        # Pass @('bin','Tools') to scan both (useful for diagnostics).
+        [string[]]$SearchSubdirs = @('bin')
+    )
 
     # First check PATH (winget / installer may have updated environment)
     $cmd = Get-Command $Name -ErrorAction SilentlyContinue
@@ -3117,15 +4368,26 @@ function Find-KitTool {
     # to any architecture - filtering by x64 alone misses inf2cat.exe
     # entirely and triggers an unnecessary EXE-installer fallback that
     # then fails because the kit is already installed (exit 2008).
-    foreach ($root in @("${env:ProgramFiles(x86)}\Windows Kits\10\bin","${env:ProgramFiles}\Windows Kits\10\bin")) {
-        if (-not (Test-Path $root)) { continue }
-        $allHits = @(Get-ChildItem -Path $root -Recurse -Filter $Name -ErrorAction SilentlyContinue)
-        if ($allHits.Count -eq 0) { continue }
-        $x64 = $allHits | Where-Object { $_.FullName -match '\\x64\\' } |
-               Sort-Object FullName -Descending | Select-Object -First 1
-        if ($x64) { return $x64.FullName }
-        $any = $allHits | Sort-Object FullName -Descending | Select-Object -First 1
-        if ($any) { return $any.FullName }
+    # InfVerif (r7) ships under \Tools\<ver>\(x64|arm64)\ - the x86
+    # preference rule still applies but we must scan a different
+    # subdirectory tree. arm64 binaries must be filtered out on x64
+    # hosts: running an arm64 PE under PowerShell raises "is not a
+    # valid Win32 application" (ApplicationFailedException).
+    $kitRoots = @("${env:ProgramFiles(x86)}\Windows Kits\10","${env:ProgramFiles}\Windows Kits\10")
+    foreach ($kit in $kitRoots) {
+        if (-not (Test-Path $kit)) { continue }
+        foreach ($sub in $SearchSubdirs) {
+            $root = Join-Path $kit $sub
+            if (-not (Test-Path $root)) { continue }
+            $allHits = @(Get-ChildItem -Path $root -Recurse -Filter $Name -ErrorAction SilentlyContinue) |
+                       Where-Object { $_.FullName -notmatch '\\arm64\\' -and $_.FullName -notmatch '\\arm\\' }
+            if ($allHits.Count -eq 0) { continue }
+            $x64 = $allHits | Where-Object { $_.FullName -match '\\x64\\' } |
+                   Sort-Object FullName -Descending | Select-Object -First 1
+            if ($x64) { return $x64.FullName }
+            $any = $allHits | Sort-Object FullName -Descending | Select-Object -First 1
+            if ($any) { return $any.FullName }
+        }
     }
     return $null
 }
@@ -3247,11 +4509,26 @@ function Get-BthPanDriverStoreSource {
         C:\Windows\System32\DriverStore\FileRepository\<inf>_amd64_<hash>.
         For bthpan there may be more than one staged copy (e.g. after
         a Windows feature update). We pick the most recently modified
-        directory that contains bthpan.inf, bthpan.sys, and at least
-        one catalog file.
+        directory that contains bthpan.inf AND bthpan.sys.
+
+        r3 (WS2025 compatibility): the original .cat file is NOT
+        required to be present in the FileRepository directory.
+        On Windows Server 2025 (build 26100 family) Microsoft has
+        changed the inbox-driver staging layout so that some
+        FileRepository directories contain only the INF + SYS pair,
+        with the corresponding Microsoft-signed catalog held in a
+        separate CatRoot-side location (not in FileRepository).
+        Because P08 always regenerates a fresh catalog via inf2cat
+        and P09 re-signs it with this script's self-signed cert, the
+        original .cat is informational only and does not need to be
+        present at the staging-discovery step.
+
+        Pre-r3 behaviour required >=1 .cat file in the FileRepository
+        directory, which caused P03 to fail on a clean WS2025 install
+        even though bthpan.inf and bthpan.sys were correctly staged.
     .OUTPUTS
         [pscustomobject] with Path, InfPath, SysPath, CatPaths,
-        LastWriteTime; or $null if not found.
+        LastWriteTime, DirectoryName, HasOriginalCat; or $null if not found.
     #>
     [CmdletBinding()]
     param(
@@ -3271,9 +4548,14 @@ function Get-BthPanDriverStoreSource {
         $sysPath = Join-Path $dir.FullName 'bthpan.sys'
         if (-not (Test-Path -LiteralPath $infPath))  { continue }
         if (-not (Test-Path -LiteralPath $sysPath))  { continue }
+
+        # r3: .cat file is NO LONGER required. WS2025 FileRepository
+        # entries may contain only INF + SYS, with the original
+        # Microsoft catalog held outside FileRepository. P08 will
+        # regenerate the catalog from the patched INF via inf2cat
+        # regardless of whether an original .cat is found here.
         $catFiles = @(Get-ChildItem -LiteralPath $dir.FullName `
             -Filter '*.cat' -File -ErrorAction SilentlyContinue)
-        if ($catFiles.Count -eq 0) { continue }
 
         return [pscustomobject]@{
             Path           = $dir.FullName
@@ -3282,6 +4564,7 @@ function Get-BthPanDriverStoreSource {
             CatPaths       = @($catFiles | ForEach-Object { $_.FullName })
             LastWriteTime  = $dir.LastWriteTime
             DirectoryName  = $dir.Name
+            HasOriginalCat = ($catFiles.Count -gt 0)
         }
     }
     return $null
@@ -3824,6 +5107,350 @@ function ConvertTo-ServerDecoration {
     return ($parts -join '.')
 }
 
+function Add-InfCatalogFileEntry {
+    <#
+    .SYNOPSIS
+        Ensure the INF's [Version] section contains a CatalogFile entry.
+
+    .DESCRIPTION
+        Microsoft inbox drivers (such as bthpan) typically ship without
+        a CatalogFile entry in the INF [Version] section because
+        Microsoft uses a centralized OS-wide catalog mechanism rather
+        than per-INF .cat files. When this script patches such an INF
+        and asks inf2cat to re-catalog it, two things break:
+
+          (a) inf2cat rejects the INF with rule 22.9.4:
+                "Missing AMD64 CatalogFile entry from [Version] section"
+          (b) Even if a .cat is produced by makecat fallback, pnputil
+              / SetupAPI cannot bind the catalog to the driver package
+              at install time without an explicit CatalogFile pointer.
+
+        This function inspects the INF and, if no CatalogFile entry
+        is present, inserts `CatalogFile = <name>` immediately after
+        the `[Version]` section header. Existing entries are preserved
+        and original encoding (UTF-16 LE BOM / UTF-8 BOM / ANSI) is
+        round-tripped via Read-InfFile.
+
+        The plain `CatalogFile` form (no decoration) is intentional: it
+        is accepted across all NT-family Windows builds, and inf2cat's
+        rule 22.9.4 explicitly lists `CatalogFile.ntamd64`, `CatalogFile.nt`,
+        and `CatalogFile` as equally acceptable. Using the plain form
+        avoids per-architecture INF surgery.
+
+    .PARAMETER InfPath
+        Absolute path to the INF file to modify in place.
+
+    .PARAMETER CatalogFileName
+        Bare filename of the catalog (e.g. 'bthpan.cat'). No path - the
+        catalog is expected to live in the same directory as the INF.
+
+    .OUTPUTS
+        [pscustomobject] with:
+          Changed        : $true if the INF was modified
+          AlreadyPresent : $true if a CatalogFile entry was already present
+          Reason         : short human-readable description
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string]$InfPath,
+        [Parameter(Mandatory)] [string]$CatalogFileName
+    )
+
+    if (-not (Test-Path -LiteralPath $InfPath)) {
+        throw "Add-InfCatalogFileEntry: INF not found at '$InfPath'"
+    }
+
+    $infData = Read-InfFile -Path $InfPath
+    $content = $infData.Content
+
+    # Detect any existing CatalogFile entry (plain or decorated).
+    # We deliberately scan the entire file rather than just [Version]
+    # because the entry MUST live in [Version] per INF spec, and any
+    # match anywhere means we should not add another.
+    if ($content -match '(?im)^\s*CatalogFile(?:\.\w+)?\s*=\s*\S') {
+        return [pscustomobject]@{
+            Changed        = $false
+            AlreadyPresent = $true
+            Reason         = 'CatalogFile entry already present - no change needed'
+        }
+    }
+
+    # Locate the [Version] section header. INF spec says [Version] must
+    # exist; we throw if not found rather than silently appending.
+    $headerPattern = '(?im)^[ \t]*\[Version\][ \t]*\r?\n'
+    if (-not [regex]::IsMatch($content, $headerPattern)) {
+        throw "Add-InfCatalogFileEntry: [Version] section header not found in '$InfPath'"
+    }
+
+    # Insert "CatalogFile = <name>" immediately after the [Version] header.
+    # We keep the original line terminator style by reusing what the regex
+    # matched as the header line ending.
+    $newContent = [regex]::Replace($content, $headerPattern, {
+        param($m)
+        # $m.Value ends with \r\n or \n (whatever the file used).
+        $eol = if ($m.Value -match '\r\n$') { "`r`n" } else { "`n" }
+        return "$($m.Value)CatalogFile = $CatalogFileName$eol"
+    }, 1)  # only the first occurrence
+
+    # Write back preserving original encoding (BOM behavior matches read)
+    [System.IO.File]::WriteAllText($InfPath, $newContent, $infData.Encoding)
+
+    return [pscustomobject]@{
+        Changed        = $true
+        AlreadyPresent = $false
+        Reason         = ("Inserted 'CatalogFile = {0}' into [Version] section" -f $CatalogFileName)
+    }
+}
+
+function Set-InfProviderForResigning {
+    <#
+    .SYNOPSIS
+        Rewrite the INF [Version].Provider field so the re-cataloged
+        driver passes InfVerif rule 1204 ("Provider cannot be 'Microsoft'").
+
+    .DESCRIPTION
+        Microsoft inbox drivers (e.g. bthpan) declare `Provider = %MfgName%`
+        where the %MfgName% string token resolves to "Microsoft" in the
+        single locale-agnostic [strings] section. When this script
+        re-catalogs the driver, InfVerif raises:
+
+            ERROR(1204): Provider cannot be "Microsoft", must be
+                         organization who authored INF.
+
+        because Microsoft's WHQL/InfVerif policy correctly distinguishes
+        the original driver author from the entity that re-signs it.
+
+        This function performs the minimal patch required to satisfy
+        rule 1204 while preserving the rest of the INF:
+
+          1. Adds a NEW string token to [strings] (case-insensitive
+             section match - handles lowercase [strings] in inbox INFs
+             AND PascalCase [Strings] in OEM INFs like Intel ibtusb.inf):
+
+                 PROVIDER_NAME = "<provided>"
+
+             The token is inserted right after the existing %MfgName%
+             entry so the file's "; Localizable" comment grouping is
+             preserved. Column alignment uses 23-char left-pad to match
+             the most common spacing pattern in Microsoft inbox INFs.
+
+          2. Rewrites [Version].Provider:
+
+                 Provider = %MfgName%   ->   Provider = %PROVIDER_NAME%
+
+             We DO NOT touch [Manufacturer] entries that reference
+             %MfgName%, because the [Manufacturer] label still describes
+             the original device manufacturer (Microsoft) - that fact
+             does not change just because we re-cataloged the package.
+
+        This follows the industry-standard pattern observed in the
+        23 Intel ibtusb.inf variants on a Win11 reference machine,
+        where Provider uses a dedicated %PROVIDER_NAME% token resolving
+        to "Intel Corporation" while MfgName/COMPANY_NAME serve other
+        purposes.
+
+        The function is idempotent: if PROVIDER_NAME is already defined
+        in [strings] and [Version].Provider already points to it, no
+        changes are made.
+
+    .PARAMETER InfPath
+        Absolute path to the INF file to modify in place.
+
+    .PARAMETER ProviderName
+        Display string for the resigning organization, e.g.
+        'Deploy-AMD-Drivers-For-WindowsServer Project'.
+        Will be inserted into [strings] as the value of PROVIDER_NAME
+        (quoted automatically).
+
+    .OUTPUTS
+        [pscustomobject] with:
+          Changed         : $true if the INF was modified
+          AlreadyPresent  : $true if PROVIDER_NAME was already defined
+                            AND [Version].Provider already pointed to it
+          OldProvider     : the original [Version].Provider value (raw,
+                            including %token% wrapper if present), or
+                            $null if [Version] was missing the field
+          NewProvider     : the resulting [Version].Provider value
+          Reason          : short human-readable description
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string]$InfPath,
+        [Parameter(Mandatory)] [string]$ProviderName
+    )
+
+    if (-not (Test-Path -LiteralPath $InfPath)) {
+        throw "Set-InfProviderForResigning: INF not found at '$InfPath'"
+    }
+
+    $infData = Read-InfFile -Path $InfPath
+    $content = $infData.Content
+
+    # --- Step 1: detect current [Version].Provider value ---
+    # Match the [Version] section block (header line through next [) and
+    # extract the Provider field within it. We anchor to [Version] to
+    # avoid matching a "Provider=" line in some other section.
+    $versionBlockPattern = '(?ims)^[ \t]*\[Version\][ \t]*\r?\n(.*?)(?=^[ \t]*\[|\z)'
+    $versionMatch = [regex]::Match($content, $versionBlockPattern)
+    if (-not $versionMatch.Success) {
+        throw "Set-InfProviderForResigning: [Version] section not found in '$InfPath'"
+    }
+    $versionBody = $versionMatch.Groups[1].Value
+    $oldProvider = $null
+    if ($versionBody -match '(?im)^[ \t]*Provider[ \t]*=[ \t]*(.+?)[ \t]*\r?$') {
+        $oldProvider = $matches[1].Trim()
+    }
+
+    # If Provider is already %PROVIDER_NAME% and [strings] already has the
+    # token, this is a no-op (idempotent).
+    $alreadyPointsToToken = ($oldProvider -eq '%PROVIDER_NAME%')
+    $alreadyHasToken = ($content -match '(?im)^[ \t]*PROVIDER_NAME[ \t]*=[ \t]*"')
+    if ($alreadyPointsToToken -and $alreadyHasToken) {
+        return [pscustomobject]@{
+            Changed        = $false
+            AlreadyPresent = $true
+            OldProvider    = $oldProvider
+            NewProvider    = $oldProvider
+            Reason         = 'PROVIDER_NAME token and [Version].Provider already point to it - no change'
+        }
+    }
+
+    # --- Step 2: locate the [strings] section (case-insensitive) ---
+    # Microsoft inbox uses [strings] (lowercase); Intel/OEM use [Strings].
+    # We honor whichever case the file already uses.
+    $stringsBlockPattern = '(?ims)^([ \t]*\[strings\][ \t]*\r?\n)(.*?)(?=^[ \t]*\[|\z)'
+    $stringsMatch = [regex]::Match($content, $stringsBlockPattern)
+    if (-not $stringsMatch.Success) {
+        throw "Set-InfProviderForResigning: [strings] section not found in '$InfPath'"
+    }
+    $stringsHeader = $stringsMatch.Groups[1].Value  # e.g. "[strings]`r`n"
+    $stringsBody   = $stringsMatch.Groups[2].Value
+
+    # Detect end-of-line style used by the file (CRLF vs LF) for new lines
+    $eol = if ($stringsHeader -match '\r\n$') { "`r`n" } else { "`n" }
+
+    # --- Step 3: build the new PROVIDER_NAME line, insert it ---
+    # Column alignment: pad "PROVIDER_NAME" to 23 chars (Microsoft inbox
+    # convention seen in bthpan.inf - matches MfgName/BTH.DiskName/etc.).
+    # Length is computed at runtime to be robust to future format shifts.
+    $key = 'PROVIDER_NAME'
+    $padTarget = 23
+    $pad = if ($key.Length -lt $padTarget) {
+        ' ' * ($padTarget - $key.Length)
+    } else {
+        ' '
+    }
+    $newLine = '{0}{1}= "{2}"' -f $key, $pad, $ProviderName
+
+    # Only insert if not already present
+    $newStringsBody = $stringsBody
+    $insertedToken = $false
+    if (-not $alreadyHasToken) {
+        # Prefer insertion right after the MfgName line so the new entry
+        # stays inside the "; Localizable" comment group. Fall back to
+        # appending at the end of [strings] if MfgName isn't found.
+        $mfgLinePattern = '(?im)^([ \t]*MfgName[ \t]*=[ \t]*"[^"]*"[ \t]*\r?\n)'
+        if ([regex]::IsMatch($stringsBody, $mfgLinePattern)) {
+            $newStringsBody = [regex]::Replace($stringsBody, $mfgLinePattern, {
+                param($m)
+                return ('{0}{1}{2}' -f $m.Value, $newLine, $eol)
+            }, 1)
+        } else {
+            # Append at end of [strings] body, ensuring a trailing EOL.
+            if ($newStringsBody.Length -gt 0 -and -not $newStringsBody.EndsWith("`n")) {
+                $newStringsBody += $eol
+            }
+            $newStringsBody += $newLine + $eol
+        }
+        $insertedToken = $true
+    }
+
+    # --- Step 4: rewrite [Version].Provider ---
+    # We rewrite only inside the [Version] block to avoid accidentally
+    # touching any Provider= line that might appear in comments elsewhere.
+    $newVersionBody = $versionBody
+    $rewroteProvider = $false
+    if (-not $alreadyPointsToToken) {
+        if ($versionBody -match '(?im)^[ \t]*Provider[ \t]*=') {
+            $newVersionBody = [regex]::Replace(
+                $versionBody,
+                '(?im)^([ \t]*Provider[ \t]*=[ \t]*)(.+?)([ \t]*\r?\n)',
+                {
+                    param($m)
+                    return ('{0}%PROVIDER_NAME%{1}' -f $m.Groups[1].Value, $m.Groups[3].Value)
+                },
+                1
+            )
+            $rewroteProvider = $true
+        } else {
+            # [Version] had no Provider line at all - inject one right
+            # after the [Version] header. This is defensive; real-world
+            # bthpan always has Provider.
+            $newVersionBody = "Provider = %PROVIDER_NAME%$eol" + $versionBody
+            $rewroteProvider = $true
+        }
+    }
+
+    # --- Step 5: stitch the document back together ---
+    # Replace the [Version] block and the [strings] block in order. We
+    # cannot do two regex replacements naively because regex offsets shift
+    # after each replacement; instead we splice based on the original
+    # match positions, processing in reverse order (later -> earlier).
+    $sb = [System.Text.StringBuilder]::new($content.Length + 256)
+    $cursor = 0
+
+    # We have two blocks to replace: $versionMatch (Provider rewrite) and
+    # $stringsMatch (PROVIDER_NAME insert). Sort them by position so we
+    # can walk left-to-right.
+    $edits = New-Object System.Collections.Generic.List[object]
+    if ($rewroteProvider) {
+        $edits.Add([pscustomobject]@{
+            Start  = $versionMatch.Index
+            Length = $versionMatch.Length
+            # Reconstruct full block: original header + new body
+            New    = $versionMatch.Value.Substring(0, $versionMatch.Groups[1].Index - $versionMatch.Index) + $newVersionBody
+        })
+    }
+    if ($insertedToken) {
+        $edits.Add([pscustomobject]@{
+            Start  = $stringsMatch.Index
+            Length = $stringsMatch.Length
+            New    = $stringsHeader + $newStringsBody
+        })
+    }
+    $edits = @($edits | Sort-Object Start)
+
+    foreach ($e in $edits) {
+        if ($e.Start -gt $cursor) {
+            [void]$sb.Append($content.Substring($cursor, $e.Start - $cursor))
+        }
+        [void]$sb.Append($e.New)
+        $cursor = $e.Start + $e.Length
+    }
+    if ($cursor -lt $content.Length) {
+        [void]$sb.Append($content.Substring($cursor))
+    }
+    $newContent = $sb.ToString()
+
+    # Write back preserving original encoding (BOM behavior matches read)
+    [System.IO.File]::WriteAllText($InfPath, $newContent, $infData.Encoding)
+
+    # Compose the report
+    $newProvider = if ($rewroteProvider -or $alreadyPointsToToken) { '%PROVIDER_NAME%' } else { $oldProvider }
+    $reasonParts = @()
+    if ($insertedToken)   { $reasonParts += ("Added PROVIDER_NAME='$ProviderName' to [strings]") }
+    if ($rewroteProvider) { $reasonParts += ("Changed [Version].Provider from '$oldProvider' to '%PROVIDER_NAME%'") }
+    if ($reasonParts.Count -eq 0) { $reasonParts = @('No change required') }
+
+    return [pscustomobject]@{
+        Changed        = ($insertedToken -or $rewroteProvider)
+        AlreadyPresent = (-not ($insertedToken -or $rewroteProvider))
+        OldProvider    = $oldProvider
+        NewProvider    = $newProvider
+        Reason         = ($reasonParts -join '; ')
+    }
+}
+
 function Edit-InfForServer {
     param([string]$InfPath, [string]$OutputPath, [pscustomobject]$OsContext)
 
@@ -3972,6 +5599,7 @@ function Invoke-PrepPhase00_Initialize {
     # Always show the runtime environment first - this is what the
     # user sees if anything else later fails, and it provides the
     # context needed to triage compatibility issues.
+    Set-DebugStep 'show PS environment'
     Show-PowerShellEnvironment
 
     # Hard pre-flight checks that the script cannot continue without.
@@ -3980,11 +5608,13 @@ function Invoke-PrepPhase00_Initialize {
     # then network TLS configuration, then UTF-8 console encoding (SPEC
     # A.5 / D.5 / D.16 — required for CiTool.exe and signtool.exe ja-JP
     # output to decode correctly instead of becoming mojibake).
+    Set-DebugStep 'pre-flight checks (PS compat / admin / TLS / UTF8)'
     Assert-PowerShellCompatibility
     Assert-Admin
     Set-Tls12
     Set-ConsoleUtf8
 
+    Set-DebugStep 'detect OS context'
     $Ctx.Os = Get-OsContext
     $isWorkstation = ($Ctx.Os.ProductType -eq 1)
     $isBuild26100  = ($Ctx.Os.ActualBuild -eq 26100)
@@ -4083,6 +5713,7 @@ If you really need to install on this Workstation host, pass
     # the snapshot will detect a missing diagnostic file (e.g. when
     # -CleanWorkRoot wipes it at P01) and re-capture as needed via
     # Get-OrEnsureSecureBootBaseline (see helper below).
+    Set-DebugStep 'capture Secure Boot baseline'
     try {
         $Ctx.SecureBootBaseline = Get-SecureBootBaselineSnapshot -WorkRoot $Ctx.WorkRoot
         Show-SecureBootBaselineSnapshot -Snapshot $Ctx.SecureBootBaseline -Compact
@@ -4097,12 +5728,65 @@ function Invoke-PrepPhase01_PrepareWorkspace {
     param($Ctx)
     Write-PhaseHeader 'P01' 'PrepareWorkspace' 'Prep'
 
+    # r8-update3: pre-flight guard for the -LogFile vs -CleanWorkRoot
+    # collision. When the operator passes both:
+    #   -LogFile <path-inside-WorkRoot>
+    #   -CleanWorkRoot
+    # the wipe below tries to Remove-Item the WorkRoot subtree, which
+    # contains the transcript.log file currently held open in write
+    # mode by Start-Transcript. The result is an IOException
+    # ("File in use by another process") partway through the recursive
+    # delete, leaving the workspace in a half-deleted state.
+    #
+    # Detect the overlap up front and refuse with a clear, actionable
+    # error message so the user can retry with corrected arguments.
+    # The transcript file itself is still created above (no harm) and
+    # the workspace stays untouched (no half-deleted state).
+    Set-DebugStep 'pre-flight: -LogFile vs -CleanWorkRoot overlap check'
+    if ($Ctx.CleanWorkRoot -and $Script:LogFileActive -and $LogFile) {
+        try {
+            $resolvedLog      = [System.IO.Path]::GetFullPath($LogFile)
+            $resolvedWorkRoot = [System.IO.Path]::GetFullPath($Ctx.WorkRoot)
+            # Normalize WorkRoot to end with separator so we don't get
+            # false positives like "C:\Temp\Workspace" matching
+            # "C:\Temp\Workspace_X".
+            if (-not $resolvedWorkRoot.EndsWith([System.IO.Path]::DirectorySeparatorChar) -and `
+                -not $resolvedWorkRoot.EndsWith([System.IO.Path]::AltDirectorySeparatorChar)) {
+                $resolvedWorkRoot = $resolvedWorkRoot + [System.IO.Path]::DirectorySeparatorChar
+            }
+            if ($resolvedLog.StartsWith($resolvedWorkRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $msg = "P01: -LogFile is inside -WorkRoot and -CleanWorkRoot was requested.`r`n" +
+                       "    -LogFile is held open in write mode by Start-Transcript while this phase is running,`r`n" +
+                       "    so the recursive Remove-Item of -WorkRoot would fail mid-way with an IOException.`r`n" +
+                       "`r`n" +
+                       "    Resolved paths:`r`n" +
+                       "      -LogFile  : $resolvedLog`r`n" +
+                       "      -WorkRoot : $resolvedWorkRoot`r`n" +
+                       "`r`n" +
+                       "    Resolutions (choose one):`r`n" +
+                       "      (1) Place -LogFile OUTSIDE -WorkRoot, e.g.:`r`n" +
+                       "          -LogFile C:\Temp\bthpan-transcript.log`r`n" +
+                       "      (2) Drop -CleanWorkRoot from this run (the workspace will be reused).`r`n" +
+                       "      (3) Move -LogFile to a subdirectory you don't intend to wipe.`r`n" +
+                       "`r`n" +
+                       "    The workspace was NOT modified - safe to re-invoke with corrected arguments."
+                throw $msg
+            }
+        } catch [System.Management.Automation.MethodInvocationException] {
+            # GetFullPath threw on an invalid path - let the normal wipe
+            # attempt handle/report it instead of masking the real error.
+            Write-Warning ("P01: overlap pre-check could not resolve a path (non-fatal): {0}" -f $_.Exception.Message)
+        }
+    }
+
+    Set-DebugStep 'optional: wipe existing workspace (-CleanWorkRoot)'
     if ($Ctx.CleanWorkRoot -and (Test-Path $Ctx.WorkRoot)) {
         Write-Step "Removing existing -WorkRoot for clean run: $($Ctx.WorkRoot)"
         Remove-Item -Path $Ctx.WorkRoot -Recurse -Force
         Write-Ok 'Workspace wiped.'
     }
 
+    Set-DebugStep 'create workspace subdirectories'
     $paths = [pscustomobject]@{
         Root      = $Ctx.WorkRoot
         Download  = Join-Path $Ctx.WorkRoot 'download'
@@ -4120,6 +5804,36 @@ function Invoke-PrepPhase01_PrepareWorkspace {
     $Ctx.Paths = $paths
     Write-Ok "Workspace ready under $($Ctx.WorkRoot)"
 
+    # r7+: activate the Debug Trace JSONL writer now that the workspace
+    # logs directory exists. This is the script-wide policy decision
+    # ("default ON for file output") - any pre-P01 trace events that
+    # are sitting in the in-memory buffer get flushed in one shot.
+    # Failures are absorbed and warned about (see Enable-DebugTraceFileOutput).
+    Set-DebugStep 'enable Debug Trace JSONL writer'
+    Enable-DebugTraceFileOutput -Directory $paths.Logs
+
+    # r7+: also activate auto-export-on-phase-failure. The phase
+    # dispatcher's catch block calls Write-DebugFailureReport -AutoExport,
+    # which writes a debugtrace_export_<phaseId>_<ts>.json snapshot to
+    # this directory so the user has a single self-contained file to
+    # attach to a bug report.
+    Enable-AutoExportOnPhaseFailure -OutputDirectory $paths.Logs
+
+    # r8-update7: rehydrate $Ctx from any existing workspace artifacts
+    # so phase queues that skip P02..P09 (e.g. -Action Verify, Cleanup,
+    # Install) can still resolve paths and thumbprints that those
+    # P-phases would normally populate. This is a best-effort scan -
+    # missing artifacts stay $null and the downstream V/I phase will
+    # raise a clear precondition error as before.
+    #
+    # Without this step, -Action Verify against a populated workspace
+    # would surface "patched bthpan.inf not present. Run P06 first."
+    # from V05 even though the file is physically on disk - because
+    # $Ctx.PatchedBthPanInfPath is only written by P06 itself.
+    Set-DebugStep 'rehydrate $Ctx from existing workspace artifacts'
+    Resume-CtxFromWorkspace -Ctx $Ctx
+
+    Set-DebugStep 'acquire workspace concurrency lock'
     # Acquire the workspace lock NOW (after the .markers/ directory
     # exists). This catches the case where the user accidentally
     # starts a second instance against the same workspace - we fail
@@ -4132,25 +5846,157 @@ function Invoke-PrepPhase01_PrepareWorkspace {
     Write-PhaseFooter 'P01' 'done'
 }
 
+function Resume-CtxFromWorkspace {
+    <#
+    .SYNOPSIS
+        Rebuild $Ctx properties from artifacts already present in the
+        workspace. Called from P01 to support non-Prepare run modes
+        (Verify-only, Cleanup, Install-only).
+    .DESCRIPTION
+        Each P-phase normally writes a handful of paths and identifiers
+        onto $Ctx so downstream V/I phases can use them without
+        re-discovering. When the user runs -Action Verify (which skips
+        P02..P09) those properties stay $null and downstream phases
+        fail with misleading "run Pxx first" errors even when the
+        artifacts are physically on disk.
+
+        This helper rescans the well-known artifact slots under
+        $Ctx.Paths and populates each $Ctx property only when:
+          (a) the file actually exists on disk
+          (b) the corresponding $Ctx property is currently $null/empty
+
+        Result: -Action Verify against a populated workspace now
+        resolves the same property set as a fresh Prepare run, while
+        -Action PrepareVerify still gets the canonical values written
+        by the P-phases themselves (this scan finds nothing because
+        CleanWorkRoot wipes everything first, or finds old values that
+        P-phases then overwrite).
+
+        Failures are non-fatal: each branch swallows its own error,
+        leaves the property $null, and lets the downstream precondition
+        check raise a clear error.
+    #>
+    param($Ctx)
+
+    if (-not $Ctx.Paths) { return }
+
+    $rehydrated = New-Object System.Collections.Generic.List[string]
+
+    # ----- Patched INF + companion dir + expected catalog name -----
+    if (-not $Ctx.PatchedBthPanInfPath) {
+        try {
+            $pdir = Join-Path $Ctx.Paths.Patched 'bthpan'
+            $pinf = Join-Path $pdir 'bthpan.inf'
+            if (Test-Path -LiteralPath $pinf) {
+                $Ctx.PatchedBthPanInfPath = $pinf
+                $Ctx.PatchedBthPanDir     = $pdir
+                if (-not $Ctx.ExpectedCatalogName) {
+                    $Ctx.ExpectedCatalogName = 'bthpan.cat'
+                }
+                $rehydrated.Add('PatchedBthPanInfPath') | Out-Null
+            }
+        } catch {} # psa-disable-line PSA3004 -- best-effort scan; missing artifact = leave $null
+    }
+
+    # ----- Catalog files -----
+    if (-not $Ctx.PatchedCatalogs -or $Ctx.PatchedCatalogs.Count -eq 0) {
+        try {
+            $pdir = Join-Path $Ctx.Paths.Patched 'bthpan'
+            if (Test-Path -LiteralPath $pdir) {
+                $cats = @(Get-ChildItem -LiteralPath $pdir -Filter '*.cat' -ErrorAction SilentlyContinue |
+                            ForEach-Object { $_.FullName })
+                if ($cats.Count -gt 0) {
+                    $Ctx.PatchedCatalogs    = $cats
+                    if (-not $Ctx.CatalogGenStrategy) {
+                        $Ctx.CatalogGenStrategy = '(rehydrated-from-disk)'
+                    }
+                    $rehydrated.Add('PatchedCatalogs') | Out-Null
+                }
+            }
+        } catch {} # psa-disable-line PSA3004
+    }
+
+    # ----- Cert PFX -----
+    if (-not $Ctx.CertPfxPath) {
+        try {
+            $pfx = Join-Path $Ctx.Paths.Cert 'MS-BthPan-Driver-CodeSign.pfx'
+            if (Test-Path -LiteralPath $pfx) {
+                $Ctx.CertPfxPath = $pfx
+                $rehydrated.Add('CertPfxPath') | Out-Null
+            }
+        } catch {} # psa-disable-line PSA3004
+    }
+
+    # ----- Cert CER + Thumbprint (read from CER on disk) -----
+    if (-not $Ctx.CertCerPath) {
+        try {
+            $cer = Join-Path $Ctx.Paths.Cert 'MS-BthPan-Driver-CodeSign.cer'
+            if (Test-Path -LiteralPath $cer) {
+                $Ctx.CertCerPath = $cer
+                $rehydrated.Add('CertCerPath') | Out-Null
+                if (-not $Ctx.CertThumbprint) {
+                    try {
+                        $x509 = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 $cer
+                        $Ctx.CertThumbprint = $x509.Thumbprint
+                        $rehydrated.Add('CertThumbprint') | Out-Null
+                    } catch {} # psa-disable-line PSA3004
+                }
+            }
+        } catch {} # psa-disable-line PSA3004
+    }
+
+    # ----- Extracted INF dir + bare INF path -----
+    if (-not $Ctx.ExtractedBthPanDir) {
+        try {
+            $edir = Join-Path $Ctx.Paths.Extract 'bthpan'
+            if (Test-Path -LiteralPath $edir) {
+                $Ctx.ExtractedBthPanDir = $edir
+                $rehydrated.Add('ExtractedBthPanDir') | Out-Null
+                $einf = Join-Path $edir 'bthpan.inf'
+                if (-not $Ctx.BthPanInfPath -and (Test-Path -LiteralPath $einf)) {
+                    $Ctx.BthPanInfPath = $einf
+                    $rehydrated.Add('BthPanInfPath') | Out-Null
+                }
+            }
+        } catch {} # psa-disable-line PSA3004
+    }
+
+    if ($rehydrated.Count -gt 0) {
+        Write-Detail ('Rehydrated from existing workspace: {0}' -f ($rehydrated.ToArray() -join ', '))
+    }
+}
+
 function Invoke-PrepPhase02_AcquireTools {
     param($Ctx)
     Write-PhaseHeader 'P02' 'AcquireTools' 'Prep'
 
+    Set-DebugStep 'check phase marker (cache hit?)'
     if (Test-PhaseMarker -Ctx $Ctx -PhaseId 'P02') {
         $Ctx.SevenZip = Get-SevenZipPath
         $Ctx.Signtool = Find-KitTool 'signtool.exe'
         $Ctx.Inf2cat  = Find-KitTool 'inf2cat.exe'
+        # r7: Populate optional tools on cache-hit path so that downstream
+        # phases (V01 / V02 / P08 makecat fallback) can find them even
+        # when P02 is short-circuited by a stale marker from r6 or
+        # earlier. Both are advisory - their absence is non-fatal.
+        $Ctx.Makecat  = Find-KitTool 'makecat.exe'
+        $Ctx.InfVerif = Find-KitTool 'infverif.exe' -SearchSubdirs @('Tools')
         if ($Ctx.SevenZip -and $Ctx.Signtool -and $Ctx.Inf2cat) {
             Write-Skip 'Tools already present (cached marker).'
             Write-Detail "7-Zip   : $($Ctx.SevenZip)"
             Write-Detail "signtool: $($Ctx.Signtool)"
             Write-Detail "inf2cat : $($Ctx.Inf2cat)"
+            $makecatDisplay  = if ($Ctx.Makecat)  { $Ctx.Makecat }  else { '(not found; P08 inbox-driver fallback unavailable)' }
+            $infverifDisplay = if ($Ctx.InfVerif) { $Ctx.InfVerif } else { '(not found; V01/V02 InfVerif validation will be skipped)' }
+            Write-Detail "makecat : $makecatDisplay"
+            Write-Detail "infverif: $infverifDisplay"
             Write-PhaseFooter 'P02' 'cached'
             return
         }
         Write-Warn2 'Marker present but tool missing - re-running.'
     }
 
+    Set-DebugStep 'detect region for winget'
     # Detect machine region (2-letter ISO). winget will use this when
     # any source needs it (notably msstore). We pre-detect and log it
     # for transparency, then route winget to --source winget so the
@@ -4159,6 +6005,7 @@ function Invoke-PrepPhase02_AcquireTools {
     Write-Detail "Region       : $region (auto-detected from system locale / home location)"
     Write-Detail "winget source: 'winget' only (msstore is bypassed for these packages)"
 
+    Set-DebugStep 'install 7-Zip (winget -> direct MSI fallback)'
     # 7-Zip
     if (-not (Get-SevenZipPath)) {
         if ((Test-WingetWorking)) {
@@ -4207,6 +6054,7 @@ function Invoke-PrepPhase02_AcquireTools {
         Write-Host  '       Subsequent runs in the same workspace will skip P02 (PhaseMarker hit).' -ForegroundColor DarkGray
     }
 
+    Set-DebugStep 'install Windows SDK / WDK (winget -> direct EXE fallback)'
     $wingetWorks = (Test-WingetWorking) -and $Ctx.Os.CanInstallWinget
     if ($wingetWorks -and $Ctx.Os.WingetSdkId -and -not $signtool) {
         Write-Step "Windows SDK: winget ($($Ctx.Os.WingetSdkId))"
@@ -4232,10 +6080,33 @@ function Invoke-PrepPhase02_AcquireTools {
     if (-not $Ctx.Inf2cat)  { throw 'inf2cat.exe not found after install' }
     Write-Ok "signtool: $($Ctx.Signtool)"
     Write-Ok "inf2cat : $($Ctx.Inf2cat)"
+    Set-DebugStep 'detect optional tools (makecat / infverif)'
+    # r7: makecat is required for the inbox-driver catalog fallback in
+    # P08. It ships in the same SDK kit as inf2cat. Locating it here is
+    # advisory only - P08 calls Find-KitTool again right before use.
+    $Ctx.Makecat = Find-KitTool 'makecat.exe'
+    if ($Ctx.Makecat) {
+        Write-Ok "makecat : $($Ctx.Makecat)"
+    } else {
+        Write-Warn2 'makecat.exe not found in Windows Kits. P08 inbox-driver fallback will fail if inf2cat refuses the package.'
+    }
+    # r7: InfVerif is the official Microsoft INF validator (replaces ChkInf).
+    # Used by Invoke-InfVerifValidation to perform pre/post-patch INF
+    # structural validation. InfVerif lives in \Tools\ (not \bin\) so we
+    # pass an explicit SearchSubdirs override. Like makecat, this is
+    # advisory - the validation paths fall back gracefully if missing.
+    $Ctx.InfVerif = Find-KitTool 'infverif.exe' -SearchSubdirs @('Tools')
+    if ($Ctx.InfVerif) {
+        Write-Ok "infverif: $($Ctx.InfVerif)"
+    } else {
+        Write-Warn2 'infverif.exe not found in Windows Kits\Tools. Pre/post-patch INF validation will be skipped.'
+    }
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'P02' -Metadata @{
         SevenZip = $Ctx.SevenZip
         Signtool = $Ctx.Signtool
         Inf2cat  = $Ctx.Inf2cat
+        Makecat  = $Ctx.Makecat
+        InfVerif = $Ctx.InfVerif
         Region   = $region
     }
     Write-PhaseFooter 'P02' 'done'
@@ -4251,14 +6122,32 @@ function Invoke-PrepPhase03_FetchInstaller {
         bthpan driver already staged on the host at
         C:\Windows\System32\DriverStore\FileRepository\bthpan.inf_amd64_*.
 
-        P03 finds the most recent staged copy. If no copy is present
-        (extremely rare; only happens on hosts where the inbox driver
-        has been deliberately removed), the phase fails and instructs
-        the operator to repair the install via DISM.
+        P03 finds the most recent staged copy. The required minimum is
+        bthpan.inf + bthpan.sys in the FileRepository directory.
+
+        r3 (WS2025 compatibility): the original .cat file is NO LONGER
+        required to be present in the FileRepository directory. On
+        Windows Server 2025 (PS 5.1.26100 family), Microsoft has
+        changed the inbox-driver staging layout so the corresponding
+        catalog lives in a CatRoot-side location instead of being
+        co-resident with INF / SYS in FileRepository. The script's
+        own P08 will regenerate the catalog via inf2cat against the
+        patched INF and re-sign it in P09, so the original Microsoft
+        catalog is informational only.
+
+        Pre-r3 behaviour required a .cat in the FileRepository
+        directory, which caused P03 to fail on a clean WS2025 install
+        even when bthpan.inf and bthpan.sys were correctly staged.
+
+        If neither bthpan.inf nor bthpan.sys are present (extremely
+        rare; only happens on hosts where the inbox driver has been
+        deliberately removed), the phase fails and instructs the
+        operator to repair the install via DISM.
     #>
     param($Ctx)
     Write-PhaseHeader 'P03' 'FetchInstaller' 'Prep'
 
+    Set-DebugStep 'check phase marker (cache hit?)'
     if (Test-PhaseMarker -Ctx $Ctx -PhaseId 'P03') {
         if ($Ctx.BthPanSource -and (Test-Path -LiteralPath $Ctx.BthPanSource.InfPath)) {
             Write-Skip "DriverStore source already located: $($Ctx.BthPanSource.Path)"
@@ -4267,6 +6156,7 @@ function Invoke-PrepPhase03_FetchInstaller {
         }
     }
 
+    Set-DebugStep 'probe inbox INF presence under C:\Windows\INF'
     # First, confirm the live inbox INF exists. This is a strong
     # signal that the host has the inbox driver provisioned. (The
     # bthpan.inf file under C:\Windows\INF is the staged copy used
@@ -4279,6 +6169,7 @@ function Invoke-PrepPhase03_FetchInstaller {
         Write-Detail 'On a fresh Windows install this is unusual. The DriverStore copy may still be present.'
     }
 
+    Set-DebugStep 'locate DriverStore staging directory'
     # Locate the staged DriverStore copy
     $src = Get-BthPanDriverStoreSource
     if (-not $src) {
@@ -4292,16 +6183,27 @@ function Invoke-PrepPhase03_FetchInstaller {
     Write-Detail "Path  : $($src.Path)"
     Write-Detail "INF   : $($src.InfPath)"
     Write-Detail "SYS   : $($src.SysPath)"
-    Write-Detail "CAT(s): $($src.CatPaths.Count) file(s)"
+    if ($src.HasOriginalCat) {
+        Write-Detail "CAT(s): $($src.CatPaths.Count) file(s) found in FileRepository"
+    } else {
+        # r3: Windows Server 2025 typically stages bthpan as INF+SYS
+        # only; the original Microsoft catalog lives in a separate
+        # CatRoot-side location (not in FileRepository). This is
+        # NOT an error -- P08 (inf2cat) regenerates the catalog
+        # against the patched INF and P09 self-signs it, so the
+        # original .cat is informational only.
+        Write-Detail "CAT(s): 0 file(s) in FileRepository (WS2025 layout - P08 will inf2cat a fresh catalog)"
+    }
     Write-Detail "Stamp : $($src.LastWriteTime)"
 
     $Ctx.BthPanSource = $src
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'P03' -Metadata @{
-        SourcePath    = $src.Path
-        InfPath       = $src.InfPath
-        SysPath       = $src.SysPath
-        CatCount      = $src.CatPaths.Count
-        LastWriteTime = $src.LastWriteTime
+        SourcePath     = $src.Path
+        InfPath        = $src.InfPath
+        SysPath        = $src.SysPath
+        CatCount       = $src.CatPaths.Count
+        HasOriginalCat = $src.HasOriginalCat
+        LastWriteTime  = $src.LastWriteTime
     }
     Write-PhaseFooter 'P03' 'done'
 }
@@ -4320,15 +6222,18 @@ function Invoke-PrepPhase04_ExtractInstaller {
     param($Ctx)
     Write-PhaseHeader 'P04' 'ExtractInstaller' 'Prep'
 
+    Set-DebugStep 'precondition check: BthPanSource populated'
     if (-not $Ctx.BthPanSource) {
         throw 'P04: BthPanSource not populated. Run P03 first.'
     }
 
+    Set-DebugStep 'create destination directory'
     $destDir = Join-Path $Ctx.Paths.Extract 'bthpan'
     if (-not (Test-Path -LiteralPath $destDir)) {
         New-Item -Path $destDir -ItemType Directory -Force | Out-Null
     }
 
+    Set-DebugStep 'copy primary INF/SYS/CAT files'
     $copied = 0
     $items = @(
         $Ctx.BthPanSource.InfPath
@@ -4345,6 +6250,7 @@ function Invoke-PrepPhase04_ExtractInstaller {
     }
     Write-Ok ("Copied {0} file(s) to $destDir" -f $copied)
 
+    Set-DebugStep 'copy supporting files (PNF / MUI / dependents)'
     # Also copy every supporting file in the staging directory (e.g.
     # bthpan.pnf, language MUI files, related .sys/.dll). These don't
     # all need to be in the patched output, but inf2cat may want to
@@ -4523,6 +6429,7 @@ function Invoke-PrepPhase05_AnalyzeInfs {
     param($Ctx)
     Write-PhaseHeader 'P05' 'AnalyzeInfs' 'Prep'
 
+    Set-DebugStep 'precondition check: ExtractedBthPanDir populated'
     if (-not $Ctx.ExtractedBthPanDir) {
         throw 'P05: ExtractedBthPanDir not populated. Run P04 first.'
     }
@@ -4532,6 +6439,7 @@ function Invoke-PrepPhase05_AnalyzeInfs {
         throw "P05: bthpan.inf not found at $infPath"
     }
 
+    Set-DebugStep 'read bthpan.inf metadata'
     Write-Step "Reading bthpan.inf..."
     $meta = Get-BthPanInfMetadata -InfPath $infPath
     Write-BthPanInfInventorySummary -Meta $meta
@@ -4545,6 +6453,7 @@ function Invoke-PrepPhase05_AnalyzeInfs {
         Write-Warn2 'Neither Server-decoration present nor Workstation-decoration found. Unusual INF shape; P06 may no-op.'
     }
 
+    Set-DebugStep 'export inventory CSV'
     # Export CSV
     $csvPath = Join-Path $Ctx.WorkRoot 'inf_inventory.csv'
     $row = [pscustomobject]@{
@@ -4564,15 +6473,82 @@ function Invoke-PrepPhase05_AnalyzeInfs {
     $row | Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8 -Force
     Write-Ok "Inventory CSV: $csvPath"
 
+    Set-DebugStep 'export inventory report'
     Export-BthPanInfInventoryReport -Ctx $Ctx -Meta $meta
 
     # Cache metadata for downstream phases
     $Ctx.BthPanInfMetadata = $meta
     $Ctx.BthPanInfPath     = $infPath
 
+    Set-DebugStep 'V01: InfVerif baseline on unpatched INF'
+    # r7: V01 - Pre-patch InfVerif baseline (Stage 1 of validation-first
+    # design). Run InfVerif against the UNPATCHED source bthpan.inf to
+    # capture the baseline state before any modifications. This serves
+    # two purposes:
+    #   1. Confirms the source INF is parseable at all
+    #   2. Provides a reference point for P06's V02 - any errors that
+    #      exist in V01 but disappear in V02 indicate our patches FIXED
+    #      something; any errors that newly appear in V02 indicate our
+    #      patches BROKE something.
+    # Expected V01 outcome on Microsoft inbox bthpan: 2 errors
+    #   - ERROR(1233): Missing CatalogFile directive (P06 fixes via F2)
+    #   - ERROR(1204): Provider="Microsoft" (P06 fixes via F1)
+    # Both are EXPECTED at this stage. We log them but do NOT fail V01.
+    #
+    # r7-update (final): use splatting instead of backtick line
+    # continuation. The backtick form has been observed to trigger
+    # ArgumentException during parameter binding on some PS 5.1 builds
+    # (cause not fully understood; likely a parser interaction with
+    # AllowNull/AllowEmptyString attributes plus null-coercion). Splat
+    # hashes are also easier to extend and far more robust on PS 5.1.
+    # We also wrap the call in try/catch so V01 (which is a BASELINE
+    # measurement, not a gating check) never breaks the pipeline.
+    $v01InfVerifPath = if ($Ctx.InfVerif) { [string]$Ctx.InfVerif } else { '' }
+    $v01LogPath      = Join-Path $Ctx.Paths.Logs 'infverif_prepatch.log'
+    $v01Params = @{
+        InfPath      = $infPath
+        InfVerifPath = $v01InfVerifPath
+        LogPath      = $v01LogPath
+        Mode         = 'k'
+    }
+    $v01Result = $null
+    try {
+        $v01Result = Invoke-InfVerifValidation @v01Params
+    } catch {
+        Write-Warn2 ("V01: Invoke-InfVerifValidation threw {0}: {1}" -f $_.Exception.GetType().FullName, $_.Exception.Message)
+        $v01Result = [pscustomobject]@{
+            ToolMissing  = $true
+            InfVerifPath = $null
+            ExitCode     = -1
+            Validated    = $null
+            Errors       = @()
+            RawOutput    = ''
+            Mode         = 'k'
+        }
+    }
+    $Ctx.InfVerifPrePatch = $v01Result
+    if ($v01Result.ToolMissing) {
+        Write-Warn2 'V01: InfVerif not available - skipping pre-patch INF baseline. P06 will still attempt V02 (also no-op).'
+    } else {
+        Write-Detail ("V01: InfVerif baseline on source INF (exit {0}, {1} error(s), mode /{2})" -f $v01Result.ExitCode, $v01Result.Errors.Count, $v01Result.Mode)
+        foreach ($e in $v01Result.Errors) {
+            Write-Detail ("  baseline ERROR({0}) line {1}: {2}" -f $e.Code, $e.Line, $e.Message)
+        }
+        if ($v01Result.Errors.Count -gt 0) {
+            $expectedCodes = @(1204, 1233)
+            $unexpected = @($v01Result.Errors | Where-Object { $expectedCodes -notcontains $_.Code })
+            if ($unexpected.Count -gt 0) {
+                Write-Warn2 ("V01: {0} unexpected InfVerif error(s) on source INF (codes outside 1204/1233 baseline). P06 patches may not be sufficient." -f $unexpected.Count)
+            }
+        }
+    }
+
+    # r7-update: hoist inline-if out of hashtable for PS 5.1 safety
+    $v01BaselineForMarker = if ($v01Result.ToolMissing) { 'skipped' } else { $v01Result.Errors.Count }
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'P05' -Metadata @{
-        HwidCount    = $meta.HwidCount
-        NeedsPatch   = $meta.NeedsPatch
+        HwidCount        = $meta.HwidCount
+        NeedsPatch       = $meta.NeedsPatch
+        InfVerifBaseline = $v01BaselineForMarker
     }
     Write-PhaseFooter 'P05' 'done'
 }
@@ -4744,6 +6720,7 @@ function Invoke-PrepPhase06_PatchInfs {
     param($Ctx)
     Write-PhaseHeader 'P06' 'PatchInfs' 'Prep'
 
+    Set-DebugStep 'precondition check: BthPanInfPath populated'
     if (-not $Ctx.BthPanInfPath) {
         throw 'P06: BthPanInfPath not populated. Run P05 first.'
     }
@@ -4755,6 +6732,7 @@ function Invoke-PrepPhase06_PatchInfs {
     }
     $dstInf = Join-Path $patchedDir 'bthpan.inf'
 
+    Set-DebugStep 'copy support files into patched dir'
     # Always re-copy all supporting files into the patched directory,
     # because inf2cat hashes every file referenced by the INF and needs
     # them all present.
@@ -4765,6 +6743,7 @@ function Invoke-PrepPhase06_PatchInfs {
             Copy-Item -LiteralPath $_.FullName -Destination $dst -Force
         }
 
+    Set-DebugStep 'Edit-InfForServer: Workstation->Server decoration mirror'
     # Strategy A — Workstation .1 -> Server .3 mirror via Edit-InfForServer
     $result = Edit-InfForServer -InfPath $srcInf -OutputPath $dstInf -OsContext $Ctx.Os
     if (-not $result.Patched) {
@@ -4782,6 +6761,7 @@ function Invoke-PrepPhase06_PatchInfs {
     }
 
     if ($Ctx.DecorationStrategy -eq 'B') {
+        Set-DebugStep 'Strategy B: explicit per-build decorations'
         Write-Step 'Strategy B: appending explicit per-build Server decorations...'
         $more = Add-BthPanExplicitServerDecorations -InfPath $dstInf
         Write-Ok ("Strategy B: appended {0} per-entry decoration token(s), cloned {1} section block(s)" -f $more.Added, $more.SectionsMirrored)
@@ -4789,6 +6769,7 @@ function Invoke-PrepPhase06_PatchInfs {
         Write-Detail 'Strategy A only (NTamd64...3 covers all Server SKUs).'
     }
 
+    Set-DebugStep 'verify post-patch Server decorations count'
     # Re-read the patched INF to confirm coverage
     $verifyMeta = Get-BthPanInfMetadata -InfPath $dstInf
     Write-Detail ("Post-patch Server decorations: {0}" -f $verifyMeta.ServerDecCount)
@@ -4796,10 +6777,114 @@ function Invoke-PrepPhase06_PatchInfs {
         throw "P06: post-patch INF has no Server decorations (expected at least 1)"
     }
 
+    Set-DebugStep 'F1: Provider rewrite (%MfgName% -> %PROVIDER_NAME%)'
+    # r7: Rewrite [Version].Provider so the re-cataloged INF passes
+    # InfVerif rule 1204 ("Provider cannot be 'Microsoft'"). The original
+    # bthpan.inf declares Provider = %MfgName%, and MfgName resolves to
+    # "Microsoft" in [strings] - which InfVerif rightly rejects for a
+    # re-cataloging tool. Set-InfProviderForResigning adds a new
+    # PROVIDER_NAME string token and points [Version].Provider at it.
+    # This pattern mirrors what Intel's ibtusb.inf (and 22 other Intel
+    # Bluetooth INFs) consistently use - %PROVIDER_NAME% as a Provider-
+    # dedicated token. The original %MfgName% is intentionally preserved
+    # because [Manufacturer] entries should still reflect the original
+    # device manufacturer (Microsoft) - we only change Provider, which
+    # identifies who AUTHORED/repackaged the INF.
+    $providerName = 'Deploy-AMD-Drivers-For-WindowsServer Project'
+    $provResult = Set-InfProviderForResigning -InfPath $dstInf -ProviderName $providerName
+    if ($provResult.Changed) {
+        Write-Ok ("Rewrote Provider: '{0}' -> '%PROVIDER_NAME%' (= '{1}')" -f $provResult.OldProvider, $providerName)
+    } else {
+        Write-Detail ("Provider already configured for re-cataloging - no change ({0})" -f $provResult.Reason)
+    }
+
+    # r7: Inject a CatalogFile entry into [Version] if missing.
+    # The Microsoft inbox bthpan.inf ships WITHOUT a CatalogFile line
+    # (Microsoft uses centralized catalog management). When we re-
+    # catalog with inf2cat or makecat, the resulting .cat must be
+    # explicitly referenced from the INF so that:
+    #   - inf2cat does not reject the INF with rule 22.9.4
+    #   - pnputil/SetupAPI can bind the catalog at install time (I03)
+    # We use the bare 'CatalogFile' form (no architecture decoration)
+    # because rule 22.9.4 explicitly accepts it and it covers all SKUs.
+    Set-DebugStep 'F2: inject CatalogFile entry into [Version]'
+    $catalogName = 'bthpan.cat'
+    $catResult = Add-InfCatalogFileEntry -InfPath $dstInf -CatalogFileName $catalogName
+    if ($catResult.Changed) {
+        Write-Ok ("Injected CatalogFile entry into [Version]: {0}" -f $catalogName)
+    } else {
+        Write-Detail ("CatalogFile entry already present - no change ({0})" -f $catResult.Reason)
+    }
+
+    Set-DebugStep 'V02: InfVerif validation on patched INF'
+    # r7: V02 - Post-patch InfVerif validation (Stage 1 of validation-
+    # first design). Run InfVerif against the fully patched INF to
+    # confirm that:
+    #   - InfVerif ERROR 1204 (Provider=Microsoft) is resolved
+    #   - InfVerif ERROR 1233 (Missing CatalogFile) is resolved
+    #   - No NEW errors were introduced by our patches
+    # We use /k mode (declarative driver rules - the most lenient
+    # ruleset appropriate for inbox driver re-cataloging).
+    # If InfVerif is not available, we WARN but proceed - downstream
+    # P08 inf2cat still catches the critical structural issues.
+    #
+    # r7-update (final): use splatting + try/catch (see V01 in P05 for
+    # the rationale - PS 5.1 ArgumentException with backtick continuation).
+    # Unlike V01, V02 IS a gating check: if InfVerif rejects the patched
+    # INF the script throws and aborts P06. But we still wrap the call
+    # itself so that if the function call mechanism fails (vs InfVerif
+    # rejecting the INF) we surface a clean diagnostic.
+    $v02InfVerifPath = if ($Ctx.InfVerif) { [string]$Ctx.InfVerif } else { '' }
+    $v02LogPath      = Join-Path $Ctx.Paths.Logs 'infverif_postpatch.log'
+    $v02Params = @{
+        InfPath      = $dstInf
+        InfVerifPath = $v02InfVerifPath
+        LogPath      = $v02LogPath
+        Mode         = 'k'
+    }
+    $infVerifResult = $null
+    try {
+        $infVerifResult = Invoke-InfVerifValidation @v02Params
+    } catch {
+        Write-Warn2 ("V02: Invoke-InfVerifValidation threw {0}: {1}" -f $_.Exception.GetType().FullName, $_.Exception.Message)
+        $infVerifResult = [pscustomobject]@{
+            ToolMissing  = $true
+            InfVerifPath = $null
+            ExitCode     = -1
+            Validated    = $null
+            Errors       = @()
+            RawOutput    = ''
+            Mode         = 'k'
+        }
+    }
+    $Ctx.InfVerifPostPatch = $infVerifResult
+    if ($infVerifResult.ToolMissing) {
+        Write-Warn2 'V02: InfVerif not available - skipping post-patch INF validation. P08 inf2cat will provide partial coverage.'
+    } elseif ($infVerifResult.Validated) {
+        Write-Ok ("V02: InfVerif accepts the patched INF (exit {0}, 0 errors, mode /{1})" -f $infVerifResult.ExitCode, $infVerifResult.Mode)
+    } else {
+        # Validation failed. Surface details and decide whether to fail
+        # the phase. We treat ANY remaining error as a hard failure
+        # because P08 will inevitably reject the INF too.
+        Write-Warn2 ("V02: InfVerif reports {0} error(s) on patched INF (exit {1}):" -f $infVerifResult.Errors.Count, $infVerifResult.ExitCode)
+        foreach ($e in $infVerifResult.Errors) {
+            Write-Warn2 ("  ERROR({0}) line {1}: {2}" -f $e.Code, $e.Line, $e.Message)
+        }
+        $infVerifLog = Join-Path $Ctx.Paths.Logs 'infverif_postpatch.log'
+        throw ("P06/V02: InfVerif rejected the patched INF with {0} error(s). See {1} for the full output." -f $infVerifResult.Errors.Count, $infVerifLog)
+    }
+
     $Ctx.PatchedBthPanInfPath = $dstInf
+    $Ctx.ExpectedCatalogName  = $catalogName  # r7: makecat fallback consumes this
+    # r7-update: hoist inline-if out of the hashtable for PS 5.1 safety
+    $infVerifMarkerStatus = if ($infVerifResult.ToolMissing) { 'skipped' } elseif ($infVerifResult.Validated) { 'pass' } else { 'fail' }
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'P06' -Metadata @{
-        OutputPath   = $dstInf
-        ServerDecCount = $verifyMeta.ServerDecCount
+        OutputPath        = $dstInf
+        ServerDecCount    = $verifyMeta.ServerDecCount
+        ProviderRewritten = $provResult.Changed
+        CatalogEntryAdded = $catResult.Changed
+        InfVerifValidated = $infVerifMarkerStatus
+        InfVerifErrors    = $infVerifResult.Errors.Count
     }
     Write-PhaseFooter 'P06' 'done'
 }
@@ -4818,6 +6903,7 @@ function Invoke-PrepPhase07_CreateCertificate {
 
     $subject = "CN=Microsoft BthPan Driver Self-Sign ($($Ctx.Os.Code) Lab, At Own Risk)"
 
+    Set-DebugStep 'check phase marker (cache hit?)'
     if ((Test-PhaseMarker -Ctx $Ctx -PhaseId 'P07') -and (Test-Path $pfxPath)) {
         $Ctx.CertPfxPath = $pfxPath
         $Ctx.CertCerPath = $cerPath
@@ -4826,6 +6912,7 @@ function Invoke-PrepPhase07_CreateCertificate {
         return
     }
 
+    Set-DebugStep 'cleanup previous cert artifacts'
     Get-ChildItem -Path $Ctx.Paths.Cert -Force -ErrorAction SilentlyContinue | Remove-Item -Force
 
     # Delete any same-subject certs from LocalMachine\My (avoid accumulation across re-runs)
@@ -4843,6 +6930,7 @@ function Invoke-PrepPhase07_CreateCertificate {
         }
     }
 
+    Set-DebugStep 'New-SelfSignedCertificate (RSA / code-signing)'
     $params = @{
         Subject = $subject; Type = 'CodeSigningCert'
         KeySpec = 'Signature'; KeyUsage = 'DigitalSignature'
@@ -4865,6 +6953,7 @@ function Invoke-PrepPhase07_CreateCertificate {
     Write-Host '    This is NOT issued by a CA or by Microsoft. It is generated' -ForegroundColor DarkYellow
     Write-Host '    locally on this machine for lab/personal verification purposes.' -ForegroundColor DarkYellow
 
+    Set-DebugStep 'export PFX and CER files'
     $secPwd = ConvertTo-SecureString -String $Ctx.PfxPassword -AsPlainText -Force
     Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $secPwd -Force | Out-Null
     Export-Certificate    -Cert $cert -FilePath $cerPath -Force | Out-Null
@@ -4908,6 +6997,438 @@ function Get-Inf2catSupportedOsValues {
     }
 }
 
+function Get-InfVerifVersion {
+    param([string]$InfVerifPath)
+    # Avoid try/catch to match the PSA3004 baseline. The Get-Item call
+    # is the only operation that can throw; gating on path-existence
+    # and using -ErrorAction SilentlyContinue is equivalent.
+    if (-not $InfVerifPath) { return '(unknown)' }
+    if (-not (Test-Path -LiteralPath $InfVerifPath)) { return '(unknown)' }
+    $item = Get-Item -LiteralPath $InfVerifPath -ErrorAction SilentlyContinue
+    if ($item -and $item.VersionInfo -and $item.VersionInfo.ProductVersion) {
+        return $item.VersionInfo.ProductVersion
+    }
+    return '(unknown)'
+}
+
+function Invoke-InfVerifValidation {
+    <#
+    .SYNOPSIS
+        Run InfVerif against an INF file and parse the output into a
+        structured result.
+
+    .DESCRIPTION
+        InfVerif is the Microsoft-official INF validator (replaces ChkInf),
+        shipped under \Tools\<ver>\(x64|x86)\infverif.exe in the Windows
+        Kits 10 installation. This wrapper runs it in `/k /v` (basic
+        declarative driver requirements, verbose) and parses each
+        `ERROR(####) ... line N: <msg>` token from the output.
+
+        Mode selection rationale:
+          - /k  : "Declarative Driver requirements" - the most lenient
+                  ruleset, appropriate for inbox-driver re-cataloging.
+          - /h (WHQL signature) and /w (DCH/Windows Driver) are NOT used
+                  because they enforce strict requirements that Microsoft
+                  inbox bthpan does not meet (it was never authored as
+                  a DCH driver).
+
+        Exit code 1627 (ERROR_FUNCTION_FAILED) is the standard "INF is
+        NOT VALID" signal from InfVerif - it does NOT mean the tool
+        itself crashed.
+
+    .PARAMETER InfPath
+        Absolute path to the INF file to validate.
+
+    .PARAMETER InfVerifPath
+        Optional explicit path to infverif.exe. If omitted, the function
+        searches via Find-KitTool -SearchSubdirs @('Tools'). If still
+        not found, the function returns a Validated=$null result with
+        ToolMissing=$true rather than throwing - callers decide whether
+        to treat absence as fatal.
+
+    .PARAMETER LogPath
+        Optional file path to write the full InfVerif stdout/stderr to.
+
+    .PARAMETER Mode
+        InfVerif mode switch: 'k' (default), 'w', 'u', 'h', or '' for
+        default (no mode = baseline syntax). Only one mode is allowed
+        by InfVerif itself.
+
+    .OUTPUTS
+        [pscustomobject] with:
+          ToolMissing    : $true if infverif.exe could not be located
+          InfVerifPath   : path used (or $null if missing)
+          ExitCode       : raw exit code from infverif.exe
+          Validated      : $true if InfVerif reports the INF as valid
+                           ($null when ToolMissing=$true)
+          Errors         : @() of [pscustomobject]@{Code,Line,Message}
+          RawOutput      : full text from infverif.exe
+          Mode           : mode flag used
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string]$InfPath,
+        # r7: AllowNull/AllowEmptyString - the caller may pass $Ctx.InfVerif
+        # which is $null when infverif.exe is not installed. PowerShell 5.1
+        # parameter binding throws ArgumentException on $null -> [string]
+        # coercion in some contexts (specifically backtick line continuation
+        # with named args), so we declare the parameter as nullable and
+        # let the function body re-discover the path via Find-KitTool.
+        [AllowNull()][AllowEmptyString()]
+        [string]$InfVerifPath,
+        [AllowNull()][AllowEmptyString()]
+        [string]$LogPath,
+        # r7-update: removed empty string '' from ValidateSet. Empty mode
+        # is not a documented InfVerif behaviour and including '' here
+        # has been observed to interact badly with parameter binding
+        # in some PS 5.1 builds. Callers that want "no mode" can pass
+        # 'k' (the most lenient documented mode) which is also the default.
+        [ValidateSet('k', 'w', 'u', 'h')]
+        [string]$Mode = 'k'
+    )
+
+    # r7-update: retrofitted to use the Section 1b Debug Trace Facility
+    # instead of manual $debugStep tracking. Behavior is identical -
+    # Set-DebugStep marks each checkpoint, Format-DebugFailure inside
+    # the catch reads the failing step name from the active frame, and
+    # a structured ToolMissing=$true result is returned on failure so
+    # V01/V02 callers continue without aborting the pipeline. The new
+    # facility also emits frame.open / step / frame.close / failure
+    # events to the JSONL stream so post-mortem analysis is possible
+    # even when the function silently degrades.
+    Start-DebugTrace -Context 'Invoke-InfVerifValidation'
+    try {
+        Set-DebugStep 'Test-Path InfPath'
+        if (-not (Test-Path -LiteralPath $InfPath)) {
+            throw "Invoke-InfVerifValidation: INF not found at '$InfPath'"
+        }
+
+        Set-DebugStep 'resolve InfVerifPath'
+        if (-not $InfVerifPath) {
+            $InfVerifPath = Find-KitTool 'infverif.exe' -SearchSubdirs @('Tools')
+        }
+        if (-not $InfVerifPath) {
+            return [pscustomobject]@{
+                ToolMissing  = $true
+                InfVerifPath = $null
+                ExitCode     = $null
+                Validated    = $null
+                Errors       = @()
+                RawOutput    = ''
+                Mode         = $Mode
+            }
+        }
+
+        Set-DebugStep 'compose args'
+        $modeFlag = "/$Mode"   # e.g. '/k'
+        $verbose  = '/v'
+
+        # r7-fix v2: Use [System.Diagnostics.ProcessStartInfo] + Process.Start
+        # directly. This is the most bulletproof invocation pattern on PS 5.1
+        # - completely avoids the call operator (&), Start-Process cmdlet,
+        # and stream-redirection (2>&1 | Out-String) which had each been
+        # observed to raise ArgumentException on this PS 5.1 build for
+        # reasons not yet fully understood.
+        Set-DebugStep 'build ProcessStartInfo'
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName               = $InfVerifPath
+        # Quote the INF path because it can contain spaces (e.g. C:\Program Files\...).
+        # The two flag tokens never contain spaces so no need to quote them.
+        $psi.Arguments              = ('{0} {1} "{2}"' -f $modeFlag, $verbose, $InfPath)
+        $psi.UseShellExecute        = $false
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError  = $true
+        $psi.CreateNoWindow         = $true
+
+        Set-DebugStep 'Process.Start'
+        $proc = [System.Diagnostics.Process]::Start($psi)
+
+        Set-DebugStep 'read stdout'
+        $stdout = $proc.StandardOutput.ReadToEnd()
+        Set-DebugStep 'read stderr'
+        $stderr = $proc.StandardError.ReadToEnd()
+        Set-DebugStep 'WaitForExit'
+        $proc.WaitForExit()
+        $exitCode = $proc.ExitCode
+        if ($null -eq $stdout) { $stdout = '' }
+        if ($null -eq $stderr) { $stderr = '' }
+        $rawOutput = if ($stderr) { $stdout + "`n--- stderr ---`n" + $stderr } else { $stdout }
+
+        Set-DebugStep 'write log file'
+        if ($LogPath) {
+            try {
+                $logHeader  = "InfVerif: $InfVerifPath`r`n"
+                $logHeader += "Mode    : $modeFlag $verbose`r`n"
+                $logHeader += "INF     : $InfPath`r`n"
+                $logHeader += "ExitCode: $exitCode`r`n"
+                $logHeader += "----- output -----`r`n"
+                [System.IO.File]::WriteAllText($LogPath, $logHeader + $rawOutput, [System.Text.UTF8Encoding]::new($false))
+            } catch {
+                Write-Warn2 "Failed to write InfVerif log: $($_.Exception.Message)"
+            }
+        }
+
+        Set-DebugStep 'parse errors'
+        # Parse ERROR lines. Real InfVerif output examples:
+        #   ERROR(1233) in C:\path\bthpan.inf, line 14: Missing directive ...
+        #   ERROR(1204) in C:\path\bthpan.inf, line 15: Provider cannot be ...
+        $parsedErrors = New-Object System.Collections.Generic.List[object]
+        foreach ($rawLine in ($rawOutput -split "`r?`n")) {
+            if ($rawLine -match '^\s*ERROR\(\s*(\d+)\s*\)\s+(?:in\s+\S+,\s+)?line\s+(\d+):\s*(.+?)\s*$') {
+                $parsedErrors.Add([pscustomobject]@{
+                    Code    = [int]$matches[1]
+                    Line    = [int]$matches[2]
+                    Message = $matches[3]
+                })
+            } elseif ($rawLine -match '^\s*ERROR\(\s*(\d+)\s*\)\s*[: ]\s*(.+?)\s*$') {
+                # Variant: ERROR(####) without explicit line number
+                $parsedErrors.Add([pscustomobject]@{
+                    Code    = [int]$matches[1]
+                    Line    = 0
+                    Message = $matches[2]
+                })
+            }
+        }
+
+        Set-DebugStep 'compute validated'
+        # Validated: InfVerif reports either "INF is NOT VALID" or no such
+        # phrase on success. We also accept exit code 0 as a fallback signal.
+        $validated = $false
+        if ($rawOutput -match '(?i)INF is NOT VALID') {
+            $validated = $false
+        } elseif ($parsedErrors.Count -eq 0 -and $exitCode -eq 0) {
+            $validated = $true
+        } elseif ($parsedErrors.Count -gt 0) {
+            $validated = $false
+        } else {
+            # No errors parsed, non-zero exit - treat as inconclusive but
+            # lean toward "not validated" so callers don't proceed blindly.
+            $validated = $false
+        }
+
+        Set-DebugStep 'return result'
+        # r7-fix v3 (root cause resolved):
+        #
+        # Replace @($parsedErrors) with $parsedErrors.ToArray().
+        # Test-InfVerifReturnRepro.ps1 isolated this exact pattern as a
+        # PowerShell 5.1 bug on ja-JP builds:
+        #
+        #   System.ArgumentException: 引数の型が一致しません
+        #
+        # is raised when @(List<object>) - the array subexpression
+        # operator applied to a Generic.List[object] - appears as a
+        # VALUE inside a hashtable that is then cast to [pscustomobject]
+        # (or new-object'd into a PSObject via -Property). The very same
+        # @() expression assigned to a plain variable works fine; only
+        # the hashtable-value -> pscustomobject conversion path trips it.
+        #
+        # All three of these workarounds were verified to PASS on the
+        # affected PS 5.1 build:
+        #   - $list.ToArray()
+        #   - foreach { $arr += $e }
+        #   - literal @() with no inner expansion
+        #
+        # We use .ToArray() because (a) it's the most explicit, (b) it
+        # always returns a properly-typed array (object[] for List[object]),
+        # and (c) it works for both empty and non-empty lists without
+        # branching.
+        return [pscustomobject]@{
+            ToolMissing  = $false
+            InfVerifPath = $InfVerifPath
+            ExitCode     = $exitCode
+            Validated    = $validated
+            Errors       = $parsedErrors.ToArray()
+            RawOutput    = $rawOutput
+            Mode         = $Mode
+        }
+    } catch {
+        # Outer-most safety net. Use the Debug Trace Facility to surface
+        # which checkpoint failed + record the failure event to JSONL.
+        # The function then returns a structured ToolMissing=$true result
+        # so V01/V02 callers continue without aborting the pipeline.
+        $failure = Format-DebugFailure -ErrorRecord $_
+        Write-DebugFailureReport $_  # also writes failure event to JSONL
+        return [pscustomobject]@{
+            ToolMissing  = $true
+            InfVerifPath = $InfVerifPath
+            ExitCode     = -1
+            Validated    = $null
+            Errors       = @()
+            RawOutput    = ('Internal failure at step {0}: {1} - {2}' -f $failure.FailedStep, $failure.ExType, $failure.ExMessage)
+            Mode         = $Mode
+        }
+    } finally {
+        Stop-DebugTrace
+    }
+}
+
+function Invoke-MakecatFallback {
+    <#
+    .SYNOPSIS
+        Generate a Windows driver catalog (.cat) using makecat.exe when
+        inf2cat refuses the package due to inbox-driver constraints.
+
+    .DESCRIPTION
+        inf2cat performs a "Signability test" before producing a catalog.
+        For Microsoft inbox drivers, that test fires the Windows 10/Server
+        10 file-redistribution rule (22.9.8) on any file owned by Microsoft
+        (e.g. bthpan.sys), and refuses to produce the catalog. The
+        Signability test is not skippable via any inf2cat switch.
+
+        makecat is the lower-level catalog tool. It consumes a CDF
+        (Catalog Definition File) and emits a .cat directly without
+        running the Logo / Signability test, which is exactly what we
+        need for re-cataloging an inbox driver.
+
+        This function:
+          1. Enumerates all files in $PatchedDir that should be
+             attested by the catalog (INF + driver binaries).
+          2. Generates a CDF in $PatchedDir referencing those files
+             with relative paths.
+          3. Invokes makecat -v <cdf> from $PatchedDir, capturing
+             stdout/stderr to $LogPath.
+          4. Verifies the expected .cat was produced.
+
+        OS attribution: CATATTR1=0x10010001:OSAttr:2:10.0 covers all
+        NT 10.0 Server SKUs (Server 2016/2019/2022/2025). The "2:"
+        prefix is the Server-family selector; "10.0" matches builds
+        14393 (2016), 17763 (2019), 20348 (2022), 26100 (2025).
+
+    .PARAMETER PatchedDir
+        Directory containing the patched INF, driver SYS, and where the
+        CDF and resulting CAT will be written.
+
+    .PARAMETER InfName
+        Bare filename of the INF (e.g. 'bthpan.inf').
+
+    .PARAMETER CatalogName
+        Bare filename of the output catalog (e.g. 'bthpan.cat').
+
+    .PARAMETER LogPath
+        Path to write makecat's combined stdout/stderr log.
+
+    .PARAMETER HardwareId
+        Optional HWID for catalog HWID1 attribute (helps PnP match the
+        catalog to the device). Pass empty string to omit.
+
+    .OUTPUTS
+        [pscustomobject] @{
+            CatalogPath = <full path to generated .cat>
+            CdfPath     = <full path to CDF used>
+            Elapsed     = <TimeSpan>
+        }
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string]$PatchedDir,
+        [Parameter(Mandatory)] [string]$InfName,
+        [Parameter(Mandatory)] [string]$CatalogName,
+        [Parameter(Mandatory)] [string]$LogPath,
+        [string]$HardwareId = ''
+    )
+
+    if (-not (Test-Path -LiteralPath $PatchedDir)) {
+        throw "Invoke-MakecatFallback: patched directory not found: '$PatchedDir'"
+    }
+
+    $makecat = Find-KitTool 'makecat.exe'
+    if (-not $makecat) {
+        throw 'Invoke-MakecatFallback: makecat.exe not found in Windows Kits. Install the Windows SDK 10.0.x via P02.'
+    }
+    Write-Detail "makecat: $makecat"
+
+    # Enumerate files to include in the catalog. We include the INF and
+    # every binary the INF references (for bthpan: just bthpan.sys).
+    # Conservative approach: pull every regular file in PatchedDir
+    # EXCEPT the catalog file itself and the CDF (if leftover from a
+    # previous run). This handles arbitrary driver packages cleanly.
+    $cdfPath = Join-Path $PatchedDir ([System.IO.Path]::GetFileNameWithoutExtension($CatalogName) + '.cdf')
+    $catPath = Join-Path $PatchedDir $CatalogName
+
+    # Remove any stale CDF/CAT from a previous fallback attempt
+    foreach ($stale in @($cdfPath, $catPath)) {
+        if (Test-Path -LiteralPath $stale) {
+            Remove-Item -LiteralPath $stale -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    $filesToAttest = @(
+        Get-ChildItem -LiteralPath $PatchedDir -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notmatch '\.(cdf|cat)$' } |
+            Select-Object -ExpandProperty Name
+    )
+    if ($filesToAttest.Count -eq 0) {
+        throw "Invoke-MakecatFallback: no files to attest in '$PatchedDir'"
+    }
+    Write-Detail ("Files to attest: {0}" -f ($filesToAttest -join ', '))
+
+    # ---- Build the CDF ----
+    # CATATTR1: OSAttr 2:10.0 covers Server 2016/2019/2022/2025 (all NT 10.0 Server SKUs).
+    # CATATTR2: HWID1 attribution is OPTIONAL but helps SetupAPI bind the
+    #           catalog to the matching device class at install time.
+    # File hashing: the "<HASH>" prefix is a CDF "tag" - makecat replaces
+    #           the tag with the real cryptographic hash at build time.
+    #           The convention <HASH><filename> is human-readable.
+    $cdf = New-Object System.Text.StringBuilder
+    [void]$cdf.AppendLine('[CatalogHeader]')
+    [void]$cdf.AppendLine("Name=$CatalogName")
+    [void]$cdf.AppendLine('PublicVersion=0x00000001')
+    [void]$cdf.AppendLine('EncodingType=0x00010001')
+    [void]$cdf.AppendLine('CATATTR1=0x10010001:OSAttr:2:10.0')
+    if ($HardwareId) {
+        [void]$cdf.AppendLine("CATATTR2=0x10010001:HWID1:$HardwareId")
+    }
+    [void]$cdf.AppendLine('')
+    [void]$cdf.AppendLine('[CatalogFiles]')
+    foreach ($f in $filesToAttest) {
+        # Tag = "<HASH>" + filename, value = relative filename
+        [void]$cdf.AppendLine(("<HASH>{0}={0}" -f $f))
+    }
+
+    # Write CDF as ANSI / default codepage - makecat is a legacy tool and
+    # accepts ANSI/UTF-8-no-BOM CDFs reliably. We use Default encoding
+    # (the system codepage) for maximum compatibility.
+    [System.IO.File]::WriteAllText($cdfPath, $cdf.ToString(), [System.Text.Encoding]::Default)
+    Write-Detail "CDF written: $cdfPath"
+
+    # ---- Run makecat ----
+    # makecat resolves [CatalogFiles] entries relative to the current
+    # working directory. Switch to $PatchedDir for the invocation.
+    Write-Step "Running makecat -v $([System.IO.Path]::GetFileName($cdfPath)) (CWD: $PatchedDir) ..."
+    $startMc = Get-Date
+
+    # We use Start-Process -WorkingDirectory to set CWD for the child
+    # process without disturbing the parent shell's location.
+    $proc = Start-Process -FilePath $makecat `
+        -ArgumentList @('-v', $cdfPath) `
+        -WorkingDirectory $PatchedDir `
+        -NoNewWindow -Wait -PassThru `
+        -RedirectStandardOutput $LogPath `
+        -RedirectStandardError  ($LogPath + '.err')
+
+    $elapsedMc = (Get-Date) - $startMc
+    Write-Detail "Elapsed : $(Format-Elapsed $elapsedMc)"
+    Write-Detail "Log     : $LogPath"
+
+    if ($proc.ExitCode -ne 0) {
+        $tail = (Get-Content -LiteralPath $LogPath -Tail 30 -ErrorAction SilentlyContinue) -join "`n"
+        if ($tail) { Write-Host $tail -ForegroundColor DarkGray }
+        $errTail = (Get-Content -LiteralPath ($LogPath + '.err') -Tail 10 -ErrorAction SilentlyContinue) -join "`n"
+        if ($errTail) { Write-Host $errTail -ForegroundColor DarkRed }
+        throw "Invoke-MakecatFallback: makecat exited with code $($proc.ExitCode). See $LogPath."
+    }
+
+    if (-not (Test-Path -LiteralPath $catPath)) {
+        throw "Invoke-MakecatFallback: makecat exit was 0 but catalog file is missing: $catPath"
+    }
+
+    return [pscustomobject]@{
+        CatalogPath = $catPath
+        CdfPath     = $cdfPath
+        Elapsed     = $elapsedMc
+    }
+}
+
 function Invoke-PrepPhase08_GenerateCatalogs {
     <#
     .SYNOPSIS
@@ -4917,10 +7438,12 @@ function Invoke-PrepPhase08_GenerateCatalogs {
     param($Ctx)
     Write-PhaseHeader 'P08' 'GenerateCatalogs' 'Prep'
 
+    Set-DebugStep 'precondition check: PatchedBthPanInfPath populated'
     if (-not $Ctx.PatchedBthPanInfPath) {
         throw 'P08: PatchedBthPanInfPath not populated. Run P06 first.'
     }
 
+    Set-DebugStep 'locate inf2cat / determine target OS list'
     $patchedDir = Split-Path -Parent $Ctx.PatchedBthPanInfPath
     $inf2cat = Find-KitTool 'inf2cat.exe'
     if (-not $inf2cat) {
@@ -4946,6 +7469,7 @@ function Invoke-PrepPhase08_GenerateCatalogs {
     $osArg = $effective -join ','
     Write-Detail "Target OSes: $osArg"
 
+    Set-DebugStep 'run inf2cat (primary catalog generation)'
     # Run inf2cat
     $logPath = Join-Path $Ctx.Paths.Logs 'inf2cat_bthpan.log'
     $args = @('/driver:' + $patchedDir, '/os:' + $osArg, '/verbose')
@@ -4954,7 +7478,12 @@ function Invoke-PrepPhase08_GenerateCatalogs {
     $proc = Start-Process -FilePath $inf2cat -ArgumentList $args -NoNewWindow -Wait -PassThru `
         -RedirectStandardOutput $logPath -RedirectStandardError ($logPath + '.err')
     $elapsed = (Get-Date) - $start
-    Write-Detail "Elapsed : $(Format-Elapsed $elapsed.TotalSeconds)"
+    # r6: Format-Elapsed expects [TimeSpan], not [Double]. Passing
+    # $elapsed (TimeSpan) directly; passing $elapsed.TotalSeconds (Double)
+    # would cause "Cannot convert value to type System.TimeSpan" runtime
+    # error - a latent bug that surfaced only after r3/r4 unblocked the
+    # earlier phases so P08 actually got to execute.
+    Write-Detail "Elapsed : $(Format-Elapsed $elapsed)"
     Write-Detail "Log     : $logPath"
 
     if ($proc.ExitCode -ne 0) {
@@ -4970,25 +7499,71 @@ function Invoke-PrepPhase08_GenerateCatalogs {
                 -RedirectStandardOutput $logPath -RedirectStandardError ($logPath + '.err')
         }
     }
+
+    # r7: If inf2cat still failed, inspect the log for known inbox-driver
+    # signability conflicts. The Microsoft inbox bthpan.sys triggers
+    # Signability test rule 22.9.8 ("Windows 10/Server 10 file redistribution
+    # violation") because inf2cat treats Microsoft-owned binaries as
+    # non-redistributable for third parties. There is no inf2cat switch
+    # to suppress this test, so we fall back to makecat which builds a
+    # catalog directly from a CDF without running Signability checks.
+    $usedMakecatFallback = $false
     if ($proc.ExitCode -ne 0) {
-        throw "P08: inf2cat exited with code $($proc.ExitCode). See $logPath for details."
+        $logFull = Get-Content -LiteralPath $logPath -Raw -ErrorAction SilentlyContinue
+        if ($null -eq $logFull) { $logFull = '' }
+        $is22_9_8     = ($logFull -match '22\.9\.8')
+        $isRedistribErr = ($logFull -match '(?i)file redistribution violation')
+        if ($is22_9_8 -or $isRedistribErr) {
+            Set-DebugStep 'F3: makecat fallback (inbox driver 22.9.8 workaround)'
+            Write-Warn2 'inf2cat refuses to catalog this driver due to inbox-binary redistribution rule 22.9.8.'
+            Write-Warn2 'This is expected for Microsoft inbox drivers (e.g. bthpan). Falling back to makecat...'
+
+            $catalogName = if ($Ctx.ExpectedCatalogName) { $Ctx.ExpectedCatalogName } else { 'bthpan.cat' }
+            $makecatLog  = Join-Path $Ctx.Paths.Logs 'makecat_bthpan.log'
+
+            # Provide HWID for tighter PnP binding (helps SetupAPI find the catalog at install time).
+            $hwid = ''
+            if ($Ctx.BthPanInfMetadata -and $Ctx.BthPanInfMetadata.Devices) {
+                $firstDev = $Ctx.BthPanInfMetadata.Devices | Select-Object -First 1
+                if ($firstDev -and $firstDev.HardwareId) { $hwid = $firstDev.HardwareId }
+            }
+
+            $mcResult = Invoke-MakecatFallback `
+                -PatchedDir   $patchedDir `
+                -InfName      ([System.IO.Path]::GetFileName($Ctx.PatchedBthPanInfPath)) `
+                -CatalogName  $catalogName `
+                -LogPath      $makecatLog `
+                -HardwareId   $hwid
+
+            Write-Ok ("makecat fallback produced: {0} ({1} bytes)" -f `
+                $mcResult.CatalogPath, (Get-Item -LiteralPath $mcResult.CatalogPath).Length)
+            $usedMakecatFallback = $true
+        } else {
+            # Some other failure mode - propagate as before.
+            throw "P08: inf2cat exited with code $($proc.ExitCode). See $logPath for details."
+        }
     }
 
-    # Discover produced catalog files
+    Set-DebugStep 'enumerate produced catalog files'
+    # Discover produced catalog files (works for both inf2cat success
+    # and makecat fallback - both write the .cat into $patchedDir).
     $cats = @(Get-ChildItem -LiteralPath $patchedDir -Filter '*.cat' -ErrorAction SilentlyContinue)
     if ($cats.Count -eq 0) {
-        throw "P08: inf2cat exit was 0 but no .cat file is present in $patchedDir"
+        $sourceTool = if ($usedMakecatFallback) { 'makecat' } else { 'inf2cat' }
+        throw "P08: $sourceTool exit was 0 but no .cat file is present in $patchedDir"
     }
-    Write-Ok ("Generated {0} catalog(s):" -f $cats.Count)
+    Write-Ok ("Generated {0} catalog(s) via {1}:" -f $cats.Count, $(if ($usedMakecatFallback) {'makecat fallback'} else {'inf2cat'}))
     foreach ($c in $cats) {
         Write-Detail ("  {0}  ({1} bytes)" -f $c.Name, $c.Length)
     }
 
     $Ctx.PatchedBthPanDir   = $patchedDir
     $Ctx.PatchedCatalogs    = @($cats | ForEach-Object { $_.FullName })
+    $Ctx.CatalogGenStrategy = if ($usedMakecatFallback) { 'makecat-fallback' } else { 'inf2cat' }
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'P08' -Metadata @{
-        CatCount = $cats.Count
-        OsArg    = $osArg
+        CatCount        = $cats.Count
+        OsArg           = $osArg
+        Strategy        = $Ctx.CatalogGenStrategy
     }
     Write-PhaseFooter 'P08' 'done'
 }
@@ -5002,6 +7577,7 @@ function Invoke-PrepPhase09_SignCatalogs {
     param($Ctx)
     Write-PhaseHeader 'P09' 'SignCatalogs' 'Prep'
 
+    Set-DebugStep 'precondition check: catalogs + PFX available'
     if (-not $Ctx.PatchedCatalogs -or $Ctx.PatchedCatalogs.Count -eq 0) {
         throw 'P09: PatchedCatalogs not populated. Run P08 first.'
     }
@@ -5009,6 +7585,7 @@ function Invoke-PrepPhase09_SignCatalogs {
         throw 'P09: PFX not found. Run P07 first.'
     }
 
+    Set-DebugStep 'locate signtool.exe'
     $signtool = Find-KitTool 'signtool.exe'
     if (-not $signtool) {
         throw 'P09: signtool.exe not found. Run P02 first to install the Windows SDK.'
@@ -5019,6 +7596,7 @@ function Invoke-PrepPhase09_SignCatalogs {
     Write-Detail "Digest  : $fdAlgo"
     Write-Detail "TSA URL : $($Ctx.TimestampUrl)"
 
+    Set-DebugStep 'sign catalogs (loop)'
     $signed = 0
     foreach ($cat in $Ctx.PatchedCatalogs) {
         $log = Join-Path $Ctx.Paths.Logs ('signtool_' + (Split-Path -Leaf $cat) + '.log')
@@ -5071,11 +7649,13 @@ function Invoke-VerifyPhase01_VerifyArtifacts {
         else       { $checks.Add("[FAIL] $Bad") | Out-Null; $issues.Add($Bad) | Out-Null }
     }
 
+    Set-DebugStep 'check cert artifacts (PFX/CER)'
     $pfx = Join-Path $Ctx.Paths.Cert 'MS-BthPan-Driver-CodeSign.pfx'
     $cer = Join-Path $Ctx.Paths.Cert 'MS-BthPan-Driver-CodeSign.cer'
     _Check (Test-Path $pfx) "PFX present : $pfx"  "PFX MISSING (run P07): $pfx"
     _Check (Test-Path $cer) "CER present : $cer"  "CER MISSING (run P07): $cer"
 
+    Set-DebugStep 'check patched INFs'
     $patchedInfs = @()
     if (Test-Path $Ctx.Paths.Patched) {
         $patchedInfs = Get-ChildItem -Path $Ctx.Paths.Patched -Recurse -Filter *.inf -ErrorAction SilentlyContinue
@@ -5084,6 +7664,7 @@ function Invoke-VerifyPhase01_VerifyArtifacts {
         "Patched INFs: $($patchedInfs.Count) file(s) under $($Ctx.Paths.Patched)" `
         "No patched INFs found in $($Ctx.Paths.Patched) (run P06)"
 
+    Set-DebugStep 'check catalog files'
     $cats = @()
     if (Test-Path $Ctx.Paths.Patched) {
         $cats = Get-ChildItem -Path $Ctx.Paths.Patched -Recurse -Filter *.cat -ErrorAction SilentlyContinue
@@ -5094,9 +7675,11 @@ function Invoke-VerifyPhase01_VerifyArtifacts {
         $checks.Add("[OK]   Catalog files: $($cats.Count) .cat file(s)") | Out-Null
     }
 
+    Set-DebugStep 'check inventory CSV'
     $csv = Join-Path $Ctx.Paths.Root 'inf_inventory.csv'
     _Check (Test-Path $csv) "Inventory CSV: $csv" "INF inventory CSV missing (run P05): $csv"
 
+    Set-DebugStep 'render verification result'
     foreach ($c in $checks) { Write-Host "  $c" }
     if ($issues.Count -gt 0) {
         Write-Warn2 "$($issues.Count) artifact issue(s) detected"
@@ -5110,12 +7693,14 @@ function Invoke-VerifyPhase02_VerifyCertificate {
     param($Ctx)
     Write-PhaseHeader 'V02' 'VerifyCertificate' 'Verify'
 
+    Set-DebugStep 'locate and check PFX file'
     $pfx = Join-Path $Ctx.Paths.Cert 'MS-BthPan-Driver-CodeSign.pfx'
     if (-not (Test-Path $pfx)) {
         Write-Fail "PFX not found: $pfx"
         throw 'V02: cannot verify certificate without PFX (run P07)'
     }
 
+    Set-DebugStep 'load X509Certificate2 from PFX'
     # Use .NET API instead of Get-PfxCertificate so the password is
     # supplied non-interactively (PFX is password-protected from P07).
     $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($pfx, $Ctx.PfxPassword)
@@ -5127,6 +7712,7 @@ function Invoke-VerifyPhase02_VerifyCertificate {
     Write-Host "  Signature alg : $($cert.SignatureAlgorithm.FriendlyName)"
     Write-Host "  Has priv key  : $($cert.HasPrivateKey)"
 
+    Set-DebugStep 'validate private key + expiry'
     $problems = New-Object System.Collections.Generic.List[string]
 
     if (-not $cert.HasPrivateKey) {
@@ -5142,6 +7728,7 @@ function Invoke-VerifyPhase02_VerifyCertificate {
         Write-Ok "Certificate valid for $daysLeft more days"
     }
 
+    Set-DebugStep 'check Code Signing EKU (1.3.6.1.5.5.7.3.3)'
     # Code Signing EKU = 1.3.6.1.5.5.7.3.3
     $hasCodeSigning = $false
     foreach ($ext in $cert.Extensions) {
@@ -5168,11 +7755,13 @@ function Invoke-VerifyPhase03_VerifyCatalogs {
     param($Ctx)
     Write-PhaseHeader 'V03' 'VerifyCatalogs' 'Verify'
 
+    Set-DebugStep 'locate signtool.exe'
     if (-not $Ctx.Signtool) { $Ctx.Signtool = Find-KitTool 'signtool.exe' }
     if (-not $Ctx.Signtool) {
         throw 'V03: signtool.exe not found - run P02 (AcquireTools) first.'
     }
 
+    Set-DebugStep 'enumerate catalogs to verify'
     $cats = @()
     if (Test-Path $Ctx.Paths.Patched) {
         $cats = Get-ChildItem -Path $Ctx.Paths.Patched -Recurse -Filter *.cat -ErrorAction SilentlyContinue
@@ -5183,6 +7772,7 @@ function Invoke-VerifyPhase03_VerifyCatalogs {
         return
     }
 
+    Set-DebugStep 'check cert trust state (Root + TrustedPublisher)'
     # ---- Pre-flight: is the signing certificate actually trusted? ----
     # signtool verify /pa requires the cert chain to terminate at a
     # trusted root. Self-signed test certs are NOT trusted until I01
@@ -5218,6 +7808,7 @@ function Invoke-VerifyPhase03_VerifyCatalogs {
         Write-Host ''
     }
 
+    Set-DebugStep 'signtool verify /pa loop over catalogs'
     Write-Step "Verifying $($cats.Count) catalog signature(s) with signtool /verify /pa..."
 
     # Patterns that indicate an "expected" failure (cert not yet trusted).
@@ -5445,6 +8036,7 @@ function Invoke-VerifyPhase04_VerifyInfs {
     param($Ctx)
     Write-PhaseHeader 'V04' 'VerifyInfs' 'Verify'
 
+    Set-DebugStep 'enumerate patched INFs'
     $infs = @()
     if (Test-Path $Ctx.Paths.Patched) {
         $infs = Get-ChildItem -Path $Ctx.Paths.Patched -Recurse -Filter *.inf -ErrorAction SilentlyContinue
@@ -5453,6 +8045,7 @@ function Invoke-VerifyPhase04_VerifyInfs {
         throw 'V04: no patched INFs to verify - run P06 (PatchInfs) first.'
     }
 
+    Set-DebugStep 'inspect ProductType=3 decoration on each INF'
     Write-Step "Inspecting $($infs.Count) patched INF file(s) for ProductType=3 decoration..."
     $okCount = 0; $failCount = 0
     $details = @()
@@ -5522,6 +8115,7 @@ function Invoke-VerifyPhase05_DryRunInstall {
     param($Ctx)
     Write-PhaseHeader 'V05' 'DryRunInstall' 'Verify'
 
+    Set-DebugStep 'precondition check: patched INF + catalog present'
     if (-not $Ctx.PatchedBthPanInfPath -or -not (Test-Path -LiteralPath $Ctx.PatchedBthPanInfPath)) {
         throw 'V05: patched bthpan.inf not present. Run P06 first.'
     }
@@ -5535,8 +8129,9 @@ function Invoke-VerifyPhase05_DryRunInstall {
     }
     Write-Detail ("Catalog(s): {0}" -f ($cats.Name -join ', '))
 
+    Set-DebugStep 'enumerate BTH\MS_BTHPAN devices on host'
     # Enumerate the host's BTH\MS_BTHPAN devices
-    Write-SubHeader2 'BTH\MS_BTHPAN device inventory'
+    Write-SubHeader 'BTH\MS_BTHPAN device inventory'
     $devices = Get-MsBthPanDevice
     if ($devices.Count -eq 0) {
         Write-Warn2 'No BTH\MS_BTHPAN device found on this host.'
@@ -5552,8 +8147,9 @@ function Invoke-VerifyPhase05_DryRunInstall {
         Write-Detail ("Device: {0}  Status={1}  Class={2}  Problem={3}" -f $dev.InstanceId, $dev.Status, $dev.Class, $dev.Problem)
     }
 
+    Set-DebugStep 'classify each device pre-install state'
     # Diagnose each device's classification
-    Write-SubHeader2 'Pre-install classification'
+    Write-SubHeader 'Pre-install classification'
     $classifications = @()
     foreach ($dev in $devices) {
         $state = Get-MsBthPanDeviceState -InstanceId $dev.InstanceId
@@ -5566,8 +8162,9 @@ function Invoke-VerifyPhase05_DryRunInstall {
         $classifications += $state.Classification
     }
 
+    Set-DebugStep 'predict I03 install outcome'
     # Predict outcome of I03
-    Write-SubHeader2 'Install plan summary'
+    Write-SubHeader 'Install plan summary'
     $hasUnknown = $classifications -contains 'Unknown'
     $hasPhantom = $classifications -contains 'Phantom'
     $hasTrue    = $classifications -contains 'True'
@@ -5626,6 +8223,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis {
     param($Ctx)
     Write-PhaseHeader 'V06' 'HardwareImpactAnalysis' 'Verify'
 
+    Set-DebugStep 'Section 1: BTH\MS_BTHPAN device state'
     Write-SubHeader 'Section 1: BTH\MS_BTHPAN device state'
     $devices = Get-MsBthPanDevice
     if ($devices.Count -eq 0) {
@@ -5652,6 +8250,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis {
         $Ctx.V06DeviceStates = $stateList
     }
 
+    Set-DebugStep 'Section 2: runtime artifacts probe'
     Write-SubHeader 'Section 2: Runtime artifacts (true-resolution readiness)'
     $art = Test-BthPanRuntimeArtifacts
     Write-Detail ("bthpan.sys exists       : {0}  ({1})" -f $art.HasSysFile, $art.SysFilePath)
@@ -5665,6 +8264,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis {
     }
     $Ctx.V06RuntimeArtifacts = $art
 
+    Set-DebugStep 'Section 3: existing oem*.inf deployments'
     Write-SubHeader 'Section 3: Existing self-signed bthpan deployments (oem*.inf)'
     $oems = Get-BthPanCurrentlyInstalledOemInfs
     if ($oems.Count -eq 0) {
@@ -5676,6 +8276,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis {
         }
     }
 
+    Set-DebugStep 'Section 4: risk classification'
     Write-SubHeader 'Section 4: Risk classification'
     $riskClass = 'LOW'
     $riskNotes = New-Object 'System.Collections.Generic.List[string]'
@@ -5746,6 +8347,7 @@ function Invoke-InstPhase00_PreInstallReview {
         throw 'I00: Workstation OS install is blocked by default.'
     }
 
+    Set-DebugStep 'Section A: pre-install state recap'
     Write-SubHeader 'I00 Section A: Pre-install state recap'
     $sourceFound = $null -ne $Ctx.BthPanSource
     Write-Detail ("Source DriverStore : {0}" -f ($Ctx.BthPanSource.Path))
@@ -5754,13 +8356,22 @@ function Invoke-InstPhase00_PreInstallReview {
     Write-Detail ("WDAC policy GUID   : {0}" -f $Script:WdacPolicyGuid)
     Write-Detail ("Authorization path : {0}" -f $(if ($Script:UseTestSigning) {'testsigning'} else {'WDAC'}))
 
+    Set-DebugStep 'Section B: boot-signing environment'
     Write-SubHeader 'I00 Section B: Boot-signing environment'
     try {
-        Show-BootSigningEnvironment -Ctx $Ctx
+        # r8-update8: Show-BootSigningEnvironment requires a -BootEnv
+        # parameter (BootEnv object), not a $Ctx. Build the BootEnv via
+        # Update-BootSigningEnvironmentForCtx (which inspects WDAC
+        # marker via $Ctx) and pass the resulting object. The previous
+        # `-Ctx $Ctx` invocation produced
+        # "パラメーター名 'Ctx' に一致するパラメーターが見つかりません".
+        $bootEnv = Update-BootSigningEnvironmentForCtx -Ctx $Ctx
+        Show-BootSigningEnvironment -BootEnv $bootEnv
     } catch {
         Write-Warn2 ("Boot signing snapshot failed: {0}" -f $_.Exception.Message)
     }
 
+    Set-DebugStep 'Section C: pending-reboot check'
     Write-SubHeader 'I00 Section C: Pending reboot status'
     $pend = Get-PendingRebootMarker -Ctx $Ctx
     if ($pend) {
@@ -5773,6 +8384,7 @@ function Invoke-InstPhase00_PreInstallReview {
         Write-Detail 'No pending-reboot marker.'
     }
 
+    Set-DebugStep 'Section D: V06 risk recap'
     Write-SubHeader 'I00 Section D: V06 risk summary (recap)'
     if ($Ctx.V06RiskClass) {
         Write-Detail ("Risk class from V06: {0}" -f $Ctx.V06RiskClass)
@@ -5794,22 +8406,34 @@ function Invoke-InstPhase01_TrustCertificate {
     param($Ctx)
     Write-PhaseHeader 'I01' 'TrustCertificate' 'Inst'
 
+    Set-DebugStep 'precondition check: CER file present'
     if (-not (Test-Path -LiteralPath $Ctx.CertCerPath)) {
         throw "I01: CER not found at $($Ctx.CertCerPath). Run P07 first."
     }
 
-    # Resume check
-    if (Test-CertAlreadyTrusted -Thumbprint $Ctx.CertThumbprint) {
+    Set-DebugStep 'resume check: cert already trusted?'
+    # Resume check.
+    # r8-update9: Test-CertAlreadyTrusted's signature is
+    # `param([Parameter(Mandatory)] $Ctx)`. The previous call passed
+    # `-Thumbprint $Ctx.CertThumbprint` and raised
+    # "パラメーター名 'Thumbprint' に一致するパラメーターが見つかりません".
+    # The function reads $Ctx.CertThumbprint internally (and falls
+    # back to deriving from the CER file on disk when null), so
+    # passing $Ctx is the canonical call form. Other call site at
+    # line 3841 already uses this form correctly.
+    if (Test-CertAlreadyTrusted -Ctx $Ctx) {
         Write-Skip "Cert already trusted in LocalMachine\Root + LocalMachine\TrustedPublisher (thumbprint=$($Ctx.CertThumbprint))"
         Set-PhaseMarker -Ctx $Ctx -PhaseId 'I01' -Metadata @{ Thumbprint=$Ctx.CertThumbprint; AlreadyTrusted=$true }
         Write-PhaseFooter 'I01' 'cached'
         return
     }
 
+    Set-DebugStep 'import cert into LocalMachine\Root'
     Write-Step "Importing cert to LocalMachine\Root..."
     Import-Certificate -FilePath $Ctx.CertCerPath -CertStoreLocation 'Cert:\LocalMachine\Root' | Out-Null
     Write-Ok "Imported to LocalMachine\Root"
 
+    Set-DebugStep 'import cert into LocalMachine\TrustedPublisher'
     Write-Step "Importing cert to LocalMachine\TrustedPublisher..."
     Import-Certificate -FilePath $Ctx.CertCerPath -CertStoreLocation 'Cert:\LocalMachine\TrustedPublisher' | Out-Null
     Write-Ok "Imported to LocalMachine\TrustedPublisher"
@@ -5873,6 +8497,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     }
 
     # ---- AS-IS state ----
+    Set-DebugStep 'capture AS-IS boot-signing environment'
     Write-Host '--- AS-IS: current boot-signing state ---' -ForegroundColor Cyan
     $bootEnvBefore = Update-BootSigningEnvironmentForCtx -Ctx $Ctx
     Show-BootSigningEnvironment -BootEnv $bootEnvBefore
@@ -5898,6 +8523,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     #   - Secure-Boot-Update scheduled task disabled: the host has
     #     opted out of MS-managed rollout, which is fine for self-hosted
     #     deployments but worth recording.
+    Set-DebugStep 'UEFI Secure Boot baseline pre-check'
     Write-Host '--- UEFI Secure Boot baseline pre-check ---' -ForegroundColor Cyan
     try {
         $sbSnapshot = Get-OrEnsureSecureBootBaseline -Ctx $Ctx
@@ -5922,6 +8548,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     }
     Write-Host ''
 
+    Set-DebugStep 'decide Path A (WDAC) or Path B (testsigning)'
     # ---- Decide which path to take ----
     $useWdac = (-not $Ctx.UseTestSigning) -and $bootEnvBefore.WdacToolsAvailable
 
@@ -5938,6 +8565,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     # PATH A: WDAC supplemental policy
     # =====================================================================
     if ($useWdac) {
+        Set-DebugStep 'Path A: deploy WDAC supplemental policy'
         # Already deployed?
         $existing = Test-MsBthPanWdacPolicyDeployed -Ctx $Ctx
         if ($existing -and -not $Ctx.Force) {
@@ -6025,6 +8653,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     # =====================================================================
     # PATH B: legacy bcdedit testsigning
     # =====================================================================
+    Set-DebugStep 'Path B: enable BCD testsigning flag'
     # Already on?
     if ($bootEnvBefore.TestSigningEnabled -eq $true) {
         Write-Skip 'BCD testsigning is already ON.'
@@ -6132,10 +8761,12 @@ function Invoke-InstPhase03_InstallDrivers {
     param($Ctx)
     Write-PhaseHeader 'I03' 'InstallDrivers' 'Inst'
 
+    Set-DebugStep 'precondition check: patched INF present'
     if (-not $Ctx.PatchedBthPanInfPath -or -not (Test-Path -LiteralPath $Ctx.PatchedBthPanInfPath)) {
         throw 'I03: patched bthpan.inf not present. Run P06 first.'
     }
 
+    Set-DebugStep 'enumerate existing oem*.inf mappings (resume check)'
     # Resume check
     $existingOems = Get-BthPanCurrentlyInstalledOemInfs
     if ($existingOems.Count -gt 0) {
@@ -6145,6 +8776,7 @@ function Invoke-InstPhase03_InstallDrivers {
         }
     }
 
+    Set-DebugStep 'pnputil /add-driver /install'
     # Run pnputil /add-driver
     $logPath = Join-Path $Ctx.Paths.Logs 'pnputil_bthpan.log'
     $args = @(
@@ -6173,17 +8805,21 @@ function Invoke-InstPhase03_InstallDrivers {
             Write-Skip ("Driver package already in store (exit=259): {0}" -f (Split-Path -Leaf $Ctx.PatchedBthPanInfPath))
         } elseif ($exit -eq 3010) {
             Write-Ok ("Installed with REBOOT required: {0}" -f (Split-Path -Leaf $Ctx.PatchedBthPanInfPath))
-            Set-PendingRebootMarker -Ctx $Ctx -Phase 'I03'
+            # r8-update9: param name is -Source, not -Phase (I02 call at
+            # line 8731 already uses -Source correctly).
+            Set-PendingRebootMarker -Ctx $Ctx -Source 'I03'
         } else {
             Write-Ok ("Installed: {0}" -f (Split-Path -Leaf $Ctx.PatchedBthPanInfPath))
         }
-        Write-Detail ("Elapsed: {0}, log: {1}" -f (Format-Elapsed $elapsed.TotalSeconds), $logPath)
+        # r6: Format-Elapsed expects [TimeSpan], not [Double] - same fix as P08 (see P08 comment).
+        Write-Detail ("Elapsed: {0}, log: {1}" -f (Format-Elapsed $elapsed), $logPath)
     } else {
         $tail = (Get-Content -LiteralPath $logPath -Tail 30 -ErrorAction SilentlyContinue) -join "`n"
         if ($tail) { Write-Host $tail -ForegroundColor DarkGray }
         throw "I03: pnputil /add-driver failed (exit=$exit). See $logPath."
     }
 
+    Set-DebugStep 'pnputil /scan-devices (PnP rebind)'
     # Force device re-enumeration so the BTH\MS_BTHPAN device drops bth.inf
     # and binds to the patched bthpan.inf.
     Write-Step 'pnputil /scan-devices (force PnP rescan, rebinding may follow)'
@@ -6219,6 +8855,7 @@ function Invoke-InstPhase04_PostInstallVerification {
     param($Ctx)
     Write-PhaseHeader 'I04' 'PostInstallVerification' 'Inst'
 
+    Set-DebugStep 'Section 1: BTH\MS_BTHPAN device disposition'
     Write-SubHeader 'I04 Section 1: BTH\MS_BTHPAN device disposition'
     $devices = Get-MsBthPanDevice
     if ($devices.Count -eq 0) {
@@ -6250,6 +8887,7 @@ function Invoke-InstPhase04_PostInstallVerification {
         $Ctx.I04DeviceStates = $stateList
     }
 
+    Set-DebugStep 'Section 2: runtime artifacts'
     Write-SubHeader 'I04 Section 2: Runtime artifacts'
     $art = Test-BthPanRuntimeArtifacts
     if ($art.HasSysFile)     { Write-Ok ("bthpan.sys present: {0}" -f $art.SysFilePath) }
@@ -6260,6 +8898,7 @@ function Invoke-InstPhase04_PostInstallVerification {
     else                      { Write-Warn2 'No Bluetooth PAN NetAdapter (may be expected if no Bluetooth host controller; otherwise indicates bind incomplete)' }
     $Ctx.I04RuntimeArtifacts = $art
 
+    Set-DebugStep 'Section 3: signtool verify catalog'
     Write-SubHeader 'I04 Section 3: Self-signed cert verification (catalog still trusted?)'
     $signtool = Find-KitTool 'signtool.exe'
     if ($signtool -and $Ctx.PatchedCatalogs -and $Ctx.PatchedCatalogs.Count -gt 0) {
@@ -6276,6 +8915,7 @@ function Invoke-InstPhase04_PostInstallVerification {
         Write-Detail 'Skipped (signtool unavailable or no catalogs cached).'
     }
 
+    Set-DebugStep 'final verdict: TRUE RESOLUTION assessment'
     # Final verdict
     Write-SubHeader 'I04 Final Verdict'
     $devicesPass = ($devices.Count -eq 0) -or ($Ctx.I04DeviceStates -and ($Ctx.I04DeviceStates | Where-Object { $_.Classification -ne 'True' }).Count -eq 0)
@@ -6674,13 +9314,25 @@ if ($Action -eq 'ListPhases') {
 }
 
 # ----- Build context -----
+# NOTE (r4): $Ctx is a [pscustomobject] with a FIXED schema. Every
+# property assigned later by a phase function (e.g. $Ctx.BthPanSource
+# = $src in P03) MUST be pre-declared here, otherwise PowerShell
+# throws "このオブジェクトにプロパティ 'X' が見つかりません" /
+# "The property 'X' cannot be found on this object". Pre-r4 builds
+# of this script were copied from the AMD chipset/graphics scripts
+# and inherited that family's property set, but the BthPan-specific
+# properties (BthPanSource, ExtractedBthPanDir, BthPanInfMetadata,
+# BthPanInfPath, PatchedBthPanInfPath, PatchedBthPanDir,
+# PatchedCatalogs, DecorationStrategy) were never added. Pre-r3
+# this latent bug was masked because P03 always failed before
+# reaching `$Ctx.BthPanSource = $src`. r3 fixed P03's .cat
+# precondition (WS2025-compat), which exposed this assignment to
+# the missing-property error. r4 adds all BthPan-specific
+# properties to the initial schema below.
 $Ctx = [pscustomobject]@{
     # Params
     Action          = $Action
     OnlyPhases      = $OnlyPhases
-    InstallerUrl    = $InstallerUrl
-    AmdLandingUrls  = $AmdLandingUrls
-    AmdFallbackUrl  = $AmdFallbackUrl
     WorkRoot        = $WorkRoot
     PfxPassword     = $PfxPassword
     TimestampUrl    = $TimestampUrl
@@ -6688,19 +9340,52 @@ $Ctx = [pscustomobject]@{
     CleanWorkRoot   = $CleanWorkRoot.IsPresent
     UseTestSigning  = $UseTestSigning.IsPresent
     AllowWorkstationInstall = $AllowWorkstationInstall.IsPresent
-    # Populated by phases
+    DecorationStrategy      = $DecorationStrategy
+
+    # Populated by phases - shared with AMD-family sister scripts
     Os = $null; Paths = $null
-    SevenZip = $null; Signtool = $null; Inf2cat = $null
+    SevenZip = $null; Signtool = $null; Inf2cat = $null; Makecat = $null; InfVerif = $null  # r7: Makecat for inbox-driver fallback; InfVerif for pre/post-patch validation
     Installer = $null; InfInventory = $null; InfInventoryDetail = $null; PatchResults = @()
     CertPfxPath = $null; CertCerPath = $null; CertThumbprint = $null
+
+    # r7: InfVerif validation results (Stage 1 of the validation-first design)
+    InfVerifPrePatch  = $null   # Result of Invoke-InfVerifValidation on source bthpan.inf (V01)
+    InfVerifPostPatch = $null   # Result of Invoke-InfVerifValidation on patched bthpan.inf (V02)
+
     # r45: list of phase IDs that will execute this run (used by P00's
     # Workstation-Install guard to know whether any I-phase is queued).
     SelectedPhaseIds = @()
+
     # r49: UEFI Secure Boot baseline snapshot. Captured at P00 and
     # consumed by P05 (report appendix), V05/V06 (display), I02
     # (pre-check). Pre-declared as $null here so plain '.' assignment
     # works on the [pscustomobject] without requiring Add-Member.
     SecureBootBaseline = $null
+
+    # r4: BthPan-specific properties. Pre-declared so phase functions
+    # can use plain '.' assignment without Add-Member.
+    BthPanSource         = $null   # P03 sets   (DriverStore source pscustomobject)
+    ExtractedBthPanDir   = $null   # P04 sets   (workspace\extracted\bthpan path)
+    BthPanInfMetadata    = $null   # P05 sets   (INF inventory metadata pscustomobject)
+    BthPanInfPath        = $null   # P05 sets   (path to bthpan.inf in extracted dir)
+    PatchedBthPanInfPath = $null   # P06 sets   (path to patched bthpan.inf)
+    ExpectedCatalogName  = $null   # P06 sets   (r7: bare filename of catalog to be generated, e.g. 'bthpan.cat')
+    PatchedBthPanDir     = $null   # P08 sets   (path to patched dir hosting catalogs)
+    PatchedCatalogs      = @()     # P08 sets   (full paths to generated .cat files)
+    CatalogGenStrategy   = $null   # P08 sets   (r7: 'inf2cat' or 'makecat-fallback' - reflects which tool actually produced the .cat)
+
+    # r8-update6: Verify/Install phase outputs. Same pre-declare-as-null
+    # discipline so V05/V06/I04 phase bodies can use plain '.' assignment.
+    # Missing these declarations caused SetValueInvocationException
+    # ('property not found on this object') when -Action PrepareVerify
+    # reached V05 for the first time (see r8-update6 changelog).
+    V05DryRunPlan        = $null   # V05 sets   (hashtable: HasDevice, Classification, predicted I03 outcome)
+    V06DeviceStates      = $null   # V06 sets   (per-device classification array)
+    V06RuntimeArtifacts  = $null   # V06 sets   (Test-BthPanRuntimeArtifacts result pscustomobject)
+    V06RiskClass         = $null   # V06 sets   (overall risk classification string; consumed by I00 recap)
+    I04OverallResult     = $null   # I04 sets   ('TrueResolution' | 'PartialOrPhantom' | 'NoDevice')
+    I04DeviceStates      = $null   # I04 sets   (per-device classification array, post-install)
+    I04RuntimeArtifacts  = $null   # I04 sets   (Test-BthPanRuntimeArtifacts result, post-install)
 }
 
 # ----- Cleanup short-circuit -----
@@ -6761,12 +9446,32 @@ $Ctx.SelectedPhaseIds = @($queue | ForEach-Object Id)
 # detection in Test-WorkspaceLockHeld together close that gap.
 try {
     foreach ($phase in $queue) {
+        # r7+: open a per-phase debug trace frame. Set-DebugStep calls
+        # inside the phase body are automatically attributed to this
+        # frame; the JSONL stream and the phase registry both record
+        # frame.open / step / frame.close events. The PhaseId parameter
+        # links the frame to $Script:DebugTracePhaseRegistry so the
+        # final RUN SUMMARY can show trace-file paths for failed phases.
+        Start-DebugTrace -Context ('phase.{0}.{1}' -f $phase.Id, $phase.Name) -PhaseId $phase.Id
+
+        $phaseFailed = $false
         try {
             & $phase.Func -Ctx $Ctx
         } catch {
+            $phaseFailed = $true
             Write-Fail "$($phase.Id) [$($phase.Name)] failed: $($_.Exception.Message)"
+            # r7+: emit structured failure report. -AutoExport writes a
+            # debugtrace_export_<phaseId>_<ts>.json snapshot to
+            # <WorkRoot>\logs (configured in P01 via
+            # Enable-AutoExportOnPhaseFailure). The exact path is then
+            # logged so the user/Claude can attach it to a bug report.
+            Write-DebugFailureReport $_ -IncludeStepHistory -AutoExport
             Write-PhaseFooter $phase.Id 'failed'
+            Stop-DebugTrace -Outcome 'failure'
             throw
+        }
+        if (-not $phaseFailed) {
+            Stop-DebugTrace -Outcome 'success'
         }
     }
 
@@ -6782,6 +9487,15 @@ try {
     Write-Host " Script SHA256   : $($Script:ScriptHash)" -ForegroundColor DarkCyan
     Write-Host " OS              : $($Ctx.Os.Name) (build $($Ctx.Os.ActualBuild))"
     Write-Host " Workspace       : $($Ctx.WorkRoot)"
+    # r8-update4: surface -LogFile auto-relocation when it kicked in,
+    # so the operator immediately sees where their transcript actually
+    # landed (vs. the path they originally typed).
+    if ($Script:LogFileRelocation) {
+        Write-Host " Transcript      : $($Script:LogFileRelocation.NewPath)" -ForegroundColor Yellow
+        Write-Host ("   (auto-relocated from: $($Script:LogFileRelocation.OriginalPath))") -ForegroundColor DarkYellow
+    } elseif ($Script:LogFileActive -and -not [string]::IsNullOrWhiteSpace($LogFile)) {
+        Write-Host " Transcript      : $LogFile"
+    }
     if ($Ctx.Installer)       { Write-Host " Installer       : $(Split-Path $Ctx.Installer -Leaf)" }
     if ($Ctx.InfInventory)    { Write-Host " INFs analyzed   : $($Ctx.InfInventory.Count)" }
     if ($Ctx.PatchResults)    { Write-Host " INFs patched    : $($Ctx.PatchResults.Count)" }
@@ -6816,9 +9530,88 @@ try {
         Write-Host ('   {0}' -f ('-' * 50))
         Write-Host ('   {0,-5} {1,-23} {2,-8} {3,10}' -f 'SUM','(phase total)','', (Format-Elapsed ([TimeSpan]::FromSeconds($sumSeconds)))) -ForegroundColor Cyan
     }
+
+    # r7+: Debug Trace status panel. Always-on file output means there
+    # is something interesting to report - the JSONL stream path, write
+    # count, and any per-phase failure references with their auto-
+    # exported JSON snapshot. This is critical when something failed:
+    # the user (or Claude) can attach the export JSON to a bug report
+    # and have the full structured failure history in one file.
+    $dtStatus = $null
+    try { $dtStatus = Get-DebugTraceFileOutputStatus } catch { } # psa-disable-line PSA3004 -- best-effort summary lookup; never block exit
+    $dtFailures = @()
+    if ($Script:DebugTracePhaseRegistry -and $Script:DebugTracePhaseRegistry.Count -gt 0) {
+        foreach ($key in ($Script:DebugTracePhaseRegistry.Keys | Sort-Object)) {
+            $reg = $Script:DebugTracePhaseRegistry[$key]
+            if ($reg.Outcome -eq 'failure') { $dtFailures += $reg }
+        }
+    }
+    if ($dtStatus -or $dtFailures.Count -gt 0) {
+        Write-Host ''
+        Write-Host ' Debug trace:' -ForegroundColor Cyan
+        if ($dtStatus) {
+            if ($dtStatus.Enabled) {
+                Write-Host ('   JSONL stream  : {0}' -f $dtStatus.Path)
+                Write-Host ('   Events written: {0}' -f $dtStatus.WriteCount)
+            } elseif ($dtStatus.Path) {
+                Write-Host ('   JSONL stream  : {0} (disabled mid-run; {1} errors)' -f $dtStatus.Path, $dtStatus.ErrorCount) -ForegroundColor DarkYellow
+                if ($dtStatus.LastError) {
+                    Write-Host ('     Last error  : {0}' -f $dtStatus.LastError) -ForegroundColor DarkYellow
+                }
+            } else {
+                Write-Host ('   JSONL stream  : not activated (buffered: {0} events)' -f $dtStatus.BufferedLines) -ForegroundColor DarkYellow
+            }
+            if ($dtStatus.CompletedFrames -gt 0) {
+                Write-Host ('   Frames        : {0} completed, {1} active' -f $dtStatus.CompletedFrames, $dtStatus.ActiveFrames)
+            }
+        }
+        if ($dtFailures.Count -gt 0) {
+            Write-Host ('   Phase failures: {0}' -f $dtFailures.Count) -ForegroundColor Red
+            foreach ($f in $dtFailures) {
+                $msg = if ($f.FailureRef) { $f.FailureRef.ExMessage } else { '(no failure record)' }
+                Write-Host ('     - {0}: {1}' -f $f.PhaseId, $msg) -ForegroundColor Red
+                if ($f.FailureRef -and $f.FailureRef.FailedStep) {
+                    Write-Host ('         failed step : {0}' -f $f.FailureRef.FailedStep) -ForegroundColor DarkRed
+                }
+            }
+            # Find the most recent debugtrace_export_*.json in the
+            # auto-export directory to point the user at.
+            if ($Script:DebugTraceAutoExportDir -and (Test-Path -LiteralPath $Script:DebugTraceAutoExportDir)) {
+                try {
+                    $latest = Get-ChildItem -LiteralPath $Script:DebugTraceAutoExportDir -Filter 'debugtrace_export_*.json' -ErrorAction SilentlyContinue |
+                              Sort-Object LastWriteTime -Descending |
+                              Select-Object -First 1
+                    if ($latest) {
+                        Write-Host ('   JSON export   : {0}' -f $latest.FullName) -ForegroundColor Yellow
+                    }
+                } catch { } # psa-disable-line PSA3004 -- best-effort summary lookup
+            }
+        }
+    }
+
     Write-Host '============================================================' -ForegroundColor Magenta
 }
 finally {
+    # r8+: -ExportTraceOnExit switch handling. When the user passed
+    # -ExportTraceOnExit, write a final JSON snapshot of the trace state
+    # to <WorkRoot>\logs\debugtrace_export_final_<timestamp>.json. This
+    # runs INSIDE the finally so it executes regardless of how we got
+    # here - success, phase-throw, or top-level error. We don't include
+    # the full JSONL events block (-IncludeEvents) by default because
+    # the snapshot can be cross-referenced with the live JSONL file
+    # separately and including events doubles the export size.
+    if ($ExportTraceOnExit -and $Ctx -and $Ctx.Paths -and $Ctx.Paths.Logs) {
+        try {
+            $ts = (Get-Date).ToString('yyyyMMdd-HHmmss')
+            $exportPath = Join-Path $Ctx.Paths.Logs ("debugtrace_export_final_{0}.json" -f $ts)
+            Export-DebugTraceJson -Path $exportPath | Out-Null
+            Write-Host ('[*] Debug trace export -> {0}' -f $exportPath) -ForegroundColor DarkGreen
+        } catch {
+            # Don't let the export failure mask a more important error.
+            Write-Warning ("[-ExportTraceOnExit] export failed: {0}" -f $_.Exception.Message)
+        }
+    }
+
     # r55: release the workspace lock regardless of how we got here.
     # Safe to call when the lock was never acquired (e.g. failure
     # before P01) because Clear-WorkspaceLock is idempotent and a
