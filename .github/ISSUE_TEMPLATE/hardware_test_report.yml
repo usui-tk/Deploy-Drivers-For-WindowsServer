@@ -1,0 +1,117 @@
+name: 🔧 Hardware validation report
+description: Share physical-hardware test results (success or failure) so the maintainer can close validation gaps in TESTING.md
+title: "[HW Report] "
+labels: ["hardware-validation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for running the scripts on real hardware! Validation reports — successful or not — are extremely valuable. The current `TESTING.md` matrix has documented gaps (NPU and BthPan especially) that physical-hardware reports help close.
+
+        Use this template if you ran one of the scripts on a physical AMD consumer host (or a Windows Server host with Bluetooth host controller for BthPan) and want to share the outcome. For a *bug* report (something the script did wrong), please use the [Bug report template](./bug_report.yml) instead.
+
+  - type: dropdown
+    id: script
+    attributes:
+      label: Script validated
+      options:
+        - "Deploy-AMDChipsetDriverOnWindowsServer.ps1"
+        - "Deploy-AMDGraphicsDriverOnWindowsServer.ps1"
+        - "Deploy-AMDNpuDriverOnWindowsServer.ps1"
+        - "Deploy-MSBthPanInboxOnWindowsServer.ps1"
+        - "Multiple (please describe in 'Result summary')"
+    validations:
+      required: true
+
+  - type: input
+    id: script_version
+    attributes:
+      label: Script revision
+      description: "Top of the script: `$Script:ScriptVersion`. Example: `amdnpu-2026.05.17-r7`"
+      placeholder: "amdnpu-2026.05.17-r7"
+    validations:
+      required: true
+
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Hardware details
+      description: Capture model, CPU, GPU/NPU, BIOS, Bluetooth controller (for BthPan).
+      value: |
+        - **Model**: <!-- e.g. "Lenovo ThinkPad P14s Gen 4 AMD" -->
+        - **CPU**: <!-- (Get-CimInstance Win32_Processor).Name + codename, e.g. "Ryzen 7 PRO 7840U (Phoenix)" -->
+        - **iGPU / dGPU**: <!-- e.g. "Radeon 780M (RDNA3, Phoenix iGPU)" -->
+        - **NPU**: <!-- e.g. "Ryzen AI NPU PHX (driver build 32.0.203.314)" — N/A for hosts without NPU -->
+        - **Bluetooth host controller**: <!-- e.g. "Intel AX210 USB\VID_8087&PID_0032" — only relevant for BthPan -->
+        - **BIOS**: <!-- vendor / version -->
+    validations:
+      required: true
+
+  - type: textarea
+    id: os
+    attributes:
+      label: OS configuration
+      value: |
+        - **OS**: <!-- (Get-CimInstance Win32_OperatingSystem).Caption + build -->
+        - **ProductType**: <!-- 1 (Workstation) / 3 (Server) -->
+        - **Secure Boot**: <!-- ON / OFF -->
+        - **HVCI**: <!-- ON / OFF -->
+        - **BitLocker on system volume**: <!-- ON / OFF / suspended -->
+        - **Locale**: <!-- e.g. "ja-JP" / "en-US" — relevant for §D.5 console encoding -->
+    validations:
+      required: true
+
+  - type: dropdown
+    id: outcome
+    attributes:
+      label: Outcome
+      options:
+        - "✅ Success — full -Action Install completed and I04 reports the expected state"
+        - "✅ Success — -Action PrepareVerify completed but Install not attempted (e.g. lab-only)"
+        - "⚠️ Partial — some phases passed, some failed (please describe in 'Result summary')"
+        - "❌ Failure — see attached log"
+        - "Other (describe below)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: result_summary
+    attributes:
+      label: Result summary
+      description: |
+        For success: paste the I03 summary line and the `*** TRUE RESOLUTION ACHIEVED ***` (BthPan) / V06 device-bind summary (Chipset/Graphics/NPU) lines.
+        For failure: paste 10-50 lines of log around the failure.
+      placeholder: |
+        Example (BthPan success):
+        ```
+        I03 Summary: 1 applied, 0 failed, 0 no-op, 0 skipped, 0 not-attempted (5-tuple)
+        I04: TRUE RESOLUTION ACHIEVED — oem15.inf bound, Class=Net, Service=BthPan
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: deltas
+    attributes:
+      label: Notable deltas from `TESTING.md` reference fixtures
+      description: |
+        How does this host differ from the documented fixtures (M75q Tiny Gen 2 / X13 Gen 1 AMD / planned BthPan target)? Different CPU codename, different GPU branch, ja-JP vs en-US, etc.
+      placeholder: "Example: Phoenix iGPU is on the Main Adrenalin branch (~67 INFs), not the Vega-Polaris Legacy branch (~19 INFs) used on the M75q. P05 INF count was 64 vs 32 on M75q."
+
+  - type: checkboxes
+    id: artifacts
+    attributes:
+      label: Artifacts available
+      description: Tick what you can share if requested by the maintainer.
+      options:
+        - label: Full log via `Tee-Object` (sanitized for secrets)
+        - label: "`inf_inventory.csv` + `inf_inventory_report.txt`"
+        - label: Pre-install / post-install `Get-PnpDevice` snapshots
+        - label: Photos of Device Manager (for visual evidence of binding)
+        - label: I am willing to re-run with a debug flag if the maintainer asks
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Anything else that may help — vendor driver release notes the script was tested against, related issues, etc.

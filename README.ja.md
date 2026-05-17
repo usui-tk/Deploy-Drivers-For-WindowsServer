@@ -1055,6 +1055,11 @@ Issue テンプレート、PR ガイドライン、regression test 実行手順 
 
 Issue・Pull Request は以下で受け付けています: <https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer>
 
+その他のコミュニティドキュメント:
+
+- [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) — Issue・Pull Request・Security Advisory でやり取りする際に期待される行動規範。 自己署名カーネルモードドライバの安全性への影響を踏まえた内容になっています
+- [`SECURITY.md`](./SECURITY.md) — セキュリティに影響する欠陥 (ドライバ署名の欠陥、 WDAC policy scope エラー、 認証情報露出 等) の報告方法。 **公開 Issue として起票しないでください** — プライベートな Security Advisory チャネルを利用してください
+
 ---
 
 ## r54+ — AMD Chipset Software 8.x 展開サポート

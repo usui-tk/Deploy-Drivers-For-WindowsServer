@@ -17,43 +17,17 @@ Before opening an issue at <https://github.com/usui-tk/Deploy-Drivers-For-Window
 
 ### Issue templates
 
-**Bug report**:
+Form-based issue templates are provided in [`.github/ISSUE_TEMPLATE/`](./.github/ISSUE_TEMPLATE/). When you open a new issue at <https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/issues/new/choose>, GitHub presents the following choices:
 
-```
-**Environment**
-- OS:      Windows Server 2025 (build 26100) / Win11 24H2 / ...
-- CPU:     AMD Ryzen 7 PRO 5750GE (Cezanne)
-- Script:  Deploy-AMDChipsetDriverOnWindowsServer.ps1 r57
-           (or Graphics r25, or NPU r7 — see top-of-file $Script:ScriptVersion)
-- Phase:   V06 (or specific phase ID where it fails)
+| Template | When to use |
+|---|---|
+| 🐛 **Bug report** | A script does something wrong — a phase fails, output is malformed, a parameter behaves unexpectedly, etc. |
+| ✨ **Feature request** | New phase, parameter, platform support, or sister script proposal. |
+| 🔧 **Hardware validation report** | You ran the scripts on real hardware (success or failure) and want to share results so the maintainer can close validation gaps in `TESTING.md`. |
+| 📖 **Documentation issue** | Factual error, broken anchor link, EN/JA mismatch, missing information in `README.md` / `SPEC.md` / `TESTING.md` / etc. |
+| 🛡️ Security advisory (private) | **Not a public Issue** — opens a private Security Advisory thread. See [`SECURITY.md`](./SECURITY.md). |
 
-**What happened**
-Pasted log excerpt (10-50 lines around the failure):
-```
-[copy-paste here]
-```
-
-**What I expected**
-[short description]
-
-**Already tried**
-- [ ] Re-ran with `-CleanWorkRoot`
-- [ ] Re-ran with a single `-OnlyPhases <ID>`
-- [ ] Verified network reachability to amd.com / download.microsoft.com
-```
-
-**Feature request**:
-
-```
-**Use case**
-Why is this needed? Which AMD platform / Windows SKU does it benefit?
-
-**Proposed change**
-What phase / function would change? New phase needed, or extend existing?
-
-**Alternatives considered**
-Any workaround that exists today?
-```
+Blank issues are disabled — please pick the closest template even if not a perfect fit.
 
 ## Pull Requests
 

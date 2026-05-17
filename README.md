@@ -1075,6 +1075,11 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) for issue templates, PR guidelines, and
 
 Issues and pull requests are tracked at: <https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer>
 
+Additional community documents:
+
+- [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) — Expected behaviour when interacting through Issues, Pull Requests, and Security Advisories. Tailored to the safety implications of self-signed kernel-mode drivers.
+- [`SECURITY.md`](./SECURITY.md) — How to report security-impacting defects (driver-signing flaws, WDAC policy scope errors, credential exposure). **Do NOT file these as public Issues** — use the private Security Advisory channel instead.
+
 ---
 
 ## r54+ — AMD Chipset Software 8.x extraction support

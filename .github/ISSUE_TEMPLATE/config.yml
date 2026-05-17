@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🛡️ Security vulnerability report (private)
+    url: https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/security/advisories/new
+    about: |
+      For security-impacting reports (defects in driver-signing logic, WDAC policy scope errors, credential exposure, etc.), please open a private Security Advisory instead of a public Issue. See SECURITY.md for the full reporting policy.
+  - name: 📚 Documentation — README / SPEC / TESTING
+    url: https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer#readme
+    about: |
+      Before filing an issue, please review README.md (user-facing), SPEC.md (developer / LLM specification), and TESTING.md (physical-hardware validation results). Japanese mirrors are also available (README.ja.md, etc.).
+  - name: 🤖 Static analyzer (psa.py) issues — different repo
+    url: https://github.com/usui-tk/ai-generated-artifacts
+    about: |
+      The PowerShell static analyzer used by this project (psa.py) lives in the ai-generated-artifacts repository. Issues about psa.py rules, false positives, or new check requests belong there, not here.

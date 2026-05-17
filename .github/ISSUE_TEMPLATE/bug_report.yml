@@ -1,0 +1,116 @@
+name: 🐛 Bug report
+description: Report a defect in one of the deploy scripts (P00–I04 phase failure, INF parsing bug, signing failure, etc.)
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report! Please complete the fields below so the maintainer can reproduce and triage efficiently.
+
+        **Before filing**: please check that:
+        - You have read the [`README.md`](../blob/main/README.md) Disclaimer and Risk Classification sections.
+        - You have searched [existing issues](../../../issues?q=is%3Aissue) for duplicates.
+        - The failure is reproducible (a one-off transient failure may be hardware-state-dependent rather than a script bug).
+
+        **Security-impacting issues should NOT be filed here** — use the [private Security Advisory channel](../../../security/advisories/new) per [`SECURITY.md`](../blob/main/SECURITY.md) instead.
+
+  - type: dropdown
+    id: script
+    attributes:
+      label: Affected script
+      description: Which of the four scripts is failing?
+      options:
+        - "Deploy-AMDChipsetDriverOnWindowsServer.ps1"
+        - "Deploy-AMDGraphicsDriverOnWindowsServer.ps1"
+        - "Deploy-AMDNpuDriverOnWindowsServer.ps1"
+        - "Deploy-MSBthPanInboxOnWindowsServer.ps1"
+        - "Multiple scripts (please describe in 'What happened')"
+        - "N/A (documentation / build-system bug)"
+    validations:
+      required: true
+
+  - type: input
+    id: script_version
+    attributes:
+      label: Script revision
+      description: "Top of the script: `$Script:ScriptVersion`. Example: `amdchipset-2026.05.17-r57`"
+      placeholder: "amdchipset-2026.05.17-r57"
+    validations:
+      required: true
+
+  - type: input
+    id: phase
+    attributes:
+      label: Phase ID where the failure occurs
+      description: Phase ID from P00 / P01 / ... / V06 / I00 / ... / I04. If the failure is not phase-localised, write "N/A".
+      placeholder: "V06"
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Host OS, CPU, BIOS, and security feature state. Capture exactly via the commands shown.
+      value: |
+        - **Host OS**: <!-- (Get-CimInstance Win32_OperatingSystem).Caption + build, e.g. "Windows Server 2025 (build 26100.32860)" -->
+        - **CPU**: <!-- (Get-CimInstance Win32_Processor).Name, e.g. "AMD Ryzen 7 PRO 5750GE (Cezanne)" -->
+        - **Model / BIOS**: <!-- e.g. "Lenovo ThinkCentre M75q Tiny Gen 2 / BIOS M30KT37A" -->
+        - **Secure Boot**: <!-- Confirm-SecureBootUEFI : True / False -->
+        - **HVCI**: <!-- Get-CimInstance -ClassName Win32_DeviceGuard | Select SecurityServicesRunning -->
+        - **BitLocker**: <!-- (Get-BitLockerVolume -MountPoint C:).ProtectionStatus -->
+        - **PowerShell**: <!-- $PSVersionTable.PSVersion + Edition (Desktop 5.1 / Core 7+) -->
+    validations:
+      required: true
+
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: Paste 10-50 lines of log around the failure. Use code blocks. Redact PFX passwords and BitLocker recovery keys; thumbprints are fine.
+      value: |
+        Command run:
+
+        ```powershell
+        .\Deploy-...DriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot
+        ```
+
+        Log excerpt around the failure:
+
+        ```
+        [paste 10-50 lines here]
+        ```
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: what_expected
+    attributes:
+      label: What you expected
+      description: One or two sentences. Reference SPEC.md sections if helpful.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: tried
+    attributes:
+      label: Already tried
+      description: Please tick every item you've already attempted before filing.
+      options:
+        - label: Re-ran with `-CleanWorkRoot`
+        - label: Re-ran a single phase with `-OnlyPhases <ID>`
+        - label: Verified network reachability to `drivers.amd.com` / `download.microsoft.com`
+        - label: Confirmed administrator-elevated PowerShell session
+        - label: Reviewed [`TESTING.md`](../blob/main/TESTING.md) §6 "Discovered bugs and fix history" for a matching prior fix
+        - label: Reviewed [`SPEC.md`](../blob/main/SPEC.md) Part D "Known Pitfalls" for related context
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: |
+        Anything else that may help — `inf_inventory.csv` row counts, V06 device-bind output, links to AMD release notes, etc.
+        For NPU script failures, please note the 4-tier source resolution path used (`-OfflineZip` / `-InstallerUrl` / Tier 2 / Tier 1).
+        For BthPan script failures, please note the `-DecorationStrategy` value (A or B) and the AS-IS BTH\MS_BTHPAN classification (Unknown Device / Phantom OK / True Resolution).

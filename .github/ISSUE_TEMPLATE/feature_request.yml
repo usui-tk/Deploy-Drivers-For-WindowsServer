@@ -1,0 +1,82 @@
+name: ✨ Feature request
+description: Propose a new phase, parameter, platform support, or other enhancement
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing an enhancement! Please complete the fields below so the maintainer can evaluate whether it fits the repository scope.
+
+        **Before filing**: please confirm that:
+        - The request fits the documented scope (AMD consumer chipset / graphics / NPU on Windows Server, or Microsoft inbox driver enablement on Server SKUs). Other vendors and server-class hardware are out of scope — see [`README.md`](../blob/main/README.md) "Scope of coverage".
+        - The request would not require disabling Secure Boot or `bcdedit /set testsigning on` as the default path — see [`SECURITY.md`](../blob/main/SECURITY.md) "Hardening already in place".
+
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use case
+      description: Why is this needed? Which AMD platform / Windows SKU / inbox driver would benefit?
+      placeholder: |
+        Example: "On Lenovo ThinkPad P14s Gen 4 AMD (Phoenix), the P05 INF scan classifies the Audio CoProcessor as a 'GENERIC' driver source, missing the AMD-specific upgrade. This causes V05 to skip a valid driver install."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: change_type
+    attributes:
+      label: Type of change
+      options:
+        - "New phase (insert into existing P00–I04 pipeline)"
+        - "New parameter on an existing script"
+        - "Extension of an existing phase (e.g. platform detection)"
+        - "New sister script (e.g. ROCm runtime, additional inbox driver)"
+        - "Documentation only (README / SPEC / TESTING update)"
+        - "Static analyzer rule (note: psa.py lives in ai-generated-artifacts; cross-link)"
+        - "Other (describe below)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed_change
+    attributes:
+      label: Proposed change
+      description: Which script / phase / function would change? Reference SPEC.md sections (e.g. §A.4, §B.3) where possible.
+      placeholder: |
+        Example: "Extend `Get-AmdGraphicsPlatformDetail` in B.2 to recognize Phoenix-class Audio CoProcessor by adding HWID `PCI\VEN_1022&DEV_15E3` to the AMD-specific match list. P05 inventory would then classify it as `[B]` (vendor) rather than `[A]` (generic), enabling the V05 upgrade."
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workaround that exists today? Why is it insufficient?
+      placeholder: |
+        Example: "Today operators can pass `-AllowWorkstationInstall` to bypass the ProductType=3 check, but this does not address the underlying misclassification — the device still ends up bound to the generic driver. A real fix is needed in P05."
+
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation plan
+      description: How would the change be validated? Which physical hardware would be required?
+      placeholder: |
+        Example: "Validate on a Phoenix-class host (Ryzen 7 7840U / 8840U). V06 should now show the device bound to `amdacp.sys` (not `HDAudBus.sys`). The `TESTING.md` §1 ThinkCentre M75q fixture won't exercise this path (it's Cezanne)."
+
+  - type: checkboxes
+    id: scope_check
+    attributes:
+      label: Scope confirmation
+      description: Please tick every applicable item.
+      options:
+        - label: The request targets AMD consumer hardware OR a Microsoft inbox driver on Windows Server (not other vendors or server-class hardware).
+          required: true
+        - label: The request would not require disabling Secure Boot as a default workflow.
+          required: true
+        - label: I am willing to assist with validation if I have access to the target hardware.
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional context
+      description: Links to AMD release notes, Microsoft KB articles, related issues / PRs, etc.
