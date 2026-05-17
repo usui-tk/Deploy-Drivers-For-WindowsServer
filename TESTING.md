@@ -17,10 +17,10 @@ This document consolidates the validation results for `Deploy-Drivers-For-Window
 
 | Script | Physical-hardware validation | Real driver install on target HW | Recommended use |
 |---|---|---|---|
-| **Chipset (r57)** | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD (validated on r55; r56 added a breaking install-decision change; r57 fixes CiTool ENTER-prompt hang + pnputil exit=259 — see note below) | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
-| **Graphics (r25)** | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD (validated on r23; r24 added a breaking install-decision change; r25 fixes CiTool ENTER-prompt hang + pnputil exit=259 — see note below) | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
-| **NPU (r7)** | ❌ **none** (no physical NPU machine in maintainer's lab) | ❌ **never executed** | **Experimental / research-grade only. Do not deploy in production.** |
-| **BthPan (r1)** | ⏳ **planned** — ThinkPad + Intel AX210 + Windows Server 2025 build 26100.32860 is the first target (see §4 below) | ❌ **not yet executed** | New script; physical validation pending. Logic shares the proven Phase / Secure Boot / WDAC framework from the Chipset script (Edit-InfForServer, Get-OsContext, Resolve-PhaseSelection, etc. are verbatim-inherited from Chipset r57). |
+| **Chipset (r59)** | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD (validated on r55; r56 added a breaking install-decision change; r57 fixed CiTool ENTER-prompt hang + pnputil exit=259; r58 added -LogFile and workspace relocation; r59 adds Debug Trace Facility + call-site instrumentation — see note below) | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
+| **Graphics (r27)** | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD (validated on r23; r24 added a breaking install-decision change; r25 fixed CiTool ENTER-prompt hang + pnputil exit=259; r26 added -LogFile and workspace relocation; r27 adds Debug Trace Facility + call-site instrumentation — see note below) | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
+| **NPU (r9)** | ❌ **none** (no physical NPU machine in maintainer's lab) | ❌ **never executed** | **Experimental / research-grade only. Do not deploy in production.** |
+| **BthPan (r9)** | ⏳ **planned** — ThinkPad + Intel AX210 + Windows Server 2025 build 26100.32860 is the first target (see §4 below) | ❌ **not yet executed** | New script; physical validation pending. Logic shares the proven Phase / Secure Boot / WDAC framework from the Chipset script (Edit-InfForServer, Get-OsContext, Resolve-PhaseSelection, etc. are verbatim-inherited from Chipset r57). |
 
 > **Note on r56 / r24 behaviour change**: The category-priority override added in chipset r56 and graphics r24 (see SPEC §D.15) changes the install-decision semantics in a breaking way: self-signed `[C]` drivers now always supersede Microsoft generic `[A]` and vendor `[B]` drivers regardless of version. The pre-r56/r23 physical-hardware validation results below remain *structurally* valid (extraction, patching, signing, WDAC deployment all behave the same), but the **V05/V06/I03 driver-install decisions will differ** — devices that the prior versions classified as `SKIP-newer` are now classified as `INSTALL_UPGRADE`. Re-validation on the M75q Tiny Gen 2 and X13 Gen 1 AMD fixtures is recommended after deploying r56/r24.
 >
@@ -563,7 +563,7 @@ The two updates are independent — adding driver support does not require touch
 
 ## 4. Validation Result 4 (BthPan script) — planned
 
-> The BthPan script (r1) is brand-new; physical validation has not yet been performed. This section documents the planned first physical-validation run.
+> The BthPan script (r9) is brand-new; physical validation has not yet been performed. This section documents the planned first physical-validation run.
 
 ### 4.1 Planned target hardware
 
@@ -847,7 +847,7 @@ This is the same fallback path used by pre-r54 revisions and should be considere
 
 ## 9. r57+ / r25+ / r7+ — Regression scenarios
 
-These regression scenarios validate the three fixes introduced in chipset r57 / graphics r25 / NPU r7 (2026-05-17). All three can be exercised on the same WS2025 install used for §1 (M75q Tiny Gen 2) without re-imaging.
+These regression scenarios validate the three fixes introduced in chipset r59 / graphics r27 / NPU r9 (2026-05-17). All three can be exercised on the same WS2025 install used for §1 (M75q Tiny Gen 2) without re-imaging.
 
 ### 9.1 CiTool ENTER-prompt hang (SPEC §D.16)
 
@@ -961,7 +961,7 @@ When validating r57 / r25 / r7 on the M75q Tiny Gen 2 or X13 Gen 1 AMD fixtures:
 
 | # | Check | Pass criterion |
 |---|---|---|
-| 1 | Banner shows `chipset-2026.05.17-r57` (or `graphics-2026.05.17-r25` / `npu-2026.05.17-r7`) at script startup | ✓ correct version string |
+| 1 | Banner shows `chipset-2026.05.17-r59` (or `graphics-2026.05.17-r27` / `npu-2026.05.17-r9`) at script startup | ✓ correct version string |
 | 2 | P00 log emits `[~] Console encoding set to UTF-8` (NPU only) or simply does not display mojibake later | ✓ no cp932 indicator in CiTool output |
 | 3 | I02 completes in < 10 s WITHOUT operator stdin input | ✓ no hang at "Converting XML to .cip binary..." |
 | 4 | I02 final line includes `Activation method: CiTool (immediate, no reboot)` rendered via `Write-Detail` (4-space indent, Gray) | ✓ visually subordinate to the preceding `[+] Deployed:` marker line |

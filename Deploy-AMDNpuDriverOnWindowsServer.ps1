@@ -133,7 +133,7 @@
     The parent directory is created on demand. The file is opened
     in -Append mode so concurrent re-runs accumulate rather than
     truncate. Recommended filename convention:
-        C:\Temp\amd-npu_<Action>_<yyyyMMdd-HHmmss>.log
+        C:\Temp\npu_<Action>_<yyyyMMdd-HHmmss>.log
 
 .PARAMETER PfxPassword
     Password for the self-signed PFX. Default is empty (lab tool).
@@ -184,7 +184,7 @@
 .EXAMPLE
     # (r8+) Capture full transcript while keeping console colors
     $ts  = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $log = "C:\Temp\amd-npu_PrepareVerify_$ts.log"
+    $log = "C:\Temp\npu_PrepareVerify_$ts.log"
     .\Deploy-AMDNpuDriverOnWindowsServer.ps1 `
         -Action PrepareVerify -CleanWorkRoot `
         -OfflineZip .\NPU_RAI1.6.1_314_WHQL.zip `
@@ -194,7 +194,7 @@
     # Legacy fallback (color is stripped from the captured file)
     .\Deploy-AMDNpuDriverOnWindowsServer.ps1 -Action Install `
         -OfflineZip .\NPU_RAI1.6.1_314_WHQL.zip *>&1 |
-        Tee-Object -FilePath "C:\Temp\amd-npu_Install_$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+        Tee-Object -FilePath "C:\Temp\npu_Install_$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
 
 .NOTES
     Version: r8
@@ -324,8 +324,8 @@ $Script:CertValidityYears       = $CertValidityYears
 # =============================================================================
 # Script-scope state
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.05.17-r8'
-$Script:ScriptTag           = 'npu-logfile-and-temp-workspace-r8'
+$Script:ScriptVersion       = 'npu-2026.05.17-r9'
+$Script:ScriptTag           = 'npu-r9-debug-trace-facility-instrumentation-resume-ctx-autolog'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-AMD-Drivers-For-WindowsServer'
 $Script:CertSubjectCn       = 'AMD NPU Driver Self-Sign (WS2025 Lab, At Own Risk)'
@@ -375,9 +375,9 @@ try {
 }
 $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash)
 
-# =============================================================================
-# Optional console transcript capture (r8+)
-# =============================================================================
+#####################################################################
+# SECTION 0.25: Optional console transcript capture (r59: verified activation + auto-relocation)
+#####################################################################
 # When -LogFile is set, wrap execution in Start-Transcript so the file
 # receives every stream (Output / Host / Error / Warning / Verbose /
 # Debug) as plain text, while the interactive console keeps its
@@ -390,32 +390,337 @@ $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash
 # strips Write-Host coloring because the host stream is captured into
 # the pipeline value stream. The -LogFile path here is the recommended
 # alternative when console coloring matters to the operator.
+#
+# r5 (transcript verified activation):
+#
+#   Reports from PS 5.1.26100.32860 (Windows Server 2025) showed that
+#   `Start-Transcript -Path X -Append -Force` raised
+#   ParameterBindingException ("Parameter set cannot be resolved using
+#   the specified named parameters") only when invoked from the actual
+#   BthPan script body. Isolated minimal reproductions (clean session,
+#   same param block in a separate small .ps1) all succeeded. The
+#   root cause for the script-context-specific failure could not be
+#   pinpointed within a reasonable budget; instead, r5 takes a
+#   defense-in-depth approach:
+#
+#     1. CAPTURE the cmdlet return value (a non-empty localized success
+#        message proves the cmdlet completed normally).
+#     2. POLL the log file's appearance on disk with a short timeout
+#        (3 s default, 50 ms interval) - Start-Transcript opens the
+#        file before returning, so a missing file means the transcript
+#        did not actually start.
+#     3. WRITE a probe marker via Write-Output, briefly Start-Sleep,
+#        then read the file back and confirm the marker landed there.
+#        This is the only deterministic way to know transcription is
+#        actively capturing output (vs. silently dropping it).
+#     4. STOP-TRANSCRIPT + Start-Sleep BETWEEN failed attempts so a
+#        partially-initialized state from one attempt does not
+#        contaminate the next.
+#     5. RECORD per-attempt failure metadata (exception type, FQId,
+#        message) so post-mortem diagnosis has enough material.
+#
+#   A failed transcript activation MUST NEVER prevent the script from
+#   running its actual work. If activation fails, the script proceeds
+#   uncaptured with a prominent warning and a Tee-Object workaround.
+#####################################################################
+# Auto-relocation guard for -LogFile vs -WorkRoot + -CleanWorkRoot
+#####################################################################
+# When the operator specifies a -LogFile path that resolves to a
+# location INSIDE -WorkRoot AND -CleanWorkRoot is also requested, the
+# P01 PrepareWorkspace phase would attempt Remove-Item on the WorkRoot
+# subtree while Start-Transcript holds the transcript file open in
+# write mode. That produces an IOException
+# ("FileInfo: another process is using this file") partway through
+# the recursive delete, leaving the workspace in a half-deleted
+# state.
+#
+# Instead of throwing, we auto-relocate the transcript to a safe
+# path (this script's own directory, falling back to %TEMP%) with a
+# timestamp-suffixed filename. The user's transcript intent is
+# preserved; only the LOCATION is corrected. A prominent Write-Warning
+# is emitted so the new path is visible. Both the original and new
+# paths are also recorded on $Script:LogFileSetup for the RUN
+# SUMMARY.
+#
+# Trigger:    $LogFile is non-empty AND $CleanWorkRoot AND $LogFile
+#             resolves to a sub-path of $WorkRoot
+# Target:     <script-dir>\Deploy-AMDNpuDriverOnWindowsServer_<Action>_<ts>.log
+# Fallback:   %TEMP%\Deploy-AMDNpuDriverOnWindowsServer_<Action>_<ts>.log
+#             when script-dir is unavailable
+#
+# The intentional design choice is "relocate, do not refuse" so a
+# benign user mistake (putting transcript next to its peer artifacts
+# under logs\) does not block the run. The P01 pre-flight guard below
+# stays as a defense-in-depth backstop in case this relocation logic
+# itself fails to apply for any reason.
+$Script:LogFileRelocation = $null
+if (-not [string]::IsNullOrWhiteSpace($LogFile) -and $CleanWorkRoot) {
+    try {
+        $resolvedLog      = [System.IO.Path]::GetFullPath($LogFile)
+        $resolvedWorkRoot = [System.IO.Path]::GetFullPath($WorkRoot)
+        # Normalize WorkRoot to end with separator so "C:\Workspace"
+        # does not falsely match "C:\Workspace_Other\..." via prefix.
+        if (-not $resolvedWorkRoot.EndsWith([System.IO.Path]::DirectorySeparatorChar) -and `
+            -not $resolvedWorkRoot.EndsWith([System.IO.Path]::AltDirectorySeparatorChar)) {
+            $resolvedWorkRoot = $resolvedWorkRoot + [System.IO.Path]::DirectorySeparatorChar
+        }
+        if ($resolvedLog.StartsWith($resolvedWorkRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+            # Determine target directory: prefer this script's own
+            # directory, fall back to %TEMP% if unavailable.
+            $targetDir = $null
+            if ($Script:ScriptPath) {
+                $candidate = [System.IO.Path]::GetDirectoryName($Script:ScriptPath)
+                if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path -LiteralPath $candidate)) {
+                    $targetDir = $candidate
+                }
+            }
+            if ([string]::IsNullOrWhiteSpace($targetDir)) {
+                $targetDir = [System.IO.Path]::GetTempPath().TrimEnd([System.IO.Path]::DirectorySeparatorChar,
+                                                                     [System.IO.Path]::AltDirectorySeparatorChar)
+            }
+            $ts          = (Get-Date).ToString('yyyyMMdd-HHmmss')
+            $newLogLeaf  = ('Deploy-AMDNpuDriverOnWindowsServer_{0}_{1}.log' -f $Action, $ts)
+            $newLogFile  = Join-Path $targetDir $newLogLeaf
+
+            Write-Warning '[-LogFile guard] Specified -LogFile is inside -WorkRoot:'
+            Write-Warning ('     -LogFile  : {0}' -f $resolvedLog)
+            Write-Warning ('     -WorkRoot : {0}' -f $resolvedWorkRoot)
+            Write-Warning '   With -CleanWorkRoot set, the P01 wipe would collide with the active'
+            Write-Warning '   Start-Transcript file handle. Auto-relocating transcript to a safe path:'
+            Write-Warning ('     New -LogFile -> {0}' -f $newLogFile)
+            Write-Warning '   Tip: pass -LogFile outside -WorkRoot to avoid this notice. Example:'
+            Write-Warning ("       `$ts  = Get-Date -Format 'yyyyMMdd-HHmmss'")
+            Write-Warning ("       `$log = `"C:\Temp\Deploy-AMDNpuDriverOnWindowsServer_{0}_`$ts.log`"" -f $Action)
+            Write-Warning '       .\Deploy-AMDNpuDriverOnWindowsServer.ps1 -Action <Action> -CleanWorkRoot -LogFile $log'
+
+            $Script:LogFileRelocation = [pscustomobject]@{
+                OriginalPath = $resolvedLog
+                NewPath      = $newLogFile
+                Reason       = '-LogFile inside -WorkRoot conflicts with -CleanWorkRoot wipe'
+            }
+            $LogFile = $newLogFile
+        }
+    } catch {
+        # Pre-flight relocation failure is non-fatal; the P01 in-phase
+        # guard below still catches an actual overlap as a backstop.
+        Write-Warning ("[-LogFile guard] Pre-flight relocation check failed (non-fatal): {0}" -f $_.Exception.Message)
+    }
+}
+
 $Script:LogFileActive = $false
 if (-not [string]::IsNullOrWhiteSpace($LogFile)) {
+
+    # Result accumulator. Populated whether activation succeeds or not.
+    $Script:LogFileSetup = [pscustomobject]@{
+        Path           = $LogFile
+        Active         = $false
+        SuccessfulForm = $null
+        ReturnValue    = $null
+        FileExists     = $false
+        FileSizeBefore = 0
+        FileSizeAfter  = 0
+        ProbeWritten   = $false
+        ProbeCaptured  = $false
+        ElapsedMs      = 0
+        FailedAttempts = New-Object System.Collections.Generic.List[object]
+    }
+    $logSetupSw = [System.Diagnostics.Stopwatch]::StartNew()
+
     try {
-        $logDir = Split-Path -LiteralPath $LogFile -Parent
+        # Ensure parent directory exists. Use -ErrorAction Stop so a
+        # path-creation failure is caught by the outer catch and
+        # reported clearly rather than producing a misleading
+        # "transcript failed" message later.
+        #
+        # IMPORTANT: Use [System.IO.Path]::GetDirectoryName instead of
+        # Split-Path -LiteralPath $LogFile -Parent. On Windows PowerShell
+        # 5.1, Split-Path parameter sets put -LiteralPath into
+        # LiteralPathSet and -Parent into ParentSet (mutually exclusive),
+        # which causes an AmbiguousParameterSet binding error. This was
+        # the root cause of long-standing -LogFile bind failures on
+        # ja-JP PS 5.1. See Microsoft Learn:
+        # https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.management/split-path?view=powershell-5.1
+        $logDir = [System.IO.Path]::GetDirectoryName($LogFile)
         if (-not [string]::IsNullOrWhiteSpace($logDir) -and -not (Test-Path -LiteralPath $logDir)) {
             New-Item -ItemType Directory -Path $logDir -Force -ErrorAction Stop | Out-Null
         }
+
         # Defensive: stop any in-flight transcript from a previous run
         # in the same PowerShell host (Start-Transcript fails if one is
         # already active). Best-effort, no error if none is active.
         try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup
-        Start-Transcript -Path $LogFile -Append -Force -ErrorAction Stop | Out-Null
+        Start-Sleep -Milliseconds 100  # let the host settle before next call
+
+        # Progressively-simpler invocation forms. Each is invoked as a
+        # script block to keep the call surface minimal. We try them in
+        # order; the first one whose RETURN VALUE is non-empty AND
+        # whose log file appears on disk within the timeout is taken
+        # as the winner.
+        $logSetupForms = @(
+            @{ Label = '-Path -Append -Force'
+               Block = { param($p) Start-Transcript -Path $p -Append -Force -ErrorAction Stop } }
+            @{ Label = '-LiteralPath -Append -Force'
+               Block = { param($p) Start-Transcript -LiteralPath $p -Append -Force -ErrorAction Stop } }
+            @{ Label = '-Path -Force (no -Append)'
+               Block = { param($p) Start-Transcript -Path $p -Force -ErrorAction Stop } }
+            @{ Label = '-Path only (minimal)'
+               Block = { param($p) Start-Transcript -Path $p -ErrorAction Stop } }
+            @{ Label = 'Invoke-Expression re-parse (last resort)'
+               Block = { param($p)
+                   $escaped = ($p -replace "'", "''")
+                   $cmd = "Start-Transcript -Path '{0}' -Force -ErrorAction Stop" -f $escaped
+                   Invoke-Expression $cmd  # psa-disable-line PSA5002 -- last-resort re-parse path, input is the script's own -LogFile parameter with single-quote escape
+               } }
+        )
+
+        $confirmTimeoutMs    = 3000
+        $confirmPollMs       = 50
+        $interAttemptWaitMs  = 300
+        $probeFlushWaitMs    = 200
+
+        foreach ($form in $logSetupForms) {
+            $attemptDiag = [ordered]@{
+                Form    = $form.Label
+                Stage   = 'invocation'
+                Type    = $null
+                Message = $null
+                FQId    = $null
+            }
+            $rv = $null
+
+            # ----- Stage 1: invocation -----
+            try {
+                $rv = & $form.Block $LogFile
+            } catch {
+                $attemptDiag.Stage   = 'invocation'
+                $attemptDiag.Type    = $_.Exception.GetType().FullName
+                $attemptDiag.Message = $_.Exception.Message
+                $attemptDiag.FQId    = $_.FullyQualifiedErrorId
+                Write-Host ("[Transcript] {0} -> invocation FAILED: {1}" -f $form.Label, $_.Exception.Message) -ForegroundColor DarkYellow
+                $Script:LogFileSetup.FailedAttempts.Add([pscustomobject]$attemptDiag)
+                # Cleanup partial state, then continue
+                try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { } # psa-disable-line PSA3004
+                Start-Sleep -Milliseconds $interAttemptWaitMs
+                continue
+            }
+
+            # ----- Stage 2: return value verification -----
+            if (-not $rv) {
+                $attemptDiag.Stage   = 'return-value-empty'
+                $attemptDiag.Message = 'Start-Transcript returned $null or empty - transcript did not actually start'
+                Write-Host ("[Transcript] {0} -> return value EMPTY" -f $form.Label) -ForegroundColor DarkYellow
+                $Script:LogFileSetup.FailedAttempts.Add([pscustomobject]$attemptDiag)
+                try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { } # psa-disable-line PSA3004
+                Start-Sleep -Milliseconds $interAttemptWaitMs
+                continue
+            }
+
+            # ----- Stage 3: file appearance verification (polling) -----
+            $fileDeadline = (Get-Date).AddMilliseconds($confirmTimeoutMs)
+            $fileReady    = $false
+            while ((Get-Date) -lt $fileDeadline) {
+                if (Test-Path -LiteralPath $LogFile) { $fileReady = $true; break }
+                Start-Sleep -Milliseconds $confirmPollMs
+            }
+            if (-not $fileReady) {
+                $attemptDiag.Stage   = 'file-not-appearing'
+                $attemptDiag.Message = ("Log file did not appear within {0} ms: {1}" -f $confirmTimeoutMs, $LogFile)
+                Write-Host ("[Transcript] {0} -> file did not appear ({1} ms)" -f $form.Label, $confirmTimeoutMs) -ForegroundColor DarkYellow
+                $Script:LogFileSetup.FailedAttempts.Add([pscustomobject]$attemptDiag)
+                try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { } # psa-disable-line PSA3004
+                Start-Sleep -Milliseconds $interAttemptWaitMs
+                continue
+            }
+
+            try {
+                $Script:LogFileSetup.FileSizeBefore = (Get-Item -LiteralPath $LogFile -ErrorAction Stop).Length
+            } catch {
+                $Script:LogFileSetup.FileSizeBefore = -1
+            }
+
+            # ----- Stage 4: probe-marker write & read-back -----
+            # The most reliable way to verify transcription is actively
+            # capturing: write a known marker, wait for flush, read back.
+            $probeMarker = '[transcript-probe-{0}]' -f ([Guid]::NewGuid().ToString('N').Substring(0, 12))
+            Write-Output $probeMarker | Out-Null  # routed into the transcript
+            Write-Host $probeMarker -ForegroundColor DarkGray  # also written via host stream
+            $Script:LogFileSetup.ProbeWritten = $true
+            Start-Sleep -Milliseconds $probeFlushWaitMs
+
+            $probeFound = $false
+            try {
+                $content = Get-Content -LiteralPath $LogFile -Raw -ErrorAction Stop
+                if ($content -and $content.Contains($probeMarker)) {
+                    $probeFound = $true
+                }
+            } catch {
+                # ignore read errors here; the probe just wasn't captured
+            }
+            $Script:LogFileSetup.ProbeCaptured = $probeFound
+
+            try {
+                $Script:LogFileSetup.FileSizeAfter = (Get-Item -LiteralPath $LogFile -ErrorAction Stop).Length
+            } catch {
+                $Script:LogFileSetup.FileSizeAfter = -1
+            }
+
+            if (-not $probeFound) {
+                # File exists and cmdlet returned non-empty, but the
+                # probe marker did not land in the file. This is a
+                # silent capture failure - rare but possible.
+                $attemptDiag.Stage   = 'probe-not-captured'
+                $attemptDiag.Message = 'Probe marker was not captured in the log file - transcription is silently dropping output'
+                Write-Host ("[Transcript] {0} -> probe NOT captured (transcript file exists but is not capturing)" -f $form.Label) -ForegroundColor DarkYellow
+                $Script:LogFileSetup.FailedAttempts.Add([pscustomobject]$attemptDiag)
+                try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { } # psa-disable-line PSA3004
+                Start-Sleep -Milliseconds $interAttemptWaitMs
+                continue
+            }
+
+            # ----- All stages passed -----
+            $Script:LogFileSetup.Active         = $true
+            $Script:LogFileSetup.SuccessfulForm = $form.Label
+            $Script:LogFileSetup.ReturnValue    = $rv
+            $Script:LogFileSetup.FileExists     = $true
+            Write-Host ("[Transcript] {0} -> VERIFIED ACTIVE" -f $form.Label) -ForegroundColor DarkGreen
+            Write-Host ("              Return    : {0}" -f $rv) -ForegroundColor DarkGray
+            Write-Host ("              File size : {0} bytes (before-probe) -> {1} bytes (after-probe)" -f `
+                            $Script:LogFileSetup.FileSizeBefore, $Script:LogFileSetup.FileSizeAfter) -ForegroundColor DarkGray
+            break
+        }
+
+        if (-not $Script:LogFileSetup.Active) {
+            throw 'Transcript activation could not be verified through any invocation form'
+        }
+
         $Script:LogFileActive = $true
-        # Register a host-exit fallback so the transcript is closed even
-        # if the script bails before the finally block at end-of-file
-        # (e.g. parameter validation error after this point).
         Register-EngineEvent -SourceIdentifier PowerShell.Exiting -SupportEvent -Action {
             try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { } # psa-disable-line PSA3004
         } | Out-Null
-        Write-Host ("[*] Transcript -> {0}" -f $LogFile) -ForegroundColor DarkGreen
+        Write-Host ('[*] Transcript active -> {0}' -f $LogFile) -ForegroundColor DarkGreen
     } catch {
-        Write-Warning ("Failed to start transcript at '{0}': {1}" -f $LogFile, $_.Exception.Message)
+        Write-Warning ("Transcript activation failed at '{0}': {1}" -f $LogFile, $_.Exception.Message)
+        Write-Warning '   Continuing without log capture. Script execution itself is not affected.'
+        if ($Script:LogFileSetup.FailedAttempts.Count -gt 0) {
+            Write-Warning '   Per-attempt failure log:'
+            foreach ($f in $Script:LogFileSetup.FailedAttempts) {
+                Write-Warning ('     - [{0}] {1}' -f $f.Form, $f.Stage)
+                if ($f.Type)    { Write-Warning ('         Type   : {0}' -f $f.Type) }
+                if ($f.FQId)    { Write-Warning ('         FQErrId: {0}' -f $f.FQId) }
+                if ($f.Message) { Write-Warning ('         Message: {0}' -f $f.Message) }
+            }
+        }
+        Write-Warning '   Workaround: capture the console output with the legacy Tee-Object idiom:'
+        Write-Warning '       .\Deploy-AMDNpuDriverOnWindowsServer.ps1 -Action PrepareVerify *>&1 | Tee-Object -FilePath C:\Temp\out.log'
         $Script:LogFileActive = $false
+    } finally {
+        $logSetupSw.Stop()
+        $Script:LogFileSetup.ElapsedMs = $logSetupSw.ElapsedMilliseconds
+        if ($Script:LogFileActive) {
+            Write-Host ('[*] Transcript setup elapsed: {0} ms' -f $Script:LogFileSetup.ElapsedMs) -ForegroundColor DarkGray
+        }
     }
 }
-
 # Phase registry (sister-script-aligned: pscustomobject + Invoke-{Group}Phase{NN}_{Name})
 $Script:PhaseRegistry = @(
     [pscustomobject]@{ Id='P00'; Name='Initialize';                Group='Prep';   Func='Invoke-PrepPhase00_Initialize'                }
@@ -897,6 +1202,888 @@ function Show-PhaseList {
 # The 6 core functions below are byte-identical to those scripts; only the
 # Get-OrEnsureSecureBootBaseline helper at the end of the block is NPU-
 # specific (NPU keeps state on $Script:DetectedPlatform rather than $Ctx).
+
+#####################################################################
+# SECTION 1b: Debug Trace Facility (r9+, structured diagnostics)
+#####################################################################
+# A reusable diagnostic helper used to pinpoint the exact failing
+# operation inside a complex function body, with three integrated
+# subsystems:
+#
+#   (1) Trace primitives  : Start-DebugTrace / Set-DebugStep /
+#                           Stop-DebugTrace / Format-DebugFailure /
+#                           Write-DebugFailureReport
+#   (2) JSONL file output : Real-time append-only event stream to
+#                           <WorkRoot>\logs\debugtrace.jsonl
+#   (3) JSON Export       : Point-in-time snapshot with full state,
+#                           used manually and auto-triggered on phase
+#                           failure.
+#
+# Motivation: r7 investigation of Invoke-InfVerifValidation - the
+# function raised System.ArgumentException but the stack trace only
+# identified the function, not the line. By instrumenting with
+# $debugStep checkpoints and a catch handler that reported the step
+# name + exception type + message + script stack, the failure was
+# localised to a single line (the `return [pscustomobject]@{...}`
+# statement) and from there to a PS 5.1 ja-JP locale bug. This section
+# generalises that ad-hoc pattern into a reusable facility that any
+# function in this script (or sister scripts) can adopt.
+#
+# Typical usage pattern (function entry/body/catch/finally):
+#
+#   function Invoke-Something {
+#       Start-DebugTrace -Context 'Invoke-Something'
+#       try {
+#           Set-DebugStep 'validate inputs'
+#           ...
+#           Set-DebugStep 'open file'
+#           ...
+#           Set-DebugStep 'parse content'
+#           ...
+#           Set-DebugStep 'return result'
+#           return $result
+#       } catch {
+#           Write-DebugFailureReport $_ -IncludeStepHistory
+#           throw
+#       } finally {
+#           Stop-DebugTrace
+#       }
+#   }
+#
+# Nesting: traces stack via Stack<object>; nested traced functions
+# don't stomp on each other's state. Format-DebugFailure always
+# reports against the frame that was at the top of the stack at the
+# moment the exception was caught (= the function whose catch block
+# is running).
+#
+# Phase integration: the top-level phase dispatcher loop wraps every
+# phase invocation in Start-DebugTrace / Stop-DebugTrace with the
+# phase ID as context (e.g. 'phase.P05.AnalyzeInfs'). Any Set-DebugStep
+# inside the phase body is automatically attributed to that frame.
+# On phase failure, the dispatcher emits Write-DebugFailureReport and
+# triggers Export-DebugTraceJson automatically when auto-export is on.
+
+# --- 1b.1: Module-level state -----------------------------------------
+
+# Stack of currently-active trace frames (most recent on top).
+# Each frame is a pscustomobject with: Context, Step, Steps, StartTime,
+# Echo, Outcome (set on Stop), FailureRef (set on failure).
+$Script:DebugTraceStack = New-Object 'System.Collections.Generic.Stack[object]'
+
+# List of completed frames retained for JSON Export. Each entry is the
+# same pscustomobject as in the stack, with Outcome and (if applicable)
+# FailureRef populated. Used by Export-DebugTraceJson to reconstruct
+# the full call history. Capped to prevent unbounded growth in long runs.
+$Script:DebugTraceCompletedFrames = New-Object 'System.Collections.Generic.List[object]'
+$Script:DebugTraceCompletedCap    = 1024  # cap on retained completed frames
+
+# Step history cap per frame, to prevent unbounded growth in tight loops
+# that call Set-DebugStep repeatedly.
+$Script:DebugTraceHistoryCap = 256
+
+# Per-event log line size cap (chars). Truncate very large RawOutput-style
+# fields when writing to JSONL so the stream stays grep-able.
+$Script:DebugTraceJsonlLineCap = 8192
+
+# ConvertTo-Json depth. 100 = PS 5.1 ConvertTo-Json official maximum
+# (per Microsoft Learn docs: "any number from 1 to 100"). Set to the
+# max to ensure no nested object truncation when exporting trace state.
+$Script:DebugTraceJsonDepth = 100
+
+# JSONL writer state. Activated by Enable-DebugTraceFileOutput, typically
+# from P01 (PrepareWorkspace) once the <WorkRoot>\logs dir exists.
+$Script:DebugTraceJsonlEnabled = $false
+$Script:DebugTraceJsonlPath    = $null
+$Script:DebugTraceJsonlBuffer  = New-Object 'System.Collections.Generic.List[string]'  # pre-activation buffer
+$Script:DebugTraceJsonlBufferCap = 4096  # pre-flush buffer cap (chars combined)
+$Script:DebugTraceJsonlWriteCount = 0
+$Script:DebugTraceJsonlErrorCount = 0
+$Script:DebugTraceJsonlLastError  = $null
+
+# Auto-export-on-failure state.
+$Script:DebugTraceAutoExportEnabled = $false
+$Script:DebugTraceAutoExportDir     = $null
+
+# Per-phase trace registry. Phase id -> frame reference + outcome metadata.
+$Script:DebugTracePhaseRegistry = @{}
+
+# Script-level event sequence number. Monotonic across the whole run,
+# included in every JSONL event so they can be ordered exactly even when
+# multiple events share the same millisecond timestamp.
+$Script:DebugTraceEventSeq = 0
+
+# --- 1b.2: Internal helpers (not part of public API) ------------------
+
+function _DebugTrace_NextSeq {
+    # Atomic-ish counter. Single-threaded PowerShell so no Interlocked
+    # needed; this is just a small helper for readability.
+    $Script:DebugTraceEventSeq++
+    return $Script:DebugTraceEventSeq
+}
+
+function _DebugTrace_Now {
+    # Return current time as ISO 8601 string with milliseconds and Z
+    # suffix. Pre-converted to string so ConvertTo-Json doesn't render
+    # the PS 5.1 legacy /Date(N)/ format - we want the same machine-
+    # readable representation regardless of PS version.
+    return (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+}
+
+function _DebugTrace_WriteJsonlLine {
+    # Append one JSONL line to the debugtrace.jsonl file (or to the
+    # pre-activation buffer if file output isn't enabled yet). All
+    # failures are absorbed so the script body is never disrupted by
+    # trace bookkeeping.
+    param([Parameter(Mandatory)] $Event)
+
+    # Add monotonic sequence number for stable cross-event ordering.
+    $Event | Add-Member -MemberType NoteProperty -Name 'seq' -Value (_DebugTrace_NextSeq) -Force
+
+    try {
+        $json = $Event | ConvertTo-Json -Depth $Script:DebugTraceJsonDepth -Compress
+    } catch {
+        # If JSON conversion fails (e.g. circular reference somewhere),
+        # fall back to a minimal hand-written line so we still record
+        # something. Increment error counter and stash last error.
+        $Script:DebugTraceJsonlErrorCount++
+        $Script:DebugTraceJsonlLastError = $_.Exception.Message
+        $kind = if ($Event.PSObject.Properties['kind']) { $Event.kind } else { 'unknown' }
+        $ctx  = if ($Event.PSObject.Properties['ctx'])  { $Event.ctx  } else { '?' }
+        $json = ('{{"ts":"{0}","seq":{1},"kind":"{2}","ctx":"{3}","err":"json-serialize-failed"}}' `
+                    -f (_DebugTrace_Now), $Script:DebugTraceEventSeq, $kind, $ctx)
+    }
+
+    # Truncate over-cap lines so the JSONL stream stays grep-able.
+    if ($json.Length -gt $Script:DebugTraceJsonlLineCap) {
+        $json = $json.Substring(0, $Script:DebugTraceJsonlLineCap - 16) + '...","truncated":1}'
+    }
+
+    if ($Script:DebugTraceJsonlEnabled -and $Script:DebugTraceJsonlPath) {
+        try {
+            # IMPORTANT: UTF-8 *with* BOM. On Windows PowerShell 5.1
+            # with a ja-JP / non-English locale, `Get-Content` defaults
+            # to the OS code page (Shift-JIS on ja-JP), which mojibakes
+            # any Japanese / UTF-8 multi-byte content unless the file
+            # has a BOM. AppendAllText only writes the BOM when the file
+            # is freshly created, so subsequent appends incur no
+            # overhead.
+            [System.IO.File]::AppendAllText(
+                $Script:DebugTraceJsonlPath,
+                $json + "`r`n",
+                [System.Text.UTF8Encoding]::new($true))
+            $Script:DebugTraceJsonlWriteCount++
+        } catch {
+            # If file write fails (e.g. disk full, perm changed), revert
+            # to buffer mode and remember the error for diagnostics.
+            $Script:DebugTraceJsonlErrorCount++
+            $Script:DebugTraceJsonlLastError = $_.Exception.Message
+            $Script:DebugTraceJsonlEnabled = $false
+            $Script:DebugTraceJsonlBuffer.Add($json) | Out-Null
+            # Cap the buffer too so it can't grow unbounded after a long
+            # disk-full period.
+            while ($Script:DebugTraceJsonlBuffer.Count -gt $Script:DebugTraceJsonlBufferCap) {
+                $Script:DebugTraceJsonlBuffer.RemoveAt(0)
+            }
+        }
+    } else {
+        # Pre-activation: buffer in memory. P01 will flush after the
+        # workspace logs directory is created.
+        $Script:DebugTraceJsonlBuffer.Add($json) | Out-Null
+        while ($Script:DebugTraceJsonlBuffer.Count -gt $Script:DebugTraceJsonlBufferCap) {
+            $Script:DebugTraceJsonlBuffer.RemoveAt(0)
+        }
+    }
+}
+
+function _DebugTrace_RetireFrame {
+    # Move a frame from the active stack into the completed list.
+    # Handles the history cap. Idempotent: safe to call even if the
+    # frame has already been retired.
+    param([Parameter(Mandatory)] $Frame, [Parameter(Mandatory)] [string]$Outcome)
+
+    if (-not $Frame.PSObject.Properties['Outcome'] -or -not $Frame.Outcome) {
+        $Frame | Add-Member -MemberType NoteProperty -Name 'Outcome'   -Value $Outcome -Force
+        $Frame | Add-Member -MemberType NoteProperty -Name 'EndedAt'   -Value (Get-Date) -Force
+        $durationMs = [int]((Get-Date) - $Frame.StartTime).TotalMilliseconds
+        $Frame | Add-Member -MemberType NoteProperty -Name 'DurationMs' -Value $durationMs -Force
+    }
+
+    $Script:DebugTraceCompletedFrames.Add($Frame) | Out-Null
+    while ($Script:DebugTraceCompletedFrames.Count -gt $Script:DebugTraceCompletedCap) {
+        $Script:DebugTraceCompletedFrames.RemoveAt(0)
+    }
+}
+
+# --- 1b.3: Public API - trace primitives ------------------------------
+
+function Start-DebugTrace {
+    <#
+    .SYNOPSIS
+        Push a new debug trace frame onto the stack. Call at function entry.
+    .PARAMETER Context
+        Human-readable name for this frame, typically the function name.
+    .PARAMETER Echo
+        If set, every Set-DebugStep call also writes a live [trace] line
+        to the console. Default off.
+    .PARAMETER PhaseId
+        Optional phase identifier (e.g. 'P05'). When set, the frame is
+        registered in the per-phase trace registry. Used by the phase
+        dispatcher; do not set manually inside phase function bodies.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string]$Context,
+        [switch]$Echo,
+        [string]$PhaseId
+    )
+    $frame = [pscustomobject]@{
+        Context   = $Context
+        Step      = 'entry'
+        Steps     = (New-Object 'System.Collections.Generic.List[object]')
+        StartTime = Get-Date
+        Echo      = [bool]$Echo
+        PhaseId   = $PhaseId
+        Depth     = $Script:DebugTraceStack.Count + 1
+    }
+    $Script:DebugTraceStack.Push($frame)
+
+    if ($PhaseId) {
+        $Script:DebugTracePhaseRegistry[$PhaseId] = [pscustomobject]@{
+            PhaseId    = $PhaseId
+            Frame      = $frame
+            StartedAt  = Get-Date
+            EndedAt    = $null
+            Outcome    = 'in-progress'
+            FailureRef = $null
+        }
+    }
+
+    _DebugTrace_WriteJsonlLine ([pscustomobject]@{
+        ts    = _DebugTrace_Now
+        kind  = 'frame.open'
+        ctx   = $Context
+        depth = $frame.Depth
+        phase = $PhaseId
+    })
+}
+
+function Set-DebugStep {
+    <#
+    .SYNOPSIS
+        Mark the current step inside the active debug trace frame.
+        No-op if no frame is active (so functions can use it
+        opportunistically without callers having to set up tracing).
+    .PARAMETER Step
+        Short label describing the operation about to be performed.
+    .PARAMETER Detail
+        Optional extra context attached to this step in the JSONL log.
+        Not surfaced in console output, only in the trace file.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, Position=0)] [string]$Step,
+        [string]$Detail
+    )
+    if ($Script:DebugTraceStack.Count -eq 0) { return }
+    $frame = $Script:DebugTraceStack.Peek()
+    $frame.Step = $Step
+    $now = Get-Date
+    $frame.Steps.Add([pscustomobject]@{
+        Step   = $Step
+        At     = $now
+        Detail = $Detail
+    }) | Out-Null
+    while ($frame.Steps.Count -gt $Script:DebugTraceHistoryCap) {
+        $frame.Steps.RemoveAt(0)
+    }
+    if ($frame.Echo) {
+        Write-Host ('[trace:{0}] {1}' -f $frame.Context, $Step) -ForegroundColor DarkMagenta
+    }
+    _DebugTrace_WriteJsonlLine ([pscustomobject]@{
+        ts     = _DebugTrace_Now
+        kind   = 'step'
+        ctx    = $frame.Context
+        step   = $Step
+        detail = $Detail
+    })
+}
+
+function Stop-DebugTrace {
+    <#
+    .SYNOPSIS
+        Pop the most recent trace frame. Call in the finally block.
+    .PARAMETER Outcome
+        Optional outcome label. Defaults to 'success'. The catch block
+        of the same function should set it to 'failure' before throwing
+        if it wants the completed-frame record to reflect the failure.
+    #>
+    [CmdletBinding()]
+    param(
+        [ValidateSet('success','failure','cancelled','unknown')]
+        [string]$Outcome = 'success'
+    )
+    if ($Script:DebugTraceStack.Count -eq 0) { return }
+    $frame = $Script:DebugTraceStack.Pop()
+
+    # If the frame was registered as a phase frame, finalise its
+    # registry entry too.
+    if ($frame.PhaseId -and $Script:DebugTracePhaseRegistry.ContainsKey($frame.PhaseId)) {
+        $reg = $Script:DebugTracePhaseRegistry[$frame.PhaseId]
+        $reg.EndedAt = Get-Date
+        # Don't overwrite an already-set outcome (e.g. 'failure' set
+        # by Write-DebugFailureReport).
+        if ($reg.Outcome -eq 'in-progress') {
+            $reg.Outcome = $Outcome
+        }
+    }
+
+    _DebugTrace_RetireFrame -Frame $frame -Outcome $Outcome
+
+    _DebugTrace_WriteJsonlLine ([pscustomobject]@{
+        ts       = _DebugTrace_Now
+        kind     = 'frame.close'
+        ctx      = $frame.Context
+        outcome  = $frame.Outcome
+        durMs    = $frame.DurationMs
+        steps    = $frame.Steps.Count
+        phase    = $frame.PhaseId
+    })
+}
+
+function Format-DebugFailure {
+    <#
+    .SYNOPSIS
+        Build a structured failure report from an ErrorRecord plus the
+        currently-active trace frame. Use when you need the failure
+        data programmatically (e.g. relay it elsewhere).
+    .PARAMETER ErrorRecord
+        The $_ inside a catch block.
+    .OUTPUTS
+        pscustomobject with: Context, FailedStep, Elapsed, ExType,
+        ExMessage, InnerType, InnerMessage, FullyQualifiedId,
+        ScriptStackTrace, StepHistory (object[]).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $ErrorRecord
+    )
+    $ex = $ErrorRecord.Exception
+    if ($Script:DebugTraceStack.Count -gt 0) {
+        $frame       = $Script:DebugTraceStack.Peek()
+        $context     = $frame.Context
+        $failedStep  = $frame.Step
+        # PS 5.1 ja-JP bug workaround: use .ToArray() not @($list).
+        $stepHistory = $frame.Steps.ToArray()
+        $elapsed     = (Get-Date) - $frame.StartTime
+        $phaseId     = $frame.PhaseId
+    } else {
+        $context     = '(no active trace)'
+        $failedStep  = '(no active trace)'
+        $stepHistory = @()
+        $elapsed     = [TimeSpan]::Zero
+        $phaseId     = $null
+    }
+    return [pscustomobject]@{
+        Context           = $context
+        FailedStep        = $failedStep
+        Elapsed           = $elapsed
+        ElapsedMs         = [int]$elapsed.TotalMilliseconds
+        PhaseId           = $phaseId
+        ExType            = $ex.GetType().FullName
+        ExMessage         = $ex.Message
+        InnerType         = if ($ex.InnerException) { $ex.InnerException.GetType().FullName } else { $null }
+        InnerMessage      = if ($ex.InnerException) { $ex.InnerException.Message } else { $null }
+        FullyQualifiedId  = $ErrorRecord.FullyQualifiedErrorId
+        ScriptStackTrace  = $ErrorRecord.ScriptStackTrace
+        StepHistory       = $stepHistory
+    }
+}
+
+function Write-DebugFailureReport {
+    <#
+    .SYNOPSIS
+        Emit a formatted failure report via Write-Warn2 + log the
+        failure event to JSONL. Call from a catch block. Also marks
+        the active phase's registry entry as 'failure' if applicable.
+    .PARAMETER ErrorRecord
+        The $_ inside a catch block.
+    .PARAMETER IncludeStepHistory
+        If set, log every step the trace reached before the failure.
+    .PARAMETER AutoExport
+        If set, automatically write a JSON snapshot to the configured
+        auto-export directory. Use this for top-level catch handlers.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] $ErrorRecord,
+        [switch]$IncludeStepHistory,
+        [switch]$AutoExport
+    )
+    $r = Format-DebugFailure -ErrorRecord $ErrorRecord
+
+    # Update the phase registry if this failure happened inside a phase.
+    if ($r.PhaseId -and $Script:DebugTracePhaseRegistry.ContainsKey($r.PhaseId)) {
+        $reg = $Script:DebugTracePhaseRegistry[$r.PhaseId]
+        $reg.Outcome    = 'failure'
+        $reg.FailureRef = $r
+    }
+
+    Write-Warn2 ("{0}: FAILED at step '{1}' (elapsed {2:F2}s)" -f $r.Context, $r.FailedStep, $r.Elapsed.TotalSeconds)
+    Write-Warn2 ("  ExType   : {0}" -f $r.ExType)
+    Write-Warn2 ("  Message  : {0}" -f $r.ExMessage)
+    if ($r.InnerType) {
+        Write-Warn2 ("  Inner    : {0} - {1}" -f $r.InnerType, $r.InnerMessage)
+    }
+    if ($r.FullyQualifiedId) {
+        Write-Warn2 ("  FQErrId  : {0}" -f $r.FullyQualifiedId)
+    }
+    if ($r.ScriptStackTrace) {
+        $stackLines = $r.ScriptStackTrace -split "`r?`n"
+        Write-Warn2 ("  Stack    : {0}" -f $stackLines[0])
+        $maxStack = [Math]::Min(3, $stackLines.Count)
+        for ($i = 1; $i -lt $maxStack; $i++) {
+            Write-Warn2 ("             {0}" -f $stackLines[$i])
+        }
+    }
+    if ($IncludeStepHistory -and $r.StepHistory.Count -gt 0) {
+        Write-Warn2 ("  Steps    : {0} recorded" -f $r.StepHistory.Count)
+        $firstAt = $r.StepHistory[0].At
+        foreach ($h in $r.StepHistory) {
+            $rel = ($h.At - $firstAt).TotalMilliseconds
+            Write-Warn2 ('    +{0,7:F0}ms  {1}' -f $rel, $h.Step)
+        }
+    }
+
+    _DebugTrace_WriteJsonlLine ([pscustomobject]@{
+        ts          = _DebugTrace_Now
+        kind        = 'failure'
+        ctx         = $r.Context
+        step        = $r.FailedStep
+        elapsedMs   = $r.ElapsedMs
+        phase       = $r.PhaseId
+        exType      = $r.ExType
+        msg         = $r.ExMessage
+        innerType   = $r.InnerType
+        innerMsg    = $r.InnerMessage
+        fqErrId     = $r.FullyQualifiedId
+        stack       = $r.ScriptStackTrace
+        stepHistory = $r.StepHistory
+    })
+
+    if ($AutoExport -and $Script:DebugTraceAutoExportEnabled -and $Script:DebugTraceAutoExportDir) {
+        try {
+            $ts = (Get-Date).ToString('yyyyMMdd-HHmmss')
+            $tag = if ($r.PhaseId) { $r.PhaseId } else { 'top' }
+            $exportPath = Join-Path $Script:DebugTraceAutoExportDir ("debugtrace_export_{0}_{1}.json" -f $tag, $ts)
+            Export-DebugTraceJson -Path $exportPath -IncludeEvents:$false | Out-Null
+            Write-Warn2 ("  TraceJson: {0}" -f $exportPath)
+        } catch {
+            # Don't let auto-export failures hide the original error.
+            Write-Warn2 ("  TraceJson: auto-export failed: {0}" -f $_.Exception.Message)
+        }
+    }
+}
+
+# --- 1b.4: Public API - file output (Feature A) -----------------------
+
+function Enable-DebugTraceFileOutput {
+    <#
+    .SYNOPSIS
+        Activate the JSONL writer. Typically called by P01 once the
+        workspace logs directory exists. Flushes the pre-activation
+        buffer into the file in one go.
+    .PARAMETER Directory
+        Target directory. The file is named 'debugtrace.jsonl' inside
+        this dir. If a same-named file exists, it is appended.
+    .PARAMETER Force
+        If set, switch output to the new directory even if file output
+        was already active. (Useful for re-routing.)
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string]$Directory,
+        [switch]$Force
+    )
+    if ($Script:DebugTraceJsonlEnabled -and -not $Force) { return }
+
+    try {
+        if (-not (Test-Path -LiteralPath $Directory)) {
+            New-Item -ItemType Directory -Path $Directory -Force -ErrorAction Stop | Out-Null
+        }
+        $path = Join-Path $Directory 'debugtrace.jsonl'
+
+        # Probe write a header line so the file exists and is writable.
+        # If a same-name lock collision occurs, fall back to per-pid filename.
+        $headerObj = [pscustomobject]@{
+            ts        = _DebugTrace_Now
+            kind      = 'file.open'
+            scriptVer = $Script:ScriptVersion
+            scriptSha = $Script:ScriptHash
+            pid       = $PID
+            host      = $Host.Name
+            psVer     = $PSVersionTable.PSVersion.ToString()
+            culture   = (Get-Culture).Name
+        }
+        $headerJson = $headerObj | ConvertTo-Json -Depth $Script:DebugTraceJsonDepth -Compress
+        try {
+            # UTF-8 with BOM (see _DebugTrace_WriteJsonlLine comment).
+            [System.IO.File]::AppendAllText($path, $headerJson + "`r`n", [System.Text.UTF8Encoding]::new($true))
+        } catch {
+            # Path locked by another process; switch to per-pid filename.
+            $path = Join-Path $Directory ("debugtrace_{0}.jsonl" -f $PID)
+            [System.IO.File]::AppendAllText($path, $headerJson + "`r`n", [System.Text.UTF8Encoding]::new($true))
+        }
+
+        $Script:DebugTraceJsonlPath    = $path
+        $Script:DebugTraceJsonlEnabled = $true
+
+        # Flush pre-activation buffer
+        if ($Script:DebugTraceJsonlBuffer.Count -gt 0) {
+            $bufferedLines = $Script:DebugTraceJsonlBuffer.ToArray()
+            $Script:DebugTraceJsonlBuffer.Clear()
+            try {
+                $blob = ($bufferedLines -join "`r`n") + "`r`n"
+                # UTF-8 with BOM (see _DebugTrace_WriteJsonlLine comment).
+                [System.IO.File]::AppendAllText($path, $blob, [System.Text.UTF8Encoding]::new($true))
+                $Script:DebugTraceJsonlWriteCount += $bufferedLines.Count
+            } catch {
+                # If flush fails, re-buffer for the next opportunity.
+                foreach ($l in $bufferedLines) { $Script:DebugTraceJsonlBuffer.Add($l) | Out-Null }
+                $Script:DebugTraceJsonlErrorCount++
+                $Script:DebugTraceJsonlLastError = $_.Exception.Message
+                throw
+            }
+        }
+
+        # Register a one-shot cleanup at PowerShell host exit so the
+        # JSONL stream is flushed and a close marker is written even on
+        # abnormal termination.
+        Register-EngineEvent -SourceIdentifier PowerShell.Exiting -SupportEvent -Action {
+            try {
+                if ($Script:DebugTraceJsonlEnabled -and $Script:DebugTraceJsonlPath) {
+                    $closeEvent = '{{"ts":"{0}","kind":"file.close","pid":{1}}}' -f `
+                        (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ'), $PID
+                    [System.IO.File]::AppendAllText(
+                        $Script:DebugTraceJsonlPath,
+                        $closeEvent + "`r`n",
+                        [System.Text.UTF8Encoding]::new($true))
+                }
+            } catch { } # psa-disable-line PSA3004 -- intentional best-effort during PowerShell.Exiting; host is tearing down, surfacing errors is useless
+        } | Out-Null
+
+        Write-Host ('[*] Debug trace -> {0}' -f $path) -ForegroundColor DarkGreen
+    } catch {
+        # Activation failed; stay in buffer mode. The buffer continues
+        # to accumulate but we never surface the failure as an error to
+        # the caller - trace bookkeeping must not break the script.
+        $Script:DebugTraceJsonlEnabled = $false
+        $Script:DebugTraceJsonlErrorCount++
+        $Script:DebugTraceJsonlLastError = $_.Exception.Message
+        Write-Warning ("Debug trace file output activation failed: {0}" -f $_.Exception.Message)
+        Write-Warning '   Trace events remain captured in memory and are exportable via Export-DebugTraceJson.'
+    }
+}
+
+function Disable-DebugTraceFileOutput {
+    <#
+    .SYNOPSIS
+        Stop appending trace events to the JSONL file. Events continue
+        to be captured in memory and remain exportable via
+        Export-DebugTraceJson.
+    #>
+    [CmdletBinding()]
+    param()
+    if (-not $Script:DebugTraceJsonlEnabled) { return }
+    _DebugTrace_WriteJsonlLine ([pscustomobject]@{
+        ts   = _DebugTrace_Now
+        kind = 'file.disable'
+    })
+    $Script:DebugTraceJsonlEnabled = $false
+}
+
+function Get-DebugTraceFileOutputStatus { # psa-disable-line PSA6003 -- "Status" is singular; analyzer false positive on compound name
+    <#
+    .SYNOPSIS
+        Return the current state of the JSONL writer for diagnostics.
+    #>
+    [CmdletBinding()]
+    param()
+    return [pscustomobject]@{
+        Enabled         = $Script:DebugTraceJsonlEnabled
+        Path            = $Script:DebugTraceJsonlPath
+        WriteCount      = $Script:DebugTraceJsonlWriteCount
+        ErrorCount      = $Script:DebugTraceJsonlErrorCount
+        LastError       = $Script:DebugTraceJsonlLastError
+        BufferedLines   = $Script:DebugTraceJsonlBuffer.Count
+        ActiveFrames    = $Script:DebugTraceStack.Count
+        CompletedFrames = $Script:DebugTraceCompletedFrames.Count
+    }
+}
+
+# --- 1b.5: Public API - JSON Export (Feature B) -----------------------
+
+function Enable-AutoExportOnPhaseFailure {
+    <#
+    .SYNOPSIS
+        Turn on automatic JSON Export when a phase fails. When enabled,
+        Write-DebugFailureReport -AutoExport will write a snapshot to
+        the configured directory.
+    .PARAMETER OutputDirectory
+        Where to write debugtrace_export_<phaseId>_<timestamp>.json files.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [string]$OutputDirectory
+    )
+    $Script:DebugTraceAutoExportEnabled = $true
+    $Script:DebugTraceAutoExportDir     = $OutputDirectory
+}
+
+function Export-DebugTraceJson {
+    <#
+    .SYNOPSIS
+        Write a point-in-time JSON snapshot of the current trace state.
+        Use this to share a single diagnostic file (e.g. attach to a
+        bug report) instead of the streaming JSONL log.
+    .PARAMETER Path
+        Output file path.
+    .PARAMETER IncludeEvents
+        If set, embed the full JSONL replay inside the export. Default
+        off because it can produce multi-MB files.
+    .PARAMETER Compress
+        If set, single-line minified JSON. Default produces indented
+        human-readable output.
+    .OUTPUTS
+        The output file path (for chaining).
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)] [string]$Path,
+        [switch]$IncludeEvents,
+        [switch]$Compress
+    )
+
+    # r8-update: refactor for robustness on PS 5.1 ja-JP. The previous
+    # implementation used inline `if/else` expressions as hashtable values
+    # and a property named `host` (which collides with the PS auto-
+    # variable name in some parser contexts). User report on
+    # 2026-05-17 showed AmbiguousParameterSet failure when
+    # -ExportTraceOnExit triggered this function from the finally block.
+    # This refactor:
+    #   1. Pre-computes every hashtable value into a local variable so
+    #      no `if/else` expression appears inside [pscustomobject]@{...}.
+    #   2. Renames the `host` key to `hostInfo` defensively.
+    #   3. Uses [Parameter(Mandatory=$true)] (explicit boolean) instead
+    #      of bare [Parameter(Mandatory)] which is normally equivalent
+    #      but has been observed to fail parameter-set resolution on
+    #      some PS 5.1 builds.
+    #   4. Adds Section 1b's Start-DebugTrace / Set-DebugStep instrumen-
+    #      tation so any future failure surfaces the failing step name
+    #      in the JSONL stream even if the JSON export itself can't be
+    #      written.
+    Start-DebugTrace -Context 'Export-DebugTraceJson'
+    try {
+        # ------ Section A: active frames (in-progress at snapshot time) -----
+        Set-DebugStep 'build activeFrames array'
+        $activeFrames = @()
+        foreach ($f in $Script:DebugTraceStack.ToArray()) {
+            $afStartedAtUtc = $f.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+            $afElapsedMs    = [int]((Get-Date) - $f.StartTime).TotalMilliseconds
+            $afSteps        = @()
+            foreach ($s in $f.Steps.ToArray()) {
+                $afSteps += [pscustomobject]@{
+                    step   = $s.Step
+                    atUtc  = $s.At.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+                    detail = $s.Detail
+                }
+            }
+            $activeFrames += [pscustomobject]@{
+                context      = $f.Context
+                step         = $f.Step
+                phaseId      = $f.PhaseId
+                depth        = $f.Depth
+                startedAtUtc = $afStartedAtUtc
+                elapsedMs    = $afElapsedMs
+                steps        = $afSteps
+            }
+        }
+
+        # ------ Section B: completed frames (history) -----------------------
+        Set-DebugStep 'build completedFrames array'
+        $completedFrames = @()
+        foreach ($f in $Script:DebugTraceCompletedFrames.ToArray()) {
+            $cfStartedAtUtc = $f.StartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+            $cfEndedAtUtc = $null
+            if ($f.PSObject.Properties['EndedAt'] -and $f.EndedAt) {
+                $cfEndedAtUtc = $f.EndedAt.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+            }
+            $cfDurationMs = $null
+            if ($f.PSObject.Properties['DurationMs']) {
+                $cfDurationMs = $f.DurationMs
+            }
+            $cfSteps = @()
+            foreach ($s in $f.Steps.ToArray()) {
+                $cfSteps += [pscustomobject]@{
+                    step   = $s.Step
+                    atUtc  = $s.At.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+                    detail = $s.Detail
+                }
+            }
+            $completedFrames += [pscustomobject]@{
+                context      = $f.Context
+                phaseId      = $f.PhaseId
+                outcome      = $f.Outcome
+                depth        = $f.Depth
+                startedAtUtc = $cfStartedAtUtc
+                endedAtUtc   = $cfEndedAtUtc
+                durationMs   = $cfDurationMs
+                steps        = $cfSteps
+            }
+        }
+
+        # ------ Section C: phase registry summary ---------------------------
+        Set-DebugStep 'build phases array from registry'
+        $phaseEntries = @()
+        $sortedKeys = @($Script:DebugTracePhaseRegistry.Keys) | Sort-Object
+        foreach ($key in $sortedKeys) {
+            $reg = $Script:DebugTracePhaseRegistry[$key]
+            $peStartedAtUtc = $null
+            if ($reg.StartedAt) {
+                $peStartedAtUtc = $reg.StartedAt.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+            }
+            $peEndedAtUtc = $null
+            if ($reg.EndedAt) {
+                $peEndedAtUtc = $reg.EndedAt.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+            }
+            $peFailure = $null
+            if ($reg.FailureRef) {
+                $peFailure = [pscustomobject]@{
+                    failedStep       = $reg.FailureRef.FailedStep
+                    exType           = $reg.FailureRef.ExType
+                    exMessage        = $reg.FailureRef.ExMessage
+                    innerType        = $reg.FailureRef.InnerType
+                    innerMessage     = $reg.FailureRef.InnerMessage
+                    fullyQualifiedId = $reg.FailureRef.FullyQualifiedId
+                    scriptStackTrace = $reg.FailureRef.ScriptStackTrace
+                }
+            }
+            $phaseEntries += [pscustomobject]@{
+                phaseId      = $reg.PhaseId
+                outcome      = $reg.Outcome
+                startedAtUtc = $peStartedAtUtc
+                endedAtUtc   = $peEndedAtUtc
+                failure      = $peFailure
+            }
+        }
+
+        # ------ Section D: optional JSONL event replay ---------------------
+        Set-DebugStep 'optional: replay JSONL events'
+        $events = @()
+        if ($IncludeEvents -and $Script:DebugTraceJsonlPath -and (Test-Path -LiteralPath $Script:DebugTraceJsonlPath)) {
+            try {
+                $eventLines = Get-Content -LiteralPath $Script:DebugTraceJsonlPath -ErrorAction Stop
+                foreach ($l in $eventLines) {
+                    if ([string]::IsNullOrWhiteSpace($l)) { continue }
+                    try {
+                        $events += (ConvertFrom-Json -InputObject $l -ErrorAction Stop)
+                    } catch {
+                        # Skip lines that don't parse (malformed truncation).
+                    }
+                }
+            } catch {
+                # Ignore file-read errors; events stays empty.
+            }
+        }
+        $eventsToSerialize = @()
+        $eventCount = -1
+        if ($IncludeEvents) {
+            $eventsToSerialize = $events
+            $eventCount = $events.Count
+        }
+
+        # ------ Section E: host + script metadata (pre-computed) ------------
+        Set-DebugStep 'compose host + script metadata'
+        # Pre-compute the host metadata as a standalone variable so no
+        # inline expression appears in the outer hashtable. Renamed key
+        # from 'host' to 'hostInfo' to avoid any chance of collision
+        # with the $Host auto-variable on PS 5.1.
+        $hostInfo = [pscustomobject]@{
+            psVersion   = $PSVersionTable.PSVersion.ToString()
+            psEdition   = $PSVersionTable.PSEdition
+            clrVersion  = $PSVersionTable.CLRVersion.ToString()
+            os          = ([System.Environment]::OSVersion.VersionString)
+            culture     = (Get-Culture).Name
+            uiCulture   = (Get-UICulture).Name
+            hostName    = $Host.Name
+            hostVersion = $Host.Version.ToString()
+        }
+        $scriptStartedAtUtc = $null
+        if ($Script:ScriptStartTime) {
+            $scriptStartedAtUtc = $Script:ScriptStartTime.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+        }
+        $scriptInfo = [pscustomobject]@{
+            version      = $Script:ScriptVersion
+            tag          = $Script:ScriptTag
+            sha256       = $Script:ScriptHash
+            startedAtUtc = $scriptStartedAtUtc
+        }
+        $fileOutputStatus = Get-DebugTraceFileOutputStatus
+        $exportedAtUtcVal = _DebugTrace_Now
+
+        # ------ Section F: compose final snapshot --------------------------
+        Set-DebugStep 'compose final snapshot pscustomobject'
+        $snapshot = [pscustomobject]@{
+            schemaVersion   = '1'
+            exportedAtUtc   = $exportedAtUtcVal
+            hostInfo        = $hostInfo
+            script          = $scriptInfo
+            fileOutput      = $fileOutputStatus
+            phases          = $phaseEntries
+            activeFrames    = $activeFrames
+            completedFrames = $completedFrames
+            events          = $eventsToSerialize
+            eventCount      = $eventCount
+        }
+
+        # ------ Section G: ensure output directory exists ------------------
+        Set-DebugStep 'ensure parent directory exists'
+        # IMPORTANT: [System.IO.Path]::GetDirectoryName instead of
+        # `Split-Path -LiteralPath $Path -Parent`. On PS 5.1, those two
+        # parameters belong to mutually-exclusive parameter sets
+        # (LiteralPathSet vs ParentSet), which causes
+        # AmbiguousParameterSet at runtime. The .NET method has no such
+        # constraint and behaves identically.
+        $parentDir = [System.IO.Path]::GetDirectoryName($Path)
+        if ($parentDir -and -not (Test-Path -LiteralPath $parentDir)) {
+            New-Item -ItemType Directory -Path $parentDir -Force -ErrorAction SilentlyContinue | Out-Null
+        }
+
+        # ------ Section H: serialize and write to disk ---------------------
+        Set-DebugStep 'ConvertTo-Json + write to disk'
+        # Render with the configured max depth so deeply nested objects
+        # (especially ExInner chains and step details) never get clipped.
+        if ($Compress) {
+            $json = $snapshot | ConvertTo-Json -Depth $Script:DebugTraceJsonDepth -Compress
+        } else {
+            $json = $snapshot | ConvertTo-Json -Depth $Script:DebugTraceJsonDepth
+        }
+        # UTF-8 with BOM so the file is correctly read on PS 5.1 ja-JP
+        # via `Get-Content` (default) without `-Encoding UTF8`.
+        [System.IO.File]::WriteAllText($Path, $json, [System.Text.UTF8Encoding]::new($true))
+
+        Set-DebugStep 'return result path'
+        return $Path
+    } catch {
+        # Surface the failing checkpoint via the Debug Trace Facility
+        # itself - this records a failure event in the JSONL stream with
+        # the step name + exception details. Then re-throw so the outer
+        # caller (e.g. finally block) can warn the user.
+        Write-DebugFailureReport $_ -IncludeStepHistory
+        throw
+    } finally {
+        Stop-DebugTrace
+    }
+}
 
 #####################################################################
 # SECTION 1d: UEFI Secure Boot certificate baseline (r48, 2026-05-13+)
@@ -3782,6 +4969,7 @@ function Compare-InfDriverVer {
 function Invoke-PrepPhase00_Initialize {
     [CmdletBinding()]
     param()
+    Set-DebugStep 'show PS environment'
     Write-Step 'Running environment and sanity checks'
 
     Show-PowerShellEnvironment
@@ -3801,6 +4989,7 @@ function Invoke-PrepPhase00_Initialize {
     # NPU-specific OS support warning
     Write-Host ''
     Write-SubHeader2 'Ryzen AI Software OS support note'
+    Set-DebugStep 'workstation install guard check'
     Write-Warn2 'AMD officially supports Ryzen AI Software ONLY on Windows 11 (build >= 22621.3527).'
     Write-Warn2 'Windows Server 2025 is NOT in AMD''s supported OS matrix.'
     Write-Warn2 'This script patches the kernel-mode NPU driver to install on Server, but the'
@@ -3826,15 +5015,83 @@ function Invoke-PrepPhase00_Initialize {
     }
 }
 
+function Resume-CtxFromWorkspace {
+    <#
+    .SYNOPSIS
+        Detect pre-existing workspace artifacts and log a diagnostic
+        summary. Called from P01 to support non-Prepare run modes
+        (-Action Verify, -Action Install -OnlyPhases I01).
+    .DESCRIPTION
+        Unlike the chipset / graphics sister scripts which keep state
+        in a `$Ctx PSCustomObject and need to repopulate properties
+        (CertPfxPath / CertCerPath / CertThumbprint / PatchedDirs)
+        before non-Prepare run modes can resolve them, the NPU script
+        keeps cert and patched paths in static `$Script: scope
+        variables that are computed at param-block evaluation time
+        (see L344-L349). The thumbprint is not cached at all - it is
+        re-derived from the on-disk PFX via X509Certificate2 in V02
+        and the Cleanup path. Consequently, this NPU adaptation of
+        the sister-script rehydration helper has no state to restore;
+        its remaining job is to detect existing workspace artifacts
+        and emit a one-line diagnostic so that operators running
+        -Action Verify or -Action Install -OnlyPhases I01 against a
+        populated workspace see explicit confirmation that the
+        on-disk artifacts were picked up.
+
+        Failures are non-fatal: each branch swallows its own error
+        and lets downstream preconditions raise a clearer message.
+
+        r9 (2026-05-17) - introduced for sister-script function-name
+        parity (Chipset r59 / Graphics r27 / BthPan r9). The NPU
+        implementation is intentionally lighter than the chipset /
+        graphics versions because NPU's static `$Script: variable
+        design already makes the resume case work without explicit
+        rehydration.
+    #>
+    [CmdletBinding()]
+    param()
+    $detected = New-Object System.Collections.Generic.List[string]
+
+    # ----- Cert PFX (already pointed to by $Script:PfxPath at L346) -----
+    try {
+        if ($Script:PfxPath -and (Test-Path -LiteralPath $Script:PfxPath)) {
+            $detected.Add('PFX') | Out-Null
+        }
+    } catch { } # psa-disable-line PSA3004 -- best-effort scan; missing artifact = leave silent
+
+    # ----- Cert CER (already pointed to by $Script:CerPath at L347) -----
+    try {
+        if ($Script:CerPath -and (Test-Path -LiteralPath $Script:CerPath)) {
+            $detected.Add('CER') | Out-Null
+        }
+    } catch { } # psa-disable-line PSA3004
+
+    # ----- Patched subdir (pnputil candidate root; flat dir for NPU) -----
+    try {
+        if ($Script:PatchedDir -and (Test-Path -LiteralPath $Script:PatchedDir)) {
+            $infCount = @(Get-ChildItem -LiteralPath $Script:PatchedDir -Filter '*.inf' -File -ErrorAction SilentlyContinue).Count
+            if ($infCount -gt 0) {
+                $detected.Add(('Patched INFs ({0})' -f $infCount)) | Out-Null
+            }
+        }
+    } catch { } # psa-disable-line PSA3004
+
+    if ($detected.Count -gt 0) {
+        Write-Skip ('Detected existing workspace artifacts: {0}' -f ($detected.ToArray() -join ', '))
+    }
+}
+
 function Invoke-PrepPhase01_PrepareWorkspace {
     [CmdletBinding()]
     param()
 
+    Set-DebugStep 'optional: wipe existing workspace (-CleanWorkRoot)'
     if ($Script:CleanWorkRoot -and (Test-Path $Script:WorkRoot)) {
         Write-Step ("CleanWorkRoot: removing {0}" -f $Script:WorkRoot)
         Remove-Item -Path $Script:WorkRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 
+    Set-DebugStep 'create workspace subdirectories'
     foreach ($dir in @($Script:WorkRoot, $Script:DownloadDir, $Script:ExtractedDir, $Script:PatchedDir, $Script:CertDir)) {
         if (-not (Test-Path $dir)) {
             New-Item -Path $dir -ItemType Directory -Force | Out-Null
@@ -3844,11 +5101,19 @@ function Invoke-PrepPhase01_PrepareWorkspace {
         }
     }
     Write-Ok ("Workspace ready at: {0}" -f $Script:WorkRoot)
+
+    # r9: detect and log pre-existing workspace artifacts so that
+    # -Action Verify / -Action Install (-OnlyPhases I01) running
+    # against a populated workspace surfaces explicit confirmation.
+    # See function Resume-CtxFromWorkspace above for design notes.
+    Set-DebugStep 'rehydrate from existing workspace artifacts'
+    Resume-CtxFromWorkspace
 }
 
 function Invoke-PrepPhase02_AcquireTools {
     [CmdletBinding()]
     param()
+    Set-DebugStep 'delegate to Initialize-ToolingStack'
     Write-Step 'Acquiring signtool, inf2cat, and 7-Zip'
     $tools = Install-RequiredTools
     $Script:DetectedPlatform.SignToolPath = $tools.SignTool
@@ -3859,6 +5124,7 @@ function Invoke-PrepPhase02_AcquireTools {
 function Invoke-PrepPhase03_FetchInstaller {
     [CmdletBinding()]
     param()
+    Set-DebugStep 'detect NPU platform and resolve installer source'
     Write-Step 'Detecting NPU platform and resolving installer source (4-tier fallback)'
 
     # ----- detect NPU platform
@@ -3953,6 +5219,7 @@ function Invoke-PrepPhase04_ExtractInstaller {
     [CmdletBinding()]
     param()
 
+    Set-DebugStep 'precondition: DownloadedZipPath and 7z available'
     if (-not $Script:DetectedPlatform.DownloadedZipPath) {
         throw 'No downloaded ZIP path; P03 did not complete successfully.'
     }
@@ -3974,6 +5241,7 @@ function Invoke-PrepPhase04_ExtractInstaller {
 function Invoke-PrepPhase05_AnalyzeInfs {
     [CmdletBinding()]
     param()
+    Set-DebugStep 'inventory INF files and parse target NPU'
     Write-Step 'Inventorying INFs and filtering for target NPU'
 
     $infs = $Script:DetectedPlatform.ExtractedInfFiles
@@ -3982,6 +5250,7 @@ function Invoke-PrepPhase05_AnalyzeInfs {
     }
 
     Write-Ok ('Found {0} INF file(s) in extracted package.' -f $infs.Count)
+    Set-DebugStep 'parse each INF for HW IDs and decorations'
 
     $inventory = New-Object 'System.Collections.Generic.List[psobject]'
     foreach ($inf in $infs) {
@@ -4116,6 +5385,7 @@ function Invoke-PrepPhase05_AnalyzeInfs {
 function Invoke-PrepPhase06_PatchInfs {
     [CmdletBinding()]
     param()
+    Set-DebugStep 'mirror Workstation decorations as ProductType=3'
     Write-Step 'Mirroring Workstation [Manufacturer] decorations as ProductType=3'
 
     $inventory = $Script:DetectedPlatform.InfInventory
@@ -4159,6 +5429,7 @@ function Invoke-PrepPhase06_PatchInfs {
     }
 
     Write-Host ''
+    Set-DebugStep 'summary: report patched/copied/failed counts'
     Write-Ok ('Patched          : {0} INF(s)' -f $patched)
     Write-Ok ('Server-compat copy: {0} INF(s)' -f $copied)
     Write-Ok ('Failed           : {0} INF(s)' -f $failed)
@@ -4167,6 +5438,7 @@ function Invoke-PrepPhase06_PatchInfs {
 function Invoke-PrepPhase07_CreateCertificate {
     [CmdletBinding()]
     param()
+    Set-DebugStep 'delegate to New-CodeSignCert'
 
     $cert = New-SelfSignedCodeSigningCert `
         -Subject $Script:CertSubjectCn `
@@ -4182,10 +5454,12 @@ function Invoke-PrepPhase08_GenerateCatalogs {
     [CmdletBinding()]
     param()
 
+    Set-DebugStep 'precondition: Inf2CatPath available'
     if (-not $Script:DetectedPlatform.Inf2CatPath) {
         throw 'inf2cat path not resolved; P02 did not complete.'
     }
 
+    Set-DebugStep 'run inf2cat against patched/'
     $r = Invoke-Inf2Cat `
         -Inf2CatPath $Script:DetectedPlatform.Inf2CatPath `
         -DriverDir $Script:PatchedDir `
@@ -4208,6 +5482,7 @@ function Invoke-PrepPhase09_SignCatalogs {
     [CmdletBinding()]
     param()
 
+    Set-DebugStep 'precondition: SignToolPath available'
     if (-not $Script:DetectedPlatform.SignToolPath) {
         throw 'signtool path not resolved; P02 did not complete.'
     }
@@ -4236,6 +5511,7 @@ function Invoke-PrepPhase09_SignCatalogs {
             Write-Fail ('  Sign FAILED (exit {0})' -f $r.ExitCode)
         }
     }
+    Set-DebugStep 'summary: report signed/failed counts'
     Write-Ok ('Signed: {0} catalog(s); Failed: {1}' -f $signed, $failed)
     if ($failed -gt 0) {
         throw 'Some catalogs failed to sign.'
@@ -4248,10 +5524,12 @@ function Invoke-PrepPhase09_SignCatalogs {
 function Invoke-VerifyPhase01_VerifyArtifacts {
     [CmdletBinding()]
     param()
+    Set-DebugStep 'verify cert + patched INFs + catalogs all exist'
     Write-Step 'Verifying cert + patched INFs + catalogs all exist'
 
     $ok = $true
 
+    Set-DebugStep 'check PFX/CER/INF/catalog presence on disk'
     if (-not (Test-Path $Script:PfxPath)) {
         Write-Fail ('Missing PFX: {0}' -f $Script:PfxPath)
         $ok = $false
@@ -4279,11 +5557,13 @@ function Invoke-VerifyPhase01_VerifyArtifacts {
 function Invoke-VerifyPhase02_VerifyCertificate {
     [CmdletBinding()]
     param()
+    Set-DebugStep 'check EKU, key length, and validity period'
     Write-Step 'Checking EKU, key length, and validity period'
 
     $pfxSecure = ConvertTo-SecureString -String 'placeholder' -AsPlainText -Force
     $cert = $null
     try {
+    Set-DebugStep 'load PFX via X509Certificate2 (with fallback)'
         if ([string]::IsNullOrEmpty($PfxPassword)) {
             $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($Script:PfxPath, '', 'Exportable,PersistKeySet')
         } else {
@@ -4298,6 +5578,7 @@ function Invoke-VerifyPhase02_VerifyCertificate {
         }
     }
 
+    Set-DebugStep 'dump cert attributes (Subject/Thumbprint/Validity)'
     Write-Ok ('Subject     : {0}' -f $cert.Subject)
     Write-Ok ('Thumbprint  : {0}' -f $cert.Thumbprint)
     Write-Ok ('NotBefore   : {0:yyyy-MM-dd}' -f $cert.NotBefore)
@@ -4334,12 +5615,14 @@ function Invoke-VerifyPhase02_VerifyCertificate {
 function Invoke-VerifyPhase03_VerifyCatalogs {
     [CmdletBinding()]
     param()
+    Set-DebugStep 'run signtool verify /pa on each catalog'
     Write-Step 'Running signtool verify /pa on each catalog'
     Write-Skip 'NOTE: Verification will FAIL until I01 imports the cert into trust stores.'
     Write-Skip '      That failure is expected here.'
 
     $cats = Get-ChildItem -Path $Script:PatchedDir -Filter '*.cat' -File
     $ok = 0; $fail = 0
+    Set-DebugStep 'verify each catalog (loop)'
     foreach ($c in $cats) {
         $r = Test-CatalogSignature -SignToolPath $Script:DetectedPlatform.SignToolPath -CatPath $c.FullName
         if ($r.Success) {
@@ -4357,11 +5640,13 @@ function Invoke-VerifyPhase03_VerifyCatalogs {
 function Invoke-VerifyPhase04_VerifyInfs {
     [CmdletBinding()]
     param()
+    Set-DebugStep 'verify ProductType=3 decoration coverage'
     Write-Step 'Verifying ProductType=3 decoration coverage'
 
     $build = $Script:DetectedPlatform.OsBuild
     $infs = Get-ChildItem -Path $Script:PatchedDir -Filter '*.inf' -File
     $covered = 0; $uncovered = 0
+    Set-DebugStep 'check each INF for Server decoration (loop)'
     foreach ($inf in $infs) {
         $r = Test-InfProductTypeCoverage -InfPath $inf.FullName -ExpectedBuild $build
         if ($r.HasServerForBuild) {
@@ -4395,15 +5680,18 @@ function Invoke-VerifyPhase05_DryRunInstall {
     # the same layout means operators reading mixed logs from chipset /
     # graphics / NPU runs get a uniform mental model.
     Write-Host ''
+    Set-DebugStep 'simulate installation phases I01/I02/I03 (dry-run)'
     Write-Step 'Simulating Installation phases I01 / I02 / I03 - NO system changes will be made.'
 
     $patched = Get-ChildItem -Path $Script:PatchedDir -Filter '*.inf' -File
+    Set-DebugStep 'enumerate patched INFs for evaluation'
     if ($patched.Count -eq 0) {
         Write-Warn2 'No patched INFs to evaluate.'
         return
     }
 
     $current = @(Get-CimInstance Win32_PnPSignedDriver -ErrorAction SilentlyContinue)
+    Set-DebugStep 'snapshot Win32_PnPSignedDriver baseline'
     Write-Skip ('Current Win32_PnPSignedDriver entries: {0}' -f $current.Count)
 
     # ----- Build install plan records (per patched INF) -----
@@ -4548,6 +5836,7 @@ function Invoke-VerifyPhase05_DryRunInstall {
 function Invoke-VerifyPhase06_HardwareImpactAnalysis {
     [CmdletBinding()]
     param()
+    Set-DebugStep 'analyze hardware impact on detected NPU'
     # V06 reports the planned hardware impact of the I03 install. It is
     # structured to mirror the chipset / graphics V06 layout while accounting
     # for NPU's single-device characteristic:
@@ -4566,6 +5855,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis {
     # ------------------------------------------------------------------
     Write-SubHeader2 'Section 1: AS-IS - NPU hardware enumeration on this host'
     $current = $null
+    Set-DebugStep 'match detected NPU HW ID against patched INFs'
     if ($Script:DetectedPlatform.NpuIsDetected) {
         Write-Ok ('NPU codename       : {0}' -f $Script:DetectedPlatform.NpuCodename)
         Write-Ok ('Hardware ID        : {0}' -f $Script:DetectedPlatform.NpuHardwareId)
@@ -4740,8 +6030,10 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis {
 function Invoke-InstPhase00_PreInstallReview {
     [CmdletBinding()]
     param()
+    Set-DebugStep 'show pre-install review for operator acknowledgement'
     Write-Step 'Showing pre-install review for operator acknowledgement'
 
+    Set-DebugStep 'workstation OS install guard check'
     if ($Script:DetectedPlatform.IsWorkstationOs -and -not $Script:AllowWorkstationInstall) {
         Write-Warn2 ''
         Write-Warn2 'Install phases are blocked on Workstation OS by default.'
@@ -4769,6 +6061,7 @@ function Invoke-InstPhase00_PreInstallReview {
     Write-Host '+----------------------------------------------------------------+' -ForegroundColor Yellow
     Write-Host ''
 
+    Set-DebugStep 'prompt operator for EULA acknowledgement'
     $confirm = Read-Host 'Type "I AGREE" exactly to proceed with install (anything else aborts)'
     if ($confirm -ne 'I AGREE') {
         throw 'Install aborted by operator (EULA acknowledgement not given).'
@@ -4779,12 +6072,14 @@ function Invoke-InstPhase00_PreInstallReview {
 function Invoke-InstPhase01_TrustCertificate {
     [CmdletBinding()]
     param()
+    Set-DebugStep 'delegate to Add-CertToTrustStore'
     Add-CertToTrustStore -CerPath $Script:CerPath
 }
 
 function Invoke-InstPhase02_AuthorizeDriverSigning {
     [CmdletBinding()]
     param()
+    Set-DebugStep 'build and deploy WDAC supplemental Code Integrity policy'
     Write-Step 'Building and deploying WDAC supplemental Code Integrity policy'
 
     # ---- UEFI Secure Boot baseline pre-check (r4 port from chipset/graphics) ----
@@ -4802,6 +6097,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     #     firmware-level update in progress that may compete with
     #     post-I02 reboots. Operators should know this.
     Write-Host ''
+    Set-DebugStep 'UEFI Secure Boot baseline pre-check (soft)'
     Write-Host '--- UEFI Secure Boot baseline pre-check ---' -ForegroundColor Cyan
     try {
         $sbSnapshot = Get-OrEnsureSecureBootBaseline
@@ -4826,6 +6122,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     }
     Write-Host ''
 
+    Set-DebugStep 'testsigning fallback or WDAC policy build'
     if ($Script:UseTestSigning) {
         Write-Warn2 'UseTestSigning specified; falling back to bcdedit /set testsigning on'
         Write-Warn2 'A reboot is required for testsigning mode to take effect.'
@@ -4840,6 +6137,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
         -PolicyName $Script:WdacPolicyName `
         -PolicyGuid $Script:WdacPolicyGuid
 
+    Set-DebugStep 'install WDAC policy via CiTool / Set-CIPolicy'
     $r = Install-WdacPolicy -BinPath $wdac.BinPath -PolicyGuid $Script:WdacPolicyGuid
     if (-not $r.Success) {
         throw 'WDAC policy deployment failed.'
@@ -4850,10 +6148,12 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
 function Invoke-InstPhase03_InstallDrivers {
     [CmdletBinding()]
     param()
+    Set-DebugStep 'run pnputil /add-driver /install for each patched INF'
     Write-Step 'Running pnputil /add-driver /install for each patched INF'
 
     $infs = Get-ChildItem -Path $Script:PatchedDir -Filter '*.inf' -File
     $ok = 0; $fail = 0
+    Set-DebugStep 'install each patched INF via pnputil (loop)'
     foreach ($inf in $infs) {
         $r = Install-PatchedDriver -InfPath $inf.FullName
         if ($r.Success) {
@@ -4867,6 +6167,7 @@ function Invoke-InstPhase03_InstallDrivers {
     Write-Ok ('Install OK: {0}; FAILED: {1}' -f $ok, $fail)
 
     # Force enumeration
+    Set-DebugStep 'force device enumeration via pnputil /scan-devices'
     Write-Step 'pnputil /scan-devices'
     & pnputil.exe /scan-devices 2>&1 | ForEach-Object { Write-Skip ("    {0}" -f $_) }
 }
@@ -4875,10 +6176,12 @@ function Invoke-InstPhase04_PostInstallVerification {
     [CmdletBinding()]
     param()
 
+    Set-DebugStep 'verify NPU device binding via Win32_PnPSignedDriver'
     if ($Script:DetectedPlatform.NpuHardwareId) {
         $hwidEscaped = [regex]::Escape($Script:DetectedPlatform.NpuHardwareId)
         $bound = $null
         if (-not [string]::IsNullOrEmpty($hwidEscaped)) {
+            Set-DebugStep 'match NPU HWID against Win32_PnPSignedDriver entries'
             $bound = Get-CimInstance Win32_PnPSignedDriver -ErrorAction SilentlyContinue | Where-Object {
                 $_.HardwareID -and ($_.HardwareID -join '|') -match $hwidEscaped
             } | Select-Object -First 1
@@ -5265,3 +6568,113 @@ finally {
         exit 0
     }
 }
+
+# REVISION HISTORY
+# ================
+#
+# r9 (2026-05-17): Debug Trace Facility + call-site instrumentation
+#
+#   This release brings the NPU script to sister-script parity with
+#   BthPan r9 / Chipset r59 / Graphics r27 along five axes: the
+#   transcript-relocation logic, the workspace-resume helper, the
+#   Debug Trace Facility, and the call-site Set-DebugStep checkpoints
+#   that turn opaque failures into pinpointed step traces. Two
+#   minor cleanups (Split-Path PS 5.1 ja-JP bug and log filename
+#   naming) were folded in.
+#
+#   Bug fixes & cleanup (Phase 1C-1, +8 lines):
+#   - Split-Path -LiteralPath -Parent AmbiguousParameterSet bug at
+#     L396 fixed by switching to [System.IO.Path]::GetDirectoryName.
+#     This was the PS 5.1 ja-JP critical bug that long-prevented
+#     reliable -LogFile activation, identical to the bug fixed in
+#     BthPan r9, Chipset r59, and Graphics r27.
+#   - Log filename hint convention unified across sister scripts:
+#     'amd-npu_<Action>_<ts>.log' -> 'npu_<Action>_<ts>.log' in the
+#     three hint locations (L136, L187, L197). Cert subject names,
+#     workspace path 'Workspace_AMD-NPU', and WDAC policy name
+#     'AMD-NPU-Driver-SelfSign-Lab' remain unchanged.
+#   - D8 (SECTION number duplication) was NOT applicable to NPU:
+#     the only SECTION header at r8 was SECTION 1d; no conflict.
+#
+#   SECTION 0.25 migration (Phase 1C-2a, +297 lines):
+#   - The r8 minimal Start-Transcript wrapper at L378-L425 was
+#     replaced with the full SECTION 0.25 'Optional console
+#     transcript capture' block ported from Chipset r59:
+#       * -LogFile auto-relocation under <script-dir>\ when the
+#         user-supplied path is outside the workspace.
+#       * Transcript-verified activation (Start-Transcript success
+#         is verified by reading back the file rather than trusted
+#         blindly).
+#       * %TEMP% fallback when the script-dir path is unwritable.
+#       * Identical setup-elapsed reporting and best-effort cleanup
+#         pattern as the chipset / graphics sister scripts.
+#   - 6 script-name occurrences inside SECTION 0.25 were rewritten
+#     from Deploy-AMDChipsetDriverOnWindowsServer to
+#     Deploy-AMDNpuDriverOnWindowsServer (filename hints only).
+#
+#   Resume support (Phase 1C-2b, +72 lines):
+#   - Resume-CtxFromWorkspace function added (~70 lines), called
+#     from the end of P01.
+#   - DESIGN NOTE: unlike Chipset r59 / Graphics r27 / BthPan r9
+#     which keep state in a `$Ctx PSCustomObject and need to
+#     repopulate CertPfxPath / CertCerPath / CertThumbprint /
+#     PatchedDirs on resume, the NPU script holds cert and patched
+#     paths in static `$Script: scope variables computed at
+#     param-block evaluation time (L344-L349). The thumbprint is
+#     not cached at all; V02 and the Cleanup path re-derive it from
+#     the on-disk PFX via X509Certificate2. Consequently the NPU
+#     adaptation of this helper has no state to restore - it detects
+#     pre-existing PFX / CER / patched INF artifacts and emits a
+#     one-line Write-Skip diagnostic so operators running -Action
+#     Verify or -Action Install -OnlyPhases I01 against a populated
+#     workspace see explicit confirmation of pickup. Function name
+#     and call site are preserved for sister-script parity.
+#
+#   Debug Trace Facility (Phase 1D-1, +882 lines):
+#   - SECTION 1b inserted (between the SECTION 1c-preceding prose
+#     and SECTION 1d): 14 trace functions ported byte-for-byte from
+#     Chipset r59 (which itself is BthPan r9 with one header-line
+#     edit). Only the section header version marker was adjusted:
+#     '(r59+, structured diagnostics)' -> '(r9+, structured
+#     diagnostics)'. The 14 functions are:
+#       Start-DebugTrace, Set-DebugStep, Stop-DebugTrace,
+#       Format-DebugFailure, Write-DebugFailureReport,
+#       Enable-DebugTraceFileOutput, Disable-DebugTraceFileOutput,
+#       Get-DebugTraceFileOutputStatus,
+#       Enable-AutoExportOnPhaseFailure, Export-DebugTraceJson,
+#       and 4 internal helpers (_DebugTrace_NextSeq, _Now,
+#       _WriteJsonlLine, _RetireFrame).
+#   - The facility is script-agnostic (no chipset / graphics /
+#     bthpan / npu identifiers inside the SECTION 1b body), so the
+#     migration was a literal copy rather than an adaptation.
+#
+#   Call-site instrumentation (Phase 1D-2, +44 lines):
+#   - 44 Set-DebugStep checkpoints placed across all 21 P/V/I phase
+#     functions: P00-P09 (17), V01-V06 (14), I00-I04 (13). The
+#     checkpoint count is smaller than Chipset r59's because the
+#     NPU phase function bodies are substantially shorter (e.g.
+#     NPU P00 = 46 lines vs Chipset P00 = 143 lines) and have
+#     fewer distinct branch / loop / external-API boundaries to
+#     annotate.
+#   - Step label text follows the same '<verb> <object>' phrasing
+#     convention used in BthPan r9 / Chipset r59 / Graphics r27.
+#     NPU-specific operations are labelled with NPU-specific
+#     wording (e.g. 'detect NPU platform and resolve installer
+#     source', 'match detected NPU HW ID against patched INFs');
+#     operations shared with the sister scripts (PFX/CER/INF/cat
+#     verification, signtool / pnputil / Add-CertToTrustStore /
+#     Install-WdacPolicy) use labels close to the sister-script
+#     wording for cross-script diff-readability.
+#
+#   PSA static-analysis baseline preserved end-to-end:
+#     0 errors / 30 warnings / 0 info  (unchanged from r8 baseline)
+#   The 30 warnings are all pre-existing in NPU r8 (PSA3004 empty
+#   catch blocks for best-effort cleanup, PSA6003 plural-noun
+#   recommendations, and PSA2003 -match $null comparisons). None
+#   of the 1,303 added lines from r8 to r9 introduced a new PSA
+#   finding.
+#
+#   File metrics:
+#     r8 baseline : 5,267 lines / 246,042 bytes / SHA(12) 8e7c39bf26c6
+#     r9 release  : 6,570 lines / 307,863 bytes (delta +1,303 lines / +61,821 bytes)
+#

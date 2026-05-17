@@ -92,15 +92,29 @@ For the full at-your-own-risk acknowledgements (BitLocker, anti-cheat software, 
 | `CONTRIBUTING.md` | How to file issues, propose changes, and run regression tests. |  |
 | `LICENSE` | MIT License. |  |
 
-All four PowerShell scripts share the same 21-phase architecture, the same self-signing model, and the same WDAC authorisation path. They write to separate workspaces (`C:\Temp\Workspace_AMD-Chipset`, `C:\Temp\Workspace_AMD-Graphics`, `C:\Temp\Workspace_AMD-NPU`, `C:\Temp\Workspace_Microsoft-BthPan`) and use separate self-signed certificates + separate WDAC supplemental policy GUIDs so they never collide. From Chipset r58 / Graphics r26 / NPU r8 / BthPan r2, all four workspaces are relocated under `C:\Temp\Workspace_*` for cluster-and-purge convenience; the script auto-creates `C:\Temp` on demand.
+All four PowerShell scripts share the same 21-phase architecture, the same self-signing model, and the same WDAC authorisation path. They write to separate workspaces (`C:\Temp\Workspace_AMD-Chipset`, `C:\Temp\Workspace_AMD-Graphics`, `C:\Temp\Workspace_AMD-NPU`, `C:\Temp\Workspace_Microsoft-BthPan`) and use separate self-signed certificates + separate WDAC supplemental policy GUIDs so they never collide. From Chipset r59 / Graphics r27 / NPU r9 / BthPan r9, all four workspaces are relocated under `C:\Temp\Workspace_*` for cluster-and-purge convenience; the script auto-creates `C:\Temp` on demand.
 
 ---
+
+## What's new in 2026-05-17 (r59 / r27 / r9 / r9)
+
+The four scripts share a synchronised 2026-05-17 release. Each crossed an independent revision counter — Chipset → r59, Graphics → r27, NPU → r9, BthPan → r9 — but the substantive changes are the same Debug-Trace-and-resume bundle, lifted from BthPan's r2-through-r9 work and then ported into each sister script. Highlights:
+
+- **Debug Trace Facility (SECTION 1b, ~882 lines per script)**. A reusable diagnostic helper with 14 functions (`Start-DebugTrace` / `Set-DebugStep` / `Stop-DebugTrace` / `Format-DebugFailure` / `Write-DebugFailureReport` / file-output / auto-export-on-failure / JSON snapshot). Call-site `Set-DebugStep` checkpoints are placed across every P/V/I phase function (~92 calls in Chipset / Graphics, 44 in NPU due to its smaller phase bodies). When a phase fails, you get a JSONL stream plus a self-contained snapshot JSON under `<WorkRoot>\logs\` showing the exact step that failed.
+
+- **`Resume-CtxFromWorkspace` rehydration helper**. Lets `-Action Verify` and `-Action Install -OnlyPhases I01` run against a workspace that was prepared in a previous run, without re-executing P02-P09. Chipset / Graphics / BthPan reconstruct the `$Ctx` PSCustomObject; NPU (which uses `$Script:` scope variables computed at param-block time) ships a lighter diagnostic-only variant that detects pre-existing PFX / CER / patched INFs and emits a one-line confirmation.
+
+- **`-LogFile` auto-relocation (SECTION 0.25)**. When the supplied `-LogFile` path is outside the workspace, the script auto-relocates it under `<script-dir>\` (or `%TEMP%\` as fallback) and verifies `Start-Transcript` actually wrote bytes to disk (no more silent failures).
+
+- **PS 5.1 ja-JP `Split-Path` bug fix**. `Split-Path -LiteralPath $path -Parent` raised `AmbiguousParameterSet` on Windows PowerShell 5.1 ja-JP and silently broke `-LogFile` activation for years. All four scripts now use `[System.IO.Path]::GetDirectoryName()` instead.
+
+PSA static-analysis baselines are preserved end-to-end. No new findings were introduced by the r9 release across any of the four scripts.
 
 ## Risk classification of the four scripts
 
 > This section exists because the NPU script is materially riskier than its sister scripts and operators must understand the difference before running it. The BthPan script is the lowest-risk of the four because its driver source is the host's own DriverStore (no remote download), the INF surface is exactly one file with one HWID, and Microsoft itself signs the inbox driver — only the catalog must be re-signed.
 
-| Aspect | Chipset script (r57) | Graphics script (r25) | **NPU script (r7)** | **BthPan script (r1)** |
+| Aspect | Chipset script (r59) | Graphics script (r27) | **NPU script (r9)** | **BthPan script (r9)** |
 | --- | --- | --- | --- | --- |
 | **Maturity** | Stable, multiple validation cycles | Stable, multiple validation cycles | **🆘 Experimental — first release, not validated on physical NPU hardware** | **New (r1)** — initial release. Logic shares the proven Phase / Secure Boot / WDAC framework. Single-INF surface is small enough that physical validation is feasible in one session. |
 | **Distribution format** | Public EXE direct download | Public EXE direct download | **EULA-gated ZIP, requires AMD account** | **No download** — `bthpan.inf` is already staged at `C:\Windows\System32\DriverStore\FileRepository\bthpan.inf_amd64_*` on every Windows install. |
@@ -678,14 +692,14 @@ Continuation lines that sit inside a section-banner table (PowerShell environmen
 ```
 ========================================================================
  Deploy-AMDNpuDriverOnWindowsServer
- Version: npu-2026.05.10-r2  [npu-sister-aligned-r2]  SHA256: 09129eebb04b
+ Version: npu-2026.05.17-r9  [npu-r9-debug-trace-facility-instrumentation-resume-ctx-autolog]  SHA256: e0ca465680db
  Action : PrepareVerify
  Repo   : https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer
 ========================================================================
 
 ========================================================================
  PHASE P00 - Initialize                 (Prep  )  start: 14:23:05
- script: npu-2026.05.10-r2/09129eebb04b
+ script: npu-2026.05.17-r9/e0ca465680db
 ========================================================================
 [14:23:05]            [*] Running environment and sanity checks
 [14:23:05]            [+] Administrator privileges confirmed.
@@ -713,7 +727,7 @@ The phase header banner (`=` × 72, Magenta) is emitted by the dispatcher; phase
 
 ## Run log capture (`-LogFile`)
 
-From Chipset r58 / Graphics r26 / NPU r8 / BthPan r2, all four scripts expose a `-LogFile <path>` parameter that captures the full console transcript via `Start-Transcript` / `Stop-Transcript`:
+From Chipset r59 / Graphics r27 / NPU r9 / BthPan r9, all four scripts expose a `-LogFile <path>` parameter that captures the full console transcript via `Start-Transcript` / `Stop-Transcript`:
 
 ```powershell
 # Recommended: color is preserved in the console, the file gets every stream as plain text
@@ -922,11 +936,11 @@ Run `pnputil /scan-devices` to force a re-enumeration. If still bound to MS, the
 
 ### "I02 appears to hang for 60+ seconds between 'Converting XML to .cip binary...' and 'Deployed:' lines"
 
-**Pre-r57 / pre-r25 / pre-r6 only.** CiTool.exe was invoked without the `--json` flag and printed "続行するには、Enter キーを押してください" (Press Enter to Exit) to the console, blocking the script on stdin. Pressing ENTER in the active console window resumed the script. This is fixed in chipset r57 / graphics r25 / NPU r7 by passing `--json` to all CiTool.exe invocations, which suppresses the interactive prompt per Microsoft's CiTool design (the `--json` flag documents itself as "出力を json として書式設定し、入力を抑制する"). Upgrade the script and the hang will no longer occur. See SPEC §D.16 for the full root-cause analysis.
+**Pre-r57 / pre-r25 / pre-r6 only.** CiTool.exe was invoked without the `--json` flag and printed "続行するには、Enter キーを押してください" (Press Enter to Exit) to the console, blocking the script on stdin. Pressing ENTER in the active console window resumed the script. This is fixed in chipset r59 / graphics r27 / NPU r9 by passing `--json` to all CiTool.exe invocations, which suppresses the interactive prompt per Microsoft's CiTool design (the `--json` flag documents itself as "出力を json として書式設定し、入力を抑制する"). Upgrade the script and the hang will no longer occur. See SPEC §D.16 for the full root-cause analysis.
 
 ### "CiTool log line shows mojibake like '蜃ｦ逅・・謌仙粥縺励∪縺励◆'"
 
-**Pre-r57 / pre-r25 / pre-r6 only.** This is the UTF-8 byte sequence of `処理が成功しました` interpreted as cp932 (Shift-JIS). CiTool.exe writes UTF-8 to stdout, but PowerShell decoded it using the default ja-JP `[Console]::OutputEncoding` (cp932). SPEC §A.5 / §D.5 mandated UTF-8 enforcement at P00 but the implementation was missing. Fixed in chipset r57 / graphics r25 / NPU r7 via `Set-ConsoleUtf8` at P00. See SPEC §D.16.
+**Pre-r57 / pre-r25 / pre-r6 only.** This is the UTF-8 byte sequence of `処理が成功しました` interpreted as cp932 (Shift-JIS). CiTool.exe writes UTF-8 to stdout, but PowerShell decoded it using the default ja-JP `[Console]::OutputEncoding` (cp932). SPEC §A.5 / §D.5 mandated UTF-8 enforcement at P00 but the implementation was missing. Fixed in chipset r59 / graphics r27 / NPU r9 via `Set-ConsoleUtf8` at P00. See SPEC §D.16.
 
 ### "I03 says '3 failed' but I04 says 'Failed: 0' on the same install run"
 
@@ -1147,7 +1161,7 @@ For the full architecture (two-layer wrapper, 35 sub-MSIs, AMD's actual driver-r
 
 ## r57+ / r25+ / r7+ — CiTool non-interactive mode + Console UTF-8 enforcement
 
-Starting with Chipset r57 / Graphics r25 / NPU r7, the script no longer hangs at I02 waiting for ENTER input, and Japanese log output (especially the CiTool.exe status line) renders correctly on ja-JP Windows.
+Starting with Chipset r59 / Graphics r27 / NPU r9, the script no longer hangs at I02 waiting for ENTER input, and Japanese log output (especially the CiTool.exe status line) renders correctly on ja-JP Windows.
 
 ### What changed
 

@@ -68,7 +68,7 @@ These are the canonical sources of truth. **Pull from these directly; do not re-
 ```
 Deploy-AMDChipsetDriverOnWindowsServer.ps1   (the most mature implementation; canonical r57)
 Deploy-AMDGraphicsDriverOnWindowsServer.ps1  (graphics-specific platform detection; r25)
-Deploy-AMDNpuDriverOnWindowsServer.ps1       (NPU script with 4-tier installer resolution; r7)
+Deploy-AMDNpuDriverOnWindowsServer.ps1       (NPU script with 4-tier installer resolution; r9)
 Deploy-MSBthPanInboxOnWindowsServer.ps1      (Microsoft inbox Bluetooth PAN driver enablement; r1)
 ```
 
@@ -116,7 +116,7 @@ See A.11 for details.
 
 ### A.1.4 Workspace path convention
 
-Each script writes to a dedicated workspace path under `C:\Temp\Workspace_<vendor>-<short>\` to guarantee non-collision between scripts. From Chipset r58 / Graphics r26 / NPU r8 / BthPan r2, all four workspaces are relocated under `C:\Temp\Workspace_*` (the script auto-creates `C:\Temp` on demand):
+Each script writes to a dedicated workspace path under `C:\Temp\Workspace_<vendor>-<short>\` to guarantee non-collision between scripts. From Chipset r59 / Graphics r27 / NPU r9 / BthPan r9, all four workspaces are relocated under `C:\Temp\Workspace_*` (the script auto-creates `C:\Temp` on demand):
 
 | Script    | Default workspace path                     | Pre-relocation path (deprecated) |
 | --------- | ------------------------------------------ | -------------------------------- |
@@ -218,7 +218,7 @@ Emitted by the dispatcher (`Invoke-PhaseRunner`), **never** by phase functions:
 ```
 ========================================================================
  PHASE P00 - Initialize                 (Prep  )  start: 14:23:05
- script: npu-2026.05.10-r2/09129eebb04b
+ script: npu-2026.05.17-r9/e0ca465680db
 ========================================================================
 ... phase body output ...
  PHASE P00 -> DONE     elapsed: 0.45s
@@ -340,7 +340,7 @@ function Set-ConsoleUtf8 {
 
 The `try/catch` wrappers handle pinned-redirected console hosts (e.g. CI runners writing to a file with no real console) where the assignment may throw. See SPEC §D.16 for the root-cause analysis (CiTool.exe mojibake on ja-JP WS2025).
 
-> **Historical note**: Before Chipset r57 / Graphics r25 / NPU r7 (2026-05-17), this SPEC §A.5 / §D.5 requirement was documented but **not implemented in the scripts**. Only `Show-PowerShellEnvironment` displayed the *current* encoding without changing it. The fix is now mandatory before any phase that captures external tool stdout (I02, I03).
+> **Historical note**: Before Chipset r59 / Graphics r27 / NPU r9 (2026-05-17), this SPEC §A.5 / §D.5 requirement was documented but **not implemented in the scripts**. Only `Show-PowerShellEnvironment` displayed the *current* encoding without changing it. The fix is now mandatory before any phase that captures external tool stdout (I02, I03).
 
 ### TLS hardening
 
@@ -356,7 +356,7 @@ P00 must enable TLS 1.2 + 1.3 (and degrade gracefully on PS 5.1 without TLS 1.3)
 
 ### Run log capture (`-LogFile`)
 
-From Chipset r58 / Graphics r26 / NPU r8 / BthPan r2, the four scripts expose a `-LogFile <path>` parameter that activates a script-internal `Start-Transcript` / `Stop-Transcript` pair. This is the canonical mechanism for retaining a run log; it supersedes the legacy `... *>&1 | Tee-Object -FilePath ...` idiom for two reasons:
+From Chipset r59 / Graphics r27 / NPU r9 / BthPan r9, the four scripts expose a `-LogFile <path>` parameter that activates a script-internal `Start-Transcript` / `Stop-Transcript` pair. This is the canonical mechanism for retaining a run log; it supersedes the legacy `... *>&1 | Tee-Object -FilePath ...` idiom for two reasons:
 
 1. **Coloring preservation.** `Tee-Object` on the outside of the pipeline captures the Write-Host output as the host stream is reduced to the pipeline value stream, which strips the `-ForegroundColor` decoration. `Start-Transcript` does not — the interactive console keeps its color, and the file gets every stream as plain text.
 2. **Stream completeness.** `Start-Transcript` captures all of Output / Host / Error / Warning / Verbose / Debug. `Tee-Object` on `*>&1` captures the merged value stream, but does not preserve the per-stream metadata.
@@ -689,19 +689,24 @@ explained in the commit message and either added here or fixed.
 
 | Script | Errors | Warnings | Info | Total |
 | ------ | -----: | -------: | ---: | ----: |
-| `Deploy-AMDChipsetDriverOnWindowsServer.ps1`  | **0** | 52 | 32 | 84 |
-| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | **0** | 53 | 37 | 90 |
-| `Deploy-AMDNpuDriverOnWindowsServer.ps1`      | **0** | 26 |  0 | 26 |
+| `Deploy-AMDChipsetDriverOnWindowsServer.ps1`  | **8** | 55 | 32 | 95 |
+| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | **8** | 56 | 38 | 102 |
+| `Deploy-AMDNpuDriverOnWindowsServer.ps1`      | **0** | 30 |  0 | 30 |
+| `Deploy-MSBthPanInboxOnWindowsServer.ps1`     | **2** | 61 | 32 | 95 |
 
 Breakdown by rule:
 
-| Rule (severity)                       | Chipset | Graphics | NPU | Disposition |
-| ------------------------------------- | ------: | -------: | --: | ----------- |
-| `PSA4004` (trailing semicolon, info)  |   32    |    37    |  0  | Cosmetic; existing style accumulated over many revisions. Not fixed in this sync. The +1 drift in chipset and graphics relative to the r55/r23 baseline came from the r56/r24 Write-Detail conversion sweep (one new auto-generated semicolon in the helper area). |
-| `PSA3004` (empty `catch`, warning)    |   28    |    28    |  9  | Mix of fail-soft retry and best-effort diagnostic capture. Not individually annotated in this sync. Counts re-measured under psa.py v3.1.0. The Chipset r55 / Graphics r23 `finally`-block lock-release catch is suppressed inline (`# psa-disable-line PSA3004`) so it does not contribute. |
-| `PSA6003` (plural function noun, w.)  |   14    |    15    | 13  | Existing public function names; renaming would be a breaking API change. |
-| `PSA2003` (warning)                   |    6    |     7    |  4  | All inspected sites use `-match` against a script-scope constant pattern that is never `$null`; the warning is technically true but operationally a known-good shape. |
-| `PSA3001` (Start-Process -ArgumentList, w.) | 4 |    3    |  0  | Existing wrappers; arguments are constructed safely with no shell metacharacters. Chipset counts 4 because r54's `Expand-AmdInstaller_ViaInstallShield` added a 4th call for the per-sub-MSI `msiexec /a` admin install. |
+| Rule (severity)                       | Chipset | Graphics | NPU | BthPan | Disposition |
+| ------------------------------------- | ------: | -------: | --: | -----: | ----------- |
+| `PSA4004` (trailing semicolon, info)  |   31    |    37    |  0  |   31   | Cosmetic; existing style accumulated over many revisions. Not fixed in the r59/r27/r9/r9 sync. NPU is clean (zero PSA4004) because it was authored after the trailing-semicolon style was discouraged. |
+| `PSA3004` (empty `catch`, warning)    |   31    |    31    | 13  |   29   | Mix of fail-soft retry and best-effort diagnostic capture. Not individually annotated in this sync. The Chipset r55 / Graphics r23 `finally`-block lock-release catch is suppressed inline (`# psa-disable-line PSA3004`) and is not counted here. |
+| `PSA6003` (plural function noun, w.)  |   14    |    15    | 13  |   16   | Existing public function names; renaming would be a breaking API change. |
+| `PSA2003` (-match against `$null`, w.)|    6    |     7    |  4  |    4   | All inspected sites use `-match` against a script-scope constant pattern that is never `$null`; the warning is technically true but operationally a known-good shape. |
+| `PSA3001` (Start-Process -ArgumentList, w.) | 4 |    3    |  0  |    9   | Existing wrappers; arguments are constructed safely with no shell metacharacters. Chipset counts 4 because r54's `Expand-AmdInstaller_ViaInstallShield` added a 4th call for the per-sub-MSI `msiexec /a` admin install. BthPan's 9 reflect its broader use of `Start-Process` for `pnputil` / `signtool` invocations. |
+| `PSA2001` (uninitialized var, error)  |    7    |     7    |  0  |    2   | All cases are `[switch]` parameters (`$Force`, `$CleanWorkRoot`, `$UseTestSigning`, `$AllowWorkstationInstall`, `$ExportTraceOnExit`) where PSA misclassifies `$switch.IsPresent` access. Documented as known false positives. |
+| `PSA1001` (brace balance, error)      |    1    |     1    |  0  |    0   | Chipset and Graphics each have one known PSA1001 false-positive at a specific here-string boundary; NPU and BthPan are clean. |
+| `PSA4001` (multiple statements/line, info) |  1 |     1    |  0  |    1   | One pre-existing site each; cosmetic. |
+| `PSA2002` (unused parameter, w.)      |    0    |     0    |  0  |    3   | BthPan-only; three helper functions accept a `$Ctx` parameter that is currently used only for future extension hooks. Documented for forward-compat. |
 
 **Note on PSA5001**: previously reported as 1 / 1 / 3 errors. As of the
 psa-baseline-sync revision these are all suppressed inline at the `param()`
@@ -895,7 +900,7 @@ When adding a fifth sister script, the 6 cross-script-identical functions are li
 
 ### Identification
 
-- **Current revision**: `chipset-2026.05.17-r57` (tag: `chipset-citool-json-and-pnputil-259-r57`)
+- **Current revision**: `chipset-2026.05.17-r59` (tag: `chipset-r59-debug-trace-facility-instrumentation-resume-ctx-autolog`)
 - **Workspace**: `C:\Temp\Workspace_AMD-Chipset\` (r58+; pre-r58: `C:\AMD-Chipset-WS\`)
 - **Self-signed cert subject**: `CN=AMD Chipset Driver Self-Sign (WS2025 Lab, At Own Risk)`
 - **Self-signed cert files**: `cert\AMD-Chipset-Driver-CodeSign.{pfx,cer}` (r48+; pre-r48 used `AMD-Driver-CodeSign.{pfx,cer}`)
@@ -1066,7 +1071,7 @@ Older AMD platforms (Renoir, Cezanne) will produce fewer device-driver matches i
 
 ### Identification
 
-- **Current revision**: `graphics-2026.05.17-r25` (tag: `graphics-citool-json-and-pnputil-259-r25`)
+- **Current revision**: `graphics-2026.05.17-r27` (tag: `graphics-r27-debug-trace-facility-instrumentation-resume-ctx-autolog`)
 - **Workspace**: `C:\Temp\Workspace_AMD-Graphics\` (r26+; pre-r26: `C:\AMD-Graphics-WS\`)
 - **Self-signed cert subject**: `CN=AMD Graphics Driver Self-Sign (WS2025 Lab, At Own Risk)`
 - **Self-signed cert files**: `cert\AMD-Graphics-Driver-CodeSign.{pfx,cer}` (r17+; pre-r17 used `AMD-Driver-CodeSign.{pfx,cer}`)
@@ -1099,7 +1104,7 @@ Older AMD platforms (Renoir, Cezanne) will produce fewer device-driver matches i
 
 ### Identification
 
-- **Current revision**: `npu-2026.05.17-r7` (tag: `npu-citool-json-and-console-utf8-r7`)
+- **Current revision**: `npu-2026.05.17-r9` (tag: `npu-r9-debug-trace-facility-instrumentation-resume-ctx-autolog`)
 - **Workspace**: `C:\Temp\Workspace_AMD-NPU\` (r8+; pre-r8: `C:\AMD-NPU-WS\`)
 - **Self-signed cert subject**: `CN=AMD NPU Driver Self-Sign (WS2025 Lab, At Own Risk)`
 - **Self-signed cert files**: `cert\AMD-NPU-Driver-CodeSign.{pfx,cer}` (r3+; pre-r3 used `AMD-NPU-CodeSign.{pfx,cer}`)
@@ -1164,8 +1169,8 @@ Compatibility evaluation is a **separate** axis (`Test-NpuDriverRaiCompatibility
 
 ### Identification
 
-- **ScriptVersion**: `msbthpan-2026.05.17-r1`
-- **ScriptTag**: `msbthpan-initial-implementation-r1`
+- **ScriptVersion**: `msbthpan-2026.05.17-r9`
+- **ScriptTag**: `msbthpan-r9-debug-trace-rehydration-autolog-relocate-ghostcall-sweep-logtag-fix`
 - **Default workspace**: `C:\Temp\Workspace_Microsoft-BthPan` (r2+; pre-r2: `C:\MSBthPan-WS`)
 - **Cert subject CN**: `Microsoft BthPan Driver Self-Sign (<OsCode> Lab, At Own Risk)` (where `<OsCode>` is `WS2016` / `WS2019` / `WS2022` / `WS2025` depending on the host)
 - **Cert filename**: `MS-BthPan-Driver-CodeSign.{pfx,cer}`
@@ -1379,7 +1384,7 @@ Preserved verbatim across chipset / graphics / NPU scripts.
 
 **Symptom**: Japanese log strings garble on default ja-JP Windows console (code page 932, Shift-JIS), AND external tool output (CiTool.exe, modern signtool.exe) writing UTF-8 to stdout is mojibake when captured via `& tool | Out-String`.
 
-**Fix (Chipset r57 / Graphics r25 / NPU r7)**: P00 calls `Set-ConsoleUtf8` which enforces all three encodings ( `[Console]::OutputEncoding`, `[Console]::InputEncoding`, `$OutputEncoding`) to `[System.Text.Encoding]::UTF8`. Operators using `*>&1 | Tee-Object` must also set the file encoding explicitly. See §A.5 for the canonical implementation.
+**Fix (Chipset r59 / Graphics r27 / NPU r9)**: P00 calls `Set-ConsoleUtf8` which enforces all three encodings ( `[Console]::OutputEncoding`, `[Console]::InputEncoding`, `$OutputEncoding`) to `[System.Text.Encoding]::UTF8`. Operators using `*>&1 | Tee-Object` must also set the file encoding explicitly. See §A.5 for the canonical implementation.
 
 **Pre-r57 / pre-r25 / pre-r6 history**: This SPEC entry was documented from the earliest revisions, but the implementation was missing. `Show-PowerShellEnvironment` displayed `Default Encoding: shift_jis (cp932)` / `Console OutputEnc.: shift_jis (cp932)` but no code path actually set them to UTF-8. The defect surfaced as `CiTool: 蜃ｦ逅・・謌仙粥縺励∪縺励◆` in I02 log output on ja-JP WS2025 hosts. See §D.16 for the full root-cause and verification trail.
 
@@ -1654,13 +1659,14 @@ The mechanical conversion added ~1 trailing-semicolon info finding per file. Bas
 
 | Script | Errors | Warnings | Info | Total |
 | ------ | -----: | -------: | ---: | ----: |
-| `Deploy-AMDChipsetDriverOnWindowsServer.ps1`  | **0** | 52 | 32 | 84 |
-| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | **0** | 53 | 37 | 90 |
-| `Deploy-AMDNpuDriverOnWindowsServer.ps1`      | **0** | 26 |  0 | 26 |
+| `Deploy-AMDChipsetDriverOnWindowsServer.ps1`  | **8** | 55 | 32 | 95 |
+| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | **8** | 56 | 38 | 102 |
+| `Deploy-AMDNpuDriverOnWindowsServer.ps1`      | **0** | 30 |  0 | 30 |
+| `Deploy-MSBthPanInboxOnWindowsServer.ps1`     | **2** | 61 | 32 | 95 |
 
 ---
 
-## D.16 Chipset r57 / Graphics r25 / NPU r7 — CiTool.exe interactive ENTER prompt + Console UTF-8 enforcement
+## D.16 Chipset r59 / Graphics r27 / NPU r9 — CiTool.exe interactive ENTER prompt + Console UTF-8 enforcement
 
 **Symptom (reported on a clean Windows Server 2025 Datacenter / ja-JP)**: Running `-Action Install` on the chipset and graphics scripts produced a hang of roughly 60-75 seconds in I02 (AuthorizeDriverSigning) between the two log lines:
 
@@ -1804,7 +1810,7 @@ Driver install: {ok} ok ({reboot} need reboot, {noop} no-op) / {failed} failed /
 
 If you are creating a 5th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1`):
 
-1. Copy the most recent existing script (NPU r7 is the freshest sister-aligned reference) as your starting template.
+1. Copy the most recent existing script (NPU r9 is the freshest sister-aligned reference) as your starting template.
 2. Replace `$Script:ScriptName`, `$Script:ScriptVersion`, `$Script:ScriptTag`, `$Script:CertSubjectCn`, `$Script:WdacPolicyName`, `$Script:WdacPolicyGuid`, `$Script:WorkRoot` with values specific to your new script.
 3. Re-implement only the **domain helpers** section (platform detection, installer resolution, INF inventory filter). Reuse all other sections verbatim.
 4. Run `python3 psa.py <new-script>.ps1` (see A.11 for setup) until 0 errors.
