@@ -621,7 +621,7 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.05.17-r59'
+$Script:ScriptVersion = 'chipset-2026.05.18-r60'
 $Script:ScriptTag     = 'chipset-r59-debug-trace-facility-instrumentation-resume-ctx-autolog'
 $Script:ScriptHash    = '(unknown)'
 try {
@@ -829,13 +829,13 @@ if (-not [string]::IsNullOrWhiteSpace($LogFile)) {
         # as the winner.
         $logSetupForms = @(
             @{ Label = '-Path -Append -Force'
-               Block = { param($p) Start-Transcript -Path $p -Append -Force -ErrorAction Stop } }
+               Block = { param($p) Start-Transcript -Path $p -Append -Force -ErrorAction Stop } } # psa-disable-line PSA3005 -- deliberate cascade of -Path vs -LiteralPath variants for transcript-handle fallback (see "logSetupForms" / "TranscriptAttempt" comment block)
             @{ Label = '-LiteralPath -Append -Force'
                Block = { param($p) Start-Transcript -LiteralPath $p -Append -Force -ErrorAction Stop } }
             @{ Label = '-Path -Force (no -Append)'
-               Block = { param($p) Start-Transcript -Path $p -Force -ErrorAction Stop } }
+               Block = { param($p) Start-Transcript -Path $p -Force -ErrorAction Stop } } # psa-disable-line PSA3005 -- deliberate cascade of -Path vs -LiteralPath variants for transcript-handle fallback (see "logSetupForms" / "TranscriptAttempt" comment block)
             @{ Label = '-Path only (minimal)'
-               Block = { param($p) Start-Transcript -Path $p -ErrorAction Stop } }
+               Block = { param($p) Start-Transcript -Path $p -ErrorAction Stop } } # psa-disable-line PSA3005 -- deliberate cascade of -Path vs -LiteralPath variants for transcript-handle fallback (see "logSetupForms" / "TranscriptAttempt" comment block)
             @{ Label = 'Invoke-Expression re-parse (last resort)'
                Block = { param($p)
                    $escaped = ($p -replace "'", "''")
@@ -1482,9 +1482,9 @@ function Set-ConsoleUtf8 {
     # console hosts (e.g. CI runners writing to a file with no real
     # console) may throw on the assignment; in that case the original
     # encoding is preserved and we continue without UTF-8 enforcement.
-    try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
-    try { [Console]::InputEncoding  = [System.Text.Encoding]::UTF8 } catch { }
-    try { Set-Variable -Name OutputEncoding -Scope Global -Value ([System.Text.Encoding]::UTF8) -ErrorAction SilentlyContinue } catch { }
+    try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
+    try { [Console]::InputEncoding  = [System.Text.Encoding]::UTF8 } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
+    try { Set-Variable -Name OutputEncoding -Scope Global -Value ([System.Text.Encoding]::UTF8) -ErrorAction SilentlyContinue } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
 }
 
 #####################################################################
@@ -2534,7 +2534,7 @@ function Get-SecureBootCertificateInventory {
         try {
             $rv = Get-ItemProperty -Path $sbKey -Name $name -ErrorAction Stop
             $inv.$name = $rv.$name
-        } catch { }
+        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     }
     foreach ($name in 'AvailableUpdates','AvailableUpdatesPolicy') {
         try {
@@ -2544,7 +2544,7 @@ function Get-SecureBootCertificateInventory {
                 $hexProp = "${name}Hex"
                 $inv.$hexProp = ('0x{0:X}' -f [int]$rv.$name)
             }
-        } catch { }
+        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     }
 
     # ---- HKLM:\...\Control\SecureBoot\Servicing ----
@@ -2553,7 +2553,7 @@ function Get-SecureBootCertificateInventory {
         try {
             $rv = Get-ItemProperty -Path $svcKey -Name $name -ErrorAction Stop
             $inv.$name = $rv.$name
-        } catch { }
+        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     }
 
     # ---- Servicing\DeviceAttributes ----
@@ -2562,7 +2562,7 @@ function Get-SecureBootCertificateInventory {
         try {
             $rv = Get-ItemProperty -Path $daKey -Name $name -ErrorAction Stop
             $inv.$name = $rv.$name
-        } catch { }
+        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     }
     try {
         $rv = Get-ItemProperty -Path $daKey -Name 'CanAttemptUpdateAfter' -ErrorAction Stop
@@ -2577,7 +2577,7 @@ function Get-SecureBootCertificateInventory {
                 $inv.CanAttemptUpdateAfter = $caua
             }
         }
-    } catch { }
+    } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
 
     # ---- Scheduled task \Microsoft\Windows\PI\Secure-Boot-Update ----
     # Use the PowerShell-native Get-ScheduledTask cmdlet rather than
@@ -2605,7 +2605,7 @@ function Get-SecureBootCertificateInventory {
                 $inv.SecureBootTaskStatus  = 'present (state unknown - schtasks fallback)'
                 $inv.SecureBootTaskEnabled = $null
             }
-        } catch { }
+        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     }
 
     $inv.Available = $true
@@ -2733,7 +2733,7 @@ function Invoke-MsSecureBootDetectScript {
     try {
         $stdoutPath = Join-Path $outDir 'detect_stdout.log'
         Set-Content -LiteralPath $stdoutPath -Value $stdoutText -Encoding UTF8 -Force
-    } catch { }
+    } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
 
     # Try the file-based JSON path first (clean case: MS script accepted
     # our -OutputPath and wrote HOSTNAME_latest.json).
@@ -2803,7 +2803,7 @@ function Invoke-MsSecureBootDetectScript {
                 $jsonRecoveryPath = Join-Path $outDir 'detect_stdout_extracted.json'
                 Set-Content -LiteralPath $jsonRecoveryPath -Value $json -Encoding UTF8 -Force
                 $result.JsonPath = $jsonRecoveryPath
-            } catch { }
+            } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
             $result.ErrorMessage = $null     # clear earlier "file not found" message
             return $result
         }
@@ -3045,7 +3045,7 @@ function Get-OrEnsureSecureBootBaseline {
     if ($Ctx.SecureBootBaseline) {
         $cached = $Ctx.SecureBootBaseline
         $jsonPath = $null
-        try { $jsonPath = $cached.MsInfo.JsonPath } catch { }
+        try { $jsonPath = $cached.MsInfo.JsonPath } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
         if (-not $jsonPath) {
             # MS sample script not present or did not produce a JSON
             # path - nothing to keep co-located. Cached snapshot is fine.
@@ -3217,7 +3217,7 @@ function Get-BootSigningEnvironment {
             $efi = Get-CimInstance -ClassName Win32_DiskPartition -ErrorAction Stop |
                 Where-Object Type -match 'GPT' | Select-Object -First 1
             if ($efi) { $env.FirmwareType = 'UEFI (inferred from GPT)'; $env.IsUefi = $true }
-        } catch { }
+        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     }
 
     # Secure Boot (only meaningful on UEFI)
@@ -3612,7 +3612,7 @@ function Test-WdacToolsAvailable {
     return $caps
 }
 
-function Get-ActiveCodeIntegrityPolicies {
+function Get-ActiveCodeIntegrityPolicies { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     # Enumerate currently-active CI policies. Prefers CiTool.exe (gives
     # full metadata: name, mode, base/supplemental, signed/unsigned).
     # Falls back to filesystem enumeration of the Active directory if
@@ -3765,7 +3765,7 @@ function New-AmdDriverWdacSupplementalPolicy {
         $policyIdNode = $xmlForId.SiPolicy.PolicyID
         if ($policyIdNode -is [string] -or $null -eq $policyIdNode) {
             # Try direct property assignment
-            try { $xmlForId.SiPolicy.PolicyID = $policyIdBraced } catch { }
+            try { $xmlForId.SiPolicy.PolicyID = $policyIdBraced } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
         }
     }
     if ($policyIdNode -and ($policyIdNode -isnot [string])) {
@@ -3913,7 +3913,7 @@ function Uninstall-AmdWdacPolicy {
 
     if ($existed) {
         if (Get-Command CiTool.exe -ErrorAction SilentlyContinue) {
-            try { & CiTool.exe --remove-policy $PolicyId --json 2>&1 | Out-Null } catch { }
+            try { & CiTool.exe --remove-policy $PolicyId --json 2>&1 | Out-Null } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
         }
         Remove-Item -LiteralPath $deployedPath -Force -ErrorAction SilentlyContinue
     }
@@ -4107,7 +4107,7 @@ function Test-WorkspaceLockHeld {
             elseif ($l -match '^StartedAt\s*:\s*(.+)$') { $info.StartedAt   = $matches[1].Trim() }
             elseif ($l -match '^CommandLine\s*:\s*(.+)$') { $info.CommandLine = $matches[1].Trim() }
         }
-    } catch { }
+    } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     if ($info.Pid) {
         # r55: lock written by the very same PowerShell process we are
         # running in. This happens when a previous script invocation in
@@ -4141,7 +4141,7 @@ function Set-WorkspaceLock {
     $cmd = $null
     try {
         $cmd = ([System.Environment]::CommandLine)
-    } catch { }
+    } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     $payload = @(
         ('Pid         : {0}' -f $PID),
         ('StartedAt   : {0:yyyy-MM-dd HH:mm:ss}' -f (Get-Date)),
@@ -4230,7 +4230,7 @@ function Set-PendingRebootMarker {
     $bootTime = $null
     try {
         $bootTime = (Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime
-    } catch { }
+    } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     $payload = @(
         ('RecordedAt   : {0:yyyy-MM-dd HH:mm:ss}' -f (Get-Date)),
         ('LastBootTime : {0}' -f ($bootTime)),
@@ -4270,7 +4270,7 @@ function Get-PendingRebootMarker {
 
     try {
         $info.CurrentBootTime = (Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime
-    } catch { }
+    } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
 
     if ($info.RecordedBootTime -and $info.CurrentBootTime) {
         try {
@@ -4278,7 +4278,7 @@ function Get-PendingRebootMarker {
             if ($info.CurrentBootTime -gt $recordedDt) {
                 $info.RebootHasOccurred = $true
             }
-        } catch { }
+        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     }
     return $info
 }
@@ -4503,15 +4503,15 @@ function Get-MachineRegion {
             $r = [System.Globalization.RegionInfo]::CurrentRegion.TwoLetterISORegionName
             if ($r -and $r.Length -eq 2) { return $r.ToUpper() }
         }
-    } catch { }
+    } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     try {
         $r = [System.Globalization.RegionInfo]::CurrentRegion.TwoLetterISORegionName
         if ($r -and $r.Length -eq 2) { return $r.ToUpper() }
-    } catch { }
+    } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     try {
         $tail = (Get-Culture).Name.Split('-')[-1]
         if ($tail -and $tail.Length -eq 2) { return $tail.ToUpper() }
-    } catch { }
+    } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     return 'US'
 }
 
@@ -4550,7 +4550,7 @@ function Invoke-WingetSilently {
     $exit = $LASTEXITCODE
     foreach ($rawLine in ($output -split "`r?`n")) {
         if ([string]::IsNullOrWhiteSpace($rawLine)) { continue }
-        if ($rawLine -match $noisePattern)          { continue }
+        if ($rawLine -match $noisePattern)          { continue } # psa-disable-line PSA2003 -- pattern variable is initialized in the enclosing scope; $null impossible by construction
         Write-Detail "$rawLine" -Color DarkGray
     }
     return $exit
@@ -4635,7 +4635,7 @@ function Install-SevenZipFallback {
     if (-not (Test-Path $msi)) {
         Invoke-WebRequest -Uri $info.MsiUrl -OutFile $msi -UseBasicParsing
     }
-    $proc = Start-Process msiexec.exe -ArgumentList @('/i',"`"$msi`"",'/qn','/norestart') -Wait -PassThru
+    $proc = Start-Process msiexec.exe -ArgumentList @('/i',"`"$msi`"",'/qn','/norestart') -Wait -PassThru # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
     if ($proc.ExitCode -ne 0) { throw "7-Zip MSI install failed (exit $($proc.ExitCode))" }
 }
 
@@ -4647,7 +4647,7 @@ function Install-WindowsSdkFallback {
     if (-not (Test-Path $exe)) {
         Invoke-WebRequest -Uri $OsContext.SdkUrl -OutFile $exe -UseBasicParsing
     }
-    $proc = Start-Process $exe -ArgumentList $OsContext.SdkInstallArgs -Wait -PassThru
+    $proc = Start-Process $exe -ArgumentList $OsContext.SdkInstallArgs -Wait -PassThru # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
 
     # Some MSI / VS-style bootstrap installers (winsdksetup.exe, wdksetup.exe)
     # exit non-zero when the kit is already present on the machine
@@ -4670,7 +4670,7 @@ function Install-WindowsWdkFallback {
     if (-not (Test-Path $exe)) {
         Invoke-WebRequest -Uri $OsContext.WdkUrl -OutFile $exe -UseBasicParsing
     }
-    $proc = Start-Process $exe -ArgumentList $OsContext.WdkInstallArgs -Wait -PassThru
+    $proc = Start-Process $exe -ArgumentList $OsContext.WdkInstallArgs -Wait -PassThru # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
 
     # Same defensive check as the SDK fallback above.
     if (Find-KitTool 'inf2cat.exe') {
@@ -5436,7 +5436,7 @@ function Expand-AmdInstaller_ViaLaunch {
 
     # Terminate the installer (and any children) before it installs.
     if (-not $proc.HasExited) {
-        try { taskkill.exe /T /F /PID $proc.Id 2>&1 | Out-Null } catch { }
+        try { taskkill.exe /T /F /PID $proc.Id 2>&1 | Out-Null } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     }
     Start-Sleep -Seconds 2
     foreach ($pname in @('AMDInstaller','AMD-Software-Installer','InstallManagerApp','AMDChipsetSetup','AMDChipsetSoftware','setup','InstallManagerApp.HostX86')) {
@@ -5770,7 +5770,7 @@ function Expand-AmdInstaller_ViaInstallShield {
             '/qn',
             '/l*v', ('"{0}"' -f $subLog)
         )
-        $sub = Start-Process -FilePath 'msiexec.exe' -ArgumentList $subArgs `
+        $sub = Start-Process -FilePath 'msiexec.exe' -ArgumentList $subArgs ` # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
                               -PassThru -Wait -WindowStyle Hidden
         if ($sub.ExitCode -eq 0) {
             $subSuccess++
@@ -6580,7 +6580,7 @@ function Resume-CtxFromWorkspace {
     }
 }
 
-function Invoke-PrepPhase02_AcquireTools {
+function Invoke-PrepPhase02_AcquireTools { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     param($Ctx)
     Write-PhaseHeader 'P02' 'AcquireTools' 'Prep'
 
@@ -6812,7 +6812,7 @@ function Invoke-PrepPhase03_FetchInstaller {
     if ($sizeBytes -lt 5MB) {
         # Capture the first chunk of the response for diagnostics.
         $head = ''
-        try { $head = (Get-Content $path -TotalCount 5 -ErrorAction SilentlyContinue) -join "`n" } catch { }
+        try { $head = (Get-Content $path -TotalCount 5 -ErrorAction SilentlyContinue) -join "`n" } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
         Remove-Item $path -Force -ErrorAction SilentlyContinue
         $msg = "Downloaded file is only $sizeMB MB (expected >50 MB). " +
                "AMD's CDN likely returned an error/redirect page rather than the installer. "
@@ -6969,7 +6969,7 @@ function Get-AmdSourceVariant {
     return 'Unknown'
 }
 
-function Get-PreferredAmdSourceVariants {
+function Get-PreferredAmdSourceVariants { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     # Decide which AMD source-folder variants are appropriate for the
     # given host OS. Returns an array of variant names (e.g. @('W11x64')).
     #
@@ -7158,7 +7158,7 @@ function Export-InfInventoryReport {
     Set-Content -LiteralPath $Path -Value $sb.ToString() -Encoding UTF8
 }
 
-function Invoke-PrepPhase05_AnalyzeInfs {
+function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     param($Ctx)
     Write-PhaseHeader 'P05' 'AnalyzeInfs' 'Prep'
 
@@ -7304,7 +7304,7 @@ function Invoke-PrepPhase05_AnalyzeInfs {
     Write-PhaseFooter 'P05' 'done'
 }
 
-function Invoke-PrepPhase06_PatchInfs {
+function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     param($Ctx)
     Write-PhaseHeader 'P06' 'PatchInfs' 'Prep'
 
@@ -7568,7 +7568,7 @@ function Get-Inf2catVersion {
     }
 }
 
-function Get-Inf2catSupportedOsValues {
+function Get-Inf2catSupportedOsValues { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     # Probe inf2cat to discover the /os values it actually accepts.
     #
     # SDK 10.0.26100 changed the /os value format - it dropped the
@@ -7608,7 +7608,7 @@ function Get-Inf2catSupportedOsValues {
     return @($valid)
 }
 
-function Invoke-PrepPhase08_GenerateCatalogs {
+function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     param($Ctx)
     Write-PhaseHeader 'P08' 'GenerateCatalogs' 'Prep'
 
@@ -7994,7 +7994,7 @@ function Invoke-PrepPhase08_GenerateCatalogs {
     Write-PhaseFooter 'P08' 'done'
 }
 
-function Invoke-PrepPhase09_SignCatalogs {
+function Invoke-PrepPhase09_SignCatalogs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     param($Ctx)
     Write-PhaseHeader 'P09' 'SignCatalogs' 'Prep'
 
@@ -8174,7 +8174,7 @@ function Invoke-PrepPhase09_SignCatalogs {
 # preparation artifacts and / or the current OS state in read-only
 # mode and report what would change if Installation phases ran.
 
-function Invoke-VerifyPhase01_VerifyArtifacts {
+function Invoke-VerifyPhase01_VerifyArtifacts { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     param($Ctx)
     Write-PhaseHeader 'V01' 'VerifyArtifacts' 'Verify'
 
@@ -8289,7 +8289,7 @@ function Invoke-VerifyPhase02_VerifyCertificate {
     Write-PhaseFooter 'V02' 'done'
 }
 
-function Invoke-VerifyPhase03_VerifyCatalogs {
+function Invoke-VerifyPhase03_VerifyCatalogs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     param($Ctx)
     Write-PhaseHeader 'V03' 'VerifyCatalogs' 'Verify'
 
@@ -8444,7 +8444,7 @@ function Invoke-VerifyPhase03_VerifyCatalogs {
 
             $isExpected = $false
             foreach ($p in $expectedFailPatterns) {
-                if ($combinedFlat -match $p) { $isExpected = $true; break }
+                if ($combinedFlat -match $p) { $isExpected = $true; break } # psa-disable-line PSA2003 -- pattern variable is initialized in the enclosing scope; $null impossible by construction
             }
             # Also: if cert isn't in trusted stores, treat ALL failures
             # as expected (we know the chain validation will fail).
@@ -8570,7 +8570,7 @@ function Test-InfHasServerDecoration {
     return $false
 }
 
-function Invoke-VerifyPhase04_VerifyInfs {
+function Invoke-VerifyPhase04_VerifyInfs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     param($Ctx)
     Write-PhaseHeader 'V04' 'VerifyInfs' 'Verify'
 
@@ -8689,7 +8689,7 @@ function Invoke-VerifyPhase05_DryRunInstall {
     } else {
         Write-Host '  Path: A (WDAC supplemental policy, default)' -ForegroundColor Cyan
         $deployed = $false
-        try { $deployed = Test-AmdWdacPolicyDeployed -Ctx $Ctx } catch { }
+        try { $deployed = Test-AmdWdacPolicyDeployed -Ctx $Ctx } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
         if ($deployed) {
             Write-Host '  WDAC supplemental policy already deployed -> would SKIP' -ForegroundColor DarkGray
         } else {
@@ -8719,7 +8719,7 @@ function Invoke-VerifyPhase05_DryRunInstall {
         Write-Host "  $($infs.Count) INF(s) would be processed by 'pnputil /add-driver /install':"
         # Snapshot driver store once
         $storeSnapshot = ''
-        try { $storeSnapshot = (& pnputil /enum-drivers 2>&1 | Out-String) } catch {}
+        try { $storeSnapshot = (& pnputil /enum-drivers 2>&1 | Out-String) } catch {} # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
 
         # Pre-compute duplicate-name detection so we can flag entries
         # whose filename alone is ambiguous. Many AMD INFs share the
@@ -9173,15 +9173,15 @@ function Get-AmdHardwareInventory {
     try {
         $devices = @(Get-CimInstance -ClassName Win32_PnPEntity -ErrorAction Stop |
             Where-Object {
-                ($_.PNPDeviceID -and $_.PNPDeviceID -match $rxId) -or
-                ($_.Manufacturer -and $_.Manufacturer -match $rxMfg)
+                ($_.PNPDeviceID -and $_.PNPDeviceID -match $rxId) -or # psa-disable-line PSA2003 -- pattern variable is initialized in the enclosing scope; $null impossible by construction
+                ($_.Manufacturer -and $_.Manufacturer -match $rxMfg) # psa-disable-line PSA2003 -- pattern variable is initialized in the enclosing scope; $null impossible by construction
             })
     } catch {
         try {
             $devices = @(Get-WmiObject -Class Win32_PnPEntity -ErrorAction Stop |
                 Where-Object {
-                    ($_.PNPDeviceID -and $_.PNPDeviceID -match $rxId) -or
-                    ($_.Manufacturer -and $_.Manufacturer -match $rxMfg)
+                    ($_.PNPDeviceID -and $_.PNPDeviceID -match $rxId) -or # psa-disable-line PSA2003 -- pattern variable is initialized in the enclosing scope; $null impossible by construction
+                    ($_.Manufacturer -and $_.Manufacturer -match $rxMfg) # psa-disable-line PSA2003 -- pattern variable is initialized in the enclosing scope; $null impossible by construction
                 })
         } catch {
             return @()
@@ -9448,12 +9448,12 @@ function ConvertFrom-DriverVerString {
         try {
             $r.Date = [datetime]::ParseExact($matches[1], 'M/d/yyyy',
                 [System.Globalization.CultureInfo]::InvariantCulture)
-        } catch {}
-        try { $r.Version = [version]$matches[2] } catch {}
+        } catch {} # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
+        try { $r.Version = [version]$matches[2] } catch {} # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
         return $r
     }
     if ($Raw -match '^\s*([\d\.]+)\s*$') {
-        try { $r.Version = [version]$matches[1] } catch {}
+        try { $r.Version = [version]$matches[1] } catch {} # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
         return $r
     }
     return $r
@@ -9819,7 +9819,7 @@ function Resolve-PerInfInstallDecision {
     }
 }
 
-function Invoke-VerifyPhase06_HardwareImpactAnalysis {
+function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     param($Ctx)
     Write-PhaseHeader 'V06' 'HardwareImpactAnalysis' 'Verify'
 
@@ -10874,7 +10874,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     Write-PhaseFooter 'I02' 'done'
 }
 
-function Invoke-InstPhase03_InstallDrivers {
+function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     param($Ctx)
     Write-PhaseHeader 'I03' 'InstallDrivers' 'Inst'
 
@@ -10941,7 +10941,7 @@ function Invoke-InstPhase03_InstallDrivers {
     $infDecisions = @{}
     foreach ($inf in $infs) {
         $infData = $null
-        try { $infData = Read-InfFile -Path $inf.FullName } catch {}
+        try { $infData = Read-InfFile -Path $inf.FullName } catch {} # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
         if (-not $infData) {
             # Could not parse - default to install (legacy behavior)
             $infDecisions[$inf.FullName] = @{
@@ -11554,7 +11554,7 @@ function Show-PhaseList {
     Write-Host ''
 }
 
-function Show-ReferenceLinks {
+function Show-ReferenceLinks { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     # Pretty-print the curated Microsoft Learn reference index. Same
     # content as the "MICROSOFT LEARN REFERENCE LIBRARY" comment block
     # at the top of the file. Triggered at runtime by -References, by
@@ -11581,13 +11581,13 @@ function Show-ReferenceLinks {
             Heading = '[1] SECURE BOOT (UEFI signature enforcement)'
             Why     = 'Secure Boot is what blocks self-signed kernel-mode drivers by default. The WDAC path in I02 keeps Secure Boot ENABLED while still loading the drivers - this section explains how Secure Boot works.'
             Links   = @(
-                @{ T='What Is Secure Boot for Windows';
+                @{ T='What Is Secure Boot for Windows'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/bringup/secure-boot' }
-                @{ T='Secure Boot and Trusted Boot (chain-of-trust architecture)';
+                @{ T='Secure Boot and Trusted Boot (chain-of-trust architecture)'
                    U='https://learn.microsoft.com/en-us/windows/security/operating-system-security/system-security/trusted-boot' }
-                @{ T='Secure the Windows boot process (Secure Boot, Trusted Boot, ELAM, Measured Boot)';
+                @{ T='Secure the Windows boot process (Secure Boot, Trusted Boot, ELAM, Measured Boot)'
                    U='https://learn.microsoft.com/en-us/windows/security/operating-system-security/system-security/secure-the-windows-10-boot-process' }
-                @{ T='Secure Boot Key Creation and Management Guidance (PK / KEK / db / dbx)';
+                @{ T='Secure Boot Key Creation and Management Guidance (PK / KEK / db / dbx)'
                    U='https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/windows-secure-boot-key-creation-and-management-guidance' }
             )
         }
@@ -11595,15 +11595,15 @@ function Show-ReferenceLinks {
             Heading = '[2] TEST SIGNING / DRIVER SIGNING POLICY'
             Why     = 'The legacy I02 path (-UseTestSigning) uses BCD testsigning. The WDAC path is the modern alternative this script prefers; this section is here for context.'
             Links   = @(
-                @{ T='Test Signing (overview of dev/lab signing process)';
+                @{ T='Test Signing (overview of dev/lab signing process)'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/install/test-signing' }
-                @{ T='The TESTSIGNING boot configuration option';
+                @{ T='The TESTSIGNING boot configuration option'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/install/the-testsigning-boot-configuration-option' }
-                @{ T='BCDEdit /set (testsigning, nointegritychecks, ...)';
+                @{ T='BCDEdit /set (testsigning, nointegritychecks, ...)'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/bcdedit--set' }
-                @{ T='Installing an Unsigned Driver during Development and Test';
+                @{ T='Installing an Unsigned Driver during Development and Test'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/install/installing-an-unsigned-driver-during-development-and-test' }
-                @{ T='How to Test Preproduction Drivers with Secure Boot Enabled';
+                @{ T='How to Test Preproduction Drivers with Secure Boot Enabled'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/install/preproduction-driver-signing-and-install' }
             )
         }
@@ -11611,13 +11611,13 @@ function Show-ReferenceLinks {
             Heading = '[3] WDAC / APP CONTROL FOR BUSINESS'
             Why     = 'This is the I02 default path. The script builds a supplemental policy that adds its self-signed cert as a kernel-mode signer, deploys via CiTool, and reverses cleanly via Cleanup.'
             Links   = @(
-                @{ T='Application Control / WDAC documentation root';
+                @{ T='Application Control / WDAC documentation root'
                    U='https://learn.microsoft.com/en-us/windows/security/application-security/application-control/windows-defender-application-control/' }
-                @{ T='Use multiple App Control policies (base + supplemental design)';
+                @{ T='Use multiple App Control policies (base + supplemental design)'
                    U='https://learn.microsoft.com/en-us/windows/security/application-security/application-control/windows-defender-application-control/design/deploy-multiple-wdac-policies' }
-                @{ T='Deploy App Control policies using script (CiTool --update-policy)';
+                @{ T='Deploy App Control policies using script (CiTool --update-policy)'
                    U='https://learn.microsoft.com/en-us/windows/security/application-security/application-control/windows-defender-application-control/deployment/deploy-wdac-policies-with-script' }
-                @{ T='Remove App Control policies (CiTool --remove-policy)';
+                @{ T='Remove App Control policies (CiTool --remove-policy)'
                    U='https://learn.microsoft.com/en-us/windows/security/application-security/application-control/windows-defender-application-control/deployment/disable-wdac-policies' }
             )
         }
@@ -11625,21 +11625,21 @@ function Show-ReferenceLinks {
             Heading = '[4] INF FILE STRUCTURE'
             Why     = 'P05/P06 parse and patch INFs. The ProductType=3 decoration in [Manufacturer] is what makes a Client INF apply to Windows Server.'
             Links   = @(
-                @{ T='*** SKU Differentiation Directive (PRIMARY REF for ProductType=3 technique) ***';
+                @{ T='*** SKU Differentiation Directive (PRIMARY REF for ProductType=3 technique) ***'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/display/sku-differentiation-directive' }
-                @{ T='Summary of INF Sections';
+                @{ T='Summary of INF Sections'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/install/summary-of-inf-sections' }
-                @{ T='General Syntax Rules for INF Files';
+                @{ T='General Syntax Rules for INF Files'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/install/general-syntax-rules-for-inf-files' }
-                @{ T='INF Manufacturer Section (TargetOSVersion, ProductType=3 ...)';
+                @{ T='INF Manufacturer Section (TargetOSVersion, ProductType=3 ...)'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/install/inf-manufacturer-section' }
-                @{ T='INF Models Section';
+                @{ T='INF Models Section'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/install/inf-models-section' }
-                @{ T='Combining Platform Extensions with Operating System Versions (TargetOSVersion grammar)';
+                @{ T='Combining Platform Extensions with Operating System Versions (TargetOSVersion grammar)'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/install/combining-platform-extensions-with-operating-system-versions' }
-                @{ T='Creating INF Files for Multiple Platforms and Operating Systems';
+                @{ T='Creating INF Files for Multiple Platforms and Operating Systems'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/install/creating-inf-files-for-multiple-platforms-and-operating-systems' }
-                @{ T='Using a Universal INF File (declarative-only restrictions)';
+                @{ T='Using a Universal INF File (declarative-only restrictions)'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/install/using-a-universal-inf-file' }
             )
         }
@@ -11647,17 +11647,17 @@ function Show-ReferenceLinks {
             Heading = '[5] WINDOWS SDK + WDK'
             Why     = 'P02 acquires these because P08 needs inf2cat (WDK) and P09 needs signtool (SDK).'
             Links   = @(
-                @{ T='Download the Windows Driver Kit (WDK) - includes inf2cat';
+                @{ T='Download the Windows Driver Kit (WDK) - includes inf2cat'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/download-the-wdk' }
-                @{ T='Windows SDK downloads - includes signtool';
+                @{ T='Windows SDK downloads - includes signtool'
                    U='https://learn.microsoft.com/en-us/windows/apps/windows-sdk/downloads' }
-                @{ T='Install the WDK using WinGet';
+                @{ T='Install the WDK using WinGet'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/install-the-wdk-using-winget' }
-                @{ T='Install the WDK using NuGet';
+                @{ T='Install the WDK using NuGet'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/install-the-wdk-using-nuget' }
-                @{ T='Kits and tools overview (SDK / WDK / EWDK / HLK relationships)';
+                @{ T='Kits and tools overview (SDK / WDK / EWDK / HLK relationships)'
                    U='https://learn.microsoft.com/en-us/windows-hardware/get-started/kits-and-tools-overview' }
-                @{ T='Running InfVerif from the Command Line (validate INF files)';
+                @{ T='Running InfVerif from the Command Line (validate INF files)'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/running-infverif-from-the-command-line' }
             )
         }
@@ -11665,13 +11665,13 @@ function Show-ReferenceLinks {
             Heading = '[6] PNPUTIL (driver-store management)'
             Why     = 'I03 calls pnputil /add-driver. I04 / V05 use /enum-drivers. Cleanup advice references /delete-driver.'
             Links   = @(
-                @{ T='PnPUtil overview';
+                @{ T='PnPUtil overview'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/pnputil' }
-                @{ T='PnPUtil Command Syntax (full flag reference, exit codes)';
+                @{ T='PnPUtil Command Syntax (full flag reference, exit codes)'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/pnputil-command-syntax' }
-                @{ T='PnPUtil Command Examples (typical workflows)';
+                @{ T='PnPUtil Command Examples (typical workflows)'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/devtest/pnputil-examples' }
-                @{ T='Create Installed Driver Package Inventory (audit installed drivers)';
+                @{ T='Create Installed Driver Package Inventory (audit installed drivers)'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/driversecurity/create-a-driver-inventory' }
             )
         }

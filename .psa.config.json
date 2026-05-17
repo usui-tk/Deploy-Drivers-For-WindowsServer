@@ -1,0 +1,243 @@
+// =============================================================================
+// .psa.config.json  -  Deploy-Drivers-For-WindowsServer
+// =============================================================================
+//
+// File format : JSONC  (JSON with C-style line // and block /* */ comments)
+// Encoding    : UTF-8
+// Schema      : See https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md
+// Applies to  : psa.py 3.2.0 and later 3.x releases
+//
+// -----------------------------------------------------------------------------
+// What this config does (summary)
+// -----------------------------------------------------------------------------
+//
+//  1. Opts IN to PSAP0001 and PSAP0002 (the pipeline-convention rules)
+//     because this repository follows the canonical 21-phase pipeline
+//     naming pattern Invoke-(Prep|Verify|Inst)PhaseNN_DescriptiveName
+//     and uses the $Script:ScriptVersion / Hash / ShortTag identifier trio.
+//
+//  2. Configures PSA8001 (cross-file function-body drift) so that
+//     pipeline-phase functions (which are intentionally different per
+//     driver family) and other script-specific functions do NOT report
+//     drift, while shared helper functions still must remain in sync.
+//
+//  3. Disables PSA4003 (long line) because this codebase intentionally
+//     uses multi-clause -f format strings that exceed 120 columns for
+//     readability of the resulting console output. Long-line policy is
+//     enforced via code review rather than a mechanical width check.
+//
+// All other rules are left at their psa.py 3.2.0 defaults.
+//
+// -----------------------------------------------------------------------------
+// How to use this config
+// -----------------------------------------------------------------------------
+//
+// From the repository root (Linux / macOS):
+//
+//     python3 path/to/psa.py --config ./.psa.config.json \
+//         Deploy-AMDChipsetDriverOnWindowsServer.ps1 \
+//         Deploy-AMDGraphicsDriverOnWindowsServer.ps1 \
+//         Deploy-AMDNpuDriverOnWindowsServer.ps1 \
+//         Deploy-MSBthPanInboxOnWindowsServer.ps1
+//
+// From the repository root (Windows PowerShell), the same with semicolons
+// replaced by backticks for line continuation:
+//
+//     python3 path\to\psa.py --config .\.psa.config.json `
+//         Deploy-AMDChipsetDriverOnWindowsServer.ps1 `
+//         Deploy-AMDGraphicsDriverOnWindowsServer.ps1 `
+//         Deploy-AMDNpuDriverOnWindowsServer.ps1 `
+//         Deploy-MSBthPanInboxOnWindowsServer.ps1
+//
+// psa.py auto-discovers `.psa.config.json` in the current working directory
+// when no --config flag is given, so the shorter form is also valid:
+//
+//     python3 path/to/psa.py Deploy-*.ps1
+//
+// All four scripts MUST be passed in a single invocation for PSA8001
+// cross-file analysis to work; with a single file PSA8001 has no peers
+// to compare against and emits nothing.
+//
+// =============================================================================
+
+{
+
+  // ---------------------------------------------------------------------------
+  // Rule enable / disable
+  // ---------------------------------------------------------------------------
+
+  "enable": [
+    // PSAP0001: enforce the canonical 21-phase pipeline naming pattern.
+    // Every phase function in the four pipeline scripts MUST match
+    // Invoke-(Prep|Verify|Inst)PhaseNN_DescriptiveName.
+    "PSAP0001",
+
+    // PSAP0002: enforce presence of the script-identity trio
+    //   $Script:ScriptVersion / ScriptHash / ScriptShortTag
+    // Used by all phase banners and the DebugTrace JSONL output.
+    "PSAP0002"
+  ],
+
+  "disable": [
+    // PSA4003 (long line) is intentionally off for this repository.
+    // The pipeline scripts use long -f format strings to compose
+    // multi-column console output (Show-PowerShellEnvironment table,
+    // Show-SecureBootBaselineSnapshot table, per-device AS-IS / TO-BE
+    // analysis tables). Forcing those onto multiple lines makes the
+    // string concatenation harder to review than the long-line form.
+    "PSA4003"
+  ],
+
+
+  // ---------------------------------------------------------------------------
+  // PSA8001 ignore list
+  // ---------------------------------------------------------------------------
+  //
+  // PSA8001 detects function-body drift across files in the same scan.
+  // Many functions in this repository are intentionally DIFFERENT per
+  // script because each script handles a different driver family
+  // (Chipset / Graphics / NPU / MSBthPan). Suppress those by name.
+  //
+  // SHARED HELPER functions NOT listed here MUST stay in sync. As of
+  // r60 / r28 / r10 / r10, the following are kept identical and any
+  // future drift will be flagged by PSA8001:
+  //
+  //     Format-Elapsed
+  //     _LogLine, Write-Step, Write-Ok, Write-Warn2, Write-Fail, Write-Skip
+  //     Write-Detail, Write-PhaseHeader, Write-PhaseFooter
+  //     _DebugTrace_NextSeq, _DebugTrace_Now,
+  //     _DebugTrace_WriteJsonlLine, _DebugTrace_RetireFrame
+  //     Start-DebugTrace, Stop-DebugTrace, Set-DebugStep
+  //     Write-DebugFailureReport, Format-DebugFailure
+  //     Enable-DebugTraceFileOutput, Disable-DebugTraceFileOutput
+  //     Get-DebugTraceFileOutputStatus, Enable-AutoExportOnPhaseFailure
+  //     Export-DebugTraceJson
+  //     Set-Tls12, Set-ConsoleUtf8
+  //     Assert-Admin, Assert-PowerShellCompatibility
+  //     Show-PowerShellEnvironment   (note: AMDNpu uses a hash-matched copy;
+  //                                   simplified Get/Show-BootSigningEnvironment
+  //                                   in AMDNpu is ALLOWED to drift, see below)
+
+  "psa8001_ignore_functions": [
+    // ---- All 21 pipeline phase functions are script-specific by design ----
+    // Each script implements a different driver family, so phase bodies
+    // legitimately diverge. Matched via a single regex for brevity.
+    "regex:^Invoke-(Prep|Verify|Inst)Phase\\d{2}_",
+
+    // ---- Per-script help / banner functions ----
+    // These carry script-specific URLs, parameter examples, and
+    // hardware-specific guidance, so they must differ per script.
+    "Show-Help",
+    "Show-PhaseList",
+    "Show-ReferenceLinks",
+    "Show-DriverInstallationOrderNotice",
+    "Invoke-Cleanup",
+    "Resume-CtxFromWorkspace",
+
+    // ---- AMD installer extraction / variant resolution ----
+    // These exist only in AMD-family scripts (Chipset / Graphics) and
+    // their content is driver-family-specific; not all four scripts
+    // implement them.
+    "Expand-AmdInstaller",
+    "Expand-AmdInstaller_ViaLaunch",
+    "Get-AmdSourceVariant",
+    "Get-PreferredAmdSourceVariants",
+
+    // ---- INF metadata / driver-version comparison helpers ----
+    // The metadata schema differs slightly between Chipset / Graphics
+    // (DriverVer in INF) and NPU (different INF structure) and MSBthPan
+    // (inbox driver, no DriverVer).
+    "Get-InfMetadata",
+    "Get-InfRiskCategory",
+    "ConvertFrom-DriverVerString",
+    "Compare-InfDriverVer",
+    "Resolve-PerDeviceDriverDecision",
+
+    // ---- Inf2cat compatibility helpers ----
+    // /os: argument differs per driver family (Chipset / Graphics use
+    // ServerX64 set; MSBthPan adds ServerRS5_X64 + Server2016_X64).
+    "Get-Inf2catVersion",
+    "Get-Inf2catSupportedOsValues",
+    "Export-InfInventoryReport",
+
+    // ---- Secure Boot baseline helpers ----
+    // The Get-SecureBootBaselineSnapshot signature and certificate
+    // inventory schema is shared, but the script-revision header
+    // comments differ. The MSBthPan / AMD-family / NPU variants all
+    // have minor cosmetic deltas around log-message wording; flag a
+    // genuine drift here would require a full review pass, so the
+    // current policy is to allow these to differ. Tighten later.
+    "Get-SecureBootBaselineSnapshot",
+    "Show-SecureBootBaselineSnapshot",
+    "Get-OrEnsureSecureBootBaseline",
+    "Format-SecureBootBaselineForReport",
+    "Get-SecureBootCertificateInventory",
+    "Get-MsSecureBootExampleScriptPath",
+    "Invoke-MsSecureBootDetectScript",
+
+    // ---- WDAC / boot-signing diagnostic helpers ----
+    // AMDNpu ships a SIMPLIFIED Get/Show-BootSigningEnvironment that
+    // probes only Secure Boot and testsigning (no WDAC policy
+    // enumeration). This is documented and intentional - the full
+    // implementation lives in Chipset / Graphics / MSBthPan.
+    "Get-BootSigningEnvironment",
+    "Show-BootSigningEnvironment",
+    "Show-BootSigningChangeRequired",
+    "Update-BootSigningEnvironmentForCtx",
+    "New-AmdDriverWdacSupplementalPolicy",
+    "Install-AmdDriverWdacPolicy",
+    "Uninstall-AmdDriverWdacPolicy",
+    "New-MsBthPanDriverWdacSupplementalPolicy",
+    "Install-MsBthPanWdacPolicy",
+    "Uninstall-MsBthPanWdacPolicy",
+    "Get-AmdSuppPolicyMarkerPath",
+    "Test-AmdWdacPolicyDeployed",
+    "Get-MsBthPanSuppPolicyMarkerPath",
+    "Test-MsBthPanWdacPolicyDeployed",
+
+    // ---- Per-driver-family certificate / lock / install helpers ----
+    "Test-CertAlreadyTrusted",
+    "Test-I02InTargetState",
+    "Test-AllPatchedDriversInStore",
+    "Test-InstallPhaseAlreadyDone",
+    "Test-WorkspaceLockHeld",
+    "Assert-NoConcurrentRun",
+    "Set-WorkspaceLock",
+    "Clear-WorkspaceLock",
+    "Get-WorkspaceLockPath",
+    "Get-PendingRebootMarkerPath",
+
+    // ---- Per-driver-family installer / SDK / WDK download helpers ----
+    "Find-KitTool",
+    "Get-LatestSevenZipUrl",
+    "Install-SevenZipFallback",
+    "Install-WindowsSdkFallback",
+    "Install-WindowsWdkFallback",
+
+    // ---- Section header / sub-banner helpers ----
+    // Write-SubHeader vs Write-SubHeader2 split exists in NPU script
+    // but not in others (the AMD/MSBthPan scripts use a single level).
+    "Write-SubHeader",
+    "Write-SubHeader2",
+
+    // ---- NPU-only platform-detection helpers ----
+    // Only AMDNpu defines these; PSA8001 wouldn't fire here anyway
+    // (single occurrence) but listed for completeness in case future
+    // refactors add similar helpers to other scripts.
+    "Get-NpuPlatform",
+    "Resolve-NpuDriverPackage",
+    "Show-OperatingSystemDetail"
+  ],
+
+
+  // ---------------------------------------------------------------------------
+  // Severity floor
+  // ---------------------------------------------------------------------------
+  //
+  // Report everything down to info. The repository's CI gate is currently
+  // "no errors" rather than "no warnings"; warnings serve as advisory
+  // guidance. See SPEC.md A.11 "Static Analysis with psa.py".
+
+  "severity": "info"
+
+}

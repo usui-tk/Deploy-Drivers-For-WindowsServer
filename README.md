@@ -96,6 +96,22 @@ All four PowerShell scripts share the same 21-phase architecture, the same self-
 
 ---
 
+## What's new in 2026-05-18 (r60 / r28 / r10 / r10)
+
+This release is a **cross-script consistency pass + psa.py 3.2.0 integration**. No new pipeline features were added; existing functionality is preserved end-to-end. Highlights:
+
+- **AMDNpu helper-function parity**. The NPU script (r9 → r10) gained the helper functions that had remained un-ported from the BthPan r9 work: `Write-Detail` (4-space indented continuation rows), `Assert-PowerShellCompatibility` (hard-fail pre-flight separated from `Show-PowerShellEnvironment` display), and a hash-matched canonical `Show-PowerShellEnvironment` (169 lines, the same body used by Chipset / Graphics / MSBthPan). The previous AMDNpu-specific `Test-AdminPrivilege` and `Set-NetworkProtocol` are renamed to `Assert-Admin` and `Set-Tls12` to match the sister scripts. `Set-Tls12` adopts the canonical Chipset / Graphics / MSBthPan body (TLS 1.2 + TLS 1.3 when available; **TLS 1.0 / 1.1 are intentionally excluded** per RFC 8996); the previous AMDNpu body that enabled Tls10 / Tls11 has been removed as a security regression.
+
+- **AMDNpu now ships its own NPU-specific `Show-DriverInstallationOrderNotice`**, plus simplified `Get-BootSigningEnvironment` / `Show-BootSigningEnvironment` stubs (Secure Boot + testsigning probe only; full WDAC enumeration remains in the Chipset / Graphics / MSBthPan family).
+
+- **psa.py 3.2.0 baseline**. Every PowerShell script in the repository now passes `psa.py --config .psa.config.json` with **0 errors / 0 warnings / 0 info**. This is the first revision where the canonical static-analysis baseline is fully clean across all four scripts simultaneously. The repository ships a new `.psa.config.json` (see [Static analysis](#psapy--powershell-static-analyzer) below) that opts in to the project-pipeline rules (PSAP0001 phase-naming, PSAP0002 script-identifier presence) and configures PSA8001 (cross-file function-body drift) to ignore the script-specific phase functions.
+
+- **Sister-script consistency enforcement**. PSA8001 (new in psa.py 3.2.0) now actively guards 14 shared helper functions (`Format-Elapsed`, `_LogLine`, `Write-Detail`, the full `Start-DebugTrace` / `Stop-DebugTrace` / `Write-DebugFailureReport` family, `Export-DebugTraceJson`, etc.). Any future PR that lets these drift across the four scripts will fail the static-analysis gate.
+
+- **psa.py 3.2.0 false-positive fixes (silent)**. The earlier `PSA1001` (brace imbalance) and `PSA2001` (undefined-variable) false positives observed against r59 / r27 in Chipset / Graphics were psa.py tokenizer bugs around PowerShell's `""` (double-quote-doubling) escape and the `` `` `` (double-backtick) escape, plus mis-handling of `$Script:` scope qualifiers as references. Fixed in psa.py 3.2.0; no script-side change was required.
+
+Bug fixes carried forward from the 2026-05-17 release (r59 / r27 / r9 / r9): Debug Trace Facility (SECTION 1b), `Resume-CtxFromWorkspace` rehydration, `-LogFile` auto-relocation (SECTION 0.25), and the PS 5.1 ja-JP `Split-Path -LiteralPath` bug avoidance via `[System.IO.Path]::GetDirectoryName()`.
+
 ## What's new in 2026-05-17 (r59 / r27 / r9 / r9)
 
 The four scripts share a synchronised 2026-05-17 release. Each crossed an independent revision counter — Chipset → r59, Graphics → r27, NPU → r9, BthPan → r9 — but the substantive changes are the same Debug-Trace-and-resume bundle, lifted from BthPan's r2-through-r9 work and then ported into each sister script. Highlights:
@@ -114,7 +130,7 @@ PSA static-analysis baselines are preserved end-to-end. No new findings were int
 
 > This section exists because the NPU script is materially riskier than its sister scripts and operators must understand the difference before running it. The BthPan script is the lowest-risk of the four because its driver source is the host's own DriverStore (no remote download), the INF surface is exactly one file with one HWID, and Microsoft itself signs the inbox driver — only the catalog must be re-signed.
 
-| Aspect | Chipset script (r59) | Graphics script (r27) | **NPU script (r9)** | **BthPan script (r9)** |
+| Aspect | Chipset script (r60) | Graphics script (r28) | **NPU script (r10)** | **BthPan script (r10)** |
 | --- | --- | --- | --- | --- |
 | **Maturity** | Stable, multiple validation cycles | Stable, multiple validation cycles | **🆘 Experimental — first release, not validated on physical NPU hardware** | **New (r1)** — initial release. Logic shares the proven Phase / Secure Boot / WDAC framework. Single-INF surface is small enough that physical validation is feasible in one session. |
 | **Distribution format** | Public EXE direct download | Public EXE direct download | **EULA-gated ZIP, requires AMD account** | **No download** — `bthpan.inf` is already staged at `C:\Windows\System32\DriverStore\FileRepository\bthpan.inf_amd64_*` on every Windows install. |
@@ -1003,19 +1019,45 @@ In the rest of this document and in `SPEC.md` / `TESTING.md` / `CONTRIBUTING.md`
 
 #### Checks performed
 
-`psa.py` v3.1.0 ships with a 28-rule check set spanning `PSA1001`..`PSA7001`, grouped into seven categories:
+`psa.py` v3.2.0 ships with a **34-rule** check set spanning `PSA1001`..`PSA9002` for generic rules plus `PSAP0001`..`PSAP0002` for project / pipeline convention rules, grouped into nine categories:
 
-| Category | Code range | Examples |
-| --- | --- | --- |
-| Syntax balance      | `PSA1001`..`PSA1003` | brace / paren / bracket balance |
-| Semantics           | `PSA2001`..`PSA2006` | undefined variable, auto-variable shadowing, `-match` against bare variable, `$null` on the right of `-eq`/`-ne`, assignment / redirection inside conditional |
-| Style               | `PSA3001`..`PSA3004` | `Start-Process -ArgumentList` (prefer `ProcessStartInfo` for spaces-in-path), trailing backtick before empty line, `-match` against empty string, empty `catch` block |
-| Hygiene             | `PSA4001`..`PSA4004` | unfinished markers (TODO / FIXME / XXX / HACK), trailing whitespace, long line, trailing semicolon |
-| Security            | `PSA5001`..`PSA5004` | plain-text password parameter, `Invoke-Expression`, broken hash algorithm, hardcoded `ComputerName` |
-| Best practice       | `PSA6001`..`PSA6006` | non-approved verb, cmdlet alias, plural function noun, `$global:` definition, mandatory parameter with default, switch defaulting to `$true` |
-| File format         | `PSA7001`            | missing UTF-8 BOM on `.ps1` (Windows PowerShell 5.1 ja-JP falls back to Shift-JIS / cp932 without BOM) |
+| Category                       | Code range                | Examples                                                                                                                                                                                                                                       |
+| ---                            | ---                       | ---                                                                                                                                                                                                                                            |
+| Syntax balance                 | `PSA1001`..`PSA1003`      | brace / paren / bracket balance                                                                                                                                                                                                                |
+| Semantics                      | `PSA2001`..`PSA2006`      | undefined variable, auto-variable shadowing, `-match` against bare variable, `$null` on the right of `-eq`/`-ne`, assignment / redirection inside conditional                                                                                  |
+| Coding pattern                 | `PSA3001`..`PSA3005`      | `Start-Process -ArgumentList`, trailing backtick before empty line, `-match` against empty string, empty `catch` block, **NEW in 3.2.0:** `Start-Transcript -Path` should be `-LiteralPath`                                                    |
+| Hygiene                        | `PSA4001`..`PSA4004`      | unfinished markers (TODO / FIXME / XXX / HACK), trailing whitespace, long line, trailing semicolon                                                                                                                                             |
+| Security                       | `PSA5001`..`PSA5004`      | plain-text password parameter, `Invoke-Expression`, broken hash algorithm, hardcoded `ComputerName`                                                                                                                                            |
+| Best practice                  | `PSA6001`..`PSA6006`      | non-approved verb, cmdlet alias, plural function noun, `$global:` definition, mandatory parameter with default, switch defaulting to `$true`                                                                                                   |
+| File format                    | `PSA7001`                 | missing UTF-8 BOM on `.ps1` (Windows PowerShell 5.1 ja-JP falls back to Shift-JIS / cp932 without BOM)                                                                                                                                          |
+| **NEW: Cross-file consistency** | `PSA8001`                 | function body hash drift across files in the same scan — enforces that shared helper functions (`Format-Elapsed`, `Write-Detail`, `Start-DebugTrace` family, etc.) stay byte-for-byte synchronised across the four pipeline scripts            |
+| **NEW: Complexity metrics**    | `PSA9001`..`PSA9002`      | function-body length threshold (off by default), external-process invocation without `$LASTEXITCODE` check (off by default)                                                                                                                    |
+| **NEW: Project / pipeline conventions** | `PSAP0001`..`PSAP0002` | phase function naming convention (`Invoke-(Prep\|Verify\|Inst)PhaseNN_Name`), required script-identifier variables (`$Script:ScriptVersion` / `$Script:ScriptHash` / `$Script:ScriptShortTag`) — **all PSAPxxxx rules are off by default**; opt in via `.psa.config.json` |
 
 For the authoritative specification of every rule, see [`scripts/python/powershell-static-analyzer/SPEC.md`](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md) §4 in the [ai-generated-artifacts](https://github.com/usui-tk/ai-generated-artifacts) repository.
+
+#### Repository-specific configuration
+
+This repository ships its own `.psa.config.json` at the repository root. It is the **canonical configuration for the four pipeline scripts** and does three things:
+
+1. **Opts in to `PSAP0001` and `PSAP0002`** so that the 21-phase naming convention (`Invoke-(Prep|Verify|Inst)PhaseNN_DescriptiveName`) and the script-identity trio (`$Script:ScriptVersion` / `ScriptHash` / `ScriptShortTag`) are enforced.
+
+2. **Configures `PSA8001` (cross-file function-body drift)** with `psa8001_ignore_functions`, listing roughly 45 function names that are intentionally per-script (phase functions, per-driver-family helpers, `Show-Help`, etc.). Shared helpers NOT listed there MUST stay byte-for-byte identical across all four scripts.
+
+3. **Disables `PSA4003` (long line)** because the pipeline scripts intentionally use multi-clause `-f` format strings that exceed 120 columns for readability.
+
+Run static analysis against all four pipeline scripts via:
+
+```bash
+# From the repository root, after psa.py has been obtained (Method 1 or 2 above)
+python3 path/to/psa.py --config ./.psa.config.json \
+    Deploy-AMDChipsetDriverOnWindowsServer.ps1 \
+    Deploy-AMDGraphicsDriverOnWindowsServer.ps1 \
+    Deploy-AMDNpuDriverOnWindowsServer.ps1 \
+    Deploy-MSBthPanInboxOnWindowsServer.ps1
+```
+
+All four scripts MUST be passed in a single invocation for PSA8001 cross-file analysis to work; with a single file PSA8001 has no peers to compare against and emits nothing. The baseline as of r60 / r28 / r10 / r10 is **0 errors / 0 warnings / 0 info**.
 
 Exit codes: `0` = clean, `1` = warnings only, `2` = errors. Useful in CI:
 
@@ -1026,9 +1068,11 @@ Exit codes: `0` = clean, `1` = warnings only, `2` = errors. Useful in CI:
     curl -sSLO https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py
 - name: Static-analyze PowerShell scripts
   run: |
-    python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
-    python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
-    python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
+    python3 psa.py --config ./.psa.config.json \
+        Deploy-AMDChipsetDriverOnWindowsServer.ps1 \
+        Deploy-AMDGraphicsDriverOnWindowsServer.ps1 \
+        Deploy-AMDNpuDriverOnWindowsServer.ps1 \
+        Deploy-MSBthPanInboxOnWindowsServer.ps1
 ```
 
 For the full design rationale, output format reference, and an extended CI integration example, see the canonical README at [`scripts/python/powershell-static-analyzer/README.md`](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/README.md) in the [ai-generated-artifacts](https://github.com/usui-tk/ai-generated-artifacts) repository.

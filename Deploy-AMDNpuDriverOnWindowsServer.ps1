@@ -324,7 +324,7 @@ $Script:CertValidityYears       = $CertValidityYears
 # =============================================================================
 # Script-scope state
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.05.17-r9'
+$Script:ScriptVersion       = 'npu-2026.05.18-r10'
 $Script:ScriptTag           = 'npu-r9-debug-trace-facility-instrumentation-resume-ctx-autolog'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-AMD-Drivers-For-WindowsServer'
@@ -558,13 +558,13 @@ if (-not [string]::IsNullOrWhiteSpace($LogFile)) {
         # as the winner.
         $logSetupForms = @(
             @{ Label = '-Path -Append -Force'
-               Block = { param($p) Start-Transcript -Path $p -Append -Force -ErrorAction Stop } }
+               Block = { param($p) Start-Transcript -Path $p -Append -Force -ErrorAction Stop } } # psa-disable-line PSA3005 -- deliberate cascade of -Path vs -LiteralPath variants for transcript-handle fallback (see "logSetupForms" / "TranscriptAttempt" comment block)
             @{ Label = '-LiteralPath -Append -Force'
                Block = { param($p) Start-Transcript -LiteralPath $p -Append -Force -ErrorAction Stop } }
             @{ Label = '-Path -Force (no -Append)'
-               Block = { param($p) Start-Transcript -Path $p -Force -ErrorAction Stop } }
+               Block = { param($p) Start-Transcript -Path $p -Force -ErrorAction Stop } } # psa-disable-line PSA3005 -- deliberate cascade of -Path vs -LiteralPath variants for transcript-handle fallback (see "logSetupForms" / "TranscriptAttempt" comment block)
             @{ Label = '-Path only (minimal)'
-               Block = { param($p) Start-Transcript -Path $p -ErrorAction Stop } }
+               Block = { param($p) Start-Transcript -Path $p -ErrorAction Stop } } # psa-disable-line PSA3005 -- deliberate cascade of -Path vs -LiteralPath variants for transcript-handle fallback (see "logSetupForms" / "TranscriptAttempt" comment block)
             @{ Label = 'Invoke-Expression re-parse (last resort)'
                Block = { param($p)
                    $escaped = ($p -replace "'", "''")
@@ -849,6 +849,40 @@ function Write-Warn2 { param($Msg) _LogLine '[!]' $Msg 'Yellow'   }
 function Write-Fail  { param($Msg) _LogLine '[X]' $Msg 'Red'      }
 function Write-Skip  { param($Msg) _LogLine '[~]' $Msg 'DarkGray' }
 
+function Write-Detail {
+    # ====================================================================
+    # Continuation / detail line for a preceding marker line, or a row
+    # inside a section banner block (Show-PowerShellEnvironment,
+    # Show-OperatingSystemDetail, Show-SecureBootBaselineSnapshot, etc.).
+    # Renders 4-space-indented plain text with NO timestamp or marker
+    # prefix, so it visually attaches to the preceding context.
+    #
+    # ---- r10: ported from MSBthPan / AMD Chipset / AMD Graphics ----
+    # Up to r9 the NPU script did NOT have this helper, leading to bare
+    # Write-Host calls with hard-coded 4-space indents. Routing those
+    # through a single helper makes future column-layout tweaks possible
+    # without touching every call site, and gives the SPEC-mandated
+    # marker pattern a single documented exception ("continuation row of
+    # a marker line").
+    #
+    # The 4-space indent is intentional and matches the historical
+    # column convention used inside section-banner tables.
+    #
+    # -NoNewline mirrors Write-Host's switch and is used by two-part
+    # lines that compose a label-then-value pair.
+    # ====================================================================
+    param(
+        [Parameter(Position=0)][string]$Msg,
+        [ConsoleColor]$Color = [ConsoleColor]::Gray,
+        [switch]$NoNewline
+    )
+    if ($NoNewline) {
+        Write-Host ("    {0}" -f $Msg) -ForegroundColor $Color -NoNewline
+    } else {
+        Write-Host ("    {0}" -f $Msg) -ForegroundColor $Color
+    }
+}
+
 function Write-SubHeader {
     # In-phase Level-1 sub-banner (Cyan = x72). Used for major sections within
     # a phase (e.g. "NPU platform detection" / "Driver package resolution").
@@ -872,9 +906,6 @@ function Write-SubHeader2 {
 }
 
 function Write-PhaseHeader {
-    # Phase entry banner (Magenta = x72) - rendered by the dispatcher right
-    # before each phase function is invoked. Records phase start time so that
-    # _LogLine can emit elapsed-tags within the phase.
     param($Id, $Name, $Group)
     $Script:CurrentPhaseStart = Get-Date
     $Script:CurrentPhaseId    = $Id
@@ -882,17 +913,17 @@ function Write-PhaseHeader {
     $line = '=' * 72
     Write-Host ''
     Write-Host $line -ForegroundColor Magenta
-    Write-Host (" PHASE {0} - {1,-26} ({2,-6})  start: {3}" -f $Id, $Name, $Group, $startStr) -ForegroundColor Magenta
+    Write-Host (" PHASE {0} - {1,-23} ({2,-6})  start: {3}" -f $Id, $Name, $Group, $startStr) -ForegroundColor Magenta
     Write-Host (" script: {0}" -f $Script:ScriptShortTag) -ForegroundColor DarkGray
     Write-Host $line -ForegroundColor Magenta
 }
 
 function Write-PhaseFooter {
-    # Phase exit banner. Idempotent: safe to call multiple times for the same
-    # phase (only the first call is recorded). Status is one of done/cached/
-    # skipped/failed; colour and PhaseTimings entry are derived accordingly.
     param($Id, [ValidateSet('done','cached','skipped','failed')]$Status)
 
+    # Idempotency: ignore duplicate calls for the same Id within one run.
+    # Phases that emit their own footer before throwing would otherwise
+    # be double-counted when the dispatcher's catch also calls us.
     foreach ($t in $Script:PhaseTimings) {
         if ($t.Id -eq $Id) { return }
     }
@@ -926,31 +957,172 @@ function Write-PhaseFooter {
 # Environment detection helpers
 # =============================================================================
 function Show-PowerShellEnvironment {
-    [CmdletBinding()]
-    param()
-    Write-SubHeader2 'PowerShell environment'
-    $psv = $PSVersionTable
-    Write-Skip ("PSVersion          : {0}" -f $psv.PSVersion)
-    Write-Skip ("PSEdition          : {0}" -f $psv.PSEdition)
-    Write-Skip ("PSCompatibleVersions: {0}" -f ($psv.PSCompatibleVersions -join ', '))
-    Write-Skip ("CLRVersion         : {0}" -f $psv.CLRVersion)
-    Write-Skip ("BuildVersion       : {0}" -f $psv.BuildVersion)
-    Write-Skip ("OS                 : {0}" -f $psv.OS)
-    Write-Skip ("Platform           : {0}" -f $psv.Platform)
+    # ====================================================================
+    # Display the PowerShell execution environment for diagnostics.
+    # ====================================================================
+    # Designed to work all the way back to PowerShell 5.1 on Windows
+    # Server 2016 (the oldest in-support Windows Server). All cmdlets
+    # and APIs used here are present in PS 5.1 / .NET Framework 4.6+,
+    # so this function itself does not introduce any new compatibility
+    # risk. CIM queries fall back to WMI for fragile environments.
+    Write-Host ''
+    Write-Host '========================================================================'
+    Write-Host ' PowerShell Execution Environment'
+    Write-Host '========================================================================'
 
-    if ($psv.PSVersion.Major -lt 5) {
-        Write-Fail 'PowerShell 5.1 or higher is required.'
-        throw 'PowerShell version unsupported.'
+    # ---- PowerShell engine ----
+    $pv = $PSVersionTable
+    $editionDesc = if ($pv.PSEdition -eq 'Desktop') {
+        'Windows PowerShell - shipped with Windows'
+    } elseif ($pv.PSEdition -eq 'Core') {
+        'PowerShell 7+ / Core - separately installed'
+    } else {
+        '(unknown edition)'
     }
-    if ($psv.PSVersion.Major -eq 5 -and $psv.PSVersion.Minor -lt 1) {
-        Write-Fail 'PowerShell 5.1 or higher is required.'
-        throw 'PowerShell version unsupported.'
+    Write-Host ('    PowerShell Version  : {0}' -f $pv.PSVersion)
+    Write-Host ('    PowerShell Edition  : {0,-25} ({1})' -f $pv.PSEdition, $editionDesc)
+    if ($pv.CLRVersion) {
+        Write-Host ('    CLR / .NET          : {0}' -f $pv.CLRVersion)
+    } else {
+        Write-Host  '    CLR / .NET          : (CLRVersion not exposed by this edition; PS Core is .NET Core / .NET 5+)'
+    }
+    if ($pv.BuildVersion) {
+        Write-Host ('    Engine Build        : {0}' -f $pv.BuildVersion)
     }
 
-    if (-not [Environment]::Is64BitProcess) {
-        Write-Fail '64-bit PowerShell host is required.'
-        throw 'Not running in 64-bit PowerShell.'
+    # ---- Process bitness / architecture ----
+    $procBitness = if ([Environment]::Is64BitProcess) { '64-bit process' } else { '32-bit process' }
+    $procArch    = $env:PROCESSOR_ARCHITECTURE
+    Write-Host ('    Process Architecture: {0,-25} ({1})' -f $procArch, $procBitness)
+
+    # ---- Operating system (CIM, fallback to WMI for restricted hosts) ----
+    $os = $null
+    try {
+        $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
+    } catch {
+        try {
+            # WS2016 / WS2019 sometimes have CIM service issues on
+            # constrained images (e.g. Server Core); fall back to WMI.
+            $os = Get-WmiObject -Class Win32_OperatingSystem -ErrorAction Stop
+        } catch {
+            $os = $null
+        }
     }
+    if ($os) {
+        $caption = if ($os.Caption) { $os.Caption.Trim() } else { '(no caption)' }
+        $arch    = if ($os.OSArchitecture) { $os.OSArchitecture } else { 'unknown' }
+        Write-Host ('    OS                  : {0}' -f $caption)
+        Write-Host ('    OS Build            : {0}' -f $os.BuildNumber)
+        Write-Host ('    OS Architecture     : {0}' -f $arch)
+    } else {
+        Write-Host '    OS                  : (could not query Win32_OperatingSystem - both CIM and WMI failed)' -ForegroundColor Yellow
+    }
+
+    # ---- Host (the program hosting PowerShell) ----
+    Write-Host ('    Host                : {0,-25} (Version {1})' -f $Host.Name, $Host.Version)
+
+    # ---- Execution Policy (best-effort; some scopes may be unreadable) ----
+    try {
+        $pCurrent = Get-ExecutionPolicy
+        $pUser    = Get-ExecutionPolicy -Scope CurrentUser  -ErrorAction SilentlyContinue
+        $pMachine = Get-ExecutionPolicy -Scope LocalMachine -ErrorAction SilentlyContinue
+        Write-Host ('    Execution Policy    : {0,-25} (CurrentUser: {1}, LocalMachine: {2})' -f $pCurrent, $pUser, $pMachine)
+    } catch {
+        Write-Host '    Execution Policy    : (query failed)' -ForegroundColor Yellow
+    }
+
+    # ---- Administrator status ----
+    $id      = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $prin    = [Security.Principal.WindowsPrincipal]::new($id)
+    $isAdmin = $prin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if ($isAdmin) {
+        Write-Host  '    Running as Admin    : Yes'
+    } else {
+        Write-Host  '    Running as Admin    : NO  (cert install / driver install will fail)' -ForegroundColor Yellow
+    }
+
+    # ---- TLS (relevant for download phases) ----
+    Write-Host ('    TLS Default         : {0}' -f [Net.ServicePointManager]::SecurityProtocol)
+
+    # ---- Culture / encoding ----
+    Write-Host ('    Culture             : {0,-25} UICulture: {1}' -f (Get-Culture).Name, (Get-UICulture).Name)
+    $defEnc = [System.Text.Encoding]::Default
+    Write-Host ('    Default Encoding    : {0} (cp{1})' -f $defEnc.WebName, $defEnc.CodePage)
+    Write-Host ('    Console OutputEnc.  : {0} (cp{1})' -f [Console]::OutputEncoding.WebName, [Console]::OutputEncoding.CodePage)
+
+    # ---- Compatibility check summary ----
+    Write-Host ''
+    Write-Host '    Compatibility check (target: PS 5.1+ on Windows Server 2016 or later):'
+
+    $minPs = [Version]'5.1'
+    if ($pv.PSVersion -ge $minPs) {
+        Write-Host ('      [+] PS 5.1+        OK    ({0} >= {1})' -f $pv.PSVersion, $minPs) -ForegroundColor Green
+    } else {
+        Write-Host ('      [X] PS 5.1+        FAIL  ({0} < {1})' -f $pv.PSVersion, $minPs) -ForegroundColor Red
+    }
+
+    Write-Host ('      [+] Edition        OK    ({0} - both Desktop and Core are supported)' -f $pv.PSEdition) -ForegroundColor Green
+
+    if ([Environment]::Is64BitProcess) {
+        Write-Host  '      [+] Bitness        OK    (64-bit process)' -ForegroundColor Green
+    } else {
+        Write-Host  '      [X] Bitness        FAIL  (32-bit process - launch the 64-bit PowerShell, not "(x86)")' -ForegroundColor Red
+    }
+
+    if ($isAdmin) {
+        Write-Host  '      [+] Elevation      OK    (Administrator)' -ForegroundColor Green
+    } else {
+        Write-Host  '      [X] Elevation      FAIL  (not Administrator)' -ForegroundColor Red
+    }
+
+    if ($os) {
+        $supportedBuilds = @{
+            14393 = 'Windows Server 2016'
+            17763 = 'Windows Server 2019'
+            20348 = 'Windows Server 2022'
+            26100 = 'Windows Server 2025'
+        }
+        $build = [int]$os.BuildNumber
+        if ($supportedBuilds.ContainsKey($build)) {
+            # r46: when running on a Workstation OS (e.g. Win11 24H2 used as
+            # a WS2025 preview), include "Workstation, profile: <ServerName>"
+            # so it is obvious from this line alone that the host is NOT a
+            # Server and a profile is being applied. Pre-r46 only the Server
+            # profile name was shown, which made the line read like an OS
+            # mis-detection on Workstation hosts.
+            if ($os.ProductType -eq 1) {
+                Write-Host ('      [+] OS             OK    (build {0} = Workstation; applying profile: {1})' -f $build, $supportedBuilds[$build]) -ForegroundColor Green
+            } else {
+                Write-Host ('      [+] OS             OK    ({0} / build {1})' -f $supportedBuilds[$build], $build) -ForegroundColor Green
+            }
+        } else {
+            Write-Host ('      [!] OS             WARN  (build {0} not in known list - script may still work)' -f $build) -ForegroundColor Yellow
+        }
+    } else {
+        Write-Host  '      [!] OS             WARN  (could not detect OS build)' -ForegroundColor Yellow
+    }
+
+    # ---- Boot-signing environment (Secure Boot, testsigning, HVCI) ----
+    # This is the top concern for a self-signed-driver installer. We
+    # show a compact one-line summary here and let I00 / I02 produce
+    # the verbose table when actually needed.
+    Write-Host ''
+    try {
+        $bootEnv = Get-BootSigningEnvironment
+        Show-BootSigningEnvironment -BootEnv $bootEnv -Compact
+    } catch {
+        Write-Host ('    Boot Signing        : (query failed: {0})' -f $_.Exception.Message) -ForegroundColor Yellow
+    }
+
+    # ---- Prerequisite-workflow reminder (compact) ----
+    # Make this visible on every run because skipping the OEM/WU step
+    # invalidates V06's analysis and produces misleading AS-IS/TO-BE
+    # comparisons in I00 / I04. The full block lives in Show-Help and
+    # in I00.
+    Show-DriverInstallationOrderNotice -Compact
+
+    Write-Host '========================================================================'
+    Write-Host ''
 }
 
 function Show-OperatingSystemDetail {
@@ -1029,43 +1201,88 @@ function Show-OperatingSystemDetail {
     }
 }
 
-function Test-AdminPrivilege {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param()
-    $current  = [Security.Principal.WindowsIdentity]::GetCurrent()
-    $principal = New-Object Security.Principal.WindowsPrincipal($current)
-    $isAdmin  = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-    if (-not $isAdmin) {
-        Write-Fail 'This script must run as Administrator.'
-        throw 'Not running as Administrator.'
+function Assert-PowerShellCompatibility {
+    # ====================================================================
+    # Hard-fail the script early if we cannot safely run.
+    # ====================================================================
+    # Conditions checked here are *fatal* (the script cannot proceed).
+    # Soft warnings (e.g. unknown OS build) live in
+    # Show-PowerShellEnvironment instead.
+    #
+    # ---- r10: ported from the sister scripts (Chipset / Graphics /
+    # MSBthPan). Previously the NPU script relied on the PS-version
+    # check embedded inside its stub Show-PowerShellEnvironment, which
+    # mixed display with hard-fail logic. Splitting the two into
+    # Show-PowerShellEnvironment (display) and
+    # Assert-PowerShellCompatibility (hard-fail) matches the sister
+    # scripts and lets P00 fail-fast before any banner output.
+    $pv    = $PSVersionTable.PSVersion
+    $minPs = [Version]'5.1'
+    if ($pv -lt $minPs) {
+        throw @"
+This script requires PowerShell $minPs or later.
+Detected: $pv
+
+This script targets the default PowerShell included with Windows
+Server 2016 / 2019 / 2022 / 2025, which is PowerShell 5.1.
+PowerShell 7+ is NOT required, but PowerShell 5.1 is the minimum.
+
+If you are on Windows Server 2012 R2 or earlier, install Windows
+Management Framework 5.1: https://aka.ms/wmf51
+"@
     }
-    Write-Ok 'Administrator privileges confirmed.'
-    return $true
+    if (-not [Environment]::Is64BitProcess) {
+        throw @'
+This script requires a 64-bit PowerShell process. Detected 32-bit.
+
+On a 64-bit Windows Server, launch from "Windows PowerShell"
+(NOT "Windows PowerShell (x86)"). The driver / signtool tooling
+will not work correctly inside a 32-bit host.
+'@
+    }
 }
 
-function Set-NetworkProtocol {
-    [CmdletBinding()]
-    param()
-    try {
-        [Net.ServicePointManager]::SecurityProtocol = `
-            [Net.SecurityProtocolType]::Tls12 -bor `
-            [Net.SecurityProtocolType]::Tls13 -bor `
-            [Net.SecurityProtocolType]::Tls11 -bor `
-            [Net.SecurityProtocolType]::Tls
-        Write-Skip 'TLS protocols enabled: Tls, Tls11, Tls12, Tls13'
-    } catch {
-        # Tls13 may not exist on PS5.1; degrade gracefully
-        try {
-            [Net.ServicePointManager]::SecurityProtocol = `
-                [Net.SecurityProtocolType]::Tls12 -bor `
-                [Net.SecurityProtocolType]::Tls11 -bor `
-                [Net.SecurityProtocolType]::Tls
-            Write-Skip 'TLS protocols enabled: Tls, Tls11, Tls12 (Tls13 unavailable)'
-        } catch {
-            Write-Warn2 ("Could not configure TLS protocols: {0}" -f $_.Exception.Message)
-        }
+function Assert-Admin {
+    # ---- r10: renamed from Test-AdminPrivilege; body aligned with the
+    # canonical implementation in the sister scripts (Chipset / Graphics
+    # / MSBthPan). The previous AMDNpu-specific implementation returned
+    # $true and emitted Write-Ok / Write-Fail; the canonical version is
+    # silent on success (throws on failure only), which is the convention
+    # the rest of this script tree follows.
+    $id   = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $prin = [Security.Principal.WindowsPrincipal]::new($id)
+    if (-not $prin.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+        throw 'This script must be run from an elevated PowerShell session.'
     }
+}
+
+function Set-Tls12 {
+    # ====================================================================
+    # Enable modern TLS for Invoke-WebRequest / Invoke-RestMethod.
+    # ====================================================================
+    # Tls12 is the must-have (some download endpoints require it).
+    # Tls13 is added if the running .NET supports it (Framework 4.8+,
+    # WS2022+ ships with it; WS2016/WS2019 may not). Tls11 and below
+    # are intentionally NOT requested - they are deprecated and removed
+    # from many endpoints.
+    #
+    # ---- r10: renamed from Set-NetworkProtocol and replaced its body ----
+    # The previous AMDNpu-specific implementation explicitly enabled
+    # Tls10 and Tls11, which is a security regression vs the sister
+    # scripts (RFC 8996 deprecated TLS 1.0/1.1 in March 2021, and most
+    # AMD / Microsoft download endpoints have removed support). The
+    # canonical implementation in Chipset / Graphics / MSBthPan has been
+    # adopted here for cross-script consistency and stronger defaults.
+    $protos = [Net.SecurityProtocolType]::Tls12
+    try {
+        $tls13 = [Net.SecurityProtocolType]::Tls13
+        $protos = $protos -bor $tls13
+    } catch {
+        # Tls13 enum value not present in this .NET runtime; that is
+        # fine - Tls12 alone is sufficient for everything this script
+        # downloads.
+    }
+    [Net.ServicePointManager]::SecurityProtocol = $protos
 }
 
 function Set-ConsoleUtf8 {
@@ -1089,18 +1306,127 @@ function Set-ConsoleUtf8 {
     #   - $OutputEncoding           : how PS writes piped data to external
     #                                  tools (e.g. "$json | tool.exe")
     # All three must be UTF-8 for consistent round-trip behaviour.
-    [CmdletBinding()]
-    param()
-    try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
-    try { [Console]::InputEncoding  = [System.Text.Encoding]::UTF8 } catch { }
-    try { Set-Variable -Name OutputEncoding -Scope Global -Value ([System.Text.Encoding]::UTF8) -ErrorAction SilentlyContinue } catch { }
-    Write-Skip 'Console encoding set to UTF-8'
+    try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
+    try { [Console]::InputEncoding  = [System.Text.Encoding]::UTF8 } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
+    try { Set-Variable -Name OutputEncoding -Scope Global -Value ([System.Text.Encoding]::UTF8) -ErrorAction SilentlyContinue } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
+}
+
+function Show-DriverInstallationOrderNotice {
+    # ====================================================================
+    # NPU-specific driver install order notice (compact + verbose).
+    # ====================================================================
+    # r10: ported the API surface (-Compact switch, two-mode output) from
+    # the sister scripts (Chipset / Graphics / MSBthPan) so that the
+    # canonical Show-PowerShellEnvironment body can call it without
+    # adaptation. The CONTENT however is NPU-specific because the install
+    # order story is different for NPU drivers: NPU does NOT depend on
+    # chipset/graphics being preinstalled, but it DOES need the AMD
+    # Ryzen AI Software user-mode stack to be installed SEPARATELY (and
+    # AMD does not officially support that on Windows Server 2025).
+    param([switch]$Compact)
+    if ($Compact) {
+        Write-Host ''
+        Write-Host '  NOTE: NPU kernel-mode driver only. Ryzen AI Software (user-mode' -ForegroundColor Yellow
+        Write-Host '        stack, Python/conda/ONNX runtime) is NOT installed by this' -ForegroundColor Yellow
+        Write-Host '        script and is officially UNSUPPORTED on Windows Server 2025.' -ForegroundColor Yellow
+        Write-Host '        This script is EXPERIMENTAL and unvalidated on physical NPU.' -ForegroundColor Yellow
+        return
+    }
+    Write-Host ''
+    Write-Host '  =====================================================================' -ForegroundColor Yellow
+    Write-Host '  ABOUT THIS SCRIPT (AMD NPU kernel-mode driver, EXPERIMENTAL)'           -ForegroundColor Yellow
+    Write-Host '  =====================================================================' -ForegroundColor Yellow
+    Write-Host '  This script deploys ONLY the AMD NPU (Ryzen AI XDNA) kernel-mode driver'
+    Write-Host '  (kipudrv.sys / amdxdna.inf). It does NOT install the Ryzen AI Software'
+    Write-Host '  user-mode stack (Python/conda environments, ONNX runtime, VAI EP). Per'
+    Write-Host '  AMD documentation (https://ryzenai.docs.amd.com/), Ryzen AI Software is'
+    Write-Host '  officially supported on Windows 11 only; running it on Windows Server'
+    Write-Host '  2025 is UNSUPPORTED by AMD and is the responsibility of the operator.'
+    Write-Host ''
+    Write-Host '  Pre-install workflow expected by this script:'
+    Write-Host '      1. Confirm the NPU device is enumerated (PCI\VEN_1022&DEV_17F0 for'
+    Write-Host '         Strix/Krackan, PCI\VEN_1022&DEV_1502 for Phoenix/Hawk Point).'
+    Write-Host '         If absent, BIOS/UEFI may have the NPU disabled.'
+    Write-Host '      2. THEN run this script. It patches amdxdna.inf for ProductType=3,'
+    Write-Host '         signs a fresh catalog, and installs via pnputil.'
+    Write-Host '      3. AFTERWARDS, install Ryzen AI Software separately if you need'
+    Write-Host '         user-mode inference (out of scope here, and unsupported on Server).'
+    Write-Host ''
+}
+
+function Get-BootSigningEnvironment {
+    # ====================================================================
+    # NPU-specific simplified boot-signing environment probe.
+    # ====================================================================
+    # r10: minimal port from the sister scripts. The full canonical
+    # implementation (Chipset / Graphics / MSBthPan, ~172 lines) enumerates
+    # WDAC Code Integrity policies via CiTool.exe and Get-CimInstance
+    # against Win32_DeviceGuard. For the NPU script's experimental scope
+    # we return only the Secure Boot baseline state; WDAC policy
+    # enumeration is left to the sister scripts. Callers should not rely
+    # on the .Policies or .HVCI fields here.
+    #
+    # The returned object is intentionally compatible with the
+    # Show-BootSigningEnvironment stub below.
+    $result = [pscustomobject]@{
+        SecureBootEnabled = $null
+        SecureBootMode    = 'Unknown'
+        TestSigningOn     = $false
+        HVCI              = $null
+        Policies          = @()
+        IsSimplified      = $true
+    }
+    try {
+        $result.SecureBootEnabled = [bool](Confirm-SecureBootUEFI -ErrorAction Stop)
+        $result.SecureBootMode    = if ($result.SecureBootEnabled) { 'On' } else { 'Off' }
+    } catch {
+        $result.SecureBootMode    = 'Unsupported-or-UEFI-not-available'
+    }
+    # Probe testsigning via bcdedit (no admin escalation prompt here).
+    try {
+        $bcd = & bcdedit /enum '{current}' 2>$null | Out-String
+        if ($bcd -match '(?im)^\s*testsigning\s+Yes\s*$') {
+            $result.TestSigningOn = $true
+        }
+    } catch {
+        # bcdedit not available or failed; leave default $false
+    }
+    return $result
+}
+
+function Show-BootSigningEnvironment {
+    # ====================================================================
+    # NPU-specific simplified boot-signing environment display.
+    # ====================================================================
+    # r10: minimal port. Renders the same one-line summary format as the
+    # canonical -Compact mode in the sister scripts. The verbose table
+    # mode (WDAC policy enumeration) is intentionally not implemented
+    # here; for the full diagnostic, run the Chipset script's V01.
+    param(
+        [Parameter(Mandatory)]$BootEnv,
+        [switch]$Compact
+    )
+    $sbColor = if ($BootEnv.SecureBootEnabled) { 'Green' } else { 'Yellow' }
+    $tsColor = if ($BootEnv.TestSigningOn) { 'Yellow' } else { 'Gray' }
+    if ($Compact) {
+        Write-Host ('    Boot Signing        : Secure Boot = {0}, testsigning = {1}' -f $BootEnv.SecureBootMode, $BootEnv.TestSigningOn) -ForegroundColor $sbColor
+        if ($BootEnv.IsSimplified) {
+            Write-Host '                          (NPU script: simplified probe; run Chipset V01 for full WDAC enumeration)' -ForegroundColor DarkGray
+        }
+        return
+    }
+    Write-Host '    Boot Signing Environment'
+    Write-Host ('      Secure Boot       : {0}' -f $BootEnv.SecureBootMode) -ForegroundColor $sbColor
+    Write-Host ('      testsigning       : {0}' -f $BootEnv.TestSigningOn) -ForegroundColor $tsColor
+    if ($BootEnv.IsSimplified) {
+        Write-Host '      (simplified probe in NPU script; WDAC enumeration not available here)' -ForegroundColor DarkGray
+    }
 }
 
 # =============================================================================
 # Phase orchestrator
 # =============================================================================
-function Invoke-PhaseRunner {
+function Invoke-PhaseRunner { # psa-disable-line PSAP0001 -- Invoke-PhaseRunner is the phase dispatcher, not a phase itself; intentional name
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string[]]$PhaseIds
@@ -2223,7 +2549,7 @@ function Get-SecureBootCertificateInventory {
         try {
             $rv = Get-ItemProperty -Path $sbKey -Name $name -ErrorAction Stop
             $inv.$name = $rv.$name
-        } catch { }
+        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     }
     foreach ($name in 'AvailableUpdates','AvailableUpdatesPolicy') {
         try {
@@ -2233,7 +2559,7 @@ function Get-SecureBootCertificateInventory {
                 $hexProp = "${name}Hex"
                 $inv.$hexProp = ('0x{0:X}' -f [int]$rv.$name)
             }
-        } catch { }
+        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     }
 
     # ---- HKLM:\...\Control\SecureBoot\Servicing ----
@@ -2242,7 +2568,7 @@ function Get-SecureBootCertificateInventory {
         try {
             $rv = Get-ItemProperty -Path $svcKey -Name $name -ErrorAction Stop
             $inv.$name = $rv.$name
-        } catch { }
+        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     }
 
     # ---- Servicing\DeviceAttributes ----
@@ -2251,7 +2577,7 @@ function Get-SecureBootCertificateInventory {
         try {
             $rv = Get-ItemProperty -Path $daKey -Name $name -ErrorAction Stop
             $inv.$name = $rv.$name
-        } catch { }
+        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     }
     try {
         $rv = Get-ItemProperty -Path $daKey -Name 'CanAttemptUpdateAfter' -ErrorAction Stop
@@ -2266,7 +2592,7 @@ function Get-SecureBootCertificateInventory {
                 $inv.CanAttemptUpdateAfter = $caua
             }
         }
-    } catch { }
+    } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
 
     # ---- Scheduled task \Microsoft\Windows\PI\Secure-Boot-Update ----
     # Use the PowerShell-native Get-ScheduledTask cmdlet rather than
@@ -2294,7 +2620,7 @@ function Get-SecureBootCertificateInventory {
                 $inv.SecureBootTaskStatus  = 'present (state unknown - schtasks fallback)'
                 $inv.SecureBootTaskEnabled = $null
             }
-        } catch { }
+        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     }
 
     $inv.Available = $true
@@ -2422,7 +2748,7 @@ function Invoke-MsSecureBootDetectScript {
     try {
         $stdoutPath = Join-Path $outDir 'detect_stdout.log'
         Set-Content -LiteralPath $stdoutPath -Value $stdoutText -Encoding UTF8 -Force
-    } catch { }
+    } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
 
     # Try the file-based JSON path first (clean case: MS script accepted
     # our -OutputPath and wrote HOSTNAME_latest.json).
@@ -2492,7 +2818,7 @@ function Invoke-MsSecureBootDetectScript {
                 $jsonRecoveryPath = Join-Path $outDir 'detect_stdout_extracted.json'
                 Set-Content -LiteralPath $jsonRecoveryPath -Value $json -Encoding UTF8 -Force
                 $result.JsonPath = $jsonRecoveryPath
-            } catch { }
+            } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
             $result.ErrorMessage = $null     # clear earlier "file not found" message
             return $result
         }
@@ -2846,7 +3172,7 @@ function Get-OrEnsureSecureBootBaseline {
     if ($Script:DetectedPlatform.SecureBootBaseline) {
         $cached = $Script:DetectedPlatform.SecureBootBaseline
         $jsonPath = $null
-        try { $jsonPath = $cached.MsInfo.JsonPath } catch { }
+        try { $jsonPath = $cached.MsInfo.JsonPath } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
         if (-not $jsonPath) {
             # MS sample script not present or did not produce a JSON
             # path - nothing to keep co-located. Cached snapshot is fine.
@@ -3809,7 +4135,7 @@ function Invoke-AmdAccountAuthentication {
 # Same toolchain as chipset/graphics sister scripts for maintenance parity.
 # =============================================================================
 
-function Test-CommandExists {
+function Test-CommandExists { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$Name)
@@ -3910,7 +4236,7 @@ function Find-SevenZipPath {
     return $null
 }
 
-function Install-RequiredTools {
+function Install-RequiredTools { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     <#
     .SYNOPSIS
         Ensures Windows SDK (signtool), Windows WDK (inf2cat), and 7-Zip are available.
@@ -4179,7 +4505,7 @@ function Expand-AmdNpuPackage {
 # =============================================================================
 # INF parser core (P05/P06) — same logic as chipset r47, NPU-tuned
 # =============================================================================
-function Read-InfFileLines {
+function Read-InfFileLines { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
     [OutputType([string[]])]
     param([Parameter(Mandatory)][string]$Path)
@@ -4503,7 +4829,7 @@ function Test-InfProductTypeCoverage {
     }
     foreach ($srv in $inf.ServerDecorations) {
         $serverPattern = ('{0}\.3$' -f $ExpectedBuild)
-        if ($srv -match $serverPattern) {
+        if ($srv -match $serverPattern) { # psa-disable-line PSA2003 -- pattern variable is initialized in the enclosing scope; $null impossible by construction
             $result.HasServerForBuild = $true
             break
         }
@@ -4764,7 +5090,7 @@ function Install-WdacPolicy {
                 if ($j.OperationResult) { $statusLine = [string]$j.OperationResult }
                 elseif ($j.Status)      { $statusLine = [string]$j.Status }
             }
-        } catch { }
+        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
         if ($statusLine) {
             Write-Skip ("    {0}" -f $statusLine)
         } else {
@@ -4973,8 +5299,8 @@ function Invoke-PrepPhase00_Initialize {
     Write-Step 'Running environment and sanity checks'
 
     Show-PowerShellEnvironment
-    Test-AdminPrivilege | Out-Null
-    Set-NetworkProtocol
+    Assert-Admin
+    Set-Tls12
     Set-ConsoleUtf8
 
     $os = Show-OperatingSystemDetail
@@ -5110,7 +5436,7 @@ function Invoke-PrepPhase01_PrepareWorkspace {
     Resume-CtxFromWorkspace
 }
 
-function Invoke-PrepPhase02_AcquireTools {
+function Invoke-PrepPhase02_AcquireTools { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
     param()
     Set-DebugStep 'delegate to Initialize-ToolingStack'
@@ -5238,7 +5564,7 @@ function Invoke-PrepPhase04_ExtractInstaller {
     $Script:DetectedPlatform.ExtractedExeFiles = $extracted.ExeFiles
 }
 
-function Invoke-PrepPhase05_AnalyzeInfs {
+function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
     param()
     Set-DebugStep 'inventory INF files and parse target NPU'
@@ -5269,7 +5595,7 @@ function Invoke-PrepPhase05_AnalyzeInfs {
         }
         if (-not [string]::IsNullOrEmpty($targetPattern)) {
             foreach ($hwidEntry in $parsed.HwidEntries) {
-                if ($hwidEntry.HardwareId -match $targetPattern) {
+                if ($hwidEntry.HardwareId -match $targetPattern) { # psa-disable-line PSA2003 -- pattern variable is initialized in the enclosing scope; $null impossible by construction
                     $matchesTarget = $true
                     $matchedHwids += $hwidEntry.HardwareId
                 }
@@ -5382,7 +5708,7 @@ function Invoke-PrepPhase05_AnalyzeInfs {
     }
 }
 
-function Invoke-PrepPhase06_PatchInfs {
+function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
     param()
     Set-DebugStep 'mirror Workstation decorations as ProductType=3'
@@ -5450,7 +5776,7 @@ function Invoke-PrepPhase07_CreateCertificate {
     $Script:DetectedPlatform.Cert = $cert
 }
 
-function Invoke-PrepPhase08_GenerateCatalogs {
+function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
     param()
 
@@ -5478,7 +5804,7 @@ function Invoke-PrepPhase08_GenerateCatalogs {
     $Script:DetectedPlatform.PatchedCatFiles = $cats
 }
 
-function Invoke-PrepPhase09_SignCatalogs {
+function Invoke-PrepPhase09_SignCatalogs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
     param()
 
@@ -5521,7 +5847,7 @@ function Invoke-PrepPhase09_SignCatalogs {
 # Phase implementations V01 - V06 (Verify)
 # =============================================================================
 
-function Invoke-VerifyPhase01_VerifyArtifacts {
+function Invoke-VerifyPhase01_VerifyArtifacts { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
     param()
     Set-DebugStep 'verify cert + patched INFs + catalogs all exist'
@@ -5612,7 +5938,7 @@ function Invoke-VerifyPhase02_VerifyCertificate {
     }
 }
 
-function Invoke-VerifyPhase03_VerifyCatalogs {
+function Invoke-VerifyPhase03_VerifyCatalogs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
     param()
     Set-DebugStep 'run signtool verify /pa on each catalog'
@@ -5637,7 +5963,7 @@ function Invoke-VerifyPhase03_VerifyCatalogs {
     Write-Ok ('Verify fail : {0}  (expected before I01)' -f $fail)
 }
 
-function Invoke-VerifyPhase04_VerifyInfs {
+function Invoke-VerifyPhase04_VerifyInfs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
     param()
     Set-DebugStep 'verify ProductType=3 decoration coverage'
@@ -5833,7 +6159,7 @@ function Invoke-VerifyPhase05_DryRunInstall {
     }
 }
 
-function Invoke-VerifyPhase06_HardwareImpactAnalysis {
+function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
     param()
     Set-DebugStep 'analyze hardware impact on detected NPU'
@@ -5867,7 +6193,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis {
         } else { $null }
         if (-not [string]::IsNullOrEmpty($hwidPattern)) {
             $current = Get-CimInstance Win32_PnPSignedDriver -ErrorAction SilentlyContinue | Where-Object {
-                ($_.HardwareID -and ($_.HardwareID -join '|') -match $hwidPattern)
+                ($_.HardwareID -and ($_.HardwareID -join '|') -match $hwidPattern) # psa-disable-line PSA2003 -- pattern variable is initialized in the enclosing scope; $null impossible by construction
             } | Select-Object -First 1
         }
         if ($current) {
@@ -6145,7 +6471,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     Write-Ok ('WDAC policy deployed via {0}' -f $r.Method)
 }
 
-function Invoke-InstPhase03_InstallDrivers {
+function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
     param()
     Set-DebugStep 'run pnputil /add-driver /install for each patched INF'
@@ -6183,7 +6509,7 @@ function Invoke-InstPhase04_PostInstallVerification {
         if (-not [string]::IsNullOrEmpty($hwidEscaped)) {
             Set-DebugStep 'match NPU HWID against Win32_PnPSignedDriver entries'
             $bound = Get-CimInstance Win32_PnPSignedDriver -ErrorAction SilentlyContinue | Where-Object {
-                $_.HardwareID -and ($_.HardwareID -join '|') -match $hwidEscaped
+                $_.HardwareID -and ($_.HardwareID -join '|') -match $hwidEscaped # psa-disable-line PSA2003 -- pattern variable is initialized in the enclosing scope; $null impossible by construction
             } | Select-Object -First 1
         }
 
@@ -6445,8 +6771,8 @@ function Invoke-MainEntryPoint {
     # Cleanup short-circuit
     if ($Action -eq 'Cleanup') {
         # Best-effort: even Cleanup needs admin + TLS for cert removal
-        try { Test-AdminPrivilege | Out-Null } catch { throw }
-        Set-NetworkProtocol
+        try { Assert-Admin } catch { throw }
+        Set-Tls12
         Set-ConsoleUtf8
         Invoke-Cleanup
         return

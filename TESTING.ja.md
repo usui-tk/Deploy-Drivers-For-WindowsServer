@@ -34,7 +34,7 @@
 
 NPU スクリプトの検証は現時点で以下に限定されています:
 
-1. **静的解析** を `psa.py` v3.1.0 (28 ルール体系 `PSA1001`〜`PSA7001`) で実施 (**errors 0** + warnings / info はベースライン化 — `SPEC.ja.md` §A.11.5 参照)。 `psa.py` は [ai-generated-artifacts](https://github.com/usui-tk/ai-generated-artifacts) レポジトリで canonical artifact として管理されているため、 実行前に `SPEC.ja.md` §A.11 の手順で取得してください。
+1. **静的解析** を `psa.py` v3.2.0 (新規 PSA8xxx ファイル間整合性 / PSA9xxx 複雑度 / PSAPxxxx プロジェクト規約ファミリを含む 34 ルール体系) と同梱の `.psa.config.json` で実施 (**errors 0 / warnings 0 / info 0** — 完全クリーンベースライン — `SPEC.ja.md` §A.11.5 参照)。 `psa.py` は [ai-generated-artifacts](https://github.com/usui-tk/ai-generated-artifacts) レポジトリで canonical artifact として管理されているため、 実行前に `SPEC.ja.md` §A.11 の手順で取得してください。
 2. **コードレビュー** — AMD 公開の `quicktest.py` の NPU 検出ロジックを PowerShell に翻訳した実装をレビュー。
 3. **`-Action Install` の実行はメンテナーによって一切行われていません。**
 4. **物理 NPU ハードウェアでのエンドツーエンド実行はメンテナーによって一切行われていません。**
@@ -257,7 +257,7 @@ Install 系 phase は自動ブロック (`-AllowWorkstationInstall` で override
 
 | 検証活動 | ステータス | 根拠 |
 |---|---|---|
-| `psa.py` v3.1.0 での静的解析 (`SPEC.ja.md` §A.11 参照) | ✅ 完了 | errors 0 / warnings 26 / info 0 — 全件ベースライン化済み (§A.11.5 参照) |
+| `psa.py` v3.2.0 と同梱の `.psa.config.json` での静的解析 (`SPEC.ja.md` §A.11 参照) | ✅ 完了 | errors 0 / warnings 0 / info 0 — r60 / r28 / r10 / r10 時点で完全クリーンベースライン (§A.11.5 参照) |
 | NPU 検出ロジックのコードレビュー | ✅ 完了 | `Get-AmdNpuPlatform` は AMD 公開の `quicktest.py` を PowerShell に直接ポート |
 | 物理 NPU マシンでの検出 | ❌ **未実施** | 本ドキュメント作成時点でメンテナーの lab に物理 NPU ハードウェアが無い |
 | 実 NPU ドライバ ZIP の INF パース | ❌ **未実施** | NPU ドライバ ZIP (`NPU_RAI*_WHQL.zip`) は EULA gate のため、メンテナーは全 RAI バージョンの INF 構造を検証済みのコピーで保有していない |

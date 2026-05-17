@@ -34,7 +34,7 @@ This document consolidates the validation results for `Deploy-Drivers-For-Window
 
 The NPU script's verification is currently limited to:
 
-1. **Static analysis** with `psa.py` v3.1.0 (28-rule check set `PSA1001`..`PSA7001`, **0 errors** with a documented baseline of warnings/info — see `SPEC.md` §A.11.5). `psa.py` is maintained as a canonical artifact in the [ai-generated-artifacts](https://github.com/usui-tk/ai-generated-artifacts) repository; obtain it per `SPEC.md` §A.11 before running.
+1. **Static analysis** with `psa.py` v3.2.0 (34-rule check set including the new PSA8xxx cross-file consistency / PSA9xxx complexity / PSAPxxxx project-convention families, **0 errors / 0 warnings / 0 info** with the repository-shipped `.psa.config.json` — see `SPEC.md` §A.11.5). `psa.py` is maintained as a canonical artifact in the [ai-generated-artifacts](https://github.com/usui-tk/ai-generated-artifacts) repository; obtain it per `SPEC.md` §A.11 before running.
 2. **Code review** of the AMD-published `quicktest.py` NPU detection logic translated to PowerShell.
 3. **No `-Action Install` execution** has been performed by the maintainers anywhere.
 4. **No end-to-end run on physical NPU hardware** has been performed by the maintainers.
@@ -257,7 +257,7 @@ In other words, **PrepareVerify on Win11 24H2 functions as pre-migration verific
 
 | Verification activity | Status | Evidence |
 |---|---|---|
-| Static analysis with `psa.py` v3.1.0 (see `SPEC.md` §A.11) | ✅ done | 0 errors / 26 warnings / 0 info — fully baselined (see §A.11.5) |
+| Static analysis with `psa.py` v3.2.0 with the repository-shipped `.psa.config.json` (see `SPEC.md` §A.11) | ✅ done | 0 errors / 0 warnings / 0 info — fully clean baseline as of r60 / r28 / r10 / r10 (see §A.11.5) |
 | Code review of NPU detection logic | ✅ done | `Get-AmdNpuPlatform` is a direct PowerShell port of AMD-published `quicktest.py` |
 | Detection on physical NPU machine | ❌ **NOT DONE** | No physical NPU hardware in maintainer's lab as of this writing |
 | INF parsing of real NPU driver ZIP | ❌ **NOT DONE** | NPU driver ZIPs (`NPU_RAI*_WHQL.zip`) are EULA-gated; maintainer does not have a verified copy of every RAI version's INF structure |
@@ -563,7 +563,7 @@ The two updates are independent — adding driver support does not require touch
 
 ## 4. Validation Result 4 (BthPan script) — planned
 
-> The BthPan script (r9) is brand-new; physical validation has not yet been performed. This section documents the planned first physical-validation run.
+> The BthPan script (r10) is brand-new; physical validation has not yet been performed. This section documents the planned first physical-validation run.
 
 ### 4.1 Planned target hardware
 

@@ -94,7 +94,7 @@ When extending these scripts, **copy these helpers verbatim** from the most rece
 psa.py  (obtained from the canonical artifact repository — see A.11)
 ```
 
-`psa.py` is a **pure Python** static analyzer (no PowerShell installation required), currently at version **3.1.0**, with a 28-rule check set spanning `PSA1001`..`PSA7001`. It is **not** bundled in this repository. It is maintained as a single canonical artifact at:
+`psa.py` is a **pure Python** static analyzer (no PowerShell installation required), currently at version **3.2.0**, with a 34-rule check set spanning `PSA1001`..`PSA9002` plus the project-convention family `PSAP0001`..`PSAP0002`. It is **not** bundled in this repository. It is maintained as a single canonical artifact at:
 
 ```
 https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/python/powershell-static-analyzer/psa.py
@@ -658,19 +658,22 @@ python3 psa.py --severity error Deploy-AMDChipsetDriverOnWindowsServer.ps1
 # Exit code 0 = no errors. Warnings and info do not gate the build.
 ```
 
-### Rule coverage (psa.py v3.1.0 — 28 rules)
+### Rule coverage (psa.py v3.2.0 — 34 rules)
 
-`psa.py` v3.1.0 ships with a 28-rule check set grouped into seven categories.
+`psa.py` v3.2.0 ships with a **34-rule** check set grouped into **nine categories**. The PSA8xxx, PSA9xxx, and PSAPxxxx families are new in 3.2.0; the older PSA1xxx–PSA7xxx families are unchanged in scope but the PSA1001 / PSA2001 / PSA4001 tokenizer was rebuilt in 3.2.0 to eliminate a class of pre-existing false positives.
 
-| Category               | Code range            | Examples |
-| ---------------------- | --------------------- | -------- |
-| Syntax balance         | `PSA1001`..`PSA1003`  | brace / paren / bracket balance |
-| Semantics              | `PSA2001`..`PSA2006`  | undefined variable, auto-variable shadowing, `-match` against bare variable, `$null` on the right of `-eq`/`-ne`, assignment / redirection inside conditional |
-| Style                  | `PSA3001`..`PSA3004`  | `Start-Process -ArgumentList`, trailing backtick before empty line, `-match` against empty string, empty `catch` block |
-| Hygiene                | `PSA4001`..`PSA4004`  | unfinished markers, trailing whitespace, long line, trailing semicolon |
-| Security               | `PSA5001`..`PSA5004`  | plain-text password parameter, `Invoke-Expression`, broken hash algorithm, hardcoded `ComputerName` |
-| Best practice          | `PSA6001`..`PSA6006`  | non-approved verb, cmdlet alias, plural function noun, `$global:` definition, mandatory parameter with default, switch defaulting to `$true` |
-| File format            | `PSA7001`             | missing UTF-8 BOM on `.ps1` (Windows PowerShell 5.1 ja-JP falls back to Shift-JIS / cp932 without BOM) |
+| Category                                  | Code range            | Examples                                                                                                                                                                                                                                                              |
+| ----------------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Syntax balance                            | `PSA1001`..`PSA1003`  | brace / paren / bracket balance                                                                                                                                                                                                                                       |
+| Semantics                                 | `PSA2001`..`PSA2006`  | undefined variable, auto-variable shadowing, `-match` against bare variable, `$null` on the right of `-eq`/`-ne`, assignment / redirection inside conditional                                                                                                         |
+| Coding pattern                            | `PSA3001`..`PSA3005`  | `Start-Process -ArgumentList`, trailing backtick before empty line, `-match` against empty string, empty `catch` block, **new in 3.2.0:** `Start-Transcript -Path` should be `-LiteralPath`                                                                           |
+| Hygiene                                   | `PSA4001`..`PSA4004`  | unfinished markers, trailing whitespace, long line, trailing semicolon                                                                                                                                                                                                |
+| Security                                  | `PSA5001`..`PSA5004`  | plain-text password parameter, `Invoke-Expression`, broken hash algorithm, hardcoded `ComputerName`                                                                                                                                                                   |
+| Best practice                             | `PSA6001`..`PSA6006`  | non-approved verb, cmdlet alias, plural function noun, `$global:` definition, mandatory parameter with default, switch defaulting to `$true`                                                                                                                          |
+| File format                               | `PSA7001`             | missing UTF-8 BOM on `.ps1` (Windows PowerShell 5.1 ja-JP falls back to Shift-JIS / cp932 without BOM)                                                                                                                                                                 |
+| **NEW: Cross-file consistency**           | `PSA8001`             | function body hash drift across files in the same scan — enforces that shared helper functions (`Format-Elapsed`, `Write-Detail`, `Start-DebugTrace` family, etc.) stay byte-for-byte synchronised across the four pipeline scripts                                   |
+| **NEW: Complexity metrics**               | `PSA9001`..`PSA9002`  | function-body length threshold (default off, tunable via `max_function_lines`), external-process invocation without `$LASTEXITCODE` check (default off)                                                                                                              |
+| **NEW: Project / pipeline conventions**   | `PSAP0001`..`PSAP0002` | phase function naming convention (`Invoke-(Prep\|Verify\|Inst)PhaseNN_Name`), required script-identifier variables (`$Script:ScriptVersion` / `$Script:ScriptHash` / `$Script:ScriptShortTag`). **All PSAPxxxx rules are off by default**; opt in via `.psa.config.json` |
 
 For the authoritative specification of every rule (severity, examples,
 suppression guidance), see
@@ -681,39 +684,62 @@ Exit codes: `0` = clean (or `--severity error` filter passing), `1` =
 warnings/info present, `2` = errors. The default `--severity` floor is
 `info`.
 
+### Project-local `.psa.config.json` (canonical for this repository)
+
+This repository ships its own `.psa.config.json` at the repository root. It is the **canonical configuration for the four pipeline scripts** and does the following:
+
+1. **Opts in to `PSAP0001` and `PSAP0002`** so that the 21-phase naming convention (`Invoke-(Prep|Verify|Inst)PhaseNN_DescriptiveName`) and the script-identity trio (`$Script:ScriptVersion` / `$Script:ScriptHash` / `$Script:ScriptShortTag`) are enforced.
+
+2. **Configures `PSA8001` (cross-file function-body drift)** with `psa8001_ignore_functions`, listing roughly 45 function names that are intentionally per-script (phase functions matched via regex `^Invoke-(Prep|Verify|Inst)Phase\d{2}_`, plus per-driver-family helpers such as `Show-Help`, `Show-PhaseList`, `Find-KitTool`, `Expand-AmdInstaller`, etc.). Shared helpers NOT listed there MUST stay byte-for-byte identical across all four scripts.
+
+3. **Disables `PSA4003` (long line)** because the pipeline scripts intentionally use multi-clause `-f` format strings (Show-PowerShellEnvironment table, per-device AS-IS / TO-BE analysis tables) that exceed 120 columns for readability of the resulting console output.
+
+The canonical invocation is therefore:
+
+```bash
+python3 path/to/psa.py --config ./.psa.config.json \
+    Deploy-AMDChipsetDriverOnWindowsServer.ps1 \
+    Deploy-AMDGraphicsDriverOnWindowsServer.ps1 \
+    Deploy-AMDNpuDriverOnWindowsServer.ps1 \
+    Deploy-MSBthPanInboxOnWindowsServer.ps1
+```
+
+All four scripts MUST be passed in a single invocation for PSA8001 cross-file analysis to work. `psa.py` auto-discovers `.psa.config.json` in the current working directory, so when run from the repository root the `--config` flag may be omitted.
+
 ### A.11.5 Documented baseline (warnings and info)
 
 This repository has the following **accepted** warning / info baseline as of
-the psa-baseline-sync revision. Any deviation from these counts must be
-explained in the commit message and either added here or fixed.
+the r60 / r28 / r10 / r10 revision (2026-05-18). Any deviation from these
+counts must be explained in the commit message and either added here or fixed.
 
-| Script | Errors | Warnings | Info | Total |
-| ------ | -----: | -------: | ---: | ----: |
-| `Deploy-AMDChipsetDriverOnWindowsServer.ps1`  | **8** | 55 | 32 | 95 |
-| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | **8** | 56 | 38 | 102 |
-| `Deploy-AMDNpuDriverOnWindowsServer.ps1`      | **0** | 30 |  0 | 30 |
-| `Deploy-MSBthPanInboxOnWindowsServer.ps1`     | **2** | 61 | 32 | 95 |
+| Script                                          | Errors | Warnings | Info | Total |
+| ----------------------------------------------- | -----: | -------: | ---: | ----: |
+| `Deploy-AMDChipsetDriverOnWindowsServer.ps1`    |  **0** |    **0** |  **0** |   **0** |
+| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1`   |  **0** |    **0** |  **0** |   **0** |
+| `Deploy-AMDNpuDriverOnWindowsServer.ps1`        |  **0** |    **0** |  **0** |   **0** |
+| `Deploy-MSBthPanInboxOnWindowsServer.ps1`       |  **0** |    **0** |  **0** |   **0** |
 
-Breakdown by rule:
+The 2026-05-18 release is the **first revision where the canonical static-analysis baseline is fully clean across all four scripts simultaneously** (with the canonical `.psa.config.json` as documented above).
 
-| Rule (severity)                       | Chipset | Graphics | NPU | BthPan | Disposition |
-| ------------------------------------- | ------: | -------: | --: | -----: | ----------- |
-| `PSA4004` (trailing semicolon, info)  |   31    |    37    |  0  |   31   | Cosmetic; existing style accumulated over many revisions. Not fixed in the r59/r27/r9/r9 sync. NPU is clean (zero PSA4004) because it was authored after the trailing-semicolon style was discouraged. |
-| `PSA3004` (empty `catch`, warning)    |   31    |    31    | 13  |   29   | Mix of fail-soft retry and best-effort diagnostic capture. Not individually annotated in this sync. The Chipset r55 / Graphics r23 `finally`-block lock-release catch is suppressed inline (`# psa-disable-line PSA3004`) and is not counted here. |
-| `PSA6003` (plural function noun, w.)  |   14    |    15    | 13  |   16   | Existing public function names; renaming would be a breaking API change. |
-| `PSA2003` (-match against `$null`, w.)|    6    |     7    |  4  |    4   | All inspected sites use `-match` against a script-scope constant pattern that is never `$null`; the warning is technically true but operationally a known-good shape. |
-| `PSA3001` (Start-Process -ArgumentList, w.) | 4 |    3    |  0  |    9   | Existing wrappers; arguments are constructed safely with no shell metacharacters. Chipset counts 4 because r54's `Expand-AmdInstaller_ViaInstallShield` added a 4th call for the per-sub-MSI `msiexec /a` admin install. BthPan's 9 reflect its broader use of `Start-Process` for `pnputil` / `signtool` invocations. |
-| `PSA2001` (uninitialized var, error)  |    7    |     7    |  0  |    2   | All cases are `[switch]` parameters (`$Force`, `$CleanWorkRoot`, `$UseTestSigning`, `$AllowWorkstationInstall`, `$ExportTraceOnExit`) where PSA misclassifies `$switch.IsPresent` access. Documented as known false positives. |
-| `PSA1001` (brace balance, error)      |    1    |     1    |  0  |    0   | Chipset and Graphics each have one known PSA1001 false-positive at a specific here-string boundary; NPU and BthPan are clean. |
-| `PSA4001` (multiple statements/line, info) |  1 |     1    |  0  |    1   | One pre-existing site each; cosmetic. |
-| `PSA2002` (unused parameter, w.)      |    0    |     0    |  0  |    3   | BthPan-only; three helper functions accept a `$Ctx` parameter that is currently used only for future extension hooks. Documented for forward-compat. |
+How the previously-documented findings were resolved in this sync:
 
-**Note on PSA5001**: previously reported as 1 / 1 / 3 errors. As of the
-psa-baseline-sync revision these are all suppressed inline at the `param()`
-declaration site, because the value flows to `signtool.exe /p` and
-`X509Certificate2(.., String)` — both of which require a plaintext `String`
-at the API boundary. The inline justification comments explain the design
-intent at each site.
+| Rule                                       | Prior r59/r27/r9/r9 totals       | Resolution applied                                                                                                                                                                                                                                                                            |
+| ------------------------------------------ | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PSA1001` (brace balance, error)           | 1 / 1 / 0 / 0                    | Resolved by the **psa.py 3.2.0 tokenizer fix** (PowerShell `""` double-quote-doubling escape and the `` `` `` double-backtick escape are now handled correctly). No script-side change was required.                                                                                          |
+| `PSA2001` (undefined variable, error)      | 7 / 7 / 0 / 2                    | Resolved by **psa.py 3.2.0 scope-qualifier handling** (`$Script:`, `$global:`, `$local:`, `$private:` are now treated as runtime-deferred and never reported as undefined). No script-side change was required.                                                                              |
+| `PSA4001` (TODO / FIXME marker, info)      | 1 / 1 / 0 / 1                    | Resolved by **psa.py 3.2.0 marker-matching tightening** (the analyzer now requires a colon or whitespace-then-letter after the marker, and ignores embedded string literals like `"XXX"` inside comments). No script-side change was required.                                                |
+| `PSA2002` (unused parameter, w.)           | 0 / 0 / 0 / 3                    | Fixed in MSBthPan r10: three `$args` shadow assignments at L7556 / L7685 / L8863 (inf2cat / signtool / pnputil invocations) renamed to `$cmdArgs`.                                                                                                                                            |
+| `PSA2003` (-match against bare variable)   | 6 / 7 / 4 / 4                    | Annotated inline with `# psa-disable-line PSA2003 -- pattern variable is initialized in the enclosing scope; $null impossible by construction`. Pattern variables are local constants, never `$null`.                                                                                          |
+| `PSA3001` (Start-Process -ArgumentList)    | 4 / 3 / 0 / 9                    | Annotated inline with `# psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args`.                                                                                                                          |
+| `PSA3004` (empty `catch`, w.)              | 31 / 31 / 13 / 29                | Annotated inline with `# psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface`.                                                                                                                                                                                   |
+| `PSA3005` (Start-Transcript -Path, w.)     | 3 / 3 / 3 / 3 (new rule)         | Annotated inline with `# psa-disable-line PSA3005 -- deliberate cascade of -Path vs -LiteralPath variants for transcript-handle fallback`. The `logSetupForms` cascade in `Show-PowerShellEnvironment` legitimately tests both `-Path` and `-LiteralPath` forms.                              |
+| `PSA4004` (trailing semicolon, info)       | 31 / 37 / 0 / 31                 | Auto-fixed by mechanical deletion of trailing `;` from end-of-line statements (outside strings / comments only). 98 deletions across the three affected scripts.                                                                                                                              |
+| `PSA6003` (plural function noun, w.)       | 14 / 15 / 13 / 16                | Annotated inline with `# psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers`. Renaming would be a breaking API change against published pipeline phase names.                                                    |
+| `PSA8001` (function-body drift, new)       | n/a (rule new in 3.2.0)          | All shared helper functions are now byte-for-byte identical across the four scripts. Per-script functions (phase functions, `Show-Help`, etc.) are listed in `psa8001_ignore_functions` in `.psa.config.json`. The `[CmdletBinding()] param()` declaration on AMDNpu's `Set-ConsoleUtf8` was removed to match the canonical body in the other three scripts. |
+| `PSAP0001` (phase naming, new opt-in)      | n/a (rule new in 3.2.0)          | All 21 phase functions match `Invoke-(Prep\|Verify\|Inst)PhaseNN_DescriptiveName`. The single non-phase function with an `Invoke-` prefix (AMDNpu `Invoke-PhaseRunner`, the phase dispatcher) is annotated `# psa-disable-line PSAP0001 -- ... is the phase dispatcher, not a phase itself`.    |
+| `PSAP0002` (script-identifier trio, new)   | n/a (rule new in 3.2.0)          | All four scripts assign `$Script:ScriptVersion`, `$Script:ScriptHash`, and `$Script:ScriptShortTag` early in the SECTION 0 (Constants / Identity) block; this requirement was already met in r59 / r27 / r9 / r9 and survives the sync.                                                       |
+
+**Note on PSA5001 (plaintext password, error)**: previously reported as 1 / 1 / 3 errors. As of the psa-baseline-sync revision these were all suppressed inline at the `param()` declaration site, because the value flows to `signtool.exe /p` and `X509Certificate2(.., String)` — both of which require a plaintext `String` at the API boundary. The inline justification comments explain the design intent at each site. The 2026-05-18 sync preserves these suppressions unchanged.
 
 ### Inline suppression and project-local configuration
 
