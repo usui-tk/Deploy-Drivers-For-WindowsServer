@@ -412,8 +412,83 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'msbthpan-2026.05.17-r8'
-$Script:ScriptTag     = 'msbthpan-debug-trace-facility-jsonl-and-phase-integration-r8'
+#
+# ----------------------------------------------------------------------
+# REVISION HISTORY (this script only; see SPEC.md for the full repo log)
+# ----------------------------------------------------------------------
+# r9 (2026-05-17) - cosmetic logTag / log-filename fix for the
+#                    P00 Workstation-preview "RECOMMENDED USAGE"
+#                    hint. Residue from the AMD sister scripts removed.
+#   * Invoke-PrepPhase00_Initialize: the Win11-on-Workstation
+#     preview hint block printed log filename suggestions of the
+#     form `C:\Temp\amd-<tag>-Win11-preview.log` and `...-WS2025.log`,
+#     where `<tag>` was selected by `if ($Script:ScriptVersion -like
+#     'graphics-*') { 'graphics' } else { 'chipset' }`. Both the
+#     hard-coded `amd-` prefix and the binary graphics/chipset
+#     selector are residue from the AMD sister scripts and produced
+#     the awkward `amd-chipset-Win11-preview.log` string for
+#     BthPan runs. Replaced the selector with a switch -Wildcard
+#     covering graphics-* / chipset-* / npu-* / msbthpan-* /
+#     default, and removed the `amd-` prefix from both
+#     `Tee-Object -FilePath` examples. No behavioural change; the
+#     strings are user-facing hint text only and never read back.
+#
+# r8 (2026-05-17) - validation-completed release. Cumulative deltas
+#                    versus r7:
+#   * Section 1b: Debug Trace Facility (frame/step model with
+#     Start-DebugTrace / Set-DebugStep / Stop-DebugTrace, JSONL
+#     streaming via Enable-DebugTraceFileOutput, auto-export on phase
+#     failure, -ExportTraceOnExit final snapshot). UTF-8-BOM on every
+#     file write so ja-JP `Get-Content` does not decode as Shift-JIS.
+#   * P01 Resume-CtxFromWorkspace rehydration helper - lets
+#     -Action Verify / -Action Install -OnlyPhases ... run against an
+#     existing workspace without first re-running P02-P09. Restores 7
+#     $Ctx properties (PatchedBthPanInfPath / PatchedCatalogs /
+#     CertPfxPath / CertCerPath / CertThumbprint / ExtractedBthPanDir /
+#     BthPanInfPath) by inspecting on-disk artifacts.
+#   * Section 0.25: -LogFile auto-relocation guard. When the requested
+#     log file is inside -WorkRoot AND -CleanWorkRoot is set, the
+#     transcript is auto-relocated to <script-dir>\<scriptleaf>_<Action>_
+#     <ts>.log (falling back to %TEMP%) to prevent the P01 wipe from
+#     deleting the active transcript. The original P01 pre-flight guard
+#     remains as defence-in-depth.
+#   * 7 $Ctx properties pre-declared at object creation (V05DryRunPlan,
+#     V06DeviceStates, V06RuntimeArtifacts, V06RiskClass, I04OverallResult,
+#     I04DeviceStates, I04RuntimeArtifacts) so PowerShell strict-mode
+#     property assignment does not raise "property does not exist".
+#   * PS 5.1 Split-Path -LiteralPath -Parent AmbiguousParameterSet
+#     workaround: every site uses [System.IO.Path]::GetDirectoryName()
+#     instead. Microsoft Learn confirms LiteralPathSet and ParentSet
+#     are mutually exclusive in 5.1.
+#   * Ghost-call sweep: I-phase function calls were systematically
+#     cross-checked against function param blocks. Fixed:
+#       - I00 Show-BootSigningEnvironment -Ctx -> -BootEnv (call site
+#         now mirrors the 4 other in-script call patterns).
+#       - I01 Test-CertAlreadyTrusted -Thumbprint -> -Ctx (function
+#         reads thumbprint internally and falls back to .cer on disk).
+#       - I03 Set-PendingRebootMarker -Phase -> -Source (typo: param
+#         name is -Source, matches I02 call at the same function).
+#   * Write-SubHeader helper added near Write-PhaseHeader so I-phase
+#     SubHeader emits work without "command not found" on Install paths
+#     that PrepareVerify never reaches.
+#
+# r7 (2026-05-17) - validation-first build with InfVerif + Provider
+#                    rewrite (F1) + CatalogFile injection (F2) +
+#                    makecat fallback (F3) for inbox driver
+#                    re-cataloging. Resolved PS 5.1 ja-JP build
+#                    26100.32860 ArgumentException for
+#                    @(List[object]) hashtable cast via .ToArray().
+#
+# r6 (2026-05-17) - unblocked P00-P07; revealed inf2cat signability
+#                    test conflicts (22.9.4 / 22.9.8) for inbox driver
+#                    re-cataloging, addressed in r7 by makecat fallback.
+#
+# r2..r5 (2026-05-17) - initial debug iterations (P03 driver discovery,
+#                    $Ctx property bugs, Format-Elapsed type, transcript
+#                    bind).
+# ----------------------------------------------------------------------
+$Script:ScriptVersion = 'msbthpan-2026.05.17-r9'
+$Script:ScriptTag     = 'msbthpan-r9-debug-trace-rehydration-autolog-relocate-ghostcall-sweep-logtag-fix'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -3316,7 +3391,7 @@ function Show-BootSigningChangeRequired {
 }
 
 #####################################################################
-# SECTION 1d: WDAC (Windows Defender Application Control)
+# SECTION 1e: WDAC (Windows Defender Application Control)
 # supplemental-policy helpers
 #####################################################################
 # These helpers exist to keep Secure Boot ENABLED while still allowing
@@ -3708,7 +3783,7 @@ function Uninstall-MsBthPanWdacPolicy {
 }
 
 #####################################################################
-# SECTION 1e: Install-phase state validators (resume-after-reboot)
+# SECTION 1f: Install-phase state validators (resume-after-reboot)
 #####################################################################
 # These predicates answer "is the END STATE of install phase X already
 # present on this system?" by inspecting the live system, NOT by
@@ -5655,16 +5730,22 @@ function Invoke-PrepPhase00_Initialize {
         }
         Write-Host ''
         # Determine derived script type from version string for the log filename hint
-        $logTag = if ($Script:ScriptVersion -like 'graphics-*') { 'graphics' } else { 'chipset' }
+        $logTag = switch -Wildcard ($Script:ScriptVersion) {
+            'graphics-*' { 'graphics'; break }
+            'chipset-*'  { 'chipset';  break }
+            'npu-*'      { 'npu';      break }
+            'msbthpan-*' { 'msbthpan'; break }
+            default      { 'driver' }
+        }
         $scriptLeaf = if ($Script:ScriptPath) { Split-Path $Script:ScriptPath -Leaf } else { '<this-script>.ps1' }
         Write-Host '    RECOMMENDED USAGE on this Workstation host:' -ForegroundColor White
         Write-Host '      1. Use -Action PrepareVerify -CleanWorkRoot only (no system' -ForegroundColor White
         Write-Host '         changes; safe to run repeatedly).' -ForegroundColor White
         Write-Host '      2. Save the run log for post-WS2025-install comparison:' -ForegroundColor White
         Write-Detail ("     .\{0} -Action PrepareVerify -CleanWorkRoot *>&1 |" -f $scriptLeaf) -Color DarkGray
-        Write-Detail ("       Tee-Object -FilePath C:\Temp\amd-{0}-Win11-preview.log" -f $logTag) -Color DarkGray
+        Write-Detail ("       Tee-Object -FilePath C:\Temp\{0}-Win11-preview.log" -f $logTag) -Color DarkGray
         Write-Host '      3. After WS2025 clean install, re-run with the same command' -ForegroundColor White
-        Write-Detail ("       (... | Tee-Object -FilePath C:\Temp\amd-{0}-WS2025.log)" -f $logTag) -Color DarkGray
+        Write-Detail ("       (... | Tee-Object -FilePath C:\Temp\{0}-WS2025.log)" -f $logTag) -Color DarkGray
         Write-Host '         and compare the two logs (especially V06 section 2/3).' -ForegroundColor White
         Write-Host '      4. -Action Install / I01-I04 phases are REJECTED on Workstation' -ForegroundColor White
         Write-Host '         (would import certs, deploy WDAC policy, displace OEM drivers).' -ForegroundColor White
