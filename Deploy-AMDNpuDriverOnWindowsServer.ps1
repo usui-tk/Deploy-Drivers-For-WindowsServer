@@ -114,7 +114,26 @@
     Delete the workspace directory before starting (forces a fresh download/extract).
 
 .PARAMETER WorkRoot
-    Override the default workspace path (C:\AMD-NPU-WS).
+    Override the default workspace path. Default: C:\Temp\Workspace_AMD-NPU
+    (r8+: relocated under C:\Temp\Workspace_* to keep workspace data
+    clustered under one parent directory that is trivial to inspect and
+    purge. The script auto-creates C:\Temp on demand.)
+
+.PARAMETER LogFile
+    (r8+) Optional path to capture the full console transcript to a
+    file. When set, the script wraps its execution in
+    Start-Transcript / Stop-Transcript so the file receives every
+    stream (Output / Host / Error / Warning / Verbose / Debug) as
+    plain text, while the interactive console keeps its color
+    decoration (Write-Host -ForegroundColor) intact. This is the
+    recommended way to retain a run log without losing console
+    colors — Tee-Object on the outside of the pipeline strips
+    Write-Host coloring, this option does not.
+
+    The parent directory is created on demand. The file is opened
+    in -Append mode so concurrent re-runs accumulate rather than
+    truncate. Recommended filename convention:
+        C:\Temp\amd-npu_<Action>_<yyyyMMdd-HHmmss>.log
 
 .PARAMETER PfxPassword
     Password for the self-signed PFX. Default is empty (lab tool).
@@ -162,8 +181,23 @@
         -NpuDriverPackage NPU_RAI1.6.1_314 `
         -RyzenAiSoftwareVersion latest
 
+.EXAMPLE
+    # (r8+) Capture full transcript while keeping console colors
+    $ts  = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $log = "C:\Temp\amd-npu_PrepareVerify_$ts.log"
+    .\Deploy-AMDNpuDriverOnWindowsServer.ps1 `
+        -Action PrepareVerify -CleanWorkRoot `
+        -OfflineZip .\NPU_RAI1.6.1_314_WHQL.zip `
+        -LogFile $log
+
+.EXAMPLE
+    # Legacy fallback (color is stripped from the captured file)
+    .\Deploy-AMDNpuDriverOnWindowsServer.ps1 -Action Install `
+        -OfflineZip .\NPU_RAI1.6.1_314_WHQL.zip *>&1 |
+        Tee-Object -FilePath "C:\Temp\amd-npu_Install_$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+
 .NOTES
-    Version: r1
+    Version: r8
     Author : Deploy-AMD-Drivers-For-WindowsServer contributors
     License: MIT
     Repo   : https://github.com/usui-tk/Deploy-AMD-Drivers-For-WindowsServer
@@ -236,7 +270,20 @@ param(
     [switch]$CleanWorkRoot,
 
     [Parameter()]
-    [string]$WorkRoot = 'C:\AMD-NPU-WS',
+    # r8+: relocated under C:\Temp\Workspace_* to keep workspace data
+    # clustered under one parent directory that is trivial to inspect
+    # and purge. The script auto-creates C:\Temp if it does not exist.
+    [string]$WorkRoot = 'C:\Temp\Workspace_AMD-NPU',
+
+    [Parameter()]
+    # === Console transcript capture (r8+) ============================
+    # Optional path; when set, the script wraps its execution in
+    # Start-Transcript / Stop-Transcript so the file gets every stream
+    # as plain text while the live console keeps its Write-Host color
+    # decoration. This is the recommended replacement for the legacy
+    # `... *>&1 | Tee-Object -FilePath ...` idiom, which strips
+    # Write-Host coloring on the way through the pipeline.
+    [string]$LogFile = '',
 
     [Parameter()]
     # NOTE: [string] (not [SecureString]) because the password is forwarded to
@@ -277,8 +324,8 @@ $Script:CertValidityYears       = $CertValidityYears
 # =============================================================================
 # Script-scope state
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.05.17-r7'
-$Script:ScriptTag           = 'npu-citool-json-and-console-utf8-r7'
+$Script:ScriptVersion       = 'npu-2026.05.17-r8'
+$Script:ScriptTag           = 'npu-logfile-and-temp-workspace-r8'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-AMD-Drivers-For-WindowsServer'
 $Script:CertSubjectCn       = 'AMD NPU Driver Self-Sign (WS2025 Lab, At Own Risk)'
@@ -327,6 +374,47 @@ try {
     $Script:ScriptHash = '(hash-error)'
 }
 $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash)
+
+# =============================================================================
+# Optional console transcript capture (r8+)
+# =============================================================================
+# When -LogFile is set, wrap execution in Start-Transcript so the file
+# receives every stream (Output / Host / Error / Warning / Verbose /
+# Debug) as plain text, while the interactive console keeps its
+# Write-Host -ForegroundColor decoration intact. The matching
+# Stop-Transcript is invoked in the top-level finally block at the
+# bottom of this script; the PowerShell.Exiting hook below is a
+# best-effort fallback if the script exits earlier than the finally.
+#
+# Tee-Object on the outside of the pipeline (`... *>&1 | Tee-Object`)
+# strips Write-Host coloring because the host stream is captured into
+# the pipeline value stream. The -LogFile path here is the recommended
+# alternative when console coloring matters to the operator.
+$Script:LogFileActive = $false
+if (-not [string]::IsNullOrWhiteSpace($LogFile)) {
+    try {
+        $logDir = Split-Path -LiteralPath $LogFile -Parent
+        if (-not [string]::IsNullOrWhiteSpace($logDir) -and -not (Test-Path -LiteralPath $logDir)) {
+            New-Item -ItemType Directory -Path $logDir -Force -ErrorAction Stop | Out-Null
+        }
+        # Defensive: stop any in-flight transcript from a previous run
+        # in the same PowerShell host (Start-Transcript fails if one is
+        # already active). Best-effort, no error if none is active.
+        try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup
+        Start-Transcript -Path $LogFile -Append -Force -ErrorAction Stop | Out-Null
+        $Script:LogFileActive = $true
+        # Register a host-exit fallback so the transcript is closed even
+        # if the script bails before the finally block at end-of-file
+        # (e.g. parameter validation error after this point).
+        Register-EngineEvent -SourceIdentifier PowerShell.Exiting -SupportEvent -Action {
+            try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { } # psa-disable-line PSA3004
+        } | Out-Null
+        Write-Host ("[*] Transcript -> {0}" -f $LogFile) -ForegroundColor DarkGreen
+    } catch {
+        Write-Warning ("Failed to start transcript at '{0}': {1}" -f $LogFile, $_.Exception.Message)
+        $Script:LogFileActive = $false
+    }
+}
 
 # Phase registry (sister-script-aligned: pscustomobject + Invoke-{Group}Phase{NN}_{Name})
 $Script:PhaseRegistry = @(
@@ -5159,10 +5247,21 @@ finally {
     if ($Script:TopLevelException) {
         Write-Host ''
         Write-Fail 'Script terminated with errors. See messages above.'
+        # r8: close the transcript opened above. Idempotent; best-effort,
+        # must not mask the original exception (if any).
+        if ($Script:LogFileActive) {
+            try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup
+            $Script:LogFileActive = $false
+        }
         exit 1
     } else {
         Write-Host ''
         Write-Ok 'Script completed successfully.'
+        # r8: close the transcript opened above. Idempotent; best-effort.
+        if ($Script:LogFileActive) {
+            try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup
+            $Script:LogFileActive = $false
+        }
         exit 0
     }
 }

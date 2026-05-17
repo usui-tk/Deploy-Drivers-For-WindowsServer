@@ -76,10 +76,16 @@ If you have a Ryzen AI 300 / Ryzen AI Max 300 / Ryzen 7040 / 8040 series machine
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 
 # Stage 1: PrepareVerify, V06 review (system unchanged)
-.\Deploy-AMDChipsetDriverOnWindowsServer.ps1  -Action PrepareVerify -CleanWorkRoot *>&1 |
-  Tee-Object C:\TEMP\m75q-chipset-prepareverify.log
-.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot *>&1 |
-  Tee-Object C:\TEMP\m75q-graphics-prepareverify.log
+# r58+ / r26+ recommended: use -LogFile to keep console colors while capturing the run.
+$ts = Get-Date -Format 'yyyyMMdd-HHmmss'
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1  -Action PrepareVerify -CleanWorkRoot `
+    -LogFile "C:\Temp\m75q-amd-chipset_PrepareVerify_$ts.log"
+.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot `
+    -LogFile "C:\Temp\m75q-amd-graphics_PrepareVerify_$ts.log"
+
+# Legacy fallback (Write-Host coloring is stripped from the captured file):
+#   .\Deploy-AMDChipsetDriverOnWindowsServer.ps1  -Action PrepareVerify -CleanWorkRoot *>&1 |
+#     Tee-Object "C:\Temp\m75q-amd-chipset_PrepareVerify_$ts.log"
 
 # Stage 2: Once V06 risk is acceptable, run Install
 # IMPORTANT: secure the BitLocker recovery key beforehand
@@ -168,10 +174,16 @@ Windows 11 Enterprise LTSC 2024 shares NT kernel build 26100 with Windows Server
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 
 # Install phases auto-block on Workstation OS — PrepareVerify only
-.\Deploy-AMDChipsetDriverOnWindowsServer.ps1  -Action PrepareVerify -CleanWorkRoot *>&1 |
-  Tee-Object C:\TEMP\x13gen1-chipset-Win11-preview.log
-.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot *>&1 |
-  Tee-Object C:\TEMP\x13gen1-graphics-Win11-preview.log
+# r58+ / r26+ recommended: use -LogFile to keep console colors while capturing the run.
+$ts = Get-Date -Format 'yyyyMMdd-HHmmss'
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1  -Action PrepareVerify -CleanWorkRoot `
+    -LogFile "C:\Temp\x13gen1-amd-chipset_PrepareVerify_Win11-preview_$ts.log"
+.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot `
+    -LogFile "C:\Temp\x13gen1-amd-graphics_PrepareVerify_Win11-preview_$ts.log"
+
+# Legacy fallback (Write-Host coloring is stripped from the captured file):
+#   .\Deploy-AMDChipsetDriverOnWindowsServer.ps1  -Action PrepareVerify -CleanWorkRoot *>&1 |
+#     Tee-Object "C:\Temp\x13gen1-amd-chipset_PrepareVerify_Win11-preview_$ts.log"
 
 # NPU script: NOT APPLICABLE (no NPU on Renoir)
 ```
@@ -585,7 +597,7 @@ Get-PnpDevice -Class Bluetooth | Select-Object FriendlyName, Status, InstanceId
 # Read V05 + V06 output carefully. Confirm:
 #   - V05 reports the device count and classification
 #   - V06 risk class is LOW (BthPan default; only MEDIUM if Phantom OK detected)
-#   - Patched bthpan.inf is at C:\MSBthPan-WS\patched\bthpan\bthpan.inf
+#   - Patched bthpan.inf is at C:\Temp\Workspace_Microsoft-BthPan\patched\bthpan\bthpan.inf
 #   - inf2cat catalog targets Server2025_X64 + ServerFE_X64 + ServerRS5_X64 + Server2016_X64
 
 # Stage 2: full install
@@ -625,7 +637,7 @@ Get-NetAdapter | Where-Object InterfaceDescription -Match 'Bluetooth.*Personal A
 # Expected: one NetAdapter present, MediaType=Bluetooth
 
 # Self-signed catalog still trusted
-signtool verify /pa /v C:\MSBthPan-WS\patched\bthpan\bthpan.cat
+signtool verify /pa /v C:\Temp\Workspace_Microsoft-BthPan\patched\bthpan\bthpan.cat
 # Expected: "Successfully verified"
 
 # WDAC supplemental policy active
@@ -784,7 +796,7 @@ When the installer is AMD 8.x, P04 console output should look approximately like
 [!] 7-Zip auto-detect produced no usable payload (exit 0) - trying next strategy
     Strategy 2/3: InstallShield /a admin install (AMD 8.x+ chain)
       Step 1/3: 7-Zip outer NSIS shell...
-      Inner SFX  : C:\AMD-Chipset-WS\is-stage-nsis\AMD_Chipset_Drivers.exe (75.3 MB)
+      Inner SFX  : C:\Temp\Workspace_AMD-Chipset\is-stage-nsis\AMD_Chipset_Drivers.exe (75.3 MB)
       Step 2/3: InstallShield /a admin install...
       Unpacked   : 36 MSI files (InstallShield exit 0)
       Step 3/3: msiexec /a on 36 sub-MSI(s)...
@@ -794,7 +806,7 @@ When the installer is AMD 8.x, P04 console output should look approximately like
       [ skip    ] WTx64     :  32 INF(s)
       [ skip    ] WTx86     :  32 INF(s)
 [+]    Extracted via InstallShield admin install chain
-[+] Extracted to: C:\AMD-Chipset-WS\extract
+[+] Extracted to: C:\Temp\Workspace_AMD-Chipset\extract
 ```
 
 ### 8.3 Validation checklist
@@ -814,11 +826,11 @@ When the new path runs successfully, all of these should hold:
 
 If the PREFERRED variant shows `0 INF(s)` despite the extraction succeeding, the most likely causes are:
 
-1. **InstallShield /a failed silently**: Check `C:\AMD-Chipset-WS\installshield-admin.log` for MSI errors during the admin install. Look for `Action ended ...` lines with non-zero return values.
+1. **InstallShield /a failed silently**: Check `C:\Temp\Workspace_AMD-Chipset\installshield-admin.log` for MSI errors during the admin install. Look for `Action ended ...` lines with non-zero return values.
 
-2. **msiexec /a failed for the OS-variant sub-MSIs**: Check `C:\AMD-Chipset-WS\msiexec-admin-*.log` for the specific failing sub-MSIs. Each sub-MSI has its own log named after the MSI filename.
+2. **msiexec /a failed for the OS-variant sub-MSIs**: Check `C:\Temp\Workspace_AMD-Chipset\msiexec-admin-*.log` for the specific failing sub-MSIs. Each sub-MSI has its own log named after the MSI filename.
 
-3. **AMD changed the directory layout in a future version**: If you are running against a Chipset Software version newer than 8.02.18.557 and the `Binaries\<DriverName>\<OS>\` structure changed, the `Get-AmdSourceVariant` classifier (script line ~5003) may need updating. File a GitHub issue with the directory tree under `C:\AMD-Chipset-WS\extract\`.
+3. **AMD changed the directory layout in a future version**: If you are running against a Chipset Software version newer than 8.02.18.557 and the `Binaries\<DriverName>\<OS>\` structure changed, the `Get-AmdSourceVariant` classifier (script line ~5003) may need updating. File a GitHub issue with the directory tree under `C:\Temp\Workspace_AMD-Chipset\extract\`.
 
 ### 8.5 Fallback behaviour
 
@@ -936,7 +948,7 @@ And the I03 per-INF lines previously rendered as `[!]   exit=259 (see ...)` now 
 ```powershell
 # Compare I03 install result count vs I04 device classification
 # Read the persisted I03 results
-$ws = 'C:\AMD-Chipset-WS'
+$ws = 'C:\Temp\Workspace_AMD-Chipset'
 # I03 writes to install_results.csv if Export-Csv is wired in (otherwise check console log)
 # Easier: re-run the script and compare summary line vs Section 1 of I04.
 .\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -OnlyPhases I04

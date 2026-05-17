@@ -116,16 +116,16 @@ See A.11 for details.
 
 ### A.1.4 Workspace path convention
 
-Each script writes to a dedicated workspace path under `C:\AMD-<short>-WS\` (or `C:\MSBthPan-WS\` for the Microsoft inbox BthPan script) to guarantee non-collision between scripts:
+Each script writes to a dedicated workspace path under `C:\Temp\Workspace_<vendor>-<short>\` to guarantee non-collision between scripts. From Chipset r58 / Graphics r26 / NPU r8 / BthPan r2, all four workspaces are relocated under `C:\Temp\Workspace_*` (the script auto-creates `C:\Temp` on demand):
 
-| Script    | Default workspace path       |
-| --------- | ---------------------------- |
-| Chipset   | `C:\AMD-Chipset-WS`          |
-| Graphics  | `C:\AMD-Graphics-WS`         |
-| NPU       | `C:\AMD-NPU-WS`              |
-| BthPan    | `C:\MSBthPan-WS`             |
+| Script    | Default workspace path                     | Pre-relocation path (deprecated) |
+| --------- | ------------------------------------------ | -------------------------------- |
+| Chipset   | `C:\Temp\Workspace_AMD-Chipset`            | `C:\AMD-Chipset-WS`              |
+| Graphics  | `C:\Temp\Workspace_AMD-Graphics`           | `C:\AMD-Graphics-WS`             |
+| NPU       | `C:\Temp\Workspace_AMD-NPU`                | `C:\AMD-NPU-WS`                  |
+| BthPan    | `C:\Temp\Workspace_Microsoft-BthPan`       | `C:\MSBthPan-WS`                 |
 
-If a 5th script is added (e.g. ROCm runtime, audio coprocessor), use `C:\AMD-<short>-WS\` (or an equivalent vendor-prefixed path for non-AMD drivers) with the same subdirectory layout (`download\`, `extracted\`, `patched\`, `cert\`).
+If a 5th script is added (e.g. ROCm runtime, audio coprocessor), use `C:\Temp\Workspace_<vendor>-<short>\` with the same subdirectory layout (`download\`, `extracted\`, `patched\`, `cert\`, `logs\`, `.markers\`). The `Workspace_` prefix and `<vendor>-<short>` naming scheme keep all workspaces sorted contiguously when `C:\Temp` is listed.
 
 ---
 
@@ -354,6 +354,68 @@ P00 must enable TLS 1.2 + 1.3 (and degrade gracefully on PS 5.1 without TLS 1.3)
     [Net.SecurityProtocolType]::Tls
 ```
 
+### Run log capture (`-LogFile`)
+
+From Chipset r58 / Graphics r26 / NPU r8 / BthPan r2, the four scripts expose a `-LogFile <path>` parameter that activates a script-internal `Start-Transcript` / `Stop-Transcript` pair. This is the canonical mechanism for retaining a run log; it supersedes the legacy `... *>&1 | Tee-Object -FilePath ...` idiom for two reasons:
+
+1. **Coloring preservation.** `Tee-Object` on the outside of the pipeline captures the Write-Host output as the host stream is reduced to the pipeline value stream, which strips the `-ForegroundColor` decoration. `Start-Transcript` does not — the interactive console keeps its color, and the file gets every stream as plain text.
+2. **Stream completeness.** `Start-Transcript` captures all of Output / Host / Error / Warning / Verbose / Debug. `Tee-Object` on `*>&1` captures the merged value stream, but does not preserve the per-stream metadata.
+
+Canonical implementation pattern (mirror across all four sister scripts):
+
+```powershell
+# Param block (after -WorkRoot, before -PfxPassword)
+[string]$LogFile       = '',
+
+# Section 0.25, immediately after $Script:ScriptShortTag is set, before any
+# Write-Host call that should be captured.
+$Script:LogFileActive = $false
+if (-not [string]::IsNullOrWhiteSpace($LogFile)) {
+    try {
+        $logDir = Split-Path -LiteralPath $LogFile -Parent
+        if (-not [string]::IsNullOrWhiteSpace($logDir) -and -not (Test-Path -LiteralPath $logDir)) {
+            New-Item -ItemType Directory -Path $logDir -Force -ErrorAction Stop | Out-Null
+        }
+        try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { }
+        Start-Transcript -Path $LogFile -Append -Force -ErrorAction Stop | Out-Null
+        $Script:LogFileActive = $true
+        Register-EngineEvent -SourceIdentifier PowerShell.Exiting -SupportEvent -Action {
+            try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { }
+        } | Out-Null
+        Write-Host ("[*] Transcript -> {0}" -f $LogFile) -ForegroundColor DarkGreen
+    } catch {
+        Write-Warning ("Failed to start transcript at '{0}': {1}" -f $LogFile, $_.Exception.Message)
+        $Script:LogFileActive = $false
+    }
+}
+
+# Top-level finally block (must also call this even if the script throws)
+finally {
+    if ($Script:LogFileActive) {
+        try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { }
+        $Script:LogFileActive = $false
+    }
+}
+```
+
+Required behaviour:
+
+- **Parent directory auto-create**: the script creates the parent of `-LogFile` on demand (`New-Item -ItemType Directory -Force`). `C:\Temp\` is the canonical recommended parent and is auto-created if missing.
+- **Append mode**: `Start-Transcript -Path $LogFile -Append -Force` so concurrent re-runs accumulate, not truncate. Operators that want a fresh file must include a timestamp in the filename (see filename convention below) or delete the file beforehand.
+- **Defensive pre-stop**: call `Stop-Transcript -ErrorAction SilentlyContinue` before `Start-Transcript` to release any in-flight transcript from a previous run in the same PowerShell host (otherwise `Start-Transcript` fails with "transcription has already been started").
+- **Two-tier cleanup**: register a `PowerShell.Exiting` engine event handler as a fallback, in addition to the top-level `finally` block. The handler catches the case where the script bails before reaching the `finally` (e.g. parameter validation error post-Start-Transcript).
+- **Failure mode**: a `Start-Transcript` failure must NOT prevent the script from running. Emit a `Write-Warning` and continue with the transcript disabled (`$Script:LogFileActive = $false`).
+
+Recommended filename convention:
+
+```
+C:\Temp\<scripttag>_<Action>_<yyyyMMdd-HHmmss>.log
+```
+
+Where `<scripttag>` is `amd-chipset` / `amd-graphics` / `amd-npu` / `ms-bthpan`. The timestamp suffix prevents same-Action re-runs from appending to the previous file when that is not desired.
+
+Operators on a ja-JP host with the default cp932 console code page who pipe `-LogFile` output through a downstream tool must still set the consuming tool's file encoding to UTF-8 (the script's `Set-ConsoleUtf8` in P00 enforces UTF-8 for `[Console]::OutputEncoding`, but text editors / `Get-Content` on the captured file may default to cp932 / Shift-JIS).
+
 ---
 
 ## A.6 Parameter Conventions
@@ -367,7 +429,8 @@ P00 must enable TLS 1.2 + 1.3 (and degrade gracefully on PS 5.1 without TLS 1.3)
 | `-CleanWorkRoot`             | switch   |          | Delete the workspace before starting                              |
 | `-AllowWorkstationInstall`   | switch   |          | Permit Install on Workstation OS (default: blocked)               |
 | `-UseTestSigning`            | switch   |          | Fall back to bcdedit testsigning (default: WDAC policy)           |
-| `-WorkRoot`                  | string   |          | Workspace path override                                           |
+| `-WorkRoot`                  | string   |          | Workspace path override (r58+ / r26+ / r8+ / r2+ default: `C:\Temp\Workspace_<vendor>-<short>`) |
+| `-LogFile`                   | string   |          | (r58+ / r26+ / r8+ / r2+) Capture full console transcript via `Start-Transcript`. See §A.5 |
 | `-PfxPassword`               | string   |          | Self-signed PFX password (lab default: empty)                     |
 | `-CertValidityYears`         | int      |          | Self-signed cert validity (default: 5)                            |
 
@@ -833,7 +896,7 @@ When adding a fifth sister script, the 6 cross-script-identical functions are li
 ### Identification
 
 - **Current revision**: `chipset-2026.05.17-r57` (tag: `chipset-citool-json-and-pnputil-259-r57`)
-- **Workspace**: `C:\AMD-Chipset-WS\`
+- **Workspace**: `C:\Temp\Workspace_AMD-Chipset\` (r58+; pre-r58: `C:\AMD-Chipset-WS\`)
 - **Self-signed cert subject**: `CN=AMD Chipset Driver Self-Sign (WS2025 Lab, At Own Risk)`
 - **Self-signed cert files**: `cert\AMD-Chipset-Driver-CodeSign.{pfx,cer}` (r48+; pre-r48 used `AMD-Driver-CodeSign.{pfx,cer}`)
 - **WDAC policy GUID** (r48+): fixed `503860EA-8837-4169-9BC4-19E5AEED721B`; overridable via `-WdacPolicyGuid`. Pre-r48 deploys used a dynamically-generated PolicyId recorded in `cert\AmdSuppPolicyId.txt`.
@@ -1004,7 +1067,7 @@ Older AMD platforms (Renoir, Cezanne) will produce fewer device-driver matches i
 ### Identification
 
 - **Current revision**: `graphics-2026.05.17-r25` (tag: `graphics-citool-json-and-pnputil-259-r25`)
-- **Workspace**: `C:\AMD-Graphics-WS\`
+- **Workspace**: `C:\Temp\Workspace_AMD-Graphics\` (r26+; pre-r26: `C:\AMD-Graphics-WS\`)
 - **Self-signed cert subject**: `CN=AMD Graphics Driver Self-Sign (WS2025 Lab, At Own Risk)`
 - **Self-signed cert files**: `cert\AMD-Graphics-Driver-CodeSign.{pfx,cer}` (r17+; pre-r17 used `AMD-Driver-CodeSign.{pfx,cer}`)
 - **WDAC policy GUID** (r17+): fixed `85336828-3080-41C5-81EC-FD587DC090D3`; overridable via `-WdacPolicyGuid`. Pre-r17 deploys used a dynamically-generated PolicyId recorded in `cert\AmdSuppPolicyId.txt`.
@@ -1037,7 +1100,7 @@ Older AMD platforms (Renoir, Cezanne) will produce fewer device-driver matches i
 ### Identification
 
 - **Current revision**: `npu-2026.05.17-r7` (tag: `npu-citool-json-and-console-utf8-r7`)
-- **Workspace**: `C:\AMD-NPU-WS\`
+- **Workspace**: `C:\Temp\Workspace_AMD-NPU\` (r8+; pre-r8: `C:\AMD-NPU-WS\`)
 - **Self-signed cert subject**: `CN=AMD NPU Driver Self-Sign (WS2025 Lab, At Own Risk)`
 - **Self-signed cert files**: `cert\AMD-NPU-Driver-CodeSign.{pfx,cer}` (r3+; pre-r3 used `AMD-NPU-CodeSign.{pfx,cer}`)
 - **WDAC policy name**: `AMD-NPU-Driver-SelfSign-Lab`
@@ -1103,7 +1166,7 @@ Compatibility evaluation is a **separate** axis (`Test-NpuDriverRaiCompatibility
 
 - **ScriptVersion**: `msbthpan-2026.05.17-r1`
 - **ScriptTag**: `msbthpan-initial-implementation-r1`
-- **Default workspace**: `C:\MSBthPan-WS`
+- **Default workspace**: `C:\Temp\Workspace_Microsoft-BthPan` (r2+; pre-r2: `C:\MSBthPan-WS`)
 - **Cert subject CN**: `Microsoft BthPan Driver Self-Sign (<OsCode> Lab, At Own Risk)` (where `<OsCode>` is `WS2016` / `WS2019` / `WS2022` / `WS2025` depending on the host)
 - **Cert filename**: `MS-BthPan-Driver-CodeSign.{pfx,cer}`
 - **WDAC supplemental policy XML/CIP filenames**: `MsBthPanSelfSignedSupplementalPolicy.{xml,cip}` (stored in `<workspace>\cert\`)
@@ -1445,6 +1508,8 @@ After Strategy 2 succeeds, the existing P05 / P06 / I03 pipeline picks up the fu
 
 ## D.13 Chipset r55 / Graphics r23 — Workspace lock leaked across runs in the same PowerShell console
 
+> **Note (post-r58 / r26)**: The error message shown below references the pre-relocation workspace path (`C:\AMD-Chipset-WS`) because that is what r55 emitted at the time. From r58 / r26, the equivalent message would show `C:\Temp\Workspace_AMD-Chipset` instead. The mechanism described and the fix are unchanged.
+
 **Symptom**: Running the chipset (or graphics) script with `-Action PrepareVerify` and then immediately re-running it (with the same or a different `-Action`) in the **same interactive PowerShell console** failed at P01 with:
 
 ```
@@ -1473,6 +1538,8 @@ The two changes are complementary: `try/finally` prevents the lock from leaking 
 ---
 
 ## D.14 Chipset r55 — Per-tool installer logs leaked to workspace root
+
+> **Note (post-r58)**: The workspace paths shown in this section use the pre-r58 layout (`C:\AMD-Chipset-WS\`) because that is the path the bug actually surfaced under in r55. From r58, the workspace lives at `C:\Temp\Workspace_AMD-Chipset\` instead; the substring after the workspace root (`installshield-admin.log`, `msiexec-admin-*.log`) is unchanged. See SPEC §A.1.4 for the relocation.
 
 **Symptom**: After running `-Action PrepareVerify` on a clean Windows Server 2025 host, the workspace root (`C:\AMD-Chipset-WS\`) contained the following loose log files alongside the documented subdirectory layout (`download\`, `extracted\`, `patched\`, `cert\`, `logs\`, `.markers\`):
 
@@ -1644,7 +1711,7 @@ I.e. `--json` (or `-j`) instructs CiTool to emit machine-readable JSON **and** s
 
 # (b) CiTool.exe stdout should NOT garble (after Set-ConsoleUtf8 has run)
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$tmpXml = 'C:\AMD-Chipset-WS\cert\AmdSelfSignedSupplementalPolicy.xml'
+$tmpXml = 'C:\Temp\Workspace_AMD-Chipset\cert\AmdSelfSignedSupplementalPolicy.xml'
 $tmpCip = "$env:TEMP\verify_$(Get-Random).cip"
 ConvertFrom-CIPolicy -XmlFilePath $tmpXml -BinaryFilePath $tmpCip | Out-Null
 Copy-Item $tmpCip "$env:windir\System32\CodeIntegrity\CiPolicies\Active\verify_test.cip" -Force

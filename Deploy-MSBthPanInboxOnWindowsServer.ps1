@@ -167,8 +167,10 @@
     enable this:
 
     [1] Working directory is fully separated.
-        Default for THIS script   : C:\MSBthPan-WS
-        Default for chipset/grx/npu: C:\AMD-{Chipset,Graphics,NPU}-WS
+        Default for THIS script   : C:\Temp\Workspace_Microsoft-BthPan
+        Default for chipset/grx/npu: C:\Temp\Workspace_AMD-{Chipset,Graphics,NPU}
+        (r2+: all four scripts relocated under C:\Temp\Workspace_*; see
+        the per-script change notes for the original paths.)
         Each workspace owns its own .markers/, cert/, download/,
         extracted/, patched/, logs/ subtrees.
 
@@ -190,7 +192,26 @@
     or short names ('PatchInfs').
 
 .PARAMETER WorkRoot
-    Workspace directory. Default: C:\MSBthPan-WS
+    Workspace directory. Default: C:\Temp\Workspace_Microsoft-BthPan
+    (r2+: relocated under C:\Temp\Workspace_* to keep workspace data
+    clustered under one parent directory that is trivial to inspect and
+    purge. The script auto-creates C:\Temp on demand.)
+
+.PARAMETER LogFile
+    (r2+) Optional path to capture the full console transcript to a
+    file. When set, the script wraps its execution in
+    Start-Transcript / Stop-Transcript so the file receives every
+    stream (Output / Host / Error / Warning / Verbose / Debug) as
+    plain text, while the interactive console keeps its color
+    decoration (Write-Host -ForegroundColor) intact. This is the
+    recommended way to retain a run log without losing console
+    colors — Tee-Object on the outside of the pipeline strips
+    Write-Host coloring, this option does not.
+
+    The parent directory is created on demand. The file is opened
+    in -Append mode so concurrent re-runs accumulate rather than
+    truncate. Recommended filename convention:
+        C:\Temp\ms-bthpan_<Action>_<yyyyMMdd-HHmmss>.log
 
 .PARAMETER CleanWorkRoot
     Wipe the workspace directory before starting.
@@ -229,8 +250,21 @@
     .\Deploy-MSBthPanInboxOnWindowsServer.ps1 -Action All -CleanWorkRoot
     Clean rebuild and full install in one command.
 
+.EXAMPLE
+    # (r2+) Capture full transcript while keeping console colors
+    $ts  = Get-Date -Format 'yyyyMMdd-HHmmss'
+    $log = "C:\Temp\ms-bthpan_PrepareVerify_$ts.log"
+    .\Deploy-MSBthPanInboxOnWindowsServer.ps1 `
+        -Action PrepareVerify -CleanWorkRoot `
+        -LogFile $log
+
+.EXAMPLE
+    # Legacy fallback (color is stripped from the captured file)
+    .\Deploy-MSBthPanInboxOnWindowsServer.ps1 -Action Install *>&1 |
+        Tee-Object -FilePath "C:\Temp\ms-bthpan_Install_$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+
 .NOTES
-    Script version : msbthpan-2026.05.17-r1
+    Script version : msbthpan-2026.05.17-r2
     Repository     : https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer
     Sister scripts : Deploy-AMD{Chipset,Graphics,Npu}DriverOnWindowsServer.ps1
     License        : MIT (see LICENSE)
@@ -267,11 +301,24 @@ param(
 
     # === Workspace ====================================================
     # Default workspace path is intentionally BthPan-specific so the
-    # sister AMD scripts (C:\AMD-Chipset-WS, C:\AMD-Graphics-WS,
-    # C:\AMD-NPU-WS) do NOT collide with this one.
-    [string]$WorkRoot      = 'C:\MSBthPan-WS',
+    # sister AMD scripts (C:\Temp\Workspace_AMD-Chipset,
+    # C:\Temp\Workspace_AMD-Graphics, C:\Temp\Workspace_AMD-NPU)
+    # do NOT collide with this one.
+    # r2+: relocated under C:\Temp\Workspace_* to keep workspace data
+    # clustered under one parent directory that is trivial to inspect
+    # and purge. The script auto-creates C:\Temp if it does not exist.
+    [string]$WorkRoot      = 'C:\Temp\Workspace_Microsoft-BthPan',
     [switch]$CleanWorkRoot,
     [switch]$Force,
+
+    # === Console transcript capture (r2+) ============================
+    # Optional path; when set, the script wraps its execution in
+    # Start-Transcript / Stop-Transcript so the file gets every stream
+    # as plain text while the live console keeps its Write-Host color
+    # decoration. This is the recommended replacement for the legacy
+    # `... *>&1 | Tee-Object -FilePath ...` idiom, which strips
+    # Write-Host coloring on the way through the pipeline.
+    [string]$LogFile       = '',
 
     # === Driver-load authorization mode ===============================
     # By default, I02 deploys a WDAC supplemental Code Integrity policy
@@ -338,8 +385,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'msbthpan-2026.05.17-r1'
-$Script:ScriptTag     = 'msbthpan-initial-implementation-r1'
+$Script:ScriptVersion = 'msbthpan-2026.05.17-r2'
+$Script:ScriptTag     = 'msbthpan-logfile-and-temp-workspace-r2'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -362,6 +409,47 @@ try {
 # Compact one-line tag used in places where space is limited (per-phase
 # headers). Format: "v2026.05.09-r10/a1b2c3d4e5f6"
 $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash)
+
+#####################################################################
+# SECTION 0.25: Optional console transcript capture (r2+)
+#####################################################################
+# When -LogFile is set, wrap execution in Start-Transcript so the file
+# receives every stream (Output / Host / Error / Warning / Verbose /
+# Debug) as plain text, while the interactive console keeps its
+# Write-Host -ForegroundColor decoration intact. The matching
+# Stop-Transcript is invoked in the top-level finally block at the
+# bottom of this script; the PowerShell.Exiting hook below is a
+# best-effort fallback if the script exits earlier than the finally.
+#
+# Tee-Object on the outside of the pipeline (`... *>&1 | Tee-Object`)
+# strips Write-Host coloring because the host stream is captured into
+# the pipeline value stream. The -LogFile path here is the recommended
+# alternative when console coloring matters to the operator.
+$Script:LogFileActive = $false
+if (-not [string]::IsNullOrWhiteSpace($LogFile)) {
+    try {
+        $logDir = Split-Path -LiteralPath $LogFile -Parent
+        if (-not [string]::IsNullOrWhiteSpace($logDir) -and -not (Test-Path -LiteralPath $logDir)) {
+            New-Item -ItemType Directory -Path $logDir -Force -ErrorAction Stop | Out-Null
+        }
+        # Defensive: stop any in-flight transcript from a previous run
+        # in the same PowerShell host (Start-Transcript fails if one is
+        # already active). Best-effort, no error if none is active.
+        try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup
+        Start-Transcript -Path $LogFile -Append -Force -ErrorAction Stop | Out-Null
+        $Script:LogFileActive = $true
+        # Register a host-exit fallback so the transcript is closed even
+        # if the script bails before the finally block at end-of-file
+        # (e.g. parameter validation error after this point).
+        Register-EngineEvent -SourceIdentifier PowerShell.Exiting -SupportEvent -Action {
+            try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { } # psa-disable-line PSA3004
+        } | Out-Null
+        Write-Host ("[*] Transcript -> {0}" -f $LogFile) -ForegroundColor DarkGreen
+    } catch {
+        Write-Warning ("Failed to start transcript at '{0}': {1}" -f $LogFile, $_.Exception.Message)
+        $Script:LogFileActive = $false
+    }
+}
 
 #####################################################################
 # SECTION 0.5: WDAC supplemental policy GUID configuration (r48+)
@@ -6509,9 +6597,14 @@ function Show-Help {
     Write-Host ''
     Write-Host '  Workspace' -ForegroundColor DarkGray
     Write-Host '    -WorkRoot <path>         Working directory.' -ForegroundColor Yellow
-    Write-Host "                             Default: C:\MSBthPan-WS"
+    Write-Host '                             Default: C:\Temp\Workspace_Microsoft-BthPan (r2+)'
     Write-Host '    -CleanWorkRoot           Delete -WorkRoot before running anything.' -ForegroundColor Yellow
     Write-Host '    -Force                   Bypass cached phase markers (force re-run).' -ForegroundColor Yellow
+    Write-Host ''
+    Write-Host '  Console transcript capture (r2+)' -ForegroundColor DarkGray
+    Write-Host '    -LogFile <path>          Capture full transcript to file while' -ForegroundColor Yellow
+    Write-Host '                             keeping console colors. Recommended:'
+    Write-Host '                             C:\Temp\ms-bthpan_<Action>_<yyyyMMdd-HHmmss>.log'
     Write-Host ''
     Write-Host '  INF patching' -ForegroundColor DarkGray
     Write-Host '    -DecorationStrategy <A|B>' -ForegroundColor Yellow
@@ -6732,5 +6825,14 @@ finally {
     # no-op when the lock file does not exist or $Ctx.Paths is null.
     if ($Ctx -and $Ctx.Paths -and $Ctx.Paths.Markers) {
         try { Clear-WorkspaceLock -Ctx $Ctx } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup in finally; a failure here must not mask the original exception
+    }
+
+    # r2: close the transcript opened in SECTION 0.25. Idempotent;
+    # best-effort, must not mask the original exception (if any).
+    if ($Script:LogFileActive) {
+        try {
+            Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
+        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup
+        $Script:LogFileActive = $false
     }
 }

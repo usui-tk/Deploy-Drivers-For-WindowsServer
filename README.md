@@ -92,7 +92,7 @@ For the full at-your-own-risk acknowledgements (BitLocker, anti-cheat software, 
 | `CONTRIBUTING.md` | How to file issues, propose changes, and run regression tests. |  |
 | `LICENSE` | MIT License. |  |
 
-All four PowerShell scripts share the same 21-phase architecture, the same self-signing model, and the same WDAC authorisation path. They write to separate workspaces (`C:\AMD-Chipset-WS`, `C:\AMD-Graphics-WS`, `C:\AMD-NPU-WS`, `C:\MSBthPan-WS`) and use separate self-signed certificates + separate WDAC supplemental policy GUIDs so they never collide.
+All four PowerShell scripts share the same 21-phase architecture, the same self-signing model, and the same WDAC authorisation path. They write to separate workspaces (`C:\Temp\Workspace_AMD-Chipset`, `C:\Temp\Workspace_AMD-Graphics`, `C:\Temp\Workspace_AMD-NPU`, `C:\Temp\Workspace_Microsoft-BthPan`) and use separate self-signed certificates + separate WDAC supplemental policy GUIDs so they never collide. From Chipset r58 / Graphics r26 / NPU r8 / BthPan r2, all four workspaces are relocated under `C:\Temp\Workspace_*` for cluster-and-purge convenience; the script auto-creates `C:\Temp` on demand.
 
 ---
 
@@ -178,7 +178,7 @@ Deploy-Drivers-For-WindowsServer/
 After `-Action PrepareVerify` (or `-Action All`), each script populates its workspace:
 
 ```
-C:\AMD-Chipset-WS\         (or C:\AMD-Graphics-WS\, C:\AMD-NPU-WS\, C:\MSBthPan-WS\)
+C:\Temp\Workspace_AMD-Chipset\   (or C:\Temp\Workspace_AMD-Graphics\, C:\Temp\Workspace_AMD-NPU\, C:\Temp\Workspace_Microsoft-BthPan\)
 ├── download\              AMD installer EXE / NPU driver ZIP
 │                          (BthPan: empty — driver source is DriverStore, not downloaded)
 ├── extracted\             Original INFs and binaries from the EXE / ZIP / DriverStore
@@ -482,7 +482,7 @@ $cred = Get-Credential -UserName 'you@example.com' -Message 'AMD account passwor
 | Group | ID | Name | What it does |
 | --- | --- | --- | --- |
 | Prep | P00 | Initialize | OS detection, admin/TLS pre-flight, WS2025-preview-mode banner if Workstation; the NPU script also prints a Ryzen-AI-Software OS-support warning |
-| Prep | P01 | PrepareWorkspace | Create `C:\AMD-{Chipset,Graphics,NPU}-WS\` |
+| Prep | P01 | PrepareWorkspace | Create `C:\Temp\Workspace_AMD-{Chipset,Graphics,NPU}\` or `C:\Temp\Workspace_Microsoft-BthPan\` (auto-creates `C:\Temp` on demand) |
 | Prep | P02 | AcquireTools | Install 7-Zip, Windows SDK (signtool) and Windows WDK (inf2cat) via `winget`, fall back to direct EXE |
 | Prep | P03 | FetchInstaller | Detect host AMD platform; resolve the latest installer URL from amd.com (chipset/graphics) or run the 4-tier resolution (NPU); download |
 | Prep | P04 | ExtractInstaller | 7-Zip extraction; the NPU script also handles nested ZIP detection |
@@ -518,7 +518,8 @@ All four scripts share a common parameter contract for `-Action`, `-OnlyPhases`,
 | `-CleanWorkRoot`           | (off)                | Delete the workspace directory before starting (forces a fresh download/extract/copy)             |
 | `-AllowWorkstationInstall` | (off)                | Permit Install-phase actions on Workstation OS (Win11). Discouraged — default blocks Install      |
 | `-UseTestSigning`          | (off)                | Fall back to `bcdedit /set testsigning on` instead of WDAC supplemental policy. Discouraged       |
-| `-WorkRoot`                | per-script           | Override workspace path (chipset: `C:\AMD-Chipset-WS`, graphics: `C:\AMD-Graphics-WS`, NPU: `C:\AMD-NPU-WS`, BthPan: `C:\MSBthPan-WS`) |
+| `-WorkRoot`                | per-script           | Override workspace path (chipset: `C:\Temp\Workspace_AMD-Chipset`, graphics: `C:\Temp\Workspace_AMD-Graphics`, NPU: `C:\Temp\Workspace_AMD-NPU`, BthPan: `C:\Temp\Workspace_Microsoft-BthPan`). r58+ / r26+ / r8+ / r2+: relocated under `C:\Temp\Workspace_*`; the script auto-creates `C:\Temp` on demand |
+| `-LogFile`                 | `''` (disabled)      | (r58+ / r26+ / r8+ / r2+) Optional path to capture the full console transcript via `Start-Transcript` / `Stop-Transcript`. The file receives every stream (Output / Host / Error / Warning / Verbose / Debug) as plain text; the interactive console keeps its `Write-Host -ForegroundColor` decoration intact. Recommended over the legacy `... \|*>&1 \| Tee-Object -FilePath ...` idiom, which strips Write-Host coloring. Suggested filename: `C:\Temp\<tag>_<Action>_<yyyyMMdd-HHmmss>.log` |
 | `-PfxPassword`             | per-script           | Password for the self-signed PFX (chipset/graphics/BthPan: `'ChangeMe!2026'`, NPU: `''`)          |
 | `-WdacPolicyGuid`          | per-script (fixed UUID v4) | Override the fixed WDAC supplemental policy GUID. Default is per-script (chipset: `503860EA-…`, graphics: `85336828-…`, NPU: `8B2C4F12-…`, BthPan: `A6E72D4F-3B98-4C5A-9E1D-7F8B2A4C6E5D`). Used for legacy-deploy cleanup or side-by-side multi-instance deploy |
 
@@ -572,7 +573,7 @@ All four scripts share a common parameter contract for `-Action`, `-OnlyPhases`,
 
 ## Output files
 
-Each script writes the following artifacts under its workspace (`C:\AMD-{Chipset,Graphics,NPU}-WS\` or `C:\MSBthPan-WS\`):
+Each script writes the following artifacts under its workspace (`C:\Temp\Workspace_AMD-{Chipset,Graphics,NPU}\` or `C:\Temp\Workspace_Microsoft-BthPan\`):
 
 | Path (relative to workspace)                | Content                                                                                                          |
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
@@ -668,7 +669,7 @@ Every line written by the scripts follows a structured, time-stamped format that
 | `[+]`  | Green     | Ok       | `[+] Cert thumbprint: A1B2C3D4...`                               |
 | `[!]`  | Yellow    | Warn     | `[!] Tier 2 (AMD account auto-download) is disabled by default`  |
 | `[X]`  | Red       | Fail     | `[X] Top-level error: AMD NPU not detected`                      |
-| `[~]`  | DarkGray  | Skip     | `[~] Inventory CSV: C:\AMD-NPU-WS\inf_inventory.csv`             |
+| `[~]`  | DarkGray  | Skip     | `[~] Inventory CSV: C:\Temp\Workspace_AMD-NPU\inf_inventory.csv` |
 
 Continuation lines that sit inside a section-banner table (PowerShell environment dump, OS profile, Secure Boot baseline, INF inventory rows, V05 / V06 / I00 sub-blocks) are rendered via the `Write-Detail` helper, which emits a 4-space-indented line with no timestamp or marker prefix. This is the single sanctioned exception to the "every line has a marker" rule. Operators reading raw logs should treat any 4-space-indented line as visually subordinate to the most recent marker line above it. (Introduced in chipset r56 / graphics r24; see SPEC §A.5.)
 
@@ -710,6 +711,53 @@ The phase header banner (`=` × 72, Magenta) is emitted by the dispatcher; phase
 
 ---
 
+## Run log capture (`-LogFile`)
+
+From Chipset r58 / Graphics r26 / NPU r8 / BthPan r2, all four scripts expose a `-LogFile <path>` parameter that captures the full console transcript via `Start-Transcript` / `Stop-Transcript`:
+
+```powershell
+# Recommended: color is preserved in the console, the file gets every stream as plain text
+$ts  = Get-Date -Format 'yyyyMMdd-HHmmss'
+$log = "C:\Temp\amd-chipset_PrepareVerify_$ts.log"
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot -LogFile $log
+```
+
+Key properties:
+
+- **Console keeps its `Write-Host -ForegroundColor` decoration intact** — unlike the legacy `*>&1 | Tee-Object -FilePath …` idiom, which strips Write-Host coloring on the way through the pipeline.
+- **File receives every stream** (Output / Host / Error / Warning / Verbose / Debug) as plain UTF-8 text.
+- **Parent directory auto-created** on demand (e.g. `C:\Temp\` is created if missing).
+- **Append mode** (`-Append -Force`) — concurrent re-runs accumulate rather than truncate.
+- **Idempotent cleanup** — `Stop-Transcript` is invoked from the top-level `finally` block and from a `PowerShell.Exiting` engine event handler as a fallback.
+
+Recommended filename convention:
+
+```
+C:\Temp\<scripttag>_<Action>_<yyyyMMdd-HHmmss>.log
+```
+
+Examples:
+
+| Script   | Suggested filename                                              |
+| -------- | --------------------------------------------------------------- |
+| Chipset  | `C:\Temp\amd-chipset_PrepareVerify_20260517-143022.log`         |
+| Graphics | `C:\Temp\amd-graphics_Install_20260517-143022.log`              |
+| NPU      | `C:\Temp\amd-npu_All_20260517-143022.log`                       |
+| BthPan   | `C:\Temp\ms-bthpan_PrepareVerify_20260517-143022.log`           |
+
+### Legacy fallback (`Tee-Object`)
+
+The legacy `*>&1 | Tee-Object` idiom is still supported and may be preferable when the log file needs to be piped further into another tool. Note that **Write-Host coloring is stripped** in this mode (PowerShell's pipeline does not propagate the host stream's color information):
+
+```powershell
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install *>&1 |
+    Tee-Object -FilePath "C:\Temp\amd-chipset_Install_$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
+```
+
+If you redirect output to a file (whether via `-LogFile` or `Tee-Object`) on a ja-JP host with the default code page (932 / Shift-JIS), set your file encoding explicitly to UTF-8 to avoid double-encoding of Japanese strings — the scripts call `Set-ConsoleUtf8` in P00 to enforce UTF-8 for `[Console]::OutputEncoding`, but consumers of the captured file (text editors, `Get-Content`, etc.) may still need to be told the file is UTF-8.
+
+---
+
 ## System requirements
 
 - **CPU**: For AMD scripts: AMD Ryzen 4000 series or newer (the script's `Get-AmdChipsetPlatform` heuristic recognises 4000 → AI 300, AI Max 300; older silicon may run but is untested). For the NPU script: Ryzen 7040 / 8040 / AI 300 / AI Max 300 / AI 200 series with an integrated NPU. For the BthPan script: any CPU; the prerequisite is a bound Bluetooth host controller (vendor-agnostic — Intel AX2xx, Realtek RTL88xx, MediaTek MT79xx, Broadcom BCM43xx all qualify).
@@ -736,7 +784,7 @@ The certificate generated in P07 is the **trust anchor** for every patched drive
 - **Key**: RSA 4096-bit on WS2019+ / Win11+, RSA 2048-bit on WS2016. SHA-384 signature algorithm on WS2025, SHA-256 on WS2016/2019/2022.
 - **EKU**: Code Signing (`1.3.6.1.5.5.7.3.3`).
 - **Validity**: **5 years from the day P07 ran** (WS2019+); 3 years on WS2016. Hard-coded in the script.
-- **Storage**: PFX in `C:\AMD-{Chipset,Graphics,NPU}-WS\cert\` or `C:\MSBthPan-WS\cert\`. The PFX is **not** password-protected by default (this is a lab tool; if you need a real password, change `[string]$PfxPassword = ''` in the param block).
+- **Storage**: PFX in `C:\Temp\Workspace_AMD-{Chipset,Graphics,NPU}\cert\` or `C:\Temp\Workspace_Microsoft-BthPan\cert\`. The PFX is **not** password-protected by default (this is a lab tool; if you need a real password, change `[string]$PfxPassword = ''` in the param block).
 - **Trust anchor for**: every `.cat` file under `patched\`, the WDAC supplemental policy, and (via I01) `LocalMachine\Root` + `LocalMachine\TrustedPublisher`.
 
 ### What happens at year 5
