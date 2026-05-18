@@ -62,7 +62,7 @@ This document consolidates the validation results for `Deploy-Drivers-For-Window
 
 The NPU script's verification is currently limited to:
 
-1. **Static analysis** with `psa.py` v3.2.0 (34-rule check set including the new PSA8xxx cross-file consistency / PSA9xxx complexity / PSAPxxxx project-convention families, **0 errors / 0 warnings / 0 info** with the repository-shipped `.psa.config.json` — see `SPEC.md` §A.11.5). `psa.py` is maintained as a canonical artifact in the [ai-generated-artifacts](https://github.com/usui-tk/ai-generated-artifacts) repository; obtain it per `SPEC.md` §A.11 before running.
+1. **Static analysis** with `psa.py` v3.3.0 (36-rule check set including the PSA8xxx cross-file consistency / PSA9xxx complexity / PSAPxxxx project-convention families — `PSAP0001`..`PSAP0004`, **0 errors / 0 warnings / 0 info** with the repository-shipped `.psa.config.json` — see `SPEC.md` §A.11.5). `psa.py` is maintained as a canonical artifact in the [ai-generated-artifacts](https://github.com/usui-tk/ai-generated-artifacts) repository; obtain it per `SPEC.md` §A.11 before running.
 2. **Code review** of the AMD-published `quicktest.py` NPU detection logic translated to PowerShell.
 3. **No `-Action Install` execution** has been performed by the maintainers anywhere.
 4. **No end-to-end run on physical NPU hardware** has been performed by the maintainers.
