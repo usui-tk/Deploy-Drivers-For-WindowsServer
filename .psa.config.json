@@ -11,10 +11,17 @@
 // What this config does (summary)
 // -----------------------------------------------------------------------------
 //
-//  1. Opts IN to PSAP0001 and PSAP0002 (the pipeline-convention rules)
-//     because this repository follows the canonical 21-phase pipeline
-//     naming pattern Invoke-(Prep|Verify|Inst)PhaseNN_DescriptiveName
-//     and uses the $Script:ScriptVersion / Hash / ShortTag identifier trio.
+//  1. Opts IN to PSAP0001, PSAP0002, PSAP0003, and PSAP0004
+//     (the pipeline-convention and revision-discipline rules):
+//      - PSAP0001 / PSAP0002 enforce the canonical 21-phase pipeline
+//        naming pattern Invoke-(Prep|Verify|Inst)PhaseNN_DescriptiveName
+//        and the $Script:ScriptVersion / Hash / ShortTag identifier trio
+//        used in phase banners and DebugTrace JSONL output.
+//      - PSAP0003 / PSAP0004 (added in psa.py 3.3.0) enforce the
+//        repository-wide policy that per-revision release notes live in
+//        CHANGELOG.md, NOT in script bodies. PSAP0003 detects inline
+//        `# rNN:` revision-tag comments; PSAP0004 detects in-script
+//        REVISION HISTORY / CHANGELOG / VERSION HISTORY comment blocks.
 //
 //  2. Configures PSA8001 (cross-file function-body drift) so that
 //     pipeline-phase functions (which are intentionally different per

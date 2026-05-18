@@ -98,7 +98,7 @@ When extending these scripts, **copy these helpers verbatim** from the most rece
 psa.py  (obtained from the canonical artifact repository — see A.11)
 ```
 
-`psa.py` is a **pure Python** static analyzer (no PowerShell installation required), currently at version **3.2.0**, with a 34-rule check set spanning `PSA1001`..`PSA9002` plus the project-convention family `PSAP0001`..`PSAP0002`. It is **not** bundled in this repository. It is maintained as a single canonical artifact at:
+`psa.py` is a **pure Python** static analyzer (no PowerShell installation required), currently at version **3.3.0**, with a 36-rule check set spanning `PSA1001`..`PSA9002` plus the project-convention family `PSAP0001`..`PSAP0004`. It is **not** bundled in this repository. It is maintained as a single canonical artifact at:
 
 ```
 https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/python/powershell-static-analyzer/psa.py
@@ -695,7 +695,7 @@ warnings/info present, `2` = errors. The default `--severity` floor is
 
 This repository ships its own `.psa.config.json` at the repository root. It is the **canonical configuration for the four pipeline scripts** and does the following:
 
-1. **Opts in to `PSAP0001` and `PSAP0002`** so that the 21-phase naming convention (`Invoke-(Prep|Verify|Inst)PhaseNN_DescriptiveName`) and the script-identity trio (`$Script:ScriptVersion` / `$Script:ScriptHash` / `$Script:ScriptShortTag`) are enforced.
+1. **Opts in to `PSAP0001`, `PSAP0002`, `PSAP0003`, and `PSAP0004`** so that the 21-phase naming convention (`Invoke-(Prep|Verify|Inst)PhaseNN_DescriptiveName`), the script-identity trio (`$Script:ScriptVersion` / `$Script:ScriptHash` / `$Script:ScriptShortTag`), and the revision-discipline rules (no inline `# rNN:` revision-tag comments, no in-script `REVISION HISTORY` blocks — per-revision history lives exclusively in `CHANGELOG.md`) are all enforced.
 
 2. **Configures `PSA8001` (cross-file function-body drift)** with `psa8001_ignore_functions`, listing roughly 45 function names that are intentionally per-script (phase functions matched via regex `^Invoke-(Prep|Verify|Inst)Phase\d{2}_`, plus per-driver-family helpers such as `Show-Help`, `Show-PhaseList`, `Find-KitTool`, `Expand-AmdInstaller`, etc.). Shared helpers NOT listed there MUST stay byte-for-byte identical across all four scripts.
 
