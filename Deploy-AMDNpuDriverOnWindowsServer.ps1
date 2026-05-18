@@ -198,9 +198,9 @@
 
 .NOTES
     Version: an earlier revision
-    Author : Deploy-AMD-Drivers-For-WindowsServer contributors
+    Author : Deploy-Drivers-For-WindowsServer contributors
     License: MIT
-    Repo   : https://github.com/usui-tk/Deploy-AMD-Drivers-For-WindowsServer
+    Repo   : https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer
 
     PowerShell 5.1+ (Desktop or Core), 64-bit, run as Administrator.
 
@@ -324,10 +324,10 @@ $Script:CertValidityYears       = $CertValidityYears
 # =============================================================================
 # Script-scope state
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.05.18-r10'
-$Script:ScriptTag           = 'npu-debug-trace-facility-instrumentation-resume-ctx-autolog'
+$Script:ScriptVersion       = 'npu-2026.05.18-r11'
+$Script:ScriptTag           = 'repo-name-canonicalization'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
-$Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-AMD-Drivers-For-WindowsServer'
+$Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 $Script:CertSubjectCn       = 'AMD NPU Driver Self-Sign (WS2025 Lab, At Own Risk)'
 $Script:WdacPolicyName      = 'AMD-NPU-Driver-SelfSign-Lab'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the

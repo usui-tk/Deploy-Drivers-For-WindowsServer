@@ -413,8 +413,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-$Script:ScriptVersion = 'msbthpan-2026.05.18-r10'
-$Script:ScriptTag     = 'msbthpan-debug-trace-rehydration-autolog-relocate-ghostcall-sweep-logtag-fix'
+$Script:ScriptVersion = 'msbthpan-2026.05.18-r11'
+$Script:ScriptTag     = 'wdac-provider-name-and-repo-canonicalization'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -5258,7 +5258,7 @@ function Set-InfProviderForResigning {
 
     .PARAMETER ProviderName
         Display string for the resigning organization, e.g.
-        'Deploy-AMD-Drivers-For-WindowsServer Project'.
+        'MS BthPan Inbox Driver Self-Sign (Lab, At Own Risk)'.
         Will be inserted into [strings] as the value of PROVIDER_NAME
         (quoted automatically).
 
@@ -6796,7 +6796,7 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
     # because [Manufacturer] entries should still reflect the original
     # device manufacturer (Microsoft) - we only change Provider, which
     # identifies who AUTHORED/repackaged the INF.
-    $providerName = 'Deploy-AMD-Drivers-For-WindowsServer Project'
+    $providerName = 'MS BthPan Inbox Driver Self-Sign (Lab, At Own Risk)'
     $provResult = Set-InfProviderForResigning -InfPath $dstInf -ProviderName $providerName
     if ($provResult.Changed) {
         Write-Ok ("Rewrote Provider: '{0}' -> '%PROVIDER_NAME%' (= '{1}')" -f $provResult.OldProvider, $providerName)

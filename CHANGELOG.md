@@ -23,6 +23,42 @@ independently.
 ## [Unreleased]
 
 ### Changed
+- **NPU r11 / MSBthPan r11 (repo-name canonicalization + MSBthPan WDAC provider rename).**
+  In-script references to the historical repository name
+  `Deploy-AMD-Drivers-For-WindowsServer` have been replaced with the
+  current canonical name `Deploy-Drivers-For-WindowsServer`. The
+  historical name is no longer a valid GitHub repository; references
+  to it would 404 if followed.
+   - `Deploy-AMDNpuDriverOnWindowsServer.ps1` (r10 → r11): updated
+     `.NOTES` header (`Author` / `Repo` lines) and `$Script:RepoUrl`.
+     No WDAC-related strings were changed in this script
+     (`$Script:CertSubjectCn` / `$Script:WdacPolicyName` were already
+     canonical: `'AMD NPU Driver Self-Sign (WS2025 Lab, At Own Risk)'`
+     and `'AMD-NPU-Driver-SelfSign-Lab'`).
+   - `Deploy-MSBthPanInboxOnWindowsServer.ps1` (r10 → r11): the WDAC
+     `$providerName` string (inserted into the INF `[strings]` section
+     as `PROVIDER_NAME` and used as the certificate provider display
+     string in catalog signing) was changed from
+     `'Deploy-AMD-Drivers-For-WindowsServer Project'` to
+     **`'MS BthPan Inbox Driver Self-Sign (Lab, At Own Risk)'`**.
+     The new name (51 characters):
+     - aligns with the NPU script's `$Script:CertSubjectCn` pattern
+       (`<Driver Name> Self-Sign (<Context> Lab, At Own Risk)`),
+     - removes the misleading "AMD" prefix (the MS BthPan inbox driver
+       is unrelated to AMD silicon), and
+     - explicitly signals the unofficial, self-signed, lab-only nature
+       of the resigned driver to anyone inspecting Device Manager,
+       `pnputil /enum-drivers`, or the WDAC policy report.
+   - The corresponding `.PARAMETER ProviderName` doc example in
+     `Set-InfProviderForResigning` was updated to the same string.
+   - **Operator note on existing deployments:** environments that
+     previously deployed catalogs signed under the old provider name
+     will keep working — Windows uses the catalog signature, not the
+     provider display string, for policy decisions. New deployments
+     from r11 onward will carry the new provider name in INF
+     `[strings]` and in the catalog metadata.
+   - Chipset r60 and Graphics r28 are unaffected; they did not carry
+     either the historical repository name or a WDAC provider string.
 - `.psa.config.json` now opts in to the new opt-in revision-discipline
   rules `PSAP0003` (inline `# rNN:` revision-tag comments) and `PSAP0004`
   (end-of-file `REVISION HISTORY` comment blocks) introduced in
@@ -39,12 +75,10 @@ The current baseline against `psa.py` 3.3.0 with this updated config:
 |--------|----------------|----------------------|
 | `Deploy-AMDChipsetDriverOnWindowsServer.ps1` | 0 / 0 / 0 | 0 / 0 / 0 |
 | `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | 0 / 0 / 0 | 0 / 0 / 0 |
-| `Deploy-AMDNpuDriverOnWindowsServer.ps1` | 0 / 0 / 0 | 0 / 0 / 0 |
-| `Deploy-MSBthPanInboxOnWindowsServer.ps1` | 0 / 0 / 0 | 0 / 0 / 0 |
+| `Deploy-AMDNpuDriverOnWindowsServer.ps1` (r11) | 0 / 0 / 0 | 0 / 0 / 0 |
+| `Deploy-MSBthPanInboxOnWindowsServer.ps1` (r11) | 0 / 0 / 0 | 0 / 0 / 0 |
 
-No PowerShell source changes are required; this is a configuration-only
-change. The four scripts remain at their respective r60 / r28 / r10 /
-r10 revisions.
+The four scripts are now at r60 / r28 / **r11** / **r11** revisions.
 
 ## [2026-05-18] — Chipset r60 / Graphics r28 / NPU r10 / BthPan r10
 
