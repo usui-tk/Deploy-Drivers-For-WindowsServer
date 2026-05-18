@@ -4,10 +4,10 @@ contact_links:
     url: https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/security/advisories/new
     about: |
       For security-impacting reports (defects in driver-signing logic, WDAC policy scope errors, credential exposure, etc.), please open a private Security Advisory instead of a public Issue. See SECURITY.md for the full reporting policy.
-  - name: 📚 Documentation — README / SPEC / TESTING
+  - name: 📚 Documentation — README / SPEC / TESTING / CHANGELOG
     url: https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer#readme
     about: |
-      Before filing an issue, please review README.md (user-facing), SPEC.md (developer / LLM specification), and TESTING.md (physical-hardware validation results). Japanese mirrors are also available (README.ja.md, etc.).
+      Before filing an issue, please review README.md (user-facing), SPEC.md (developer / LLM specification), TESTING.md (physical-hardware validation results), and CHANGELOG.md (chronological release log). Per the repository-wide documentation language policy (SPEC.md §A.12), only README.md is bilingual — README.ja.md is its Japanese translation; all other documents are maintained in English only.
   - name: 🤖 Static analyzer (psa.py) issues — different repo
     url: https://github.com/usui-tk/ai-generated-artifacts
     about: |
