@@ -23,6 +23,24 @@ independently.
 ## [Unreleased]
 
 ### Changed
+- **NPU r12 (`.NOTES` header pattern alignment).** The NPU script's
+  `.NOTES` header has been restructured to follow the same sidebar
+  pattern used by `Deploy-MSBthPanInboxOnWindowsServer.ps1`:
+   - The stale `Version: an earlier revision` placeholder line was
+     removed; the canonical reference is now
+     `Current version: see $Script:ScriptVersion below`, pointing
+     to the single source of truth at runtime.
+   - The redundant `Author` line was removed (the repository URL
+     already identifies the contributor set).
+   - The `Repo` line was renamed to `Repository` and the field
+     widths were aligned with the MSBthPan header (`Repository`,
+     `Sister scripts`, `License`, `Current version`).
+   - `Sister scripts` now enumerates the three siblings explicitly
+     (Chipset, Graphics, MSBthPan).
+   - No functional / behavioural changes; purely a docstring cleanup.
+   - `$Script:ScriptVersion` bumped to `npu-2026.05.18-r12`,
+     `$Script:ScriptTag` set to `notes-header-pattern-alignment`.
+
 - **NPU r11 / MSBthPan r11 (repo-name canonicalization + MSBthPan WDAC provider rename).**
   In-script references to the historical repository name
   `Deploy-AMD-Drivers-For-WindowsServer` have been replaced with the
@@ -75,10 +93,10 @@ The current baseline against `psa.py` 3.3.0 with this updated config:
 |--------|----------------|----------------------|
 | `Deploy-AMDChipsetDriverOnWindowsServer.ps1` | 0 / 0 / 0 | 0 / 0 / 0 |
 | `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | 0 / 0 / 0 | 0 / 0 / 0 |
-| `Deploy-AMDNpuDriverOnWindowsServer.ps1` (r11) | 0 / 0 / 0 | 0 / 0 / 0 |
+| `Deploy-AMDNpuDriverOnWindowsServer.ps1` (r12) | 0 / 0 / 0 | 0 / 0 / 0 |
 | `Deploy-MSBthPanInboxOnWindowsServer.ps1` (r11) | 0 / 0 / 0 | 0 / 0 / 0 |
 
-The four scripts are now at r60 / r28 / **r11** / **r11** revisions.
+The four scripts are now at r60 / r28 / **r12** / **r11** revisions.
 
 ## [2026-05-18] — Chipset r60 / Graphics r28 / NPU r10 / BthPan r10
 

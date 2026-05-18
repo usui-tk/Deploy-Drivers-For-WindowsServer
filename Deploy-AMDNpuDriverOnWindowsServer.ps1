@@ -197,10 +197,11 @@
         Tee-Object -FilePath "C:\Temp\npu_Install_$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
 
 .NOTES
-    Version: an earlier revision
-    Author : Deploy-Drivers-For-WindowsServer contributors
-    License: MIT
-    Repo   : https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer
+    Repository     : https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer
+    Sister scripts : Deploy-AMD{Chipset,Graphics}DriverOnWindowsServer.ps1,
+                     Deploy-MSBthPanInboxOnWindowsServer.ps1
+    License        : MIT (see LICENSE)
+    Current version: see `$Script:ScriptVersion` below
 
     PowerShell 5.1+ (Desktop or Core), 64-bit, run as Administrator.
 
@@ -324,8 +325,8 @@ $Script:CertValidityYears       = $CertValidityYears
 # =============================================================================
 # Script-scope state
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.05.18-r11'
-$Script:ScriptTag           = 'repo-name-canonicalization'
+$Script:ScriptVersion       = 'npu-2026.05.18-r12'
+$Script:ScriptTag           = 'notes-header-pattern-alignment'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 $Script:CertSubjectCn       = 'AMD NPU Driver Self-Sign (WS2025 Lab, At Own Risk)'
