@@ -207,6 +207,12 @@
         sequence within a single PowerShell session is also fine.
 
 .NOTES
+    Repository     : https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer
+    Sister scripts : Deploy-AMD{Graphics,Npu}DriverOnWindowsServer.ps1,
+                     Deploy-MSBthPanInboxOnWindowsServer.ps1
+    License        : MIT (see LICENSE)
+    Current version: see `$Script:ScriptVersion` below
+
     - Run from an elevated PowerShell session.
     - Lab / verification use only - this is not a Microsoft-supported
       configuration.
@@ -621,8 +627,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.05.18-r60'
-$Script:ScriptTag     = 'chipset-debug-trace-facility-instrumentation-resume-ctx-autolog'
+$Script:ScriptVersion = 'chipset-2026.05.18-r61'
+$Script:ScriptTag     = 'notes-header-pattern-alignment'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls

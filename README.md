@@ -112,7 +112,7 @@ architectural rationale behind individual fixes, see
 [SPEC.md Part D](./SPEC.md#part-d--known-pitfalls--lessons-learned).
 
 The latest release at the time of writing is
-**Chipset r60 / Graphics r28 / NPU r10 / BthPan r10** (2026-05-18), a
+**Chipset r61 / Graphics r29 / NPU r12 / BthPan r11** (2026-05-18), a
 cross-script consistency pass that brings every script to the psa.py
 baseline. The Debug Trace Facility (SECTION 1b) introduced in the previous
 release (r59 / r27 / r9 / r9, 2026-05-17) remains the headline feature.
@@ -126,7 +126,7 @@ opts in to the new opt-in revision-discipline rules `PSAP0003` and
 
 > This section exists because the NPU script is materially riskier than its sister scripts and operators must understand the difference before running it. The BthPan script is the lowest-risk of the four because its driver source is the host's own DriverStore (no remote download), the INF surface is exactly one file with one HWID, and Microsoft itself signs the inbox driver — only the catalog must be re-signed.
 
-| Aspect | Chipset script (r60) | Graphics script (r28) | **NPU script (r10)** | **BthPan script (r10)** |
+| Aspect | Chipset script (r61) | Graphics script (r29) | **NPU script (r12)** | **BthPan script (r11)** |
 | --- | --- | --- | --- | --- |
 | **Maturity** | Stable, multiple validation cycles | Stable, multiple validation cycles | **🆘 Experimental — first release, not validated on physical NPU hardware** | **New (r1)** — initial release. Logic shares the proven Phase / Secure Boot / WDAC framework. Single-INF surface is small enough that physical validation is feasible in one session. |
 | **Distribution format** | Public EXE direct download | Public EXE direct download | **EULA-gated ZIP, requires AMD account** | **No download** — `bthpan.inf` is already staged at `C:\Windows\System32\DriverStore\FileRepository\bthpan.inf_amd64_*` on every Windows install. |

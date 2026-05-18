@@ -23,6 +23,44 @@ independently.
 ## [Unreleased]
 
 ### Changed
+- **Chipset r61 / Graphics r29 (`.NOTES` header pattern alignment).** The
+  Chipset and Graphics scripts' `.NOTES` headers have been restructured
+  to follow the same sidebar pattern used by NPU r12 and MSBthPan r11,
+  establishing structural symmetry across all four sibling scripts:
+   - Added the sidebar info block at the top of `.NOTES`:
+     `Repository` / `Sister scripts` / `License` / `Current version`.
+   - The pre-existing operator caveats (`Run from an elevated PowerShell
+     session`, `Lab / verification use only`, `Always perform Steps 1-2
+     ... BEFORE using this script`) are preserved verbatim below the
+     sidebar — these caveats remain important and were not displaced.
+   - `Sister scripts` enumerates the three siblings explicitly:
+     - Chipset: `Deploy-AMD{Graphics,Npu}DriverOnWindowsServer.ps1`,
+       `Deploy-MSBthPanInboxOnWindowsServer.ps1`
+     - Graphics: `Deploy-AMD{Chipset,Npu}DriverOnWindowsServer.ps1`,
+       `Deploy-MSBthPanInboxOnWindowsServer.ps1`
+   - No functional / behavioural changes; purely a docstring cleanup
+     to bring Chipset and Graphics into structural parity with NPU r12
+     and MSBthPan r11.
+   - `Deploy-AMDChipsetDriverOnWindowsServer.ps1`: `$Script:ScriptVersion`
+     bumped to `chipset-2026.05.18-r61`, `$Script:ScriptTag` set to
+     `notes-header-pattern-alignment`.
+   - `Deploy-AMDGraphicsDriverOnWindowsServer.ps1`:
+     `$Script:ScriptVersion` bumped to `graphics-2026.05.18-r29`,
+     `$Script:ScriptTag` set to `notes-header-pattern-alignment`.
+
+- **README.md / README.ja.md revision-number sync.** Both READMEs now
+  reflect the current revision state under `[Unreleased]`:
+  Chipset **r61** / Graphics **r29** / NPU **r12** / BthPan **r11**.
+   - `README.md` L115 and the script comparison table header (L129)
+     updated from the stale `r60 / r28 / r10 / r10` line.
+   - `README.ja.md` L113 (`Chipset r60 / Graphics r28 / NPU r10 / BthPan r10`)
+     updated to match the EN master, and L127 (table header, previously
+     reading the much-older `r59 / r27 / r9 / r9` from a prior release —
+     a long-standing EN/JA desynchronization that pre-dated the r10
+     release) was brought in sync with the EN side.
+   - Per SPEC.md §A.12 (Documentation Language Policy), `README.md`
+     is the master and `README.ja.md` follows.
+
 - **NPU r12 (`.NOTES` header pattern alignment).** The NPU script's
   `.NOTES` header has been restructured to follow the same sidebar
   pattern used by `Deploy-MSBthPanInboxOnWindowsServer.ps1`:
@@ -91,12 +129,12 @@ The current baseline against `psa.py` 3.3.0 with this updated config:
 
 | Script | Standard rules | + PSAP0003 / PSAP0004 |
 |--------|----------------|----------------------|
-| `Deploy-AMDChipsetDriverOnWindowsServer.ps1` | 0 / 0 / 0 | 0 / 0 / 0 |
-| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | 0 / 0 / 0 | 0 / 0 / 0 |
+| `Deploy-AMDChipsetDriverOnWindowsServer.ps1` (r61) | 0 / 0 / 0 | 0 / 0 / 0 |
+| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` (r29) | 0 / 0 / 0 | 0 / 0 / 0 |
 | `Deploy-AMDNpuDriverOnWindowsServer.ps1` (r12) | 0 / 0 / 0 | 0 / 0 / 0 |
 | `Deploy-MSBthPanInboxOnWindowsServer.ps1` (r11) | 0 / 0 / 0 | 0 / 0 / 0 |
 
-The four scripts are now at r60 / r28 / **r12** / **r11** revisions.
+The four scripts are now at **r61** / **r29** / **r12** / **r11** revisions.
 
 ## [2026-05-18] — Chipset r60 / Graphics r28 / NPU r10 / BthPan r10
 
