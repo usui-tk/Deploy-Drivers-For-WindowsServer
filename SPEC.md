@@ -26,7 +26,11 @@
 > **Part D** preserves the historical lessons that the current
 > implementation already accounts for.
 
-🇯🇵 **日本語版仕様書は [SPEC.ja.md](./SPEC.ja.md) を参照してください。**
+> **Documentation language policy**: This SPEC is maintained in English
+> only. Japanese readers should refer to the English SPEC together with
+> the Japanese `README.ja.md` for an orientation. See
+> `README.md` "Documentation language policy" for the repository-wide
+> bilingual policy.
 
 ---
 
@@ -110,9 +114,12 @@ See A.11 for details.
 
 ### A.1.3 Companion specifications
 
-- `README.md` / `README.ja.md` — end-user documentation (installation, quick start, troubleshooting)
-- `TESTING.md` / `TESTING.ja.md` — physical-hardware validation results
-- `CONTRIBUTING.md` — issue / PR conventions
+- `README.md` / `README.ja.md` — end-user documentation (installation, quick start, troubleshooting). Both languages maintained.
+- `TESTING.md` — physical-hardware validation results (English only)
+- `CHANGELOG.md` — chronological per-release change log (English only)
+- `CONTRIBUTING.md` — issue / PR conventions (English only)
+- `SECURITY.md` — vulnerability reporting (English only)
+- `CODE_OF_CONDUCT.md` — community behaviour (English only)
 
 ### A.1.4 Workspace path convention
 
@@ -806,32 +813,49 @@ suppressing locally.
 
 ---
 
-## A.12 Bilingual Documentation
+## A.12 Documentation Language Policy
 
 ### File set
 
-| English      | Japanese     | Content                                       |
-| ------------ | ------------ | --------------------------------------------- |
-| `README.md`  | `README.ja.md` | End-user documentation                       |
-| `TESTING.md` | `TESTING.ja.md` | Cloud / physical regression testing         |
-| `SPEC.md`    | `SPEC.ja.md`   | Developer specification (this document)     |
+| English      | Japanese       | Bilingual? | Content                                           |
+| ------------ | -------------- | ---------- | ------------------------------------------------- |
+| `README.md`  | `README.ja.md` | ✅ Yes     | End-user documentation                            |
+| `TESTING.md` | (none)         | ❌ EN only | Cloud / physical regression testing               |
+| `SPEC.md`    | (none)         | ❌ EN only | Developer specification (this document)           |
+| `CHANGELOG.md` | (none)       | ❌ EN only | Chronological per-release change log              |
+| `CONTRIBUTING.md` | (none)    | ❌ EN only | How to file issues, propose changes, run tests   |
+| `SECURITY.md`     | (none)    | ❌ EN only | Vulnerability reporting and security guarantees   |
+| `CODE_OF_CONDUCT.md` | (none) | ❌ EN only | Community behaviour expectations                  |
 
-### Synchronization rule
+**Policy rationale**: Only `README.md` is duplicated into Japanese,
+because it is the primary entry point for new readers. Specifications,
+testing procedures, and release logs are maintained in English only
+to avoid synchronization drift. Japanese readers are expected to use
+the Japanese `README.ja.md` for orientation and then refer to the
+English source-of-truth documents for technical detail.
 
-Whenever the English version is updated, the Japanese version must be updated in the same commit (or in an immediate follow-up commit referencing the English commit hash). Maintain parity of:
+This policy is applied repository-wide; the same pattern is used by
+the sister repository
+[`ai-generated-artifacts`](https://github.com/usui-tk/ai-generated-artifacts).
+
+### Synchronization rule (README only)
+
+Whenever `README.md` is updated, `README.ja.md` must be updated in the
+same commit (or in an immediate follow-up commit referencing the
+English commit hash). Maintain parity of:
 
 - Section structure (same H2 / H3 headings)
 - Tables (same columns)
 - Code blocks (same content; Japanese files may use bilingual comments)
 - Examples (same commands; localize the prose around them)
 
-### Style for Japanese files
+### Style for `README.ja.md`
 
 - Technical terms in English are preserved in their English form (do not translate "phase", "decoration", "WDAC policy", "Workstation", "Server SKU", etc.)
 - Particles use full-width forms: 「、」 「。」「・」 not "," "."
 - Brackets: 「」 for emphasized terms, ` `` ` for code spans
 
-### Mandatory disclaimer and license sections
+### Mandatory disclaimer and license sections (both `README.md` and `README.ja.md`)
 
 Each README must include:
 
@@ -866,6 +890,32 @@ Bump the revision number (e.g. `r47` → `r48`) on any commit that changes:
 - Parameter set (added / removed / renamed switches)
 
 Cosmetic-only changes (typo fixes in messages, README rewording) do not require a revision bump.
+
+### Where revision history lives
+
+Per-revision change descriptions belong **exclusively** in
+`CHANGELOG.md` at the repository root. The PowerShell script body
+contains **only** current-behavior comments and current-rationale
+references; it does NOT contain:
+
+- End-of-file `REVISION HISTORY` comment blocks (enforced by
+  `psa.py` `PSAP0004`).
+- Inline `# rNN:` / `# rNN+:` / `# rNN-update:` revision-tag comments
+  (enforced by `psa.py` `PSAP0003`).
+- `# Before rNN` / `# From rNN on` / `# (rNN+) ...` revision-anchor
+  prose. Use "Previously" / "Now" / no-anchor wording instead and
+  refer the reader to `CHANGELOG.md` for the chronological context.
+
+The architectural rationale behind each fix (root cause, fix design,
+scope, upgrade impact) belongs in **Part D — Known Pitfalls & Lessons
+Learned** of this SPEC. CHANGELOG.md cross-references back to Part D
+where applicable.
+
+This three-way split — script body for current behaviour, `CHANGELOG.md`
+for chronological release log, `SPEC.md` Part D for architectural
+rationale — keeps each document focused on a single responsibility
+and avoids the "stale revision tag everywhere" problem that LLM-assisted
+maintenance is especially vulnerable to.
 
 ### Reuse before invention
 
@@ -1383,7 +1433,8 @@ Every commit to `main` must satisfy the following gates.
 - [ ] If a phase semantic changed: SPEC.md Part B is updated.
 - [ ] If a parameter was added / removed / renamed: README.md and README.ja.md Parameters table is updated.
 - [ ] If an output format changed: SPEC.md A.9 CSV columns and README.md Output files sections are updated.
-- [ ] Japanese mirrors (`README.ja.md`, `TESTING.ja.md`, `SPEC.ja.md`) are in sync with English versions.
+- [ ] `README.ja.md` is in sync with `README.md` (see A.12 Documentation Language Policy).
+- [ ] `CHANGELOG.md` has a new entry for the release (English only).
 
 ## C.4 Cross-script consistency checks
 
@@ -1864,8 +1915,9 @@ If you are creating a 5th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1
 2. Replace `$Script:ScriptName`, `$Script:ScriptVersion`, `$Script:ScriptTag`, `$Script:CertSubjectCn`, `$Script:WdacPolicyName`, `$Script:WdacPolicyGuid`, `$Script:WorkRoot` with values specific to your new script.
 3. Re-implement only the **domain helpers** section (platform detection, installer resolution, INF inventory filter). Reuse all other sections verbatim.
 4. Run `python3 psa.py <new-script>.ps1` (see A.11 for setup) until 0 errors.
-5. Add B.5 section to this SPEC.md (and SPEC.ja.md).
-6. Add the new script to `README.md` "What's in the box" table, "Parameters" section, "Risk classification" table.
+5. Add B.5 section to this SPEC.md.
+6. Add the new script to `README.md` "What's in the box" table, "Parameters" section, "Risk classification" table — and sync `README.ja.md`.
 7. Add a physical-hardware validation scenario to `TESTING.md` covering the target AMD consumer devices for your new script.
+8. Add a CHANGELOG.md entry for the new script's r1 release.
 
 The goal of the strict sister-script convention is exactly this: a new script should be ~80% boilerplate inheritance and ~20% novel logic.

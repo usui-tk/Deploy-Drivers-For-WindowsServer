@@ -173,7 +173,7 @@
         Default for the graphics script:           C:\Temp\Workspace_AMD-Graphics
         Default for the NPU script:                C:\Temp\Workspace_AMD-NPU
         Default for the BthPan script:             C:\Temp\Workspace_Microsoft-BthPan
-        (r58+: workspaces are now relocated under C:\Temp\Workspace_*
+        (workspaces are now relocated under C:\Temp\Workspace_*
         instead of directly under C:\. The script auto-creates
         C:\Temp itself if it does not yet exist.)
         Each workspace owns its own .markers/, cert/, download/,
@@ -242,7 +242,7 @@
     .\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Cleanup
 
 .EXAMPLE
-    # (r58+) Capture full transcript while keeping console colors
+    # Capture full transcript while keeping console colors
     $ts  = Get-Date -Format 'yyyyMMdd-HHmmss'
     $log = "C:\Temp\amd-chipset_PrepareVerify_$ts.log"
     .\Deploy-AMDChipsetDriverOnWindowsServer.ps1 `
@@ -270,7 +270,7 @@
 
 .PARAMETER WorkRoot
     Working directory root. Default: C:\Temp\Workspace_AMD-Chipset
-    (r58+: relocated under C:\Temp\Workspace_* to keep workspace data
+    (relocated under C:\Temp\Workspace_* to keep workspace data
     clustered under a single, easily-cleaned root.)
 
 .PARAMETER CleanWorkRoot
@@ -280,7 +280,7 @@
     Bypass cached phase markers and re-run each selected phase.
 
 .PARAMETER LogFile
-    (r58+) Optional path to capture the full console transcript to a
+    Optional path to capture the full console transcript to a
     file. When set, the script wraps its execution in
     Start-Transcript / Stop-Transcript so the file receives every
     stream (Output / Host / Error / Warning / Verbose / Debug) as
@@ -409,7 +409,7 @@
 #     accept empty ProductType as Server-compatible.
 #     https://learn.microsoft.com/en-us/windows-hardware/drivers/display/sku-differentiation-directive
 #
-#   - Summary of INF Sections (Version, Manufacturer, Models, DDInstall, ...)
+#   - Summary of INF Sections (Version, Manufacturer, Models, DDInstall,...)
 #     https://learn.microsoft.com/en-us/windows-hardware/drivers/install/summary-of-inf-sections
 #   - General Syntax Rules for INF Files
 #     https://learn.microsoft.com/en-us/windows-hardware/drivers/install/general-syntax-rules-for-inf-files
@@ -499,22 +499,22 @@ param(
     # Default workspace path is intentionally CHIPSET-specific so the
     # graphics, NPU, and BthPan companion scripts do NOT collide with
     # this one. Pass -WorkRoot to override (for example, if you
-    # previously used 'C:\AMD-Chipset-WS' (pre-r58) or 'C:\AMD-WS'
+    # previously used 'C:\AMD-Chipset-WS' or 'C:\AMD-WS'
     # and want to keep that workspace).
     #
-    # r58+: relocated under C:\Temp\Workspace_* to keep workspace data
+    # Relocated under C:\Temp\Workspace_* to keep workspace data
     # clustered under one parent directory that is trivial to inspect
     # and purge. The script auto-creates C:\Temp if it does not exist.
     [string]$WorkRoot      = 'C:\Temp\Workspace_AMD-Chipset',
     [switch]$CleanWorkRoot,
     [switch]$Force,
 
-    # === Console transcript capture (r58+) ============================
+    # === Console transcript capture ============================
     # Optional path; when set, the script wraps its execution in
     # Start-Transcript / Stop-Transcript so the file gets every stream
     # as plain text while the live console keeps its Write-Host color
     # decoration. This is the recommended replacement for the legacy
-    # `... *>&1 | Tee-Object -FilePath ...` idiom, which strips
+    # `... *>&1 | Tee-Object -FilePath...` idiom, which strips
     # Write-Host coloring on the way through the pipeline.
     [string]$LogFile       = '',
 
@@ -561,7 +561,7 @@ param(
     #
     # -WdacPolicyGuid:
     #   Override the supplemental policy GUID. Useful for two cases:
-    #     1) Cleanup of a legacy deploy (pre-r48): such deploys used
+    #     1) Cleanup of a legacy deploy: such deploys used
     #        a dynamically-generated PolicyID, recorded in
     #        <workspace>\cert\AmdSuppPolicyId.txt. To remove a legacy
     #        policy, run:
@@ -581,7 +581,7 @@ param(
     #   should extend.
     [string]$WdacBasePolicyGuid = '',
 
-    # === Debug Trace Facility (r59+) ===================================
+    # === Debug Trace Facility ===================================
     # When set, the script unconditionally writes a
     # debugtrace_export_final_<timestamp>.json snapshot to
     # <WorkRoot>\logs at the end of the run, whether the run succeeded
@@ -615,14 +615,14 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 # valid.
 #
 # ScriptVersion: bump on every meaningful edit. Format: YYYY.MM.DD-rNN
-# ScriptTag    : short human-readable label describing the build
-# ScriptHash   : auto-computed SHA256 (first 12 chars) of the actual
+# ScriptTag: short human-readable label describing the build
+# ScriptHash: auto-computed SHA256 (first 12 chars) of the actual
 #                file being executed. Changes for any byte-level edit;
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 $Script:ScriptVersion = 'chipset-2026.05.18-r60'
-$Script:ScriptTag     = 'chipset-r59-debug-trace-facility-instrumentation-resume-ctx-autolog'
+$Script:ScriptTag     = 'chipset-debug-trace-facility-instrumentation-resume-ctx-autolog'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -647,7 +647,7 @@ try {
 $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash)
 
 #####################################################################
-# SECTION 0.25: Optional console transcript capture (r59: verified activation + auto-relocation)
+# SECTION 0.25: Optional console transcript capture
 #####################################################################
 # When -LogFile is set, wrap execution in Start-Transcript so the file
 # receives every stream (Output / Host / Error / Warning / Verbose /
@@ -662,16 +662,16 @@ $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash
 # the pipeline value stream. The -LogFile path here is the recommended
 # alternative when console coloring matters to the operator.
 #
-# r5 (transcript verified activation):
+# Transcript verified activation:
 #
 #   Reports from PS 5.1.26100.32860 (Windows Server 2025) showed that
 #   `Start-Transcript -Path X -Append -Force` raised
 #   ParameterBindingException ("Parameter set cannot be resolved using
 #   the specified named parameters") only when invoked from the actual
 #   BthPan script body. Isolated minimal reproductions (clean session,
-#   same param block in a separate small .ps1) all succeeded. The
+#   same param block in a separate small.ps1) all succeeded. The
 #   root cause for the script-context-specific failure could not be
-#   pinpointed within a reasonable budget; instead, r5 takes a
+#   pinpointed within a reasonable budget; instead, takes a
 #   defense-in-depth approach:
 #
 #     1. CAPTURE the cmdlet return value (a non-empty localized success
@@ -713,10 +713,10 @@ $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash
 # paths are also recorded on $Script:LogFileSetup for the RUN
 # SUMMARY.
 #
-# Trigger:    $LogFile is non-empty AND $CleanWorkRoot AND $LogFile
+# Trigger: $LogFile is non-empty AND $CleanWorkRoot AND $LogFile
 #             resolves to a sub-path of $WorkRoot
-# Target:     <script-dir>\Deploy-AMDChipsetDriverOnWindowsServer_<Action>_<ts>.log
-# Fallback:   %TEMP%\Deploy-AMDChipsetDriverOnWindowsServer_<Action>_<ts>.log
+# Target: <script-dir>\Deploy-AMDChipsetDriverOnWindowsServer_<Action>_<ts>.log
+# Fallback: %TEMP%\Deploy-AMDChipsetDriverOnWindowsServer_<Action>_<ts>.log
 #             when script-dir is unavailable
 #
 # The intentional design choice is "relocate, do not refuse" so a
@@ -994,20 +994,19 @@ if (-not [string]::IsNullOrWhiteSpace($LogFile)) {
 }
 
 #####################################################################
-# SECTION 0.5: WDAC supplemental policy GUID configuration (r48+)
-#####################################################################
-# Before r48 the supplemental PolicyID was generated dynamically with
+# SECTION 0.5: WDAC supplemental policy GUID configuration #####################################################################
+# Previously the supplemental PolicyID was generated dynamically with
 # Set-CIPolicyIdInfo -ResetPolicyID and persisted to the workspace as
-# AmdSuppPolicyId.txt. From r48 on, the script uses a fixed default
+# AmdSuppPolicyId.txt. Now the script uses a fixed default
 # GUID for predictability across deploys / cleanups, while still
 # allowing operators to override via -WdacPolicyGuid (e.g. to clean up
 # a legacy dynamic GUID, or to deploy multiple copies side by side).
 #
-# WdacPolicyGuidDefault     : fixed UUID v4, chipset-specific so it
+# WdacPolicyGuidDefault: fixed UUID v4, chipset-specific so it
 #                             does not collide with the graphics or
 #                             NPU scripts' WDAC policies on a host
 #                             that has all three deployed.
-# WdacBasePolicyGuidDefault : Microsoft-shipped CI base policy ID
+# WdacBasePolicyGuidDefault: Microsoft-shipped CI base policy ID
 #                             (Windows 11 22H2+ / Server 2022+). The
 #                             supplemental policy SUPPLEMENTS this
 #                             base, meaning it is additive on top of
@@ -1081,8 +1080,8 @@ function Write-Detail {
     # Renders 4-space-indented plain text with NO timestamp or marker
     # prefix, so it visually attaches to the preceding context.
     #
-    # ---- r56: introduced to replace bare `Write-Host "    XXX"` calls ----
-    # Up to r55 the scripts emitted ~100 bare Write-Host calls with a
+    # ---- Introduced to replace bare `Write-Host " XXX"` calls ----
+    # Previously the scripts emitted ~100 bare Write-Host calls with a
     # hard-coded 4-space indent. Routing those through a single helper
     # makes future column-layout tweaks possible without touching every
     # call site, and gives the SPEC-mandated marker pattern a single
@@ -1093,7 +1092,7 @@ function Write-Detail {
     #
     # -NoNewline mirrors Write-Host's switch and is used by two-part
     # lines that compose a label-then-value pair (e.g. P08's
-    # "-> Selected /os :" + colored value).
+    # "-> Selected /os:" + colored value).
     # ====================================================================
     param(
         [Parameter(Position=0)][string]$Msg,
@@ -1161,7 +1160,7 @@ function Show-PowerShellEnvironment {
     # ====================================================================
     # Designed to work all the way back to PowerShell 5.1 on Windows
     # Server 2016 (the oldest in-support Windows Server). All cmdlets
-    # and APIs used here are present in PS 5.1 / .NET Framework 4.6+,
+    # and APIs used here are present in PS 5.1 /.NET Framework 4.6+,
     # so this function itself does not introduce any new compatibility
     # risk. CIM queries fall back to WMI for fragile environments.
     Write-Host ''
@@ -1283,10 +1282,10 @@ function Show-PowerShellEnvironment {
         }
         $build = [int]$os.BuildNumber
         if ($supportedBuilds.ContainsKey($build)) {
-            # r46: when running on a Workstation OS (e.g. Win11 24H2 used as
+            # When running on a Workstation OS (e.g. Win11 24H2 used as
             # a WS2025 preview), include "Workstation, profile: <ServerName>"
             # so it is obvious from this line alone that the host is NOT a
-            # Server and a profile is being applied. Pre-r46 only the Server
+            # Server and a profile is being applied. Previously only the Server
             # profile name was shown, which made the line read like an OS
             # mis-detection on Workstation hosts.
             if ($os.ProductType -eq 1) {
@@ -1375,8 +1374,8 @@ function Show-DriverInstallationOrderNotice {
     # "AS-IS" state is incomplete.
     #
     # Two display modes:
-    #   -Compact  : 4-line summary used by the P00 startup banner
-    #   (default) : full 30-line block used by I00 PreInstallReview
+    #   -Compact: 4-line summary used by the P00 startup banner
+    #   (default): full 30-line block used by I00 PreInstallReview
     #               and -Help
     param([switch]$Compact)
 
@@ -1386,7 +1385,7 @@ function Show-DriverInstallationOrderNotice {
         Write-Host '      1. Install official VENDOR drivers (chipset/GPU/NIC) from manufacturer site' -ForegroundColor Yellow
         Write-Host '      2. Run Windows Update / Microsoft Update Catalog'                            -ForegroundColor Yellow
         Write-Host '      3. THEN run this script for any AMD devices still without a working driver' -ForegroundColor Yellow
-        Write-Host '    (r56: at install-decision layer [C] self-signed outranks [B]/[A]; SPEC D.15)'   -ForegroundColor DarkYellow
+        Write-Host '    (at install-decision layer [C] self-signed outranks [B]/[A]; SPEC D.15)'   -ForegroundColor DarkYellow
         return
     }
 
@@ -1397,14 +1396,6 @@ function Show-DriverInstallationOrderNotice {
     Write-Host '|  This script produces SELF-SIGNED kernel-mode drivers. The recommended |' -ForegroundColor Yellow
     Write-Host '|  operator workflow is to use OEM / Windows Update drivers FIRST and    |' -ForegroundColor Yellow
     Write-Host '|  reserve this script for devices those channels do not cover.         |' -ForegroundColor Yellow
-    Write-Host '|                                                                        |' -ForegroundColor Yellow
-    Write-Host '|  NOTE on r56 install-decision change (SPEC SS D.15):                   |' -ForegroundColor Yellow
-    Write-Host '|    Beginning with chipset r56, the script ranks [C] Self-signed       |' -ForegroundColor Yellow
-    Write-Host '|    HIGHER than [A] Microsoft-generic and [B] Vendor drivers at the    |' -ForegroundColor Yellow
-    Write-Host '|    install-decision layer, regardless of version. The recommendation  |' -ForegroundColor Yellow
-    Write-Host '|    below still keeps the trust surface small, but it is no longer    |' -ForegroundColor Yellow
-    Write-Host '|    enforced by version comparison: any [A]/[B] driver matched by a    |' -ForegroundColor Yellow
-    Write-Host '|    patched INF WILL be replaced by [C] when I03 runs.                 |' -ForegroundColor Yellow
     Write-Host '|                                                                        |' -ForegroundColor Yellow
     Write-Host '|  Pre-install workflow (in order):                                      |' -ForegroundColor Yellow
     Write-Host '|                                                                        |' -ForegroundColor Yellow
@@ -1419,12 +1410,12 @@ function Show-DriverInstallationOrderNotice {
     Write-Host '|    Step 3.  Inspect Device Manager. Confirm "Unknown device" /        |' -ForegroundColor Yellow
     Write-Host '|             "yellow-bang" entries - those are what this script        |' -ForegroundColor Yellow
     Write-Host '|             should cover. Run -Action PrepareVerify and inspect V06   |' -ForegroundColor Yellow
-    Write-Host '|             Section 2 to see exactly which [A]/[B] drivers r56 will   |' -ForegroundColor Yellow
-    Write-Host '|             replace with [C] before committing to -Action Install.    |' -ForegroundColor Yellow
+    Write-Host '|             Section 2 to see exactly which [A]/[B] drivers the script |' -ForegroundColor Yellow
+    Write-Host '|             will replace with [C] before committing to -Action Install.|' -ForegroundColor Yellow
     Write-Host '|                                                                        |' -ForegroundColor Yellow
     Write-Host '|    Step 4.  AFTER Steps 1-3 are complete, run THIS script.            |' -ForegroundColor Yellow
     Write-Host '|                                                                        |' -ForegroundColor Yellow
-    Write-Host '|  Why this order still matters under r56:                              |' -ForegroundColor Yellow
+    Write-Host '|  Why this order matters:                                               |' -ForegroundColor Yellow
     Write-Host '|    - V06 (HardwareImpactAnalysis) and I04 (PostInstallVerification)   |' -ForegroundColor Yellow
     Write-Host '|      ASSUME the system is already in its baseline driven state.       |' -ForegroundColor Yellow
     Write-Host '|      If you skip Steps 1-2, more devices fall into the "replaced by   |' -ForegroundColor Yellow
@@ -1440,7 +1431,7 @@ function Set-Tls12 {
     # Enable modern TLS for Invoke-WebRequest / Invoke-RestMethod.
     # ====================================================================
     # Tls12 is the must-have (some download endpoints require it).
-    # Tls13 is added if the running .NET supports it (Framework 4.8+,
+    # Tls13 is added if the running.NET supports it (Framework 4.8+,
     # WS2022+ ships with it; WS2016/WS2019 may not). Tls11 and below
     # are intentionally NOT requested - they are deprecated and removed
     # from many endpoints.
@@ -1449,7 +1440,7 @@ function Set-Tls12 {
         $tls13 = [Net.SecurityProtocolType]::Tls13
         $protos = $protos -bor $tls13
     } catch {
-        # Tls13 enum value not present in this .NET runtime; that is
+        # Tls13 enum value not present in this.NET runtime; that is
         # fine - Tls12 alone is sufficient for everything this script
         # downloads.
     }
@@ -1461,20 +1452,20 @@ function Set-ConsoleUtf8 {
     # SPEC A.5 / D.5: enforce UTF-8 console encoding so ja-JP Japanese
     # log strings (and external tool output such as CiTool.exe) render
     # correctly instead of mojibake in cp932 (Shift-JIS). See SPEC D.16
-    # for the r57 root-cause analysis (CiTool.exe writes UTF-8 stdout).
+    # for the root-cause analysis (CiTool.exe writes UTF-8 stdout).
     # ====================================================================
     # On ja-JP Windows, the console defaults to cp932 (Shift-JIS). When
     # external programs that write UTF-8 to stdout (CiTool.exe, modern
-    # signtool, etc.) are captured via "& tool ... | Out-String", PS
+    # signtool, etc.) are captured via "& tool... | Out-String", PS
     # decodes the bytes using [Console]::OutputEncoding. If that is
     # cp932 and the tool wrote UTF-8, every multibyte character becomes
     # mojibake (e.g. "処理が成功しました" -> "蜃ｦ逅・・謌仙粥縺励∪縺励◆").
     #
     # The fix is to set ALL three encodings:
-    #   - [Console]::OutputEncoding : how PS decodes external tool stdout
+    #   - [Console]::OutputEncoding: how PS decodes external tool stdout
     #                                  AND how Write-Host writes to console
-    #   - [Console]::InputEncoding  : how external tools see piped stdin
-    #   - $OutputEncoding           : how PS writes piped data to external
+    #   - [Console]::InputEncoding: how external tools see piped stdin
+    #   - $OutputEncoding: how PS writes piped data to external
     #                                  tools (e.g. "$json | tool.exe")
     # All three must be UTF-8 for consistent round-trip behaviour.
     #
@@ -1488,22 +1479,22 @@ function Set-ConsoleUtf8 {
 }
 
 #####################################################################
-# SECTION 1b: Debug Trace Facility (r59+, structured diagnostics)
+# SECTION 1b: Debug Trace Facility
 #####################################################################
 # A reusable diagnostic helper used to pinpoint the exact failing
 # operation inside a complex function body, with three integrated
 # subsystems:
 #
-#   (1) Trace primitives  : Start-DebugTrace / Set-DebugStep /
+#   (1) Trace primitives: Start-DebugTrace / Set-DebugStep /
 #                           Stop-DebugTrace / Format-DebugFailure /
 #                           Write-DebugFailureReport
-#   (2) JSONL file output : Real-time append-only event stream to
+#   (2) JSONL file output: Real-time append-only event stream to
 #                           <WorkRoot>\logs\debugtrace.jsonl
-#   (3) JSON Export       : Point-in-time snapshot with full state,
+#   (3) JSON Export: Point-in-time snapshot with full state,
 #                           used manually and auto-triggered on phase
 #                           failure.
 #
-# Motivation: r7 investigation of Invoke-InfVerifValidation - the
+# Motivation: investigation of Invoke-InfVerifValidation - the
 # function raised System.ArgumentException but the stack trace only
 # identified the function, not the line. By instrumenting with
 # $debugStep checkpoints and a catch handler that reported the step
@@ -1856,7 +1847,7 @@ function Format-DebugFailure {
         $frame       = $Script:DebugTraceStack.Peek()
         $context     = $frame.Context
         $failedStep  = $frame.Step
-        # PS 5.1 ja-JP bug workaround: use .ToArray() not @($list).
+        # PS 5.1 ja-JP bug workaround: use.ToArray not @($list).
         $stepHistory = $frame.Steps.ToArray()
         $elapsed     = (Get-Date) - $frame.StartTime
         $phaseId     = $frame.PhaseId
@@ -2147,7 +2138,7 @@ function Export-DebugTraceJson {
         [switch]$Compress
     )
 
-    # r8-update: refactor for robustness on PS 5.1 ja-JP. The previous
+    # Refactor for robustness on PS 5.1 ja-JP. The previous
     # implementation used inline `if/else` expressions as hashtable values
     # and a property named `host` (which collides with the PS auto-
     # variable name in some parser contexts). User report on
@@ -2335,7 +2326,7 @@ function Export-DebugTraceJson {
         # `Split-Path -LiteralPath $Path -Parent`. On PS 5.1, those two
         # parameters belong to mutually-exclusive parameter sets
         # (LiteralPathSet vs ParentSet), which causes
-        # AmbiguousParameterSet at runtime. The .NET method has no such
+        # AmbiguousParameterSet at runtime. The.NET method has no such
         # constraint and behaves identically.
         $parentDir = [System.IO.Path]::GetDirectoryName($Path)
         if ($parentDir -and -not (Test-Path -LiteralPath $parentDir)) {
@@ -2376,16 +2367,16 @@ function Export-DebugTraceJson {
 # These helpers inspect every system-level setting that controls
 # whether a self-signed kernel-mode driver can load. They are read-only
 # and intended to be called from:
-#   - Show-PowerShellEnvironment   (P00 startup banner, compact line)
-#   - I00 PreInstallReview         (dedicated section with AS-IS / TO-BE)
-#   - I02 AuthorizeDriverSigning   (pre-check + AS-IS / TO-BE)
-#   - I04 PostInstallVerification  (post-reboot effective state)
+#   - Show-PowerShellEnvironment (P00 startup banner, compact line)
+#   - I00 PreInstallReview (dedicated section with AS-IS / TO-BE)
+#   - I02 AuthorizeDriverSigning (pre-check + AS-IS / TO-BE)
+#   - I04 PostInstallVerification (post-reboot effective state)
 #
 # Why this matters for this script:
 #   This script signs catalogs with a SELF-SIGNED certificate (P07).
 #   Windows will refuse to load a kernel-mode driver bound to such a
 #   catalog UNLESS:
-#     (a) Secure Boot is OFF in firmware (UEFI setup)             AND
+#     (a) Secure Boot is OFF in firmware (UEFI setup) AND
 #     (b) BCD testsigning is ON (set by I02, takes effect at boot) AND
 #     (c) HVCI / Memory Integrity is OFF (otherwise CI policy still
 #         enforces Microsoft-rooted signing)
@@ -2397,7 +2388,7 @@ function Export-DebugTraceJson {
 # testsigning when Secure Boot is on (because the bcdedit setting
 # would be silently dropped on next boot).
 #####################################################################
-# SECTION 1d: UEFI Secure Boot certificate baseline (r48, 2026-05-13+)
+# SECTION 1d: UEFI Secure Boot certificate baseline
 #####################################################################
 # Captures the runtime UEFI Secure Boot certificate / servicing state
 # and (when present) hands off to Microsoft's official sample script
@@ -2586,7 +2577,7 @@ function Get-SecureBootCertificateInventory {
     # which breaks $row.Status property access and silently mis-reports
     # the task as 'Disabled' even when it is in fact Ready/Running.
     # Get-ScheduledTask returns CIM objects with locale-independent
-    # English property names (.State = Ready / Running / Disabled / ...).
+    # English property names (.State = Ready / Running / Disabled /...).
     try {
         $task = Get-ScheduledTask -TaskPath '\Microsoft\Windows\PI\' -TaskName 'Secure-Boot-Update' -ErrorAction Stop
         if ($task) {
@@ -2637,10 +2628,10 @@ function Invoke-MsSecureBootDetectScript {
     # in a child PowerShell session with -OutputPath set to a transient
     # folder under the AMD workspace, then re-parse the resulting JSON.
     #
-    # Returns a hybrid result object. .Available indicates whether the
+    # Returns a hybrid result object..Available indicates whether the
     # script ran AND produced parseable JSON. Failures (script missing,
-    # non-zero exit + no JSON, parse errors, etc.) populate .ErrorMessage
-    # and leave .Data null - callers should fall back to the embedded
+    # non-zero exit + no JSON, parse errors, etc.) populate.ErrorMessage
+    # and leave.Data null - callers should fall back to the embedded
     # inventory in that case.
     [CmdletBinding()]
     param(
@@ -2824,16 +2815,16 @@ function Get-SecureBootBaselineSnapshot {
     # classification used by the report and the I02 pre-check.
     #
     # Health classification:
-    #   'Healthy'  - Secure Boot ON, UEFICA2023Status=Updated (or not
+    #   'Healthy' - Secure Boot ON, UEFICA2023Status=Updated (or not
     #                applicable), no UEFICA2023Error, no servicing error
     #                events captured by the MS script.
-    #   'Warning'  - Secure Boot ON but UEFI CA 2023 rollout is still
+    #   'Warning' - Secure Boot ON but UEFI CA 2023 rollout is still
     #                in flight, OR scheduled task disabled, OR the MS
     #                script reports error events (1795/1796/1802/1803).
     #   'Critical' - Secure Boot OFF (with this script's WDAC path that
     #                normally requires Secure Boot ON), OR UEFICA2023Error
     #                non-zero indicating a stuck rollout.
-    #   'Unknown'  - Could not collect Secure Boot state at all (non-UEFI
+    #   'Unknown' - Could not collect Secure Boot state at all (non-UEFI
     #                host, or Confirm-SecureBootUEFI cmdlet unavailable).
     [CmdletBinding()]
     param(
@@ -2940,7 +2931,7 @@ function Show-SecureBootBaselineSnapshot {
     # banner (V06 prefixes the section with its own '--- 4. UEFI Secure
     # Boot Baseline ---' header for numbering consistency with sections
     # 1-3 above it). We print only the body to avoid the duplicate
-    # banner that was visible in the r49 first release.
+    # banner that was visible in early releases.
     Write-Host ("  Overall health     : {0}" -f $health) -ForegroundColor $healthColor
     foreach ($r in $Snapshot.Reasons) {
         Write-Detail ("- {0}" -f $r) -Color $healthColor
@@ -3015,7 +3006,7 @@ function Show-SecureBootBaselineSnapshot {
 }
 
 function Get-OrEnsureSecureBootBaseline {
-    # r50: idempotent accessor for the cached Secure Boot baseline.
+    # Idempotent accessor for the cached Secure Boot baseline.
     # Returns $Ctx.SecureBootBaseline when it is still valid; otherwise
     # re-invokes Get-SecureBootBaselineSnapshot into the current
     # $Ctx.WorkRoot so the diagnostic files (detect_stdout.log,
@@ -3033,7 +3024,7 @@ function Get-OrEnsureSecureBootBaseline {
     #   - P01 wiped the workspace under -CleanWorkRoot, deleting a
     #     JSON file that P00 had written to the workspace.
     #   - An earlier release's P00 had written the JSON to %TEMP%
-    #     (pre-r50 behaviour) and we are now reading the snapshot
+    # and we are now reading the snapshot
     #     from a phase that displays the path.
     # In either case we re-capture so the displayed path is honest.
     [CmdletBinding()]
@@ -3285,7 +3276,7 @@ function Get-BootSigningEnvironment {
     }
 
     # WDAC custom CI policy state. Two pieces of info:
-    #   1. Are the WDAC tools available?  (we can deploy if yes)
+    #   1. Are the WDAC tools available? (we can deploy if yes)
     #   2. Is OUR self-signed-allowlist supplemental currently active?
     #      (= we already have the green light to load self-signed
     #      drivers WITH Secure Boot enabled).
@@ -3307,7 +3298,7 @@ function Get-BootSigningEnvironment {
         # cert dir; we do NOT have $Ctx here, so we look for a cip
         # whose name appears in any of the active policies AND which
         # we previously saved as ours. If the caller cares about the
-        # marker, they should call Test-AmdWdacPolicyDeployed -Ctx ...
+        # marker, they should call Test-AmdWdacPolicyDeployed -Ctx...
         # directly. Here we only set AmdSuppPolicyActive to $false.
     } catch {
         # WDAC inspection failed - leave defaults
@@ -3316,12 +3307,12 @@ function Get-BootSigningEnvironment {
     # Compute effective "can a self-signed kernel-mode driver load?"
     # There are now TWO valid paths:
     #   PATH 1 (Secure Boot ON, recommended):
-    #     Secure Boot  ON
+    #     Secure Boot ON
     #     WDAC supplemental policy with our cert deployed (AmdSuppPolicyActive=true)
     #   PATH 2 (Secure Boot OFF, legacy):
-    #     Secure Boot  off
-    #     testsigning  ON
-    #     HVCI         off
+    #     Secure Boot off
+    #     testsigning ON
+    #     HVCI off
     # The caller (I02) decides which path to take based on the current
     # firmware state and -UseTestSigning override.
     $env.BlockReasons = @()
@@ -3375,8 +3366,8 @@ function Update-BootSigningEnvironmentForCtx {
 
 function Show-BootSigningEnvironment {
     # Pretty-print the boot-signing environment. Two modes:
-    #   -Compact   : one-line summary suitable for the startup banner
-    #   (default)  : full table with notes column
+    #   -Compact: one-line summary suitable for the startup banner
+    #   (default): full table with notes column
     param(
         [Parameter(Mandatory)] $BootEnv,
         [switch]$Compact
@@ -3556,10 +3547,10 @@ function Show-BootSigningChangeRequired {
 #   "trust this additional publisher" with Secure Boot still on.
 #
 # Required platform components (all present on WS2022+ / WS2025):
-#   - PowerShell 'ConfigCI' module           (cmdlets: Add-SignerRule,
+#   - PowerShell 'ConfigCI' module (cmdlets: Add-SignerRule,
 #                                             ConvertFrom-CIPolicy,
 #                                             Set-CIPolicyIdInfo)
-#   - C:\Windows\System32\CiTool.exe         (immediate activation)
+#   - C:\Windows\System32\CiTool.exe (immediate activation)
 #   - WDAC AllowAll template under
 #     C:\Windows\schemas\CodeIntegrity\ExamplePolicies\AllowAll.xml
 #
@@ -3681,12 +3672,12 @@ function Test-AmdWdacPolicyDeployed {
     # Returns the deployed-policy info if our supplemental is currently
     # active, otherwise $null.
     #
-    # r48 change: detection logic is now in two stages:
+    # Detection logic is now in two stages:
     #   Stage 1 (primary): look for the fixed $Script:WdacPolicyGuid
-    #     among active CI policies. This works for any r48+ deploy.
-    #   Stage 2 (legacy fallback): if a pre-r48 AmdSuppPolicyId.txt
+    #     among active CI policies. This works for any current deploy.
+    #   Stage 2 (legacy fallback): if a earlier AmdSuppPolicyId.txt
     #     marker file exists in the workspace cert dir, also look for
-    #     the dynamic GUID recorded there. This lets r48+ scripts
+    #     the dynamic GUID recorded there. This lets current scripts
     #     detect legacy deploys for clean removal.
     param($Ctx)
     $active = Get-ActiveCodeIntegrityPolicies
@@ -3721,7 +3712,7 @@ function New-AmdDriverWdacSupplementalPolicy {
     # everything else; only catalogs signed by our cert get the extra
     # green light.
     #
-    # r48 change: the PolicyID is now a STABLE fixed GUID (from
+    # The PolicyID is now a STABLE fixed GUID (from
     # $Script:WdacPolicyGuid, defaulting to WdacPolicyGuidDefault). This
     # means re-runs deploy / replace the same policy slot rather than
     # accumulating a new policy per run. Use -WdacPolicyGuid to override
@@ -3778,7 +3769,7 @@ function New-AmdDriverWdacSupplementalPolicy {
     # ADDITIVE - keeping AllowAll rules would effectively turn off
     # enforcement for everything, defeating the point of Secure Boot.
     #
-    # r51 fix: We now strip the ENTIRE <FileRulesRef> container, not
+    # We now strip the ENTIRE <FileRulesRef> container, not
     # just its <FileRuleRef> children. On Windows Server 2025 (build
     # 26100) the AllowAll.xml template embeds <FileRulesRef> nodes
     # inside every <ProductSigners> block, and the WDAC schema
@@ -3818,13 +3809,13 @@ function New-AmdDriverWdacSupplementalPolicy {
 }
 
 function Install-AmdWdacPolicy {
-    # Convert the supplemental XML to .cip binary form and deploy it
+    # Convert the supplemental XML to.cip binary form and deploy it
     # into %SystemRoot%\System32\CodeIntegrity\CiPolicies\Active. On
     # platforms with CiTool.exe, refresh the active policy stack so
     # the new supplemental takes effect WITHOUT a reboot. Returns a
     # status object the caller can display.
     #
-    # r57: CiTool is invoked with the --json flag. Per CiTool --help,
+    # CiTool is invoked with the --json flag. Per CiTool --help,
     # the --json flag "formats the output as JSON and suppresses
     # input" - i.e. it removes the "Press Enter to Exit" interactive
     # prompt that CiTool prints by default when run in a console host.
@@ -3859,7 +3850,7 @@ function Install-AmdWdacPolicy {
     if (Get-Command CiTool.exe -ErrorAction SilentlyContinue) {
         try {
             # CiTool returns 0 on success and prints a confirmation line.
-            # --json flag is REQUIRED (r57+): without it, CiTool prints
+            # --json flag is REQUIRED: without it, CiTool prints
             # "Press Enter to Exit" and waits for stdin, blocking I02.
             $citoolStdout = & CiTool.exe --update-policy $deployedPath --json 2>&1 | Out-String
             if ($LASTEXITCODE -eq 0) { $immediate = $true }
@@ -3903,7 +3894,7 @@ function Uninstall-AmdWdacPolicy {
     # Remove a previously-deployed supplemental policy. Used by the
     # Cleanup action and by I02 when redeploying with -Force.
     #
-    # r57: --json flag suppresses CiTool's interactive ENTER prompt.
+    # --json flag suppresses CiTool's interactive ENTER prompt.
     param(
         [Parameter(Mandatory)] [string]$PolicyId
     )
@@ -3953,7 +3944,7 @@ function Test-CertAlreadyTrusted {
     # both LocalMachine\Root and LocalMachine\TrustedPublisher.
     # If $Ctx.CertThumbprint is unset (e.g. user invoked I01 directly
     # without P07 having populated Ctx in this run), derive it from
-    # the .cer file on disk.
+    # the.cer file on disk.
     param([Parameter(Mandatory)] $Ctx)
 
     $thumbprint = $Ctx.CertThumbprint
@@ -4003,13 +3994,13 @@ function Test-I02InTargetState {
 }
 
 function Test-AllPatchedDriversInStore {
-    # I03 target state: every patched .inf in $Ctx.Paths.Patched is
+    # I03 target state: every patched.inf in $Ctx.Paths.Patched is
     # present in the Windows driver store. We use pnputil /enum-drivers
     # because that is exactly what I03 itself uses to add them, so the
     # round-trip is symmetric.
     #
     # NOTE: pnputil reports drivers by their published OEM name
-    # (oemNN.inf) AND by their original INF name (Original Name :
+    # (oemNN.inf) AND by their original INF name (Original Name:
     # amdpcidev.inf). We match on the original name because that is
     # what we have in $Ctx.Paths.Patched.
     #
@@ -4032,7 +4023,7 @@ function Test-AllPatchedDriversInStore {
 
     foreach ($inf in $expected) {
         $infName = $inf.Name
-        # Match against "Original Name : <inf>" (case-insensitive,
+        # Match against "Original Name: <inf>" (case-insensitive,
         # tolerate variable whitespace and non-ASCII labels in
         # localized pnputil output).
         $pattern = '(?im)Original\s+Name\s*:\s*' + [regex]::Escape($infName)
@@ -4080,7 +4071,7 @@ function Test-WorkspaceLockHeld {
     # If no lock exists, Held=$false and other fields are blank.
     # If a lock exists but the recorded PID is no longer running, the
     # lock is stale (Held=$true, ProcessRunning=$false, Stale=$true).
-    # r55: If a lock exists AND the recorded PID matches our current
+    # If a lock exists AND the recorded PID matches our current
     # PowerShell process ($PID), the lock is treated as stale and
     # taken over silently. This handles the interactive-console case
     # where a previous run completed but the PowerShell.Exiting hook
@@ -4109,7 +4100,7 @@ function Test-WorkspaceLockHeld {
         }
     } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     if ($info.Pid) {
-        # r55: lock written by the very same PowerShell process we are
+        # Lock written by the very same PowerShell process we are
         # running in. This happens when a previous script invocation in
         # the same interactive console completed without firing the
         # Register-EngineEvent PowerShell.Exiting hook (the hook only
@@ -4193,7 +4184,7 @@ function Assert-NoConcurrentRun {
         throw $msg
     }
     if ($info.Held -and $info.Stale) {
-        # r55: distinguish "stale because the recorded PID is dead" from
+        # Distinguish "stale because the recorded PID is dead" from
         # "stale because the recorded PID is OUR pid" (interactive
         # PowerShell re-run scenario). The second case is benign and
         # frequent enough that it deserves a non-alarming message.
@@ -4338,9 +4329,9 @@ function Resolve-PhaseSelection {
     # renamed across script versions. Keys are old names, values are
     # current names. The ID lookup ('I02') always works directly and is
     # the recommended way to reference phases in scripts and pipelines.
-    # This alias map exists so callers that pre-date r30 don't break.
+    # This alias map exists so callers that predate this revision don't break.
     $nameAliases = @{
-        'EnableTestSigning' = 'AuthorizeDriverSigning'   # renamed in r30
+        'EnableTestSigning' = 'AuthorizeDriverSigning'   # renamed
     }
 
     $resolved = foreach ($needle in $OnlyPhases) {
@@ -4517,11 +4508,11 @@ function Get-MachineRegion {
 
 function Invoke-WingetSilently {
     # Wraps `winget install` with the flags needed for unattended use:
-    #   --source winget    -> skip msstore (avoids first-use disclaimers
+    #   --source winget -> skip msstore (avoids first-use disclaimers
     #                         about Terms of Transaction and the
     #                         "2-letter geographic region" notice)
     #   --accept-source-agreements / --accept-package-agreements
-    #   --silent           -> no installer GUI / no progress bars
+    #   --silent -> no installer GUI / no progress bars
     #
     # Output from winget is captured and lines that match known noise
     # patterns (msstore disclaimers, package licensing boilerplate) are
@@ -4720,7 +4711,7 @@ function Install-WindowsWdkFallback {
 #   THE CHIPSET DRIVER IS A SINGLE UNIFIED INSTALLER.
 #
 #   Unlike the AMD Adrenalin graphics driver - which AMD splits into
-#   two parallel branches (Main / RDNA  vs  Legacy / Vega-Polaris)
+#   two parallel branches (Main / RDNA vs Legacy / Vega-Polaris)
 #   that are released independently and require careful selection
 #   based on detected GPU architecture - the chipset driver has NO
 #   branch split:
@@ -4753,18 +4744,18 @@ function Install-WindowsWdkFallback {
 #
 #   Below ROOT, AMD organizes chipset products by socket / form factor:
 #
-#     /chipsets/laptop-chipsets/<slug>.html             (Mobile)
-#     /chipsets/am5/<chipset-model>.html                (AM5 desktop)
-#     /chipsets/am4/<chipset-model>.html                (AM4 desktop)
-#     /chipsets/amd-trx40/<chipset-model>.html          (TRX40, HEDT)
-#     /chipsets/amd-x399/<chipset-model>.html           (X399, HEDT)
+#     /chipsets/laptop-chipsets/<slug>.html (Mobile)
+#     /chipsets/am5/<chipset-model>.html (AM5 desktop)
+#     /chipsets/am4/<chipset-model>.html (AM4 desktop)
+#     /chipsets/amd-trx40/<chipset-model>.html (TRX40, HEDT)
+#     /chipsets/amd-x399/<chipset-model>.html (X399, HEDT)
 #
 #   Default landing-page set probed by the script (see
 #   $AmdLandingUrls default value near top of script):
 #
 #     /chipsets/laptop-chipsets/amd-ryzen-and-athlon-mobile-chipset.html
-#     /chipsets/am5/x870e.html      <- newest AM5 chipset (highest priority)
-#     /chipsets/am4/x570.html       <- legacy AM4 chipset
+#     /chipsets/am5/x870e.html <- newest AM5 chipset (highest priority)
+#     /chipsets/am4/x570.html <- legacy AM4 chipset
 #
 #   These three pages are PROBED INDEPENDENTLY and the highest
 #   version found across all three wins. AMD typically publishes the
@@ -4806,15 +4797,15 @@ function Install-WindowsWdkFallback {
 #   Where VERSION = <MAJOR>.<MINOR>.<BUILD>.<REV>
 #
 #   Examples (verified live 2026-05):
-#     amd_chipset_software_8.02.18.557.exe          (mid-2025 release)
-#     amd_chipset_software_7.11.26.2142.exe         (2024 release)
-#     amd_chipset_software_5.12.14.0541.exe         (2023 release)
+#     amd_chipset_software_8.02.18.557.exe (mid-2025 release)
+#     amd_chipset_software_7.11.26.2142.exe (2024 release)
+#     amd_chipset_software_5.12.14.0541.exe (2023 release)
 #
 #   The version semantics published by AMD:
 #     MAJOR -- bumps roughly annually with feature drops
 #     MINOR -- two-digit, bumps with minor releases
 #     BUILD -- two-digit, internal build counter
-#     REV   -- 3-4 digit revision counter
+#     REV -- 3-4 digit revision counter
 #
 #   File size is typically 35-65 MB.
 #
@@ -4823,9 +4814,9 @@ function Install-WindowsWdkFallback {
 #   NVIDIA's processDriver.aspx API takes an explicit osid parameter:
 #       Win2008R2 = 21
 #       Win2012R2 = 44
-#       Win2016   = 74
-#       Win2019   = 119
-#       Win2022   = 134
+#       Win2016 = 74
+#       Win2019 = 119
+#       Win2022 = 134
 #
 #   AMD does NOT have an equivalent. A single AMD chipset installer
 #   EXE supports BOTH Windows 10 and Windows 11 (and, via the SKU
@@ -4841,26 +4832,26 @@ function Install-WindowsWdkFallback {
 #
 # === [6] Comparison summary: NVIDIA vs AMD chipset discovery =======
 #
-#       Aspect              NVIDIA (drivers)             AMD (chipsets)
-#       ------------------  ---------------------------  --------------------------
-#       Public API          XML query API                NONE (HTML scraping only)
+#       Aspect NVIDIA (drivers) AMD (chipsets)
+# ------------------ --------------------------- --------------------------
+#       Public API XML query API NONE (HTML scraping only)
 #                           (lookupValueSearch.aspx,
 #                           processDriver.aspx)
-#       Product catalog     Numeric IDs (psid/pfid)      URL slug strings
-#                           in 3-level hierarchy         in 2-level path
-#                           (TypeID 1->2->3)             (socket/chipset-model)
-#       OS selection        Numeric osid query param     Same EXE for all OSes;
+#       Product catalog Numeric IDs (psid/pfid) URL slug strings
+#                           in 3-level hierarchy in 2-level path
+#                           (TypeID 1->2->3) (socket/chipset-model)
+#       OS selection Numeric osid query param Same EXE for all OSes;
 #                                                        no per-OS URL variant
-#       Branch selection    N/A (single branch)          N/A (single installer
+#       Branch selection N/A (single branch) N/A (single installer
 #                                                        covers all AM4/AM5/Mobile)
-#       Per-product URL     Yes - each GPU model         No - one URL per socket
-#                           has its own driver URL       (and AMD typically
+#       Per-product URL Yes - each GPU model No - one URL per socket
+#                           has its own driver URL (and AMD typically
 #                                                        publishes the same EXE
 #                                                        across all socket pages)
-#       Auto-detect tool    GeForce Experience           AMD Software Installer
-#                           (binary, not scriptable)     (binary, not scriptable)
-#       Versioning scheme   <Major>.<Minor>              <Major>.<Minor>.<Build>.<Rev>
-#                           (e.g., 553.62)               (e.g., 8.02.18.557)
+#       Auto-detect tool GeForce Experience AMD Software Installer
+#                           (binary, not scriptable) (binary, not scriptable)
+#       Versioning scheme <Major>.<Minor> <Major>.<Minor>.<Build>.<Rev>
+#                           (e.g., 553.62) (e.g., 8.02.18.557)
 #
 # === [7] Notes on platform detection (Get-AmdChipsetPlatform) ======
 #
@@ -4890,12 +4881,12 @@ function Install-WindowsWdkFallback {
 # unified across all sockets - see SECTION 5 header comment block).
 #
 # Returns @{ CpuName; Socket; Generation; Source; Confidence } where:
-#   CpuName    = full Win32_Processor.Name value
-#   Socket     = 'AM4' | 'AM5' | 'Mobile' | 'sTRX4' | 'sWRX8' | 'sTR5'
+#   CpuName = full Win32_Processor.Name value
+#   Socket = 'AM4' | 'AM5' | 'Mobile' | 'sTRX4' | 'sWRX8' | 'sTR5'
 #                | 'SP3' | 'SP5' | 'Unknown'
 #   Generation = 'Zen' | 'Zen+' | 'Zen 2' | 'Zen 3' | 'Zen 4' | 'Zen 5'
 #                | $null
-#   Source     = 'Win32_Processor' | 'fallback' | $null
+#   Source = 'Win32_Processor' | 'fallback' | $null
 #   Confidence = 'High' | 'Medium' | 'Low'
 #
 # Returns $null on WMI failure (purely informational - non-fatal).
@@ -5080,7 +5071,7 @@ function Expand-AmdInstaller {
     #               Works for old (6.x and earlier) self-extracting EXEs.
     #               Free, fast, no side effects. Fails cleanly on modern
     #               (8.x+) AMD bootstrappers.
-    #   Strategy 2 (r54, NEW): InstallShield /a admin install + recursive
+    #   Strategy 2: InstallShield /a admin install + recursive
     #               msiexec /a. The AMD 8.x bootstrapper is a two-layer
     #               wrapper:
     #                 Outer: NSIS self-extracting EXE (7-Zip extractable)
@@ -5112,7 +5103,7 @@ function Expand-AmdInstaller {
         [Parameter(Mandatory)] [string]$InstallerPath,
         [Parameter(Mandatory)] [string]$DestinationPath,
         [Parameter(Mandatory)] [string]$SevenZipPath,
-        # r54: Optional OS context. When provided, Strategy 2 emits a
+        # Optional OS context. When provided, Strategy 2 emits a
         # diagnostic summary that highlights whether the AMD source-
         # variant subdirectory preferred for THIS host OS (W11x64 for
         # WS2022 / WS2025, WTx64 for WS2016 / WS2019) ended up with
@@ -5122,13 +5113,13 @@ function Expand-AmdInstaller {
         # Get-PreferredAmdSourceVariants / Get-AmdSourceVariant, so this
         # parameter is purely diagnostic at the extraction layer.
         $OsContext = $null,
-        # r55: Optional log directory. When provided, Strategy 2 writes
+        # Optional log directory. When provided, Strategy 2 writes
         # its per-tool diagnostic logs (installshield-admin.log and the
         # per-sub-MSI msiexec-admin-*.log files) under this directory
         # instead of the workspace root. Caller normally passes
         # $Ctx.Paths.Logs so the logs co-locate with the other per-tool
         # logs already written there by P08 (inf2cat), P09 (signtool),
-        # V03 (signtool verify), and I03 (pnputil). Pre-r55 these logs
+        # V03 (signtool verify), and I03 (pnputil). Previously these logs
         # were dropped directly under $WorkRoot which cluttered the
         # workspace root; passing $null preserves that legacy layout
         # for backwards-compatible call paths.
@@ -5165,7 +5156,7 @@ function Expand-AmdInstaller {
     _ClearDest
     Write-Warn2 "    7-Zip auto-detect produced no usable payload (exit $exit1) - trying next strategy"
 
-    # ---------- Strategy 2/3: InstallShield /a admin install (r54) ----------
+    # ---------- Strategy 2/3: InstallShield /a admin install ----------
     # Dedicated path for AMD 8.x. Bypasses the InstallShield SFX
     # (ISSetupStream) that 7-Zip cannot decode by invoking
     # InstallShield's own administrative install mode (/a), then
@@ -5198,10 +5189,10 @@ function Expand-AmdInstaller {
 }
 
 function Test-RobocopyResult {
-    # r53: Verify that a robocopy (or any other file-copy operation)
+    # Verify that a robocopy (or any other file-copy operation)
     # produced a destination tree identical to the source tree. Used to
     # catch silent partial-copy bugs that previously went undetected
-    # (e.g. the PowerShell Copy-Item wildcard quirk fixed in r52).
+    # (e.g. the PowerShell Copy-Item wildcard quirk fixed).
     #
     # Verification levels applied:
     #   L1: Total file count and total directory count must match
@@ -5213,7 +5204,7 @@ function Test-RobocopyResult {
     # against a thousand-file tree on SSD is acceptable.
     #
     # Returns a result object; does NOT throw. The caller decides how to
-    # react (throw / warn / retry) based on .Success.
+    # react (throw / warn / retry) based on.Success.
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string]$SourcePath,
@@ -5450,7 +5441,7 @@ function Expand-AmdInstaller_ViaLaunch {
 
     Write-Detail "Detected extraction at $($newDir.FullName) (waited $([math]::Round($sw.Elapsed.TotalSeconds,1))s, $lastInfCount INFs)" -Color DarkGray
 
-    # r52 fix: replace Copy-Item with robocopy.
+    # Replace Copy-Item with robocopy.
     # The previous code:
     #   Copy-Item -Path "$src\*" -Destination $dst -Recurse -Force -ErrorAction SilentlyContinue
     # exhibits a long-standing PowerShell 5.1 quirk: when -Path contains a
@@ -5473,13 +5464,13 @@ function Expand-AmdInstaller_ViaLaunch {
     #   3. It reports a structured exit code so we can verify success.
     #   4. It is available on every supported Windows host (no add-on).
     #
-    # /E         : copy subdirectories, INCLUDING empty ones
-    # /COPY:DAT  : copy Data + Attributes + Timestamps (omit ACLs/owner)
-    # /R:3 /W:2  : 3 retries with 2s wait per attempted-locked-file
-    # /NFL /NDL  : suppress per-file / per-directory log output (noisy)
-    # /NJH /NJS  : suppress the job header / summary footer
-    # /NP        : suppress per-file progress bar (also noisy)
-    # /MT:8      : 8 copy threads (small files speed up significantly)
+    # /E: copy subdirectories, INCLUDING empty ones
+    # /COPY:DAT: copy Data + Attributes + Timestamps (omit ACLs/owner)
+    # /R:3 /W:2: 3 retries with 2s wait per attempted-locked-file
+    # /NFL /NDL: suppress per-file / per-directory log output (noisy)
+    # /NJH /NJS: suppress the job header / summary footer
+    # /NP: suppress per-file progress bar (also noisy)
+    # /MT:8: 8 copy threads (small files speed up significantly)
     #
     # robocopy exit codes 0-7 = success/info (no failures); >=8 = error.
     & robocopy.exe $newDir.FullName $DestinationPath /E /COPY:DAT /R:3 /W:2 `
@@ -5489,7 +5480,7 @@ function Expand-AmdInstaller_ViaLaunch {
         throw ("robocopy failed copying '{0}' -> '{1}' with exit code {2}. Robocopy exit codes >= 8 indicate hard failures (access denied, missing source, etc.). Inspect the source and destination manually." -f $newDir.FullName, $DestinationPath, $robocopyExit)
     }
 
-    # r53: post-copy verification.
+    # Post-copy verification.
     # Even though robocopy is more reliable than Copy-Item, "external
     # tool exit code = success" is not a strong enough contract for an
     # irreversible step in the middle of a long pipeline. We follow up
@@ -5531,7 +5522,7 @@ function Expand-AmdInstaller_ViaLaunch {
 }
 
 function Expand-AmdInstaller_ViaInstallShield {
-    # r54: NEW EXTRACTION STRATEGY for AMD Chipset Drivers 8.x and later.
+    # NEW EXTRACTION STRATEGY for AMD Chipset Drivers 8.x and later.
     #
     # =====================================================================
     # WHY THIS STRATEGY EXISTS
@@ -5540,20 +5531,20 @@ function Expand-AmdInstaller_ViaInstallShield {
     # The bootstrapper became a two-layer wrapper that 7-Zip alone cannot
     # fully unpack:
     #
-    #   Outer layer:  NSIS self-extracting EXE
+    #   Outer layer: NSIS self-extracting EXE
     #                 (7-Zip CAN extract this layer)
     #                 +-> AMD_Chipset_Drivers.exe (inner installer SFX)
     #                 +-> auxiliary support files
     #
-    #   Inner layer:  InstallShield SFX (ISSetupStream format)
+    #   Inner layer: InstallShield SFX (ISSetupStream format)
     #                 (7-Zip CANNOT extract - returns exit 2 silently)
     #                 (Only InstallShield-aware tooling can: /a admin)
-    #                 +-> AMD_Chipset_Drivers.msi   (parent, ARPSYSTEMCOMPONENT=1)
+    #                 +-> AMD_Chipset_Drivers.msi (parent, ARPSYSTEMCOMPONENT=1)
     #                 +-> Chipset_Software\AMD-GPIO2-Driver.msi (sub)
-    #                 +-> Chipset_Software\AMD-PCI-Driver.msi   (sub)
-    #                 +-> ... (35 sub-MSIs in 8.02.18.557)
+    #                 +-> Chipset_Software\AMD-PCI-Driver.msi (sub)
+    #                 +->... (35 sub-MSIs in 8.02.18.557)
     #
-    #   Sub-MSIs:     Each sub-MSI's File table carries its driver's
+    #   Sub-MSIs: Each sub-MSI's File table carries its driver's
     #                 binaries in three OS-variant subdirectories:
     #                 +-> Binaries\<DriverName>\W11x64\<driver>.inf
     #                     (Win11 / WS2022 / WS2025)
@@ -5574,18 +5565,18 @@ function Expand-AmdInstaller_ViaInstallShield {
     # Get-PreferredAmdSourceVariants -OsContext to decide which variant
     # to install per host OS:
     #
-    #   W11x64  -> Windows 11-based Server family
+    #   W11x64 -> Windows 11-based Server family
     #              WS2025 (build 26100) and WS2022 (build 20348).
     #              Kernel-equivalent to Win11; supports modern features
     #              (Pluton, PMF AI series, 3D V-Cache optimizer, USB4,
     #              etc.) only this branch carries.
     #
-    #   WTx64   -> Windows 10-based Server family
+    #   WTx64 -> Windows 10-based Server family
     #              WS2019 (build 17763) and WS2016 (build 14393).
     #              Threshold / Redstone ABI; lacks newer-platform
     #              device coverage; older kernel-compatible builds.
     #
-    #   WTx86   -> 32-bit Windows; never applicable to Server SKUs.
+    #   WTx86 -> 32-bit Windows; never applicable to Server SKUs.
     #              We extract it for completeness but P05 skips it on
     #              all Server hosts.
     #
@@ -5624,7 +5615,7 @@ function Expand-AmdInstaller_ViaInstallShield {
         # host is adequately populated. When not provided, all three
         # variants are reported neutrally.
         $OsContext = $null,
-        # r55: Optional log directory. When provided, per-tool log files
+        # Optional log directory. When provided, per-tool log files
         # (installshield-admin.log and msiexec-admin-*.log) are written
         # under this directory instead of the workspace root. Caller
         # normally passes $Ctx.Paths.Logs so the logs co-locate with
@@ -5647,10 +5638,10 @@ function Expand-AmdInstaller_ViaInstallShield {
     $stageNsis = Join-Path $parentDir 'is-stage-nsis'
     $stageMsi  = Join-Path $parentDir 'is-stage-msi'
 
-    # r55: Resolve where the per-tool diagnostic logs should go. Prefer
+    # Resolve where the per-tool diagnostic logs should go. Prefer
     # the caller-provided $LogDir (typically $Ctx.Paths.Logs). When the
     # directory does not exist, fall back to $parentDir (legacy
-    # pre-r55 behaviour) so the function still works for callers that
+    # earlier behaviour) so the function still works for callers that
     # have not yet been updated to plumb the logs path through.
     $logRoot = $parentDir
     if (-not [string]::IsNullOrEmpty($LogDir)) {
@@ -5708,12 +5699,12 @@ function Expand-AmdInstaller_ViaInstallShield {
     # Step 2/3: InstallShield /a admin install of the inner SFX
     # =====================================================================
     # Flags passed via /v to the embedded msiexec:
-    #   TARGETDIR        = where to extract (must be quoted)
-    #   GONOGO=PUBLICGO  = AMD-internal "publish-build" feature gate.
+    #   TARGETDIR = where to extract (must be quoted)
+    #   GONOGO=PUBLICGO = AMD-internal "publish-build" feature gate.
     #                      Without this, the parent MSI rejects /a on
     #                      some builds with a LaunchCondition violation.
-    #   /qn              = quiet, no UI
-    #   /l*v             = verbose log
+    #   /qn = quiet, no UI
+    #   /l*v = verbose log
     #
     # Argument-passing note: PowerShell's native-call argument parsing
     # mangles embedded double-quotes in some configurations. We use
@@ -5745,7 +5736,7 @@ function Expand-AmdInstaller_ViaInstallShield {
     # TARGETDIR for every sub-MSI (DestinationPath itself), so all
     # sub-MSIs share the same tree. The MSIs are authored with
     # INSTALLDIR relative to TARGETDIR via the
-    # [TARGETDIR]AMD\Chipset_Software\Binaries\<DriverName>\<OS>    # property chain, so a single TARGETDIR collapses everything
+    # [TARGETDIR]AMD\Chipset_Software\Binaries\<DriverName>\<OS> # property chain, so a single TARGETDIR collapses everything
     # into one flat W11x64 / WTx64 / WTx86 tree.
     Write-Detail ("  Step 3/3: msiexec /a on {0} sub-MSI(s)..." -f $msiFiles.Count) -Color DarkGray
 
@@ -5760,8 +5751,8 @@ function Expand-AmdInstaller_ViaInstallShield {
     $subSuccess = 0
     $subFail    = 0
     foreach ($msi in $msiFiles) {
-        # r55: per-sub-MSI log goes to $logRoot (typically $Ctx.Paths.Logs)
-        # rather than $parentDir (workspace root). Pre-r55 these files
+        # Per-sub-MSI log goes to $logRoot (typically $Ctx.Paths.Logs)
+        # rather than $parentDir (workspace root). Previously these files
         # were dropped at the workspace root.
         $subLog = Join-Path $logRoot ("msiexec-admin-" + [System.IO.Path]::GetFileNameWithoutExtension($msi.Name) + ".log")
         $subArgs = @(
@@ -5877,15 +5868,15 @@ function Read-InfFile {
 
 function Get-InfMetadata {
     # Extract human-readable metadata from an INF file's text:
-    #   - Provider     : driver vendor (e.g. "AMD")
-    #   - Class        : Windows device class (System, USB, HIDClass, ...)
-    #   - ClassGuid    : raw GUID of the device class
-    #   - DriverVer    : version string from [Version]
-    #   - Manufacturer : manufacturer label (resolved from [Strings])
-    #   - Devices      : list of {Description, HardwareId} pairs from
+    #   - Provider: driver vendor (e.g. "AMD")
+    #   - Class: Windows device class (System, USB, HIDClass,...)
+    #   - ClassGuid: raw GUID of the device class
+    #   - DriverVer: version string from [Version]
+    #   - Manufacturer: manufacturer label (resolved from [Strings])
+    #   - Devices: list of {Description, HardwareId} pairs from
     #                    the manufacturer's model section, with strings
     #                    resolved against the [Strings] section
-    #   - DeviceCount  : count of distinct device entries
+    #   - DeviceCount: count of distinct device entries
     #
     # Returns a [pscustomobject] with the above fields. Missing fields
     # are returned as $null or empty arrays so callers can format them
@@ -5941,14 +5932,14 @@ function Get-InfMetadata {
 
     # Build [Strings] table for token resolution
     #
-    # IMPORTANT (r43 fix, mirrored from graphics-r11): the LHS character
+    # IMPORTANT: the LHS character
     # class MUST include dot and backslash. AMD INFs use token names
     # like 'amdsmbus.DeviceDesc' or 'PCI\AMDPCIE.DeviceDesc' that the
-    # pre-r43 `[A-Za-z0-9_]+` regex couldn't capture, causing the
+    # earlier `[A-Za-z0-9_]+` regex couldn't capture, causing the
     # %Token% reference to be displayed literally in P05 instead of
     # the resolved description. This was a pre-existing latent bug
-    # in both graphics and chipset parsers; r43 brings the chipset
-    # parser in sync with the graphics-r11 fix for consistency and
+    # in both graphics and chipset parsers; brings the chipset
+    # parser in sync with the graphics fix for consistency and
     # to prepare for any future AMD chipset INF using this format.
     $strings = @{}
     if ($sections.Contains('Strings')) {
@@ -5972,13 +5963,13 @@ function Get-InfMetadata {
 
     # [Manufacturer] -> mfgLabel = mfgSection,decorations
     #
-    # IMPORTANT (r42 fix, mirrored from graphics-r9): collect ALL
+    # IMPORTANT: collect ALL
     # manufacturer entries, not just the first one. While AMD chipset
     # INFs typically have a single %AMD% manufacturer (unlike the
     # graphics u0197843.inf which uses the same single-mfg pattern but
     # with quoted-token LHS lines that the previous parser also missed),
     # parsing all manufacturer entries is the correct robust behavior
-    # and protects against future format changes. Pre-r42 the parser
+    # and protects against future format changes. Previously the parser
     # took the first entry only via `break`, and Bug B below would
     # cause silent-zero-device parsing when LHS was non-canonical.
     $mfgLabel = $null
@@ -6003,40 +5994,40 @@ function Get-InfMetadata {
     # Collect device entries from the manufacturer section AND its
     # decorated variants (e.g. "Mfg" plus "Mfg.NTamd64.10.0.3..26100").
     #
-    # IMPORTANT (r31 fix): the wildcard `$baseName.*` can also match
+    # IMPORTANT: the wildcard `$baseName.*` can also match
     # DDInstall sections when the install-section name happens to share
     # a prefix with the Manufacturer section name (this happens in
     # AmdMicroPEP.inf, where DDInstall.Services entries previously
     # leaked into the device list and surfaced as bogus "device:
     # AddService / hwid: %SERVICE_FLAGS%" rows in P05).
     #
-    # IMPORTANT (r42 fix, mirrored from graphics-r9/r10): the device-
+    # IMPORTANT: the device-
     # line LHS can be ANY of three forms in real-world AMD INFs - the
-    # pre-r42 parser only accepted form (a) which is why graphics
+    # earlier parser only accepted form (a) which is why graphics
     # u0197843.inf parsed 0 devices despite having a perfectly valid
     # [Models] section (its 5,047 device lines all use form (b) with
     # double-quoted %Token% references). Although AMD chipset INFs
     # typically use form (a), this parser is kept in sync with the
     # graphics script for consistency and future-proofing.
     #
-    #   (a) %Token%       -- canonical AMD INF convention, where the
+    #   (a) %Token% -- canonical AMD INF convention, where the
     #                        token resolves against [Strings]
     #                        Example: %D1638% = svcS, PCI\VEN_1002&DEV_1638
     #
-    #   (b) "Quoted lit"  -- literal string in quotes, OR a quoted
+    #   (b) "Quoted lit" -- literal string in quotes, OR a quoted
     #                        token reference like "%Token%" (used in
     #                        AMD WHQL universal display drivers).
     #                        Example: "AMD SMBus" = svcS, PCI\VEN_1022&DEV_790B
     #                        Example: "%D1638.1%" = svcS, PCI\VEN_1002&DEV_1638
     #
-    #   (c) BareIdent     -- bare identifier (rare; seen in some
+    #   (c) BareIdent -- bare identifier (rare; seen in some
     #                        legacy AMD universal INFs). Must NOT be
     #                        a known INF directive keyword.
     #                        Example: D1638 = svcS, PCI\VEN_1002&DEV_1638
     #
     # Defense-in-depth (three checks):
     #   1. Skip lines whose LHS is a known directive keyword
-    #      (AddService, AddReg, CopyFiles, ...). This protects against
+    #      (AddService, AddReg, CopyFiles,...). This protects against
     #      DDInstall sections that share the manufacturer's name prefix.
     #   2. Each LHS form is matched by a SEPARATE regex - we don't
     #      try to consolidate them into one pattern (alternation in
@@ -6067,7 +6058,7 @@ function Get-InfMetadata {
 
                 # Pre-filter: skip lines whose LHS bare-ident is a
                 # known DDInstall directive (defends against section-
-                # name collisions, see r31 comment).
+                # name collisions, see related comment).
                 if ($ln -match '^\s*([A-Za-z][A-Za-z0-9_]+)\s*=' -and
                     ($infDirectiveBlacklist -contains $matches[1])) {
                     continue
@@ -6127,8 +6118,8 @@ function Get-InfMetadata {
         Manufacturer          = $mfgLabel
         Devices               = $devices
         DeviceCount           = $devices.Count
-        ManufacturerEntries   = $mfgSectionNames.Count   # r42: number of distinct mfg sections (>1 = multi-mfg INF)
-        ModelsSectionsScanned = $modelsSectionsScanned   # r42: number of [Mfg.NT...] sections that were scanned
+        ManufacturerEntries   = $mfgSectionNames.Count   # number of distinct mfg sections (>1 = multi-mfg INF)
+        ModelsSectionsScanned = $modelsSectionsScanned   # number of [Mfg.NT...] sections that were scanned
     }
 }
 
@@ -6317,7 +6308,7 @@ function Invoke-PrepPhase00_Initialize {
 
     if ($isWorkstation) {
         # Show the ACTUAL OS Caption (e.g. "Microsoft Windows 11 Pro") plus
-        # the Server profile this script will treat it as. Pre-r45 the
+        # the Server profile this script will treat it as. Previously the
         # display only showed the mapped profile name, which made it look
         # like the script had mis-detected the OS.
         Write-Ok "OS detected: $($Ctx.Os.Caption) (build $($Ctx.Os.ActualBuild))"
@@ -6363,7 +6354,7 @@ function Invoke-PrepPhase00_Initialize {
         Write-Host '      1. Use -Action PrepareVerify -CleanWorkRoot only (no system' -ForegroundColor White
         Write-Host '         changes; safe to run repeatedly).' -ForegroundColor White
         Write-Host '      2. Save the run log for post-WS2025-install comparison.' -ForegroundColor White
-        Write-Host '         Preferred (r58+): use -LogFile, which keeps console colors.' -ForegroundColor White
+        Write-Host '         Preferred: use -LogFile, which keeps console colors.' -ForegroundColor White
         Write-Detail ('     $ts = Get-Date -Format ''yyyyMMdd-HHmmss''') -Color DarkGray
         Write-Detail ("     .\{0} -Action PrepareVerify -CleanWorkRoot ``" -f $scriptLeaf) -Color DarkGray
         Write-Detail ("       -LogFile ""C:\Temp\{0}_PrepareVerify_Win11-preview_`$ts.log""" -f $logTag) -Color DarkGray
@@ -6411,7 +6402,7 @@ If you really need to install on this Workstation host, pass
         Write-Detail "ProductType: $($Ctx.Os.ProductType)  (1=Workstation, 3=Server)"
     }
 
-    # ---- UEFI Secure Boot certificate baseline (r49) ----
+    # ---- UEFI Secure Boot certificate baseline ----
     # Capture once at P00 and cache on $Ctx so later phases (P05 report
     # append, V05 / V06 display, I02 pre-check) can reuse the same
     # snapshot without re-invoking the Microsoft sample script multiple
@@ -6461,7 +6452,7 @@ function Invoke-PrepPhase01_PrepareWorkspace {
     $Ctx.Paths = $paths
     Write-Ok "Workspace ready under $($Ctx.WorkRoot)"
 
-    # r59+: Enable Debug Trace JSONL writer. Now that $paths.Logs exists
+    # Enable Debug Trace JSONL writer. Now that $paths.Logs exists
     # (created above), we can switch JSONL output to "default ON for file
     # output" - any pre-P01 trace events that are sitting in the in-memory
     # buffer get flushed in one shot. Failures are absorbed and warned
@@ -6469,21 +6460,21 @@ function Invoke-PrepPhase01_PrepareWorkspace {
     Set-DebugStep 'enable Debug Trace JSONL writer'
     Enable-DebugTraceFileOutput -Directory $paths.Logs
 
-    # r59+: also activate auto-export-on-phase-failure. The phase
+    # Also activate auto-export-on-phase-failure. The phase
     # dispatcher's catch block calls Write-DebugFailureReport -AutoExport,
     # which writes a debugtrace_export_<phaseId>_<ts>.json snapshot to
     # this directory so the user has a single self-contained file to
     # attach to a bug report.
     Enable-AutoExportOnPhaseFailure -OutputDirectory $paths.Logs
 
-    # r59: rehydrate $Ctx from existing workspace artifacts so that
+    # Rehydrate $Ctx from existing workspace artifacts so that
     # -Action Verify / -Action Install (-OnlyPhases I01) can run
     # against a populated workspace without re-running P02-P09.
     # See function Resume-CtxFromWorkspace below.
     Set-DebugStep 'rehydrate $Ctx from existing workspace artifacts'
     Resume-CtxFromWorkspace -Ctx $Ctx
 
-    # Acquire the workspace lock NOW (after the .markers/ directory
+    # Acquire the workspace lock NOW (after the.markers/ directory
     # exists). This catches the case where the user accidentally
     # starts a second instance against the same workspace - we fail
     # fast with a clear error rather than racing pnputil / CiTool.
@@ -6524,7 +6515,7 @@ function Resume-CtxFromWorkspace {
         leaves the property $null/empty, and lets downstream
         preconditions raise a clearer error.
 
-        r59 (2026-05-17) - ported from the BthPan sister script's
+        an earlier revision (2026-05-17) - ported from the BthPan sister script's
         rehydration helper, simplified for the multi-INF AMD case
         (full PatchResults / InfInventory restoration deferred).
     #>
@@ -6635,7 +6626,7 @@ function Invoke-PrepPhase02_AcquireTools { # psa-disable-line PSA6003 -- compoun
     Write-Detail "WDK build    : $($Ctx.Os.WdkBuild)"
     Write-Detail "Notes        : $($Ctx.Os.ToolkitNotes)"
 
-    # r51: On a clean-installed host the SDK and WDK packages are
+    # On a clean-installed host the SDK and WDK packages are
     # absent and must be downloaded via winget. The bootstrap EXEs
     # (winsdksetup.exe / wdksetup.exe) are ~1.3 MB each but the
     # background payloads they pull from Microsoft Download CDN are
@@ -6869,10 +6860,10 @@ function Invoke-PrepPhase04_ExtractInstaller {
 
     Set-DebugStep 'extract installer (multi-strategy + nested archives)'
     Write-Step 'Extracting installer (multiple strategies will be attempted)'
-    # r54: pass OS context so Strategy 2 (InstallShield /a) can emit a
+    # Pass OS context so Strategy 2 (InstallShield /a) can emit a
     # variant-aware post-extraction diagnostic showing whether the
     # W11x64 / WTx64 / WTx86 INF coverage matches the host OS expectations.
-    # r55: pass $Ctx.Paths.Logs so the InstallShield admin install log
+    # Pass $Ctx.Paths.Logs so the InstallShield admin install log
     # and the per-sub-MSI msiexec admin install logs co-locate with the
     # other per-tool logs (inf2cat / signtool / verify / pnputil) under
     # <WorkRoot>\logs\ instead of cluttering the workspace root.
@@ -6886,18 +6877,18 @@ function Invoke-PrepPhase04_ExtractInstaller {
     # Nested archives - covers MSIs/CABs from /layout, sub-installers
     # extracted by Strategy 3, etc.
     #
-    # r53: previously this loop called 7-Zip with `2>$null | Out-Null`,
+    # Previously this loop called 7-Zip with `2>$null | Out-Null`,
     # which silently swallowed any error. A corrupt or password-locked
     # nested archive would extract zero files and produce no visible
     # failure, mirroring the silent-fail pattern that bit us with
-    # Copy-Item in pre-r52. We now capture $LASTEXITCODE and verify
+    # Copy-Item in earlier. We now capture $LASTEXITCODE and verify
     # that at least one file emerged. Exit codes for 7-Zip:
-    #   0     = success
-    #   1     = warning (non-fatal, e.g. some files locked but rest OK)
-    #   2     = fatal error (corrupt archive, unsupported format, etc.)
-    #   7     = command-line error
-    #   8     = memory allocation failure
-    #   255   = user interrupted
+    #   0 = success
+    #   1 = warning (non-fatal, e.g. some files locked but rest OK)
+    #   2 = fatal error (corrupt archive, unsupported format, etc.)
+    #   7 = command-line error
+    #   8 = memory allocation failure
+    #   255 = user interrupted
     # We treat exit <= 1 as acceptable and >= 2 as hard failure.
     $nested = Get-ChildItem -Path $Ctx.Paths.Extract -Recurse -Include *.msi,*.cab,*.7z,*.zip -ErrorAction SilentlyContinue
     foreach ($n in $nested) {
@@ -6928,7 +6919,7 @@ function Invoke-PrepPhase04_ExtractInstaller {
     # Final verification: after all extraction and nested expansion,
     # we MUST have INF files - otherwise downstream phases (P05/P06/P08)
     # will silently process zero drivers and the user only learns about
-    # the failure at P09 ("no .cat files"). Fail loudly here instead.
+    # the failure at P09 ("no.cat files"). Fail loudly here instead.
     Set-DebugStep 'verify extracted INF files (>= 1 required)'
     $infCount = @(Get-ChildItem -Path $Ctx.Paths.Extract -Recurse -Filter *.inf -ErrorAction SilentlyContinue).Count
     if ($infCount -eq 0) {
@@ -6951,9 +6942,9 @@ function Get-AmdSourceVariant {
     # variant family. AMD organizes drivers under sub-folders named after
     # the original Windows version they were built for:
     #
-    #   W11x64    = Windows 11 x64       (build 22000+, including 24H2 = 26100)
-    #   WTx64     = Windows Threshold x64 (Windows 10, build 10240+)
-    #   (other)   = ambiguous - might be packaged differently
+    #   W11x64 = Windows 11 x64 (build 22000+, including 24H2 = 26100)
+    #   WTx64 = Windows Threshold x64 (Windows 10, build 10240+)
+    #   (other) = ambiguous - might be packaged differently
     #
     # The classification is purely path-based: we scan each path segment
     # and return the first matching token, case-insensitively.
@@ -7057,7 +7048,7 @@ function Write-InfInventorySummary {
                 if ($hwidShown -and $hwidShown.Length -gt 78) { $hwidShown = $hwidShown.Substring(0,75) + '...' }
                 Write-Detail ("    hwid  : {0}" -f $hwidShown) -Color DarkGray
             } else {
-                # r42: distinguish "INF has no [Models]" from "[Models] scanned but parser couldn't extract devices"
+                # Distinguish "INF has no [Models]" from "[Models] scanned but parser couldn't extract devices"
                 $scanned = if ($i.PSObject.Properties.Name -contains 'ModelsSectionsScanned') { [int]$i.ModelsSectionsScanned } else { 0 }
                 $mfgEnt  = if ($i.PSObject.Properties.Name -contains 'ManufacturerEntries')   { [int]$i.ManufacturerEntries   } else { 0 }
                 if ($scanned -gt 0) {
@@ -7078,7 +7069,7 @@ function Export-InfInventoryReport {
     # (which is machine-readable), this format prioritises human
     # readability with full unwrapped lines and section headers.
     #
-    # r49: SecureBootSnapshot (optional) appends a UEFI Secure Boot
+    # SecureBootSnapshot (optional) appends a UEFI Secure Boot
     # baseline section at the end of the report. Pass $Ctx.SecureBootBaseline
     # captured at P00; if omitted, the appendix is skipped silently.
     param(
@@ -7133,7 +7124,7 @@ function Export-InfInventoryReport {
         [void]$sb.AppendLine('')
     }
 
-    # r49: append UEFI Secure Boot baseline appendix at the END of the
+    # Append UEFI Secure Boot baseline appendix at the END of the
     # report. Placing it last keeps the INF-centric body intact for
     # callers who skim only the first sections, while making the
     # boot-trust context discoverable without opening a separate file.
@@ -7180,9 +7171,9 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     # Determine which AMD source-folder variants are appropriate
     # for THIS host OS.
     $preferredVariants = Get-PreferredAmdSourceVariants -OsContext $Ctx.Os
-    # r46: when running on a Workstation OS (e.g. Win11 24H2 used as a WS2025
+    # When running on a Workstation OS (e.g. Win11 24H2 used as a WS2025
     # preview), display BOTH the actual OS Caption and the Server profile
-    # being applied. Pre-r46 only the profile name was shown, which made it
+    # being applied. Previously only the profile name was shown, which made it
     # look like the script had mis-detected the host (e.g. "Host OS: Windows
     # Server 2025" while running on Win11 24H2).
     if ($Ctx.Os.ProductType -eq 1 -and $Ctx.Os.Caption) {
@@ -7227,7 +7218,7 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
             Manufacturer    = $meta.Manufacturer
             DeviceCount     = $meta.DeviceCount
             Devices         = $meta.Devices  # array of pscustomobject
-            # r42 diagnostic fields (used by P05 display to detect parser/INF format mismatches):
+            # Diagnostic fields (used by P05 display to detect parser/INF format mismatches):
             ManufacturerEntries   = $meta.ManufacturerEntries
             ModelsSectionsScanned = $meta.ModelsSectionsScanned
         }
@@ -7288,11 +7279,11 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     Set-DebugStep 'export inventory text report'
     $reportTxtPath = Join-Path $Ctx.Paths.Root 'inf_inventory_report.txt'
 
-    # r49: include UEFI Secure Boot baseline appendix. Prefer the
+    # Include UEFI Secure Boot baseline appendix. Prefer the
     # snapshot captured at P00; if the cached snapshot's diagnostic
     # file is missing or outside the workspace (e.g. P01 wiped it
     # under -CleanWorkRoot), re-capture so paths shown in the report
-    # appendix point to a real file. r50: use the dedicated helper.
+    # appendix point to a real file. an earlier revision: use the dedicated helper.
     $sbSnapshot = Get-OrEnsureSecureBootBaseline -Ctx $Ctx
     Export-InfInventoryReport -Detail $detailReport -PreferredVariants $preferredVariants -Path $reportTxtPath -OsName $Ctx.Os.Name -SecureBootSnapshot $sbSnapshot
 
@@ -7333,11 +7324,11 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
     Set-DebugStep 'classify INFs: needsPatch vs copyOnly (variant-aware)'
     $needsPatch = @($Ctx.InfInventory | Where-Object { $_.NeedsPatch -eq $true -or $_.NeedsPatch -eq 'True' })
 
-    # r44: SELECTED variant INFs that don't need patching (= already
+    # SELECTED variant INFs that don't need patching (= already
     # Server-compatible because their [Manufacturer] decoration has
     # parts[3]='' or '3'). These also belong in the install pipeline.
     #
-    # PRE-r44 BUG (severity: high): only $needsPatch INFs were written
+    # EARLIER BUG (severity: high): only $needsPatch INFs were written
     # to $Ctx.Paths.Patched, which meant V03/V04/V05/V06/I03 (all of
     # which scan the patched directory) silently missed the already-
     # universal INFs entirely.
@@ -7349,7 +7340,7 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
     # folder (WT6A_INF\), so the side-effect copy brought every
     # related INF along for the ride and the pipeline appeared to
     # work. The chipset installer puts each INF in its own MSI
-    # folder (e.g. UART\..\W11x64\, GPIO2\..\W11x64\, ...), so the
+    # folder (e.g. UART\..\W11x64\, GPIO2\..\W11x64\,...), so the
     # side-effect didn't reach them. Latest 8.02.18.557 has only 1
     # of 32 W11x64 INFs requiring patching, leaving 31 INFs (about
     # 97 percent of the package) silently dropped.
@@ -7368,8 +7359,8 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
     # Show variant distribution of what will be patched (echoes what
     # P05 already showed, but useful here when running P06 standalone).
     $skippedAll = @($Ctx.InfInventory | Where-Object {
-        # r44: an INF is "out of scope for this host OS" only when
-        # its source variant is NOT selected. Pre-r44 we lumped
+        # An INF is "out of scope for this host OS" only when
+        # its source variant is NOT selected. Previously we lumped
         # already-universal INFs (selected variant + NeedsPatch=false)
         # into this category, which mis-described 31 of 32 INFs and
         # explained why so few entered the install pipeline.
@@ -7403,7 +7394,7 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
         }
     }
 
-    # r44: copy-only loop for already-Server-compatible INFs.
+    # Copy-only loop for already-Server-compatible INFs.
     Set-DebugStep 'copy already-Server-compatible INFs (no rewrite)'
     if ($copyOnly.Count -gt 0) {
         Write-Step "Copying $($copyOnly.Count) already-Server-compatible INF file(s) (no patching needed)..."
@@ -7430,7 +7421,7 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
     $Ctx.PatchResults = $results
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'P06' -Metadata @{
         Patched=$results.Count
-        Copied =$copyOnly.Count   # r44 diagnostic field
+        Copied =$copyOnly.Count   # diagnostic field
     }
     Write-PhaseFooter 'P06' 'done'
 }
@@ -7447,9 +7438,9 @@ function Invoke-PrepPhase07_CreateCertificate {
     # SCOPED to the chipset-driver workflow so a future graphics-driver
     # companion script can safely run with its own cert in parallel
     # without trust-store ambiguity:
-    #   - "Chipset"      : driver category (coexists with Graphics script)
-    #   - "Self-Signed"  : technical clarity (no CA chain of trust)
-    #   - "At Own Risk"  : explicit personal-responsibility disclaimer
+    #   - "Chipset": driver category (coexists with Graphics script)
+    #   - "Self-Signed": technical clarity (no CA chain of trust)
+    #   - "At Own Risk": explicit personal-responsibility disclaimer
     # Length is kept at or below 64 characters to satisfy the X.509
     # printable-string practical limit recommended by RFC 5280.
     $subject = "CN=AMD Chipset Driver Self-Sign ($($Ctx.Os.Code) Lab, At Own Risk)"
@@ -7545,11 +7536,11 @@ function Get-Inf2catVersion {
     # inf2cat itself has no /version switch, so we read the EXE's
     # embedded version metadata via System.Diagnostics.FileVersionInfo.
     # Returns a [pscustomobject] with:
-    #   FileVersion     - dotted version like "10.0.26100.1"
-    #   ProductVersion  - same or similar
-    #   ProductName     - usually "Microsoft Windows Operating System"
+    #   FileVersion - dotted version like "10.0.26100.1"
+    #   ProductVersion - same or similar
+    #   ProductName - usually "Microsoft Windows Operating System"
     #   FileDescription - usually "Driver Catalog File Generator Tool"
-    #   FullPath        - resolved path to the executable
+    #   FullPath - resolved path to the executable
     # Returns $null if the file is missing or metadata can't be read.
     param([Parameter(Mandatory)] [string]$Inf2catPath)
 
@@ -7574,7 +7565,7 @@ function Get-Inf2catSupportedOsValues { # psa-disable-line PSA6003 -- compound n
     # SDK 10.0.26100 changed the /os value format - it dropped the
     # underscore separator (e.g. "10_X64" -> "10X64"). Older SDKs
     # use the underscored form. Rather than hard-code a list per
-    # SDK build, we just ask inf2cat itself by running it with /? .
+    # SDK build, we just ask inf2cat itself by running it with /?.
     #
     # Returns: array of /os values inf2cat reported as valid.
     #          Returns empty array if probe fails (caller should fall
@@ -7635,7 +7626,7 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
     # isolation (e.g. -OnlyPhases P08,P09) before P06 has produced
     # patched output, OR when P06 was wiped/cleared between runs.
     # Without this check P08 would silently succeed with 0/0,
-    # leaving P09 to fail with the cryptic "no .cat files found"
+    # leaving P09 to fail with the cryptic "no.cat files found"
     # error.
     if ($infDirs.Count -eq 0) {
         $allDirs = @(Get-ChildItem -Path $Ctx.Paths.Patched -Recurse -Directory -ErrorAction SilentlyContinue)
@@ -7756,10 +7747,10 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
         Write-Detail "inf2cat reports $($supportedByTool.Count) supported /os value(s):" -Color DarkGray
 
         # Categorize values for readability:
-        #   Server X64    - Windows Server x64 builds (our primary interest)
-        #   Server ARM64  - Windows Server ARM64 builds
-        #   Server other  - Server SKUs on other architectures (X86, IA64)
-        #   Client        - XP/Vista/etc client builds
+        #   Server X64 - Windows Server x64 builds (our primary interest)
+        #   Server ARM64 - Windows Server ARM64 builds
+        #   Server other - Server SKUs on other architectures (X86, IA64)
+        #   Client - XP/Vista/etc client builds
         $categories = [ordered]@{
             'Windows Server x64'      = @($supportedByTool | Where-Object { $_ -like 'Server*_X64' })
             'Windows Server ARM64'    = @($supportedByTool | Where-Object { $_ -like 'Server*_ARM64' })
@@ -7776,8 +7767,8 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
             $i = 0
             foreach ($v in $values) {
                 # Decorate the value:
-                #   *  = chosen for use
-                #   .  = configured fallback for this OS
+                #   * = chosen for use
+                #   . = configured fallback for this OS
                 #   (space) = other supported value
                 $marker = '  '
                 $color = 'DarkGray'
@@ -7824,7 +7815,7 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
 
     Set-DebugStep 'run inf2cat per INF directory (multi-folder loop)'
     foreach ($dir in $infDirs) {
-        # Idempotency: clean any prior .cat
+        # Idempotency: clean any prior.cat
         Get-ChildItem -LiteralPath $dir.FullName -Filter *.cat -ErrorAction SilentlyContinue | Remove-Item -Force
 
         # Build a UNIQUE log file name. Multiple INF dirs share base names
@@ -7855,7 +7846,7 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
         # "Parameter format not correct."
         #
         # By building the command line ourselves and calling
-        # [Process]::Start() with a manually-quoted Arguments string,
+        # [Process]::Start with a manually-quoted Arguments string,
         # we guarantee inf2cat sees exactly:
         #   inf2cat /driver:"C:\path with spaces" /os:Server2025_X64 /v
         # which is the documented invocation form.
@@ -8027,8 +8018,8 @@ function Invoke-PrepPhase09_SignCatalogs { # psa-disable-line PSA6003 -- compoun
 
     # Cleanup legacy '.err' files left over from previous runs that used
     # Start-Process -RedirectStandardError. The current ProcessStartInfo
-    # path writes a single combined log file (no .err sibling), so any
-    # remaining .err files are stale and could confuse diagnostics.
+    # path writes a single combined log file (no.err sibling), so any
+    # remaining.err files are stale and could confuse diagnostics.
     $legacyErrFiles = Get-ChildItem -LiteralPath $Ctx.Paths.Logs -Filter '*.err' -ErrorAction SilentlyContinue
     if ($legacyErrFiles -and $legacyErrFiles.Count -gt 0) {
         Write-Detail "Cleaning $($legacyErrFiles.Count) legacy .err file(s) from prior runs" -Color DarkGray
@@ -8040,7 +8031,7 @@ function Invoke-PrepPhase09_SignCatalogs { # psa-disable-line PSA6003 -- compoun
     $okCount = 0; $failCount = 0
     $failureSamples = @()
 
-    # Pre-flight: verify all .cat files have content. inf2cat with
+    # Pre-flight: verify all.cat files have content. inf2cat with
     # exit=0 should always produce a non-empty file, but we check
     # explicitly to detect any silent corruption.
     $emptyCount = 0
@@ -8120,7 +8111,7 @@ function Invoke-PrepPhase09_SignCatalogs { # psa-disable-line PSA6003 -- compoun
             # or open a log file separately.
             if ($failCount -eq 1) {
                 Write-Host ''
-                Write-Host '    ========== FIRST FAILURE - FULL LOG DUMP ==========' -ForegroundColor Yellow
+                Write-Host ' ========== FIRST FAILURE - FULL LOG DUMP ==========' -ForegroundColor Yellow
                 Write-Detail "Catalog file path: $($cat.FullName)" -Color DarkYellow
                 Write-Detail "(This dump is shown only for the first failure to keep output readable)" -Color DarkGray
                 Write-Host '    -----------------------------------------------------' -ForegroundColor DarkGray
@@ -8239,7 +8230,7 @@ function Invoke-VerifyPhase02_VerifyCertificate {
     }
 
     Set-DebugStep 'load X509Certificate2 from PFX'
-    # Use .NET API instead of Get-PfxCertificate so the password is
+    # Use.NET API instead of Get-PfxCertificate so the password is
     # supplied non-interactively (PFX is password-protected from P07).
     $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($pfx, $Ctx.PfxPassword)
     Write-Host "  Subject       : $($cert.Subject)"
@@ -8455,7 +8446,7 @@ function Invoke-VerifyPhase03_VerifyCatalogs { # psa-disable-line PSA6003 -- com
 
             if ($isExpected) {
                 $failExpected++
-                # r31: print first 3 [skip] lines explicitly so the
+                # Print first 3 [skip] lines explicitly so the
                 # operator can see at least a few catalog names; after
                 # that, suppress further per-catalog noise. The full
                 # count appears in the verification summary below.
@@ -8473,7 +8464,7 @@ function Invoke-VerifyPhase03_VerifyCatalogs { # psa-disable-line PSA6003 -- com
             if (-not $firstFailureLogged) {
                 $firstFailureLogged = $true
                 Write-Host ''
-                Write-Host '    ========== FIRST VERIFY FAILURE - LOG DUMP ==========' -ForegroundColor Yellow
+                Write-Host ' ========== FIRST VERIFY FAILURE - LOG DUMP ==========' -ForegroundColor Yellow
                 Write-Detail "Catalog: $($cat.FullName)" -Color DarkYellow
                 Write-Detail "Classified as: $(if ($isExpected) { 'EXPECTED (untrusted root)' } else { 'REAL FAILURE' })" -Color DarkYellow
                 Write-Host '    -----------------------------------------------------' -ForegroundColor DarkGray
@@ -8541,7 +8532,7 @@ function Test-InfHasServerDecoration {
         if (-not $inMfg)                   { continue }
         if (-not $t -or $t.StartsWith(';')) { continue }
 
-        # Parse "%name% = SectionName, dec1, dec2, ..."
+        # Parse "%name% = SectionName, dec1, dec2,..."
         $kv = $t -split '=', 2
         if ($kv.Count -ne 2) { continue }
         $rhs = $kv[1].Split(',')
@@ -8556,7 +8547,7 @@ function Test-InfHasServerDecoration {
             # ProductType field (parts[3]) may be:
             #   '3' - explicit Server-only (Server is supported)
             #   '1' - explicit Workstation-only (Server is NOT supported)
-            #   ''  - empty = "any product type", which INCLUDES Server
+            #   '' - empty = "any product type", which INCLUDES Server
             # Both '3' and '' satisfy "this decoration permits Server
             # installation". An INF whose [Manufacturer] only carries
             # decorations like 'NTamd64.10.0...22000' (empty ProductType
@@ -8614,7 +8605,7 @@ function Invoke-VerifyPhase04_VerifyInfs { # psa-disable-line PSA6003 -- compoun
             # quickest way to diagnose any future regression in P06.
             if ($failCount -eq 1) {
                 Write-Host ''
-                Write-Host '    ========== FIRST V04 FAILURE - [Manufacturer] DUMP ==========' -ForegroundColor Yellow
+                Write-Host ' ========== FIRST V04 FAILURE - [Manufacturer] DUMP ==========' -ForegroundColor Yellow
                 Write-Detail "INF: $($inf.FullName)" -Color DarkYellow
                 Write-Detail "Encoding: $($infData.EncodingName)" -Color DarkYellow
                 Write-Host '    -----------------------------------------------------' -ForegroundColor DarkGray
@@ -8701,7 +8692,7 @@ function Invoke-VerifyPhase05_DryRunInstall {
 
     Set-DebugStep 'dry-run I03: enumerate patched INFs + device match'
     # ----- I03 dry-run: InstallDrivers -----
-    # r32: this dry-run now mirrors the version-aware install decision
+    # This dry-run now mirrors the version-aware install decision
     # used by I03 itself (Resolve-PerInfInstallDecision). For each
     # patched INF we show:
     #   - Whether it's already in the driver store
@@ -8739,10 +8730,10 @@ function Invoke-VerifyPhase05_DryRunInstall {
             }
         }
 
-        # r32: pre-compute install decisions using the same logic I03
+        # Pre-compute install decisions using the same logic I03
         # will apply. We build a tiny version of the per-device current
         # driver lookup once and reuse it for every INF.
-        # r34: switched to a two-pass design - first PASS 1 collects
+        # Switched to a two-pass design - first PASS 1 collects
         # every INF with its metadata, decision, and matched-device
         # list; PASS 2 groups by matched-device name and prints in
         # "Device: <name>" sections so the operator can see at a glance
@@ -8767,7 +8758,7 @@ function Invoke-VerifyPhase05_DryRunInstall {
             # Resolve %TokenName% in Provider against the INF's own
             # [Strings] section so the dry-run shows the human-readable
             # vendor name ("Advanced Micro Devices, Inc") instead of
-            # the raw token ("%ManufacturerName%"). r31: previously the
+            # the raw token ("%ManufacturerName%"). an earlier revision: previously the
             # token was emitted unresolved, which made it hard for
             # operators to confirm at a glance that the patched INFs
             # are still attributed to AMD.
@@ -8788,10 +8779,10 @@ function Invoke-VerifyPhase05_DryRunInstall {
                 }
             }
 
-            # r32: compute the install decision for this INF
+            # Compute the install decision for this INF
             $meta = Get-InfMetadata -Content $infData.Content
             $infEntry = [pscustomobject]@{ InfName=$inf.Name; FullPath=$inf.FullName; DriverVer=$meta.DriverVer }
-            # r47: dedupe matchedDevices by physical DeviceID. Without
+            # Dedupe matchedDevices by physical DeviceID. Without
             # this, an INF that declares N HWID variants matching the same
             # physical device produces N entries for that single device,
             # inflating the V05 "matched device(s)" count and the V05/V06
@@ -8835,7 +8826,7 @@ function Invoke-VerifyPhase05_DryRunInstall {
             $relSrc = $relSrc.TrimEnd('\').TrimStart('\')
             if ([string]::IsNullOrEmpty($relSrc)) { $relSrc = '(root)' }
 
-            # r34: derive the device-name group key. INFs that match
+            # Derive the device-name group key. INFs that match
             # a current device are grouped under that device's Name.
             # INFs that match multiple devices land under the FIRST
             # matched device with a "+N more" suffix - this keeps the
@@ -8866,10 +8857,10 @@ function Invoke-VerifyPhase05_DryRunInstall {
         }
 
         # ---- PASS 2: render grouped output ----
-        # r34: first emit the device-targeted groups (sorted by device
+        # First emit the device-targeted groups (sorted by device
         # name), then emit the driver-store-only group at the bottom.
         # The slash-separated header line "Device name / INF file name"
-        # is what the user explicitly requested in r34.
+        # is what the user explicitly requested in an earlier revision.
         $matchedGroups = @($infRecords |
             Where-Object { $_.MatchedDevices.Count -gt 0 } |
             Group-Object -Property GroupKey | Sort-Object Name)
@@ -8900,7 +8891,7 @@ function Invoke-VerifyPhase05_DryRunInstall {
                         default           { 'Gray' }
                     }
                     $srcColor = if ($r.IsDuplicate) { 'Yellow' } else { 'DarkGray' }
-                    # The slash-separated header form requested in r34:
+                    # The slash-separated header form requested in an earlier revision:
                     # "<device name> / <inf file name>"
                     Write-Host ('    {0} / {1,-32}  {2} {3}' -f $g.Name, $r.Inf.Name, $storeTag, $decTag) -ForegroundColor $color
                     Write-Host ('        Class={0,-15}  Provider={1}' -f $r.Class, $r.Provider) -ForegroundColor DarkGray
@@ -8934,7 +8925,7 @@ function Invoke-VerifyPhase05_DryRunInstall {
     Write-Ok 'Dry-run complete - no system state was modified.'
 
     Set-DebugStep 'dry-run UEFI Secure Boot baseline cross-ref'
-    # ---- UEFI Secure Boot baseline (r48): cross-reference for I02 ----
+    # ---- UEFI Secure Boot baseline: cross-reference for I02 ----
     # The dry-run I02 block above explains which path (WDAC vs
     # testsigning) would fire. The actual viability of that path
     # depends on the UEFI Secure Boot state captured here. This is
@@ -8977,11 +8968,11 @@ function Invoke-VerifyPhase05_DryRunInstall {
 function Resolve-AmdDeviceClassification {
     # ====================================================================
     # Classify an AMD-affiliated PnP device by its enumeration path
-    # (r33). Returns @{ Source; IsHardware; Category } where:
+    #. Returns @{ Source; IsHardware; Category } where:
     #
-    #   Source     - one-line label of the enumeration source:
+    #   Source - one-line label of the enumeration source:
     #                'PCI_VEN_1002' | 'PCI_VEN_1022' | 'ACPI_AMD' |
-    #                'ACPI_CPU'     | 'ROOT_SW'      | 'SWD_SW'   |
+    #                'ACPI_CPU' | 'ROOT_SW' | 'SWD_SW' |
     #                'MFG_ONLY'
     #
     #   IsHardware - boolean. True for real AMD hardware (PCI vendor
@@ -8991,7 +8982,7 @@ function Resolve-AmdDeviceClassification {
     #                their Manufacturer string with no recognizable
     #                AMD vendor ID.
     #
-    #   Category   - human-readable bucket for grouped display:
+    #   Category - human-readable bucket for grouped display:
     #                'AMD GPU (PCI VEN_1002)'
     #                'AMD CPU/Chipset (PCI VEN_1022)'
     #                'AMD ACPI device'
@@ -9012,28 +9003,28 @@ function Resolve-AmdDeviceClassification {
     #                  PSP, USB controllers, root-port bridges, ISA
     #                  bridge, AHCI/SATA controllers, etc.
     #
-    #   ACPI_AMD     - ACPI-enumerated AMD motherboard devices like
+    #   ACPI_AMD - ACPI-enumerated AMD motherboard devices like
     #                  AMDI0030 (GPIO), AMDI0090 (mailbox), AMDF030,
     #                  AMD0010, etc. These are firmware-described
     #                  devices on the SoC.
     #
-    #   ACPI_CPU     - CPU-side enumeration via ACPI. Each logical
+    #   ACPI_CPU - CPU-side enumeration via ACPI. Each logical
     #                  core appears as a separate AUTHENTICAMD_-...
     #                  entry. Hardware, but not a driver-replacement
     #                  target (the CPU runs on AmdPPM in-box).
     #
-    #   ROOT_SW      - Root-enumerated software-only "devices" with
+    #   ROOT_SW - Root-enumerated software-only "devices" with
     #                  AMD-themed names. AMD ships several of these
     #                  (AMDLOG = Crash Defender, AMDXE = Link Controller
     #                  Emulation). They have no underlying hardware -
     #                  they are kernel/user-mode services that PnP
     #                  manages because they ship with their own INF.
     #
-    #   SWD_SW       - Software-Defined Devices enumerator. AMD-UWP
+    #   SWD_SW - Software-Defined Devices enumerator. AMD-UWP
     #                  Version Control is an example (path
     #                  SWD\DRIVERENUM\AMDUWP&...).
     #
-    #   MFG_ONLY     - Caught only because Manufacturer string matches
+    #   MFG_ONLY - Caught only because Manufacturer string matches
     #                  AMD/ATI but the PNPDeviceID prefix is not AMD-
     #                  recognizable. Treated as software/uncertain.
     # ====================================================================
@@ -9047,10 +9038,10 @@ function Resolve-AmdDeviceClassification {
     if ($DeviceID -match '^PCI\\VEN_1022\b') {
         return @{ Source='PCI_VEN_1022'; IsHardware=$true;  Category='AMD CPU/Chipset (PCI VEN_1022)' }
     }
-    # r38: HDAUDIO\FUNC_*&VEN_(1002|1022)\... is enumerated as a child
+    # HDAUDIO\FUNC_*&VEN_(1002|1022)\... is enumerated as a child
     # of an HD Audio bus, but the FUNC subdevice is real hardware (GPU
     # HDMI audio function for VEN_1002, on-board HDA for VEN_1022).
-    # Up to r37 these were buckted under MFG_ONLY and thus excluded
+    # Previously these were buckted under MFG_ONLY and thus excluded
     # from strict-hardware view. The user reported AMD High Definition
     # Audio Device (HDAUDIO\FUNC_01&VEN_1002&DEV_AA01&...) being
     # spuriously excluded.
@@ -9080,15 +9071,15 @@ function Test-DriverIsMicrosoftGeneric {
     # Return $true if the supplied driver record looks like a Microsoft
     # IN-BOX GENERIC driver - i.e. one of the catch-all drivers Windows
     # ships for unmatched hardware. Used by V06/I04 to flag the case
-    # described in r33: "AMD hardware running on a Microsoft generic
+    # described in an earlier revision: "AMD hardware running on a Microsoft generic
     # driver, not on an AMD-specific one".
     #
-    # ---- r35 BUGFIX: do not use the Signer field ----
-    # Until r34 this function returned $true whenever the Signer was
+    # ---- BUGFIX: do not use the Signer field ----
+    # Previously this function returned $true whenever the Signer was
     # "Microsoft Windows", which is wrong: Microsoft cosigns every
     # WHQL-certified driver, so an AMD chipset driver shipped via
     # Windows Update will report Signer="Microsoft Windows" while
-    # being a genuine vendor driver. The user reported this in r35:
+    # being a genuine vendor driver. The user reported this in an earlier revision:
     # all oem*.inf vendor drivers were spuriously flagged *MS-GENERIC*.
     #
     # New decision rules (any one => generic):
@@ -9115,7 +9106,7 @@ function Test-DriverIsMicrosoftGeneric {
     $msGenericInfNames = @(
         'storahci.inf',         # Standard SATA AHCI controller
         'msahci.inf',           # legacy AHCI
-        'mshdc.inf',            # generic IDE/AHCI host controller (r35 add)
+        'mshdc.inf',            # generic IDE/AHCI host controller
         'pci.inf',              # PCI standard (root ports, bridges)
         'msisadrv.inf',         # PCI Standard ISA Bridge
         'machine.inf',          # PCI standard host CPU bridge / Plug and Play
@@ -9145,8 +9136,7 @@ function Get-AmdHardwareInventory {
     # ====================================================================
     # Enumerate AMD-affiliated PnP devices on the running system.
     #
-    # r33 changes:
-    #   - Each entry now carries MatchSource, IsAmdHardware, and
+    # # - Each entry now carries MatchSource, IsAmdHardware, and
     #     HwCategory fields produced by Resolve-AmdDeviceClassification.
     #   - The default behavior is unchanged - all matched entities are
     #     returned. Callers that want STRICT hardware-only results can
@@ -9154,9 +9144,9 @@ function Get-AmdHardwareInventory {
     #     manufacturer-only matches.
     #
     # Detection sources (broad query - we classify after):
-    #   - PCI vendor IDs:    1002 (GPU/legacy ATI), 1022 (CPU/chipset)
-    #   - ACPI vendor IDs:   AMDF*, AMDI*, AMD0*  (motherboard ACPI)
-    #   - ACPI CPU:          AUTHENTICAMD_ (one entry per logical core)
+    #   - PCI vendor IDs: 1002 (GPU/legacy ATI), 1022 (CPU/chipset)
+    #   - ACPI vendor IDs: AMDF*, AMDI*, AMD0* (motherboard ACPI)
+    #   - ACPI CPU: AUTHENTICAMD_ (one entry per logical core)
     #   - Manufacturer text: 'Advanced Micro Devices', 'AMD', 'ATI'
     #
     # The Manufacturer-only fallback is still part of the broad query
@@ -9217,13 +9207,13 @@ function Group-AmdDevicesByDisplayKey {
     # Group AMD devices by visual identity so that long lists of
     # essentially-identical entries (e.g. 16 CPU cores, 9 PCI standard
     # host bridges) collapse into a single line with an "x N instances"
-    # suffix (r38).
+    # suffix.
     #
     # Grouping key (composite):
-    #   Name              - device display name from Win32_PnPEntity
-    #   Current InfName   - which driver INF is currently bound
-    #   Current Version   - driver version
-    #   Category Code     - [A]/[B]/[C]/[?]
+    #   Name - device display name from Win32_PnPEntity
+    #   Current InfName - which driver INF is currently bound
+    #   Current Version - driver version
+    #   Category Code - [A]/[B]/[C]/[?]
     #
     # Two devices share a group iff ALL four fields match. This means
     # the visible information (name + driver + version + category)
@@ -9233,12 +9223,12 @@ function Group-AmdDevicesByDisplayKey {
     #
     # Returns an array of pscustomobject:
     #   @{
-    #     DisplayName  - Name shared by all members
-    #     Count        - number of instances in the group
-    #     Devices      - array of underlying device objects
-    #     First        - representative device (used for display)
-    #     Info         - $deviceDriverInfo entry of First
-    #     HwCategory   - HwCategory of First (for sub-grouping)
+    #     DisplayName - Name shared by all members
+    #     Count - number of instances in the group
+    #     Devices - array of underlying device objects
+    #     First - representative device (used for display)
+    #     Info - $deviceDriverInfo entry of First
+    #     HwCategory - HwCategory of First (for sub-grouping)
     #   }
     #
     # The result preserves a deterministic order (DisplayName) so the
@@ -9275,9 +9265,9 @@ function Group-AmdDevicesByDisplayKey {
 
 function ConvertTo-DeviceMatchKey {
     # Reduce a hardware ID to its canonical match key.
-    # PCI:  PCI\VEN_xxxx&DEV_yyyy[&SUBSYS&REV...] -> PCI\VEN_xxxx&DEV_yyyy
-    # ACPI: ACPI\AMDI0090\3&...                   -> ACPI\AMDI0090
-    # USB:  USB\VID_xxxx&PID_yyyy\...             -> USB\VID_xxxx&PID_yyyy
+    # PCI: PCI\VEN_xxxx&DEV_yyyy[&SUBSYS&REV...] -> PCI\VEN_xxxx&DEV_yyyy
+    # ACPI: ACPI\AMDI0090\3&... -> ACPI\AMDI0090
+    # USB: USB\VID_xxxx&PID_yyyy\... -> USB\VID_xxxx&PID_yyyy
     # The match key is uppercase. Returns $null for unrecognized
     # formats so the caller can skip them safely.
     param([string]$HwId)
@@ -9312,7 +9302,7 @@ function Get-DeviceCurrentDriver {
     if ($drv.DriverDate) {
         try {
             # CIM returns CimDateTime; WMI returns string. Both can be
-            # rendered consistently via .DateTime / ToString.
+            # rendered consistently via.DateTime / ToString.
             if ($drv.DriverDate -is [string]) {
                 $dt = [System.Management.ManagementDateTimeConverter]::ToDateTime($drv.DriverDate)
             } else {
@@ -9333,9 +9323,9 @@ function Get-DeviceCurrentDriver {
 function Get-InfRiskCategory {
     # Classify a patched INF by the risk of its driver-install failure
     # destabilizing the running system. Levels:
-    #   HIGH   - boot or system-stability impact possible
+    #   HIGH - boot or system-stability impact possible
     #   MEDIUM - features / subsystems may break, but system stays up
-    #   LOW    - peripheral or feature-only, no boot impact
+    #   LOW - peripheral or feature-only, no boot impact
     # The classification is heuristic and based on the driver's role.
     param([string]$InfName, [string]$Class)
     if (-not $InfName) {
@@ -9375,7 +9365,7 @@ function Get-InfRiskCategory {
 }
 
 function Build-PatchedInfHwidIndex {
-    # Walk every .inf in $Ctx.Paths.Patched and build a hashtable
+    # Walk every.inf in $Ctx.Paths.Patched and build a hashtable
     # mapping match-key (e.g. PCI\VEN_1022&DEV_1134) to the INF that
     # claims that hardware ID. The same key may map to multiple INFs
     # (rare, but possible in AMD's package - e.g. variants per SKU).
@@ -9435,8 +9425,8 @@ function ConvertFrom-DriverVerString {
     # comparison. Accepts both INF DriverVer format and the bare
     # version string returned by Win32_PnPSignedDriver:
     #
-    #   INF format:  "MM/DD/YYYY,V.V.V.V"  (e.g. "01/02/2026,5.43.0.0")
-    #   PnP format:  "V.V.V.V"             (e.g. "5.22.0.0")
+    #   INF format: "MM/DD/YYYY,V.V.V.V" (e.g. "01/02/2026,5.43.0.0")
+    #   PnP format: "V.V.V.V" (e.g. "5.22.0.0")
     #
     # Returns @{ Date=<datetime|null>; Version=<version|null>; Raw=string }.
     # Returns null if input is null/whitespace.
@@ -9491,7 +9481,7 @@ function Compare-InfDriverVer {
         if ($L.Version -gt $R.Version) { return  1 }
         if ($L.Version -lt $R.Version) { return -1 }
     }
-    # r46: compare DATE PORTION only (year/month/day), not the full DateTime.
+    # Compare DATE PORTION only (year/month/day), not the full DateTime.
     # Win32_PnPSignedDriver returns DriverDate as UTC midnight, which the CIM
     # cmdlets convert to LOCAL time on read - so in non-UTC zones, a "midnight
     # UTC" date appears as a non-midnight local time (e.g. 09:00 in Tokyo,
@@ -9512,15 +9502,15 @@ function Compare-InfDriverVer {
 function Get-DriverSourceCategory {
     # ====================================================================
     # Classify a driver by its source / publisher into one of four
-    # buckets (per user request - r32 enhancement, fixed in r35):
+    # buckets (per user request - enhancement, fixed):
     #
     #   [A] Microsoft (OS in-box drivers)
     #   [B] Hardware vendor / IHV (signed by AMD, NVIDIA, OEM, etc.)
     #   [C] Self-signed by THIS script's certificate
     #   [?] Unknown / unsigned / uncategorizable
     #
-    # ---- r35 BUGFIX: trust Provider, NOT Signer ----
-    # Up to r34, the function fell through from Provider to Signer when
+    # ---- BUGFIX: trust Provider, NOT Signer ----
+    # Previously, the function fell through from Provider to Signer when
     # checking for [A] Microsoft. That was wrong: the Signer field on
     # ANY WHQL-signed Windows driver reads "Microsoft Windows", because
     # Microsoft cosigns all WHQL submissions through the Windows
@@ -9595,23 +9585,23 @@ function Resolve-PerDeviceDriverDecision {
     # ====================================================================
     # Decide what should happen to a single device during I03.
     #
-    # ---- r56 BREAKING SPECIFICATION CHANGE: category-priority override ----
+    # ---- BREAKING SPECIFICATION CHANGE: category-priority override ----
     # The driver-source category now takes precedence over version
     # comparison when AS-IS and TO-BE are in different categories.
     # Category priority (highest to lowest):
     #
-    #   [C] Self-signed (this script's output)   = highest
-    #   [B] Hardware vendor / IHV                = middle
-    #   [A] Microsoft (OS in-box)                = lowest
-    #   [?] Unknown / unsigned                   = treated as lowest
+    #   [C] Self-signed (this script's output) = highest
+    #   [B] Hardware vendor / IHV = middle
+    #   [A] Microsoft (OS in-box) = lowest
+    #   [?] Unknown / unsigned = treated as lowest
     #
     # Because the TO-BE driver produced by this pipeline is ALWAYS [C]
     # (we just signed the patched INFs with our own certificate), the
     # rule simplifies to:
     #
-    #   - AS-IS in [A]/[B]/[?]  ->  TO-BE [C] WINS (install regardless
+    #   - AS-IS in [A]/[B]/[?] -> TO-BE [C] WINS (install regardless
     #                                of version comparison)
-    #   - AS-IS in [C]          ->  fall back to version comparison
+    #   - AS-IS in [C] -> fall back to version comparison
     #                                (avoid pointless reinstall of an
     #                                earlier run's self-signed driver)
     #
@@ -9624,21 +9614,21 @@ function Resolve-PerDeviceDriverDecision {
     # specific drivers on AMD hardware - so category overrides version.
     #
     # Inputs:
-    #   $Current     - Get-DeviceCurrentDriver result (or $null if no
+    #   $Current - Get-DeviceCurrentDriver result (or $null if no
     #                  driver bound)
-    #   $Candidates  - patched-INF entries from
+    #   $Candidates - patched-INF entries from
     #                  Build-PatchedInfHwidIndex that match this
     #                  device's HWID
     #
     # Decisions:
-    #   INSTALL_UPGRADE  - patched INF should replace current driver.
+    #   INSTALL_UPGRADE - patched INF should replace current driver.
     #                      Triggered by EITHER category-priority override
     #                      OR strictly-newer version (when both sides
     #                      are in the same category).
-    #   INSTALL_NEW      - device has no driver bound; safe to add.
-    #   SKIP_NEWER       - current driver is strictly newer (same-
+    #   INSTALL_NEW - device has no driver bound; safe to add.
+    #   SKIP_NEWER - current driver is strictly newer (same-
     #                      category comparison only).
-    #   SKIP_SAME        - patched INF is the same version as current
+    #   SKIP_SAME - patched INF is the same version as current
     #                      (same-category comparison only).
     #
     # When multiple candidates exist for the same device, picks the
@@ -9675,7 +9665,7 @@ function Resolve-PerDeviceDriverDecision {
             Comparison=1; CandidatesByNewest=$sorted
         }
     }
-    # r56: Category-priority override (see function header for rationale).
+    # Category-priority override (see function header for rationale).
     # The TO-BE driver this pipeline produces is always [C] Self-signed,
     # so any AS-IS category OTHER than [C] is automatically superseded.
     $curCatInfo = Get-DriverSourceCategory -Provider $Current.Provider -Signer $Current.Signer
@@ -9683,7 +9673,7 @@ function Resolve-PerDeviceDriverDecision {
     if ($curCatCode -ne 'C') {
         return @{
             Decision='INSTALL_UPGRADE'; ChosenInf=$newest
-            Reason=('category priority [{0}] -> [C]: this script''s self-signed driver outranks the current [{0}] driver (r56 spec)' -f $curCatCode)
+            Reason=('category priority [{0}] -> [C]: this script''s self-signed driver outranks the current [{0}] driver' -f $curCatCode)
             Comparison=1; CandidatesByNewest=$sorted
         }
     }
@@ -9692,7 +9682,7 @@ function Resolve-PerDeviceDriverDecision {
     $rd = if ($Current.DriverDate) { $Current.DriverDate } else { [datetime]::MinValue }
     $cmp = Compare-InfDriverVer -LeftRaw $newest.DriverVer -RightRaw $Current.DriverVersion -RightDate $rd
     if ($cmp -gt 0) {
-        # r47: distinguish "version-newer" from "same-version, date-newer".
+        # Distinguish "version-newer" from "same-version, date-newer".
         # Both produce cmp > 0 (UPGRADE), but the user-visible reason text
         # was previously identical, so a "10.0.1.30 -> 10.0.1.30 UPGRADE"
         # looked nonsensical. PnP ranking treats newer date as newer driver
@@ -9732,7 +9722,7 @@ function Resolve-PerInfInstallDecision {
     # Resolve-PerDeviceDriverDecision, but per-INF rather than
     # per-device. Used by I03 to decide whether to call pnputil.
     #
-    # ---- r56 BREAKING SPECIFICATION CHANGE: category-priority override ----
+    # ---- BREAKING SPECIFICATION CHANGE: category-priority override ----
     # See Resolve-PerDeviceDriverDecision for the full rationale.
     # Summary: the TO-BE driver this pipeline produces is always
     # [C] Self-signed, which now ranks ABOVE both [A] Microsoft
@@ -9740,13 +9730,13 @@ function Resolve-PerInfInstallDecision {
     # only when the AS-IS driver is also [C].
     #
     # Inputs:
-    #   $InfEntry            - patched-INF metadata (from Get-InfMetadata)
-    #   $InfMatchedDevices   - array of @{Device; Current} pairs for
+    #   $InfEntry - patched-INF metadata (from Get-InfMetadata)
+    #   $InfMatchedDevices - array of @{Device; Current} pairs for
     #                          AMD devices whose HWID is declared by
     #                          this INF. Empty if no current device matches.
     #
     # Decisions:
-    #   INSTALL_NEW     - INF declares no HWIDs that match any current
+    #   INSTALL_NEW - INF declares no HWIDs that match any current
     #                     device. Safe to add to driver store - it
     #                     won't displace any current driver and may
     #                     help if hardware appears later.
@@ -9754,7 +9744,7 @@ function Resolve-PerInfInstallDecision {
     #                     INF, either by category-priority override
     #                     (AS-IS is [A]/[B]/[?]) or by strictly-newer
     #                     version (same-category [C] vs [C] comparison).
-    #   SKIP_NEWER      - All matched devices are already on [C] and
+    #   SKIP_NEWER - All matched devices are already on [C] and
     #                     have the same/newer self-signed driver
     #                     version. Skip to avoid pointless reinstall.
     #
@@ -9781,14 +9771,14 @@ function Resolve-PerInfInstallDecision {
             $reasons += ('+ {0}: no current driver bound' -f $pair.Device.Name)
             continue
         }
-        # r56: Determine current-driver category. If [A]/[B]/[?], the
+        # Determine current-driver category. If [A]/[B]/[?], the
         # category-priority override makes this an UPGRADE regardless
         # of version comparison.
         $curCatInfo = Get-DriverSourceCategory -Provider $cur.Provider -Signer $cur.Signer
         $curCatCode = if ($curCatInfo) { $curCatInfo.Code } else { '?' }
         if ($curCatCode -ne 'C') {
             $upgrades++
-            $reasons += ('+ {0}: category [{1}] -> [C] override (r56 spec)' -f $pair.Device.Name, $curCatCode)
+            $reasons += ('+ {0}: category [{1}] -> [C] override' -f $pair.Device.Name, $curCatCode)
             continue
         }
         # AS-IS is [C] (earlier run's output); compare versions to avoid
@@ -9827,7 +9817,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     # ====================================================================
     # SECTION 1: AMD hardware inventory (with driver-source category)
     # ====================================================================
-    # r33: each device row now shows BOTH:
+    # Each device row now shows BOTH:
     #   - Hardware-source category (PCI VEN, ACPI AMD, ROOT/SW software)
     #     produced by Resolve-AmdDeviceClassification
     #   - Driver-source category [A]/[B]/[C]/[?] produced by
@@ -9853,7 +9843,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
         Write-PhaseFooter 'V06' 'done'
         return
     }
-    # Strict hardware vs software/uncertain (r33). The Section 2
+    # Strict hardware vs software/uncertain. The Section 2
     # AS-IS/TO-BE comparison and Section 3 risk assessment use only
     # strict hardware - software-only entities aren't replaced.
     $hw       = @($hwAll | Where-Object IsAmdHardware)
@@ -9889,12 +9879,12 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     Write-Host ''
 
     # ---- Hardware listing, grouped by HwCategory ----
-    # r33: group devices by their hardware-source category so it's
+    # Group devices by their hardware-source category so it's
     # immediately clear which entries are GPUs, which are chipset
     # bridges, which are CPU-cores, etc.
     if ($hw.Count -gt 0) {
         Write-Host '  AMD hardware (strict vendor-ID match):' -ForegroundColor White
-        # r38: collapse identical-name+driver entries into a single
+        # Collapse identical-name+driver entries into a single
         # "x N instances" line so 16 CPU cores or 9 standard host bridges
         # don't bloat the inventory. Grouping is per-HwCategory so the
         # outer +-- buckets remain distinct.
@@ -9909,7 +9899,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
                 $genericMark = if ($info.IsMsGeneric) { ' *MS-GENERIC*' } else { '' }
                 $countSuffix = if ($sg.Count -gt 1) { ('  x {0} instances' -f $sg.Count) } else { '' }
                 $statusColor = if ($sg.First.ConfigCode -eq 0) { $cat.Color } else { 'Yellow' }
-                # r36: device-name line has no [A]/[B]/[C] tag; the
+                # Device-name line has no [A]/[B]/[C] tag; the
                 # driver-source tag now lives on the "Driver" line below.
                 # Color of this line still encodes the category visually.
                 Write-Host ('       - {0}{1}{2}' -f $sg.DisplayName, $countSuffix, $genericMark) -ForegroundColor $statusColor
@@ -9939,7 +9929,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
         $swByCat = $hwSoftSw | Group-Object -Property HwCategory
         foreach ($g in $swByCat) {
             Write-Host ('    +-- {0} ({1} entry(ies))' -f $g.Name, $g.Count) -ForegroundColor DarkGray
-            # r38: same grouping treatment for the software-only block
+            # Same grouping treatment for the software-only block
             $swSubGroups = Group-AmdDevicesByDisplayKey -Devices @($g.Group) -DeviceDriverInfo $deviceDriverInfo
             foreach ($sg in $swSubGroups) {
                 $countSuffix = if ($sg.Count -gt 1) { (' x {0}' -f $sg.Count) } else { '' }
@@ -9949,7 +9939,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
         Write-Host ''
     }
 
-    # ---- r33: AMD hardware on Microsoft generic driver (alert) ----
+    # ---- AMD hardware on Microsoft generic driver (alert) ----
     # This is the case the user explicitly asked to detect: an AMD
     # GPU/chipset device that is currently bound to a Microsoft
     # generic driver instead of an AMD-specific driver. Common reasons:
@@ -9975,7 +9965,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
         Write-Host '  feature-complete or performant. Consider installing the OEM/AMD package'   -ForegroundColor DarkGray
         Write-Host '  before relying on this script (THIS SCRIPT IS A LAST-RESORT GAP-FILL).'    -ForegroundColor DarkGray
         Write-Host ''
-        # r38: collapse identical-name+driver entries (16 CPU cores, 9
+        # Collapse identical-name+driver entries (16 CPU cores, 9
         # standard host bridges, etc.) into a single "x N" line.
         $alertGroups = Group-AmdDevicesByDisplayKey -Devices $hwOnGeneric -DeviceDriverInfo $deviceDriverInfo
         foreach ($sg in $alertGroups) {
@@ -9991,9 +9981,9 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
 
     Set-DebugStep 'Section 2: AS-IS vs TO-BE driver comparison'
     # ====================================================================
-    # SECTION 2: AS-IS vs TO-BE driver comparison (version-aware, r32)
+    # SECTION 2: AS-IS vs TO-BE driver comparison (version-aware, an earlier revision)
     # ====================================================================
-    # r32: Match each detected device against the patched-INF set,
+    # Match each detected device against the patched-INF set,
     # then run Resolve-PerDeviceDriverDecision for each match. This
     # produces a per-device decision (INSTALL_UPGRADE / INSTALL_NEW /
     # SKIP_NEWER / SKIP_SAME), which we use to split the matched list
@@ -10003,7 +9993,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     # after I03 succeeds), so we don't need per-candidate categorization
     # - the script's certificate is the only signer for any patched INF.
     Write-Host '--- 2. AS-IS / TO-BE Driver Comparison (version-aware) -------------'
-    # r45: When running on a Workstation OS (WS2025 preview mode), the
+    # When running on a Workstation OS (WS2025 preview mode), the
     # AS-IS driver versions reflect the OEM-shipped baseline (vendor
     # signed, often newer than what AMD's chipset package contains).
     # On the actual WS2025 host (after clean install), most of these
@@ -10075,20 +10065,20 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
         Write-Host '  +---------------------------------------------------------------------------+'
         Write-Host '  | Devices that WILL be replaced (AS-IS [A/B]  -->  TO-BE [C self-signed])    |'
         Write-Host '  +---------------------------------------------------------------------------+'
-        # r35: AS-IS and TO-BE rows now share the same column layout:
+        # AS-IS and TO-BE rows now share the same column layout:
         #
-        #   {tag}  : {cat} {Provider,-32} v{Version,-16} ({Date})  [INF: {name}]
+        #   {tag}: {cat} {Provider,-32} v{Version,-16} ({Date}) [INF: {name}]
         #
         # AS-IS data comes from Win32_PnPSignedDriver, TO-BE data from
         # Get-InfMetadata of the patched INF. Both populate Provider,
         # Version, Date, InfName the same way so the columns line up.
-        # The TO-BE row gets a sub-line "src: ..." for the patched-set
+        # The TO-BE row gets a sub-line "src:..." for the patched-set
         # source-directory (which has no AS-IS counterpart) and a
         # "*CHOSEN*" suffix on the row itself when applicable.
         $rowFmt = '    {0}  : {1} {2,-32} v{3,-16} ({4,10})  [INF: {5}]{6}'
         foreach ($m in $willReplace) {
             $d = $m.Device; $cur = $m.Current; $dec = $m.Decision
-            # r36: device-name line carries no [A]/[B]/[C] tag - the
+            # Device-name line carries no [A]/[B]/[C] tag - the
             # tag describes the DRIVER source, which is the AS-IS /
             # TO-BE concern, not a property of the hardware itself.
             Write-Host ('  Device   : {0}' -f $d.Name) -ForegroundColor White
@@ -10137,7 +10127,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
         Write-Host '  +---------------------------------------------------------------------------+'
         foreach ($m in $willSkip) {
             $d = $m.Device; $cur = $m.Current; $dec = $m.Decision
-            # r36: device-name line has no category tag (see willReplace
+            # Device-name line has no category tag (see willReplace
             # comment above). The KEEP row carries the [A]/[B] tag for
             # the driver source.
             Write-Host ('  Device   : {0}' -f $d.Name) -ForegroundColor DarkGray
@@ -10151,9 +10141,9 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
 
     if ($unmatched.Count -gt 0) {
         Write-Host '  Devices with NO matching patched INF (will not be replaced by I03):' -ForegroundColor DarkGray
-        # r36: device-name only - category info already shown in
+        # Device-name only - category info already shown in
         # Section 1's full inventory; this list is just a roll-up.
-        # r38: collapse identical-name+driver entries (16 CPU cores,
+        # Collapse identical-name+driver entries (16 CPU cores,
         # 9 standard host bridges, etc.) into a single "x N" line so
         # this list mirrors the tightened Section 1 inventory.
         $unmatchedGroups = Group-AmdDevicesByDisplayKey -Devices $unmatched -DeviceDriverInfo $deviceDriverInfo
@@ -10172,12 +10162,12 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     # ====================================================================
     # SECTION 3: Risk assessment (only for devices that WILL be replaced)
     # ====================================================================
-    # r32: with version-aware decision logic, a device the operator
+    # With version-aware decision logic, a device the operator
     # might intuitively expect to be at risk (e.g. AMD PSP) may actually
     # be in the "keep current driver" bucket if its current driver is
     # already same/newer. Only the WILL_REPLACE list can contribute
     # risk - everything else stays on the working driver. This is a
-    # significantly more accurate picture than r31's "all matched
+    # significantly more accurate picture than an earlier revision's "all matched
     # devices are at risk" model.
     Write-Host '--- 3. Risk Assessment (only for devices that WILL be replaced) -------'
     Write-Host '  For each device that will be replaced, classify the boot/stability risk'
@@ -10222,7 +10212,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
         Write-Host ('  [{0}] {1} item(s):' -f $lvl, $items.Count) -ForegroundColor $color
         foreach ($it in $items) {
             Write-Host ('    - {0}  ({1})' -f $it.Inf.InfName, $it.Inf.SrcSubDir) -ForegroundColor $color
-            # r36: device-name line has no category tag (the Transition
+            # Device-name line has no category tag (the Transition
             # row below carries [src cat] -> [C] so the category info
             # is still visible right next to the device name).
             Write-Host ('        Device     : {0}' -f $it.Device.Name) -ForegroundColor DarkGray
@@ -10253,8 +10243,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
 
     Set-DebugStep 'Section 4: UEFI Secure Boot baseline'
     # ====================================================================
-    # SECTION 4: UEFI Secure Boot baseline (r48)
-    # ====================================================================
+    # SECTION 4: UEFI Secure Boot baseline # ====================================================================
     # The hardware risk analysis above considers Windows-layer trust
     # (catalog signatures, WDAC policy, driver-store binding). This
     # section adds the underlying UEFI-layer trust state captured from:
@@ -10365,7 +10354,7 @@ function Invoke-InstPhase00_PreInstallReview {
 
     Set-DebugStep 'Section: hardware impact (V06 delegate)'
     # ---- Hardware impact (delegates to V06 helpers) ----
-    # r33: filter to strict AMD hardware only (PCI VEN_1002/1022, ACPI
+    # Filter to strict AMD hardware only (PCI VEN_1002/1022, ACPI
     # AMD/CPU). Software-only ROOT\/SWD\ entities are not driver-
     # replacement targets so they don't belong in the I00 review.
     Write-Host '--- Hardware on this system that I03 will affect ---' -ForegroundColor Cyan
@@ -10411,12 +10400,12 @@ function Invoke-InstPhase00_PreInstallReview {
 
     if ($matched.Count -gt 0) {
         Write-Host '  AS-IS  ->  TO-BE per device:' -ForegroundColor Cyan
-        # r35: same column layout as V06 - shared row format string so
+        # Same column layout as V06 - shared row format string so
         # AS-IS and TO-BE columns line up visually.
         $rowFmt = '    {0}  : {1} {2,-32} v{3,-16} ({4,10})  [INF: {5}]'
         foreach ($m in $matched) {
-            # r36: device-name line has no [A]/[B]/[C] tag - tag goes on AS-IS/TO-BE rows only
-            # r37: align "Device" indent (3 spaces + label) with V06 for cross-section visual continuity
+            # Device-name line has no [A]/[B]/[C] tag - tag goes on AS-IS/TO-BE rows only
+            # Align "Device" indent (3 spaces + label) with V06 for cross-section visual continuity
             Write-Host ('  Device   : {0}' -f $m.Device.Name) -ForegroundColor White
             if ($m.Current) {
                 $cv = $m.Current
@@ -10540,7 +10529,7 @@ function Invoke-InstPhase01_TrustCertificate {
     if (-not (Test-Path $pfx)) { throw "PFX not found at $pfx (run P07 first)." }
 
     Set-DebugStep 'load X509Certificate2 with MachineKeySet flags'
-    # Use .NET API to load PFX with password non-interactively.
+    # Use.NET API to load PFX with password non-interactively.
     # MachineKeySet ensures the private key is associated with the
     # machine context (matches the LocalMachine store target below).
     $flags = [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::MachineKeySet `
@@ -10576,7 +10565,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     #   PATH A (default, RECOMMENDED): WDAC supplemental policy
     #     - Build a Code Integrity supplemental policy XML that ONLY
     #       allowlists our cert as a kernel-mode signer.
-    #     - Convert to .cip and deploy under
+    #     - Convert to.cip and deploy under
     #       %SystemRoot%\System32\CodeIntegrity\CiPolicies\Active.
     #     - Activate via CiTool.exe --update-policy (immediate, NO
     #       reboot needed on WS2022+ / Windows 11 22H2+).
@@ -10592,7 +10581,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     #     - The script will REFUSE this path when Secure Boot is on,
     #       unless -Force is also passed.
     #
-    # Renamed from Invoke-InstPhase02_EnableTestSigning in r30 to
+    # Renamed from Invoke-InstPhase02_EnableTestSigning to
     # accurately reflect that the default path is WDAC, not testsigning.
     # The phase ID 'I02' is unchanged and the old phase name
     # 'EnableTestSigning' remains accepted by Resolve-PhaseSelection
@@ -10628,7 +10617,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     Write-Host ''
 
     Set-DebugStep 'UEFI Secure Boot baseline pre-check'
-    # ---- UEFI Secure Boot baseline pre-check (r49) ----
+    # ---- UEFI Secure Boot baseline pre-check ----
     # Cross-check the firmware-layer UEFI Secure Boot state before we
     # touch the OS-layer signing surface. This is a SOFT pre-check: we
     # never block I02 on UEFI cert rollout state (the rollout and our
@@ -10704,7 +10693,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
             if ($rm.Removed) { Write-Ok 'Old policy removed.' } else { Write-Warn2 'Could not remove old policy; proceeding anyway.' }
         }
 
-        # Need the .cer (P07 product). Allow -Force to skip the check.
+        # Need the.cer (P07 product). Allow -Force to skip the check.
         $cer = if ($Ctx.CertCerPath) { $Ctx.CertCerPath } else { Join-Path $Ctx.Paths.Cert 'AMD-Chipset-Driver-CodeSign.cer' }
         if (-not (Test-Path $cer)) {
             throw "I02: cert file not found at $cer - run P07 (CreateCertificate) first."
@@ -10727,7 +10716,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
         Write-Step 'Converting XML to .cip binary and deploying to active CI policies...'
         $deploy = Install-AmdWdacPolicy -XmlPath $xmlPath -BinaryOutPath $cipPath
         Write-Ok ('Deployed: {0}' -f $deploy.DeployedPath)
-        # r57: migrated from bare Write-Host '    ...' to Write-Detail
+        # Migrated from bare Write-Host '...' to Write-Detail
         # for SPEC A.5 compliance. CiToolStatusLine is parsed from the
         # --json envelope and is the canonical success message string.
         Write-Detail ('Activation method: {0}' -f $deploy.ActivationMethod) -Color Gray
@@ -10752,7 +10741,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
             Write-Host '  You can proceed to I03 (InstallDrivers) right away.' -ForegroundColor Green
         }
         Write-Host ''
-        # r57: bare Write-Host '    ...' continuation lines migrated to
+        # Bare Write-Host '...' continuation lines migrated to
         # Write-Detail (SPEC A.5). The two CiTool.exe command strings
         # below stay at column 4 visually but go through the helper.
         Write-Detail 'Reversal (when you are done with this lab):' -Color DarkGray
@@ -10930,7 +10919,7 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
     Write-Ok ('Snapshot: {0} AMD device(s)' -f $beforeHw.Count)
 
     Set-DebugStep 'compute per-INF install decisions (version-aware)'
-    # ---- r32: per-INF install-decision pass (version-aware) ----
+    # ---- Per-INF install-decision pass (version-aware) ----
     # For each patched INF, decide whether to call pnputil at all by
     # comparing the INF's DriverVer against the current driver of any
     # AMD device it would target. Skip downgrade scenarios (current
@@ -10962,7 +10951,7 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
             FullPath   = $inf.FullName
             DriverVer  = $meta.DriverVer
         }
-        # r47: dedupe by physical DeviceID. See V05 builder for the
+        # Dedupe by physical DeviceID. See V05 builder for the
         # reason - without this, INFs with many HWID variants that
         # compat-match a single physical device produce many duplicate
         # entries.
@@ -10984,7 +10973,7 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
         }
         $decision = Resolve-PerInfInstallDecision -InfEntry $infEntry -InfMatchedDevices $matchedDevices
         $decision['InfDriverVer'] = $meta.DriverVer
-        # r34: capture matched device names so the install loop can
+        # Capture matched device names so the install loop can
         # log "Device: <name> / <inf>" for the operator's clarity.
         $decision['MatchedDeviceNames'] = @($matchedDevices | ForEach-Object { $_.Device.Name })
         $infDecisions[$inf.FullName] = $decision
@@ -11001,11 +10990,11 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
     $installResults = @()
     foreach ($inf in $infs) {
         $dec = $infDecisions[$inf.FullName]
-        # r34: build a "device-name / INF" header so the pnputil log
+        # Build a "device-name / INF" header so the pnputil log
         # line tells the operator WHICH AMD device this INF will
         # affect (or "(no device)" if it just goes to the driver
         # store). Matches the V05 dry-run output format introduced
-        # in r34. If multiple devices match a single INF (rare),
+        # in an earlier revision. If multiple devices match a single INF (rare),
         # show the first one with "+N more" suffix.
         $deviceLabel = if ($dec.MatchedDeviceNames -and $dec.MatchedDeviceNames.Count -gt 0) {
             if ($dec.MatchedDeviceNames.Count -eq 1) {
@@ -11017,11 +11006,11 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
             '(no device)'
         }
 
-        # ---- r32: skip INFs whose current bound driver is same/newer ----
+        # ---- Skip INFs whose current bound driver is same/newer ----
         # We deliberately do NOT call pnputil /add-driver in this case.
         # A skip here means the device stays on its (working) current
         # driver - this is the user's preferred policy ("install only
-        # when our patched version is newer") as of r32.
+        # when our patched version is newer") currently.
         if ($dec.Decision -eq 'SKIP_NEWER') {
             $skipNewerCount++
             Write-Skip ("    {0} / {1} - SKIPPED ({2})" -f $deviceLabel, $inf.Name, $dec.Reason)
@@ -11080,19 +11069,19 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
         }
         Set-Content -LiteralPath $logFile -Value $logBody.ToString() -Encoding UTF8
 
-        # Classify result. Windows convention (refined in r57):
-        #   exit 0    = success, no reboot required
+        # Classify result. Windows convention:
+        #   exit 0 = success, no reboot required
         #   exit 3010 = success, reboot required (ERROR_SUCCESS_REBOOT_REQUIRED)
-        #   exit 259  = success, no-op (ERROR_NO_MORE_ITEMS; driver package
+        #   exit 259 = success, no-op (ERROR_NO_MORE_ITEMS; driver package
         #               was either already present in the driver store, or
         #               the device's current driver is already same-or-better
         #               so the new package was added to the store but not
         #               bound to the device). NOT a failure - investigation
-        #               on WS2025 r57 confirmed the pnputil stdout always
+        #               on WS2025 confirmed the pnputil stdout always
         #               reads "ドライバー パッケージが正常に追加されました"
         #               with "追加されたドライバー パッケージ: 0".
         #   anything else = failure (per pnputil)
-        # r57: exit 259 was previously misclassified as failure; this
+        # Exit 259 was previously misclassified as failure; this
         # diverged from I04's PostInstallVerification which read the
         # actual device state and correctly classified those drivers as
         # REBOOT_NEEDED (when a sibling-INF first install had already
@@ -11250,7 +11239,7 @@ function Invoke-InstPhase04_PostInstallVerification {
             $pnpResult = $Ctx.InstallResults | Where-Object { $_.InfName -eq $candidates[0].InfName } | Select-Object -First 1
         }
 
-        # ---- r32: per-device categorization (BEFORE / AFTER) ----
+        # ---- Per-device categorization (BEFORE / AFTER) ----
         # Get-DriverSourceCategory needs Provider + Signer. The before
         # state captures Provider only (not Signer); the AFTER state
         # we re-query from Win32_PnPSignedDriver to get full Signer.
@@ -11259,7 +11248,7 @@ function Invoke-InstPhase04_PostInstallVerification {
         $beforeCat = if ($b -and $b.Provider) { Get-DriverSourceCategory -Provider $b.Provider -Signer $null } else { @{ Code='?'; ShortLabel='[?]'; Label='Unknown'; Color='DarkGray' } }
 
         # Classify disposition
-        # r32 adds a new disposition KEPT_CURRENT for the case where
+        # Adds a new disposition KEPT_CURRENT for the case where
         # I03 deliberately skipped install because the current driver
         # was already same/newer than our patched version. This is
         # NOT a failure - it's the user-requested behavior to never
@@ -11309,18 +11298,18 @@ function Invoke-InstPhase04_PostInstallVerification {
 
     Write-Host ('  LOADED        : {0,3} device(s)  - new driver active without reboot' -f $loaded.Count) -ForegroundColor Green
     Write-Host ('  REBOOT_NEEDED : {0,3} device(s)  - new driver in store, reboot to activate' -f $reboot.Count) -ForegroundColor Yellow
-    Write-Host ('  KEPT_CURRENT  : {0,3} device(s)  - current driver newer; intentionally not replaced (r32)' -f $keptCur.Count) -ForegroundColor Cyan
+    Write-Host ('  KEPT_CURRENT  : {0,3} device(s)  - current driver newer; intentionally not replaced' -f $keptCur.Count) -ForegroundColor Cyan
     Write-Host ('  UNCHANGED     : {0,3} device(s)  - no replacement INF in the patched set' -f $unchanged.Count) -ForegroundColor DarkGray
     Write-Host ('  FAILED        : {0,3} device(s)  - pnputil failed for this INF' -f $failed.Count) -ForegroundColor Red
     Write-Host ''
 
     if ($keptCur.Count -gt 0) {
-        Write-Host '  [KEPT_CURRENT] - r32 version-aware skip; current driver is newer:' -ForegroundColor Cyan
+        Write-Host '  [KEPT_CURRENT] - version-aware skip; current driver is newer:' -ForegroundColor Cyan
         foreach ($p in $keptCur) {
             $catLabel = if ($p.AfterCategory) { $p.AfterCategory.ShortLabel } else { '[?]' }
             $cv = if ($p.After)  { $p.After.DriverVersion  } else { '(unknown)' }
             $candVer = if ($p.Candidate) { $p.Candidate.DriverVer } else { '(none)' }
-            # r36: device-name line has no [A]/[B]/[C] tag; category
+            # Device-name line has no [A]/[B]/[C] tag; category
             # tag goes on the Current/Patched detail line.
             Write-Host ('    - {0}' -f $p.DeviceName) -ForegroundColor Cyan
             Write-Host ('        Current (kept): {0} v{1}   /   Patched (skipped): {2}' -f $catLabel, $cv, $candVer) -ForegroundColor DarkGray
@@ -11335,7 +11324,7 @@ function Invoke-InstPhase04_PostInstallVerification {
             $av = if ($p.After)  { $p.After.DriverVersion  } else { '(unknown)' }
             $bCat = if ($p.BeforeCategory) { $p.BeforeCategory.ShortLabel } else { '[?]' }
             $aCat = if ($p.AfterCategory)  { $p.AfterCategory.ShortLabel  } else { '[?]' }
-            # r36: device-name line has no category tag; AS-IS/AFTER row keeps tags.
+            # Device-name line has no category tag; AS-IS/AFTER row keeps tags.
             Write-Host ('    - {0}' -f $p.DeviceName) -ForegroundColor Green
             Write-Host ('        AS-IS: {0} v{1}    AFTER: {2} v{3}    INF: {4}' -f $bCat, $bv, $aCat, $av, $p.Candidate.InfName) -ForegroundColor DarkGray
         }
@@ -11562,7 +11551,7 @@ function Show-ReferenceLinks { # psa-disable-line PSA6003 -- compound noun (e.g.
     #
     # Display modes:
     #   (default) - full categorized table with explanatory blurbs
-    #   -Compact  - one-line pointer telling the user how to see the
+    #   -Compact - one-line pointer telling the user how to see the
     #               full table; used by I00 to keep its output short.
     param([switch]$Compact)
 
@@ -11784,11 +11773,11 @@ function Show-Help {
     Write-Host ''
     Write-Host '  Workspace' -ForegroundColor DarkGray
     Write-Host '    -WorkRoot <path>         Working directory.' -ForegroundColor Yellow
-    Write-Host '                             Default: C:\Temp\Workspace_AMD-Chipset (r58+)'
+    Write-Host '                             Default: C:\Temp\Workspace_AMD-Chipset'
     Write-Host '    -CleanWorkRoot           Delete -WorkRoot before running anything.' -ForegroundColor Yellow
     Write-Host '    -Force                   Bypass cached phase markers (force re-run).' -ForegroundColor Yellow
     Write-Host ''
-    Write-Host '  Run log capture (r58+)' -ForegroundColor DarkGray
+    Write-Host '  Run log capture' -ForegroundColor DarkGray
     Write-Host '    -LogFile <path>          Capture full console transcript to <path>.' -ForegroundColor Yellow
     Write-Host '                             Console keeps Write-Host coloring; the file gets'
     Write-Host '                             every stream (Output / Host / Error / Warning /'
@@ -11948,12 +11937,12 @@ $Ctx = [pscustomobject]@{
     Os = $null; Paths = $null
     SevenZip = $null; Signtool = $null; Inf2cat = $null
     Installer = $null; InfInventory = $null; InfInventoryDetail = $null; PatchResults = @()
-    PatchedDirs = @()  # r59: rehydrated by Resume-CtxFromWorkspace
+    PatchedDirs = @()  # rehydrated by Resume-CtxFromWorkspace
     CertPfxPath = $null; CertCerPath = $null; CertThumbprint = $null
-    # r45: list of phase IDs that will execute this run (used by P00's
+    # List of phase IDs that will execute this run (used by P00's
     # Workstation-Install guard to know whether any I-phase is queued).
     SelectedPhaseIds = @()
-    # r49: UEFI Secure Boot baseline snapshot. Captured at P00 and
+    # UEFI Secure Boot baseline snapshot. Captured at P00 and
     # consumed by P05 (report appendix), V05/V06 (display), I02
     # (pre-check). Pre-declared as $null here so plain '.' assignment
     # works on the [pscustomobject] without requiring Add-Member.
@@ -11999,15 +11988,15 @@ $mandatoryIds = @('P00','P01')
 $mandatory = $Script:PhaseRegistry | Where-Object { $_.Id -in $mandatoryIds -and $_.Id -notin ($selected | ForEach-Object Id) }
 $queue = @($mandatory) + @($selected)
 
-# r45: stash the phase-ID list on the context so P00 can see whether
+# Stash the phase-ID list on the context so P00 can see whether
 # any Install phase (I01-I04) is queued without re-resolving phases.
 $Ctx.SelectedPhaseIds = @($queue | ForEach-Object Id)
 
 # ----- Execute -----
-# r55: wrap the whole phase loop + summary in a try/finally so the
+# Wrap the whole phase loop + summary in a try/finally so the
 # workspace lock (acquired in P01 via Assert-NoConcurrentRun) is
 # released on EVERY exit path - normal completion, phase throw, or
-# top-level error. The pre-r55 design relied solely on the
+# top-level error. The earlier design relied solely on the
 # Register-EngineEvent PowerShell.Exiting hook in Set-WorkspaceLock,
 # which only fires when the PowerShell host process itself exits.
 # In an interactive console (where the host is reused across many
@@ -12076,7 +12065,7 @@ try {
     Write-Host '============================================================' -ForegroundColor Magenta
 }
 finally {
-    # r59+: -ExportTraceOnExit switch handling. When the user passed
+    # -ExportTraceOnExit switch handling. When the user passed
     # -ExportTraceOnExit, write a final JSON snapshot of the trace state
     # to <WorkRoot>\logs\debugtrace_export_final_<timestamp>.json. This
     # runs INSIDE the finally so it executes regardless of how we got
@@ -12096,7 +12085,7 @@ finally {
         }
     }
 
-    # r55: release the workspace lock regardless of how we got here.
+    # Release the workspace lock regardless of how we got here.
     # Safe to call when the lock was never acquired (e.g. failure
     # before P01) because Clear-WorkspaceLock is idempotent and a
     # no-op when the lock file does not exist or $Ctx.Paths is null.
@@ -12104,7 +12093,7 @@ finally {
         try { Clear-WorkspaceLock -Ctx $Ctx } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup in finally; a failure here must not mask the original exception
     }
 
-    # r58: close the transcript opened in SECTION 0.25. Idempotent;
+    # Close the transcript opened in SECTION 0.25. Idempotent;
     # best-effort, must not mask the original exception (if any).
     if ($Script:LogFileActive) {
         try {
@@ -12114,59 +12103,3 @@ finally {
     }
 }
 
-# REVISION HISTORY
-# ================
-#
-# r59 (2026-05-17): Debug Trace Facility + call-site instrumentation
-#
-#   Bug fixes & cleanup (Phase 1C-1):
-#   - SECTION 1d numbering conflict resolved by promoting WDAC->1e
-#     and validators->1f (Secure Boot baseline stays as 1d).
-#   - Split-Path empty-string bug at L657 fixed (PS 5.1 ja-JP critical).
-#   - logTag switch-Wildcard unified; amd- prefix stripped in log
-#     filename hints (cross-script naming consistency).
-#
-#   SECTION 0.25 migration (Phase 1C-2a, +306 lines):
-#   - -LogFile auto-relocation under <WorkRoot>\logs\ when the user
-#     provides a path outside the workspace.
-#   - r5 transcript-verified activation: Start-Transcript success is
-#     verified by reading back the file rather than trusted blindly.
-#   - Behavior now matches BthPan exactly for log handling.
-#
-#   Resume support (Phase 1C-2b, +91 lines):
-#   - Resume-CtxFromWorkspace function added (~80 lines).
-#   - Restores 4 $Ctx properties (CertPfxPath, CertCerPath,
-#     CertThumbprint, PatchedDirs) on -Action Verify / Install
-#     resume against an existing populated workspace.
-#
-#   Debug Trace Facility (Phase 1D-1, +912 lines):
-#   - SECTION 1b inserted: 14 trace functions migrated from BthPan
-#     (Start-DebugTrace / Set-DebugStep / Stop-DebugTrace /
-#     Format-DebugFailure / Write-DebugFailureReport /
-#     Enable-DebugTraceFileOutput / Disable-DebugTraceFileOutput /
-#     Get-DebugTraceFileOutputStatus / Enable-AutoExportOnPhaseFailure /
-#     Export-DebugTraceJson + 4 internal helpers).
-#   - New -ExportTraceOnExit switch on the top-level param block;
-#     writes a final JSON snapshot to <WorkRoot>\logs\ at script exit
-#     regardless of success/failure.
-#
-#   Call-site instrumentation (Phase 1D-2, +130 lines):
-#   - 92 Set-DebugStep calls placed across all 21 P/V/I phase
-#     functions: P00-P09 (45), V01-V06 (23), I00-I04 (24).
-#   - Step text is Chipset-context-adapted where Chipset processing
-#     diverges from BthPan (multi-INF iterate, /os switch selection,
-#     cert subject naming, etc.) and BthPan-verbatim where the two
-#     scripts share structure (cert + INF + catalog verification).
-#   - P01 activates Debug Trace JSONL writer (Enable-DebugTraceFileOutput)
-#     and the auto-export-on-phase-failure handler
-#     (Enable-AutoExportOnPhaseFailure). BthPan parity: a failed phase
-#     writes a self-contained debugtrace_export_<phaseId>_<ts>.json
-#     snapshot under <WorkRoot>\logs\.
-#
-#   PSA static-analysis baseline preserved end-to-end:
-#     8 errors / 55 warnings / 32 info
-#   The 8 errors are all known PSA2001 false positives on param()
-#   switch variables ($Force, $CleanWorkRoot, $UseTestSigning,
-#   $AllowWorkstationInstall, $ExportTraceOnExit) plus the existing
-#   $hasInstallPhases warning (HANDOVER Q3, LOW priority).
-#

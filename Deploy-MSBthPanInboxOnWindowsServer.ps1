@@ -169,7 +169,7 @@
     [1] Working directory is fully separated.
         Default for THIS script   : C:\Temp\Workspace_Microsoft-BthPan
         Default for chipset/grx/npu: C:\Temp\Workspace_AMD-{Chipset,Graphics,NPU}
-        (r2+: all four scripts relocated under C:\Temp\Workspace_*; see
+        (all four scripts relocated under C:\Temp\Workspace_*; see
         the per-script change notes for the original paths.)
         Each workspace owns its own .markers/, cert/, download/,
         extracted/, patched/, logs/ subtrees.
@@ -193,12 +193,12 @@
 
 .PARAMETER WorkRoot
     Workspace directory. Default: C:\Temp\Workspace_Microsoft-BthPan
-    (r2+: relocated under C:\Temp\Workspace_* to keep workspace data
+    (relocated under C:\Temp\Workspace_* to keep workspace data
     clustered under one parent directory that is trivial to inspect and
     purge. The script auto-creates C:\Temp on demand.)
 
 .PARAMETER LogFile
-    (r2+) Optional path to capture the full console transcript to a
+    Optional path to capture the full console transcript to a
     file. When set, the script wraps its execution in
     Start-Transcript / Stop-Transcript so the file receives every
     stream (Output / Host / Error / Warning / Verbose / Debug) as
@@ -251,7 +251,7 @@
     Clean rebuild and full install in one command.
 
 .EXAMPLE
-    # (r2+) Capture full transcript while keeping console colors
+    # Capture full transcript while keeping console colors
     $ts  = Get-Date -Format 'yyyyMMdd-HHmmss'
     $log = "C:\Temp\ms-bthpan_PrepareVerify_$ts.log"
     .\Deploy-MSBthPanInboxOnWindowsServer.ps1 `
@@ -264,10 +264,10 @@
         Tee-Object -FilePath "C:\Temp\ms-bthpan_Install_$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
 
 .NOTES
-    Script version : msbthpan-2026.05.17-r7
     Repository     : https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer
     Sister scripts : Deploy-AMD{Chipset,Graphics,Npu}DriverOnWindowsServer.ps1
     License        : MIT (see LICENSE)
+    Current version: see `$Script:ScriptVersion` below
 #>
 
 #Requires -Version 5.1
@@ -304,26 +304,26 @@ param(
     # sister AMD scripts (C:\Temp\Workspace_AMD-Chipset,
     # C:\Temp\Workspace_AMD-Graphics, C:\Temp\Workspace_AMD-NPU)
     # do NOT collide with this one.
-    # r2+: relocated under C:\Temp\Workspace_* to keep workspace data
+    # Relocated under C:\Temp\Workspace_* to keep workspace data
     # clustered under one parent directory that is trivial to inspect
     # and purge. The script auto-creates C:\Temp if it does not exist.
     [string]$WorkRoot      = 'C:\Temp\Workspace_Microsoft-BthPan',
     [switch]$CleanWorkRoot,
     [switch]$Force,
 
-    # === Console transcript capture (r2+) ============================
+    # === Console transcript capture ============================
     # Optional path; when set, the script wraps its execution in
     # Start-Transcript / Stop-Transcript so the file gets every stream
     # as plain text while the live console keeps its Write-Host color
     # decoration. This is the recommended replacement for the legacy
-    # `... *>&1 | Tee-Object -FilePath ...` idiom, which strips
+    # `... *>&1 | Tee-Object -FilePath...` idiom, which strips
     # Write-Host coloring on the way through the pipeline.
     #
     # RECOMMENDED PATTERN: place transcripts OUTSIDE -WorkRoot with a
     # timestamp suffix so consecutive runs don't overwrite each other
     # and so -CleanWorkRoot can wipe the workspace freely. Example:
     #
-    #     $ts  = Get-Date -Format 'yyyyMMdd-HHmmss'
+    #     $ts = Get-Date -Format 'yyyyMMdd-HHmmss'
     #     $log = "C:\Temp\Deploy-MSBthPanInboxOnWindowsServer_PrepareVerify_$ts.log"
     #     .\Deploy-MSBthPanInboxOnWindowsServer.ps1 `
     #         -Action PrepareVerify -CleanWorkRoot -LogFile $log
@@ -361,7 +361,7 @@ param(
     # 'A' (default): add only NTamd64...3 (ProductType=3 covers all
     #                Server SKUs). Recommended. Simple and durable
     #                against new Server SKU releases.
-    # 'B'          : also add NTamd64.10.0...14393 / 17763 / 20348 /
+    # 'B': also add NTamd64.10.0...14393 / 17763 / 20348 /
     #                26100 individually. Provides explicit PnP-ranking
     #                advantage but requires manual update for new
     #                Server SKUs.
@@ -372,7 +372,7 @@ param(
     [string]$WdacPolicyGuid     = '',
     [string]$WdacBasePolicyGuid = '',
 
-    # === Debug Trace Facility (r8+) ===================================
+    # === Debug Trace Facility ===================================
     # When set, the script unconditionally writes a
     # debugtrace_export_final_<timestamp>.json snapshot to
     # <WorkRoot>\logs at the end of the run, whether the run succeeded
@@ -406,89 +406,15 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 # valid.
 #
 # ScriptVersion: bump on every meaningful edit. Format: YYYY.MM.DD-rNN
-# ScriptTag    : short human-readable label describing the build
-# ScriptHash   : auto-computed SHA256 (first 12 chars) of the actual
+# ScriptTag: short human-readable label describing the build
+# ScriptHash: auto-computed SHA256 (first 12 chars) of the actual
 #                file being executed. Changes for any byte-level edit;
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-# ----------------------------------------------------------------------
-# REVISION HISTORY (this script only; see SPEC.md for the full repo log)
-# ----------------------------------------------------------------------
-# r9 (2026-05-17) - cosmetic logTag / log-filename fix for the
-#                    P00 Workstation-preview "RECOMMENDED USAGE"
-#                    hint. Residue from the AMD sister scripts removed.
-#   * Invoke-PrepPhase00_Initialize: the Win11-on-Workstation
-#     preview hint block printed log filename suggestions of the
-#     form `C:\Temp\amd-<tag>-Win11-preview.log` and `...-WS2025.log`,
-#     where `<tag>` was selected by `if ($Script:ScriptVersion -like
-#     'graphics-*') { 'graphics' } else { 'chipset' }`. Both the
-#     hard-coded `amd-` prefix and the binary graphics/chipset
-#     selector are residue from the AMD sister scripts and produced
-#     the awkward `amd-chipset-Win11-preview.log` string for
-#     BthPan runs. Replaced the selector with a switch -Wildcard
-#     covering graphics-* / chipset-* / npu-* / msbthpan-* /
-#     default, and removed the `amd-` prefix from both
-#     `Tee-Object -FilePath` examples. No behavioural change; the
-#     strings are user-facing hint text only and never read back.
-#
-# r8 (2026-05-17) - validation-completed release. Cumulative deltas
-#                    versus r7:
-#   * Section 1b: Debug Trace Facility (frame/step model with
-#     Start-DebugTrace / Set-DebugStep / Stop-DebugTrace, JSONL
-#     streaming via Enable-DebugTraceFileOutput, auto-export on phase
-#     failure, -ExportTraceOnExit final snapshot). UTF-8-BOM on every
-#     file write so ja-JP `Get-Content` does not decode as Shift-JIS.
-#   * P01 Resume-CtxFromWorkspace rehydration helper - lets
-#     -Action Verify / -Action Install -OnlyPhases ... run against an
-#     existing workspace without first re-running P02-P09. Restores 7
-#     $Ctx properties (PatchedBthPanInfPath / PatchedCatalogs /
-#     CertPfxPath / CertCerPath / CertThumbprint / ExtractedBthPanDir /
-#     BthPanInfPath) by inspecting on-disk artifacts.
-#   * Section 0.25: -LogFile auto-relocation guard. When the requested
-#     log file is inside -WorkRoot AND -CleanWorkRoot is set, the
-#     transcript is auto-relocated to <script-dir>\<scriptleaf>_<Action>_
-#     <ts>.log (falling back to %TEMP%) to prevent the P01 wipe from
-#     deleting the active transcript. The original P01 pre-flight guard
-#     remains as defence-in-depth.
-#   * 7 $Ctx properties pre-declared at object creation (V05DryRunPlan,
-#     V06DeviceStates, V06RuntimeArtifacts, V06RiskClass, I04OverallResult,
-#     I04DeviceStates, I04RuntimeArtifacts) so PowerShell strict-mode
-#     property assignment does not raise "property does not exist".
-#   * PS 5.1 Split-Path -LiteralPath -Parent AmbiguousParameterSet
-#     workaround: every site uses [System.IO.Path]::GetDirectoryName()
-#     instead. Microsoft Learn confirms LiteralPathSet and ParentSet
-#     are mutually exclusive in 5.1.
-#   * Ghost-call sweep: I-phase function calls were systematically
-#     cross-checked against function param blocks. Fixed:
-#       - I00 Show-BootSigningEnvironment -Ctx -> -BootEnv (call site
-#         now mirrors the 4 other in-script call patterns).
-#       - I01 Test-CertAlreadyTrusted -Thumbprint -> -Ctx (function
-#         reads thumbprint internally and falls back to .cer on disk).
-#       - I03 Set-PendingRebootMarker -Phase -> -Source (typo: param
-#         name is -Source, matches I02 call at the same function).
-#   * Write-SubHeader helper added near Write-PhaseHeader so I-phase
-#     SubHeader emits work without "command not found" on Install paths
-#     that PrepareVerify never reaches.
-#
-# r7 (2026-05-17) - validation-first build with InfVerif + Provider
-#                    rewrite (F1) + CatalogFile injection (F2) +
-#                    makecat fallback (F3) for inbox driver
-#                    re-cataloging. Resolved PS 5.1 ja-JP build
-#                    26100.32860 ArgumentException for
-#                    @(List[object]) hashtable cast via .ToArray().
-#
-# r6 (2026-05-17) - unblocked P00-P07; revealed inf2cat signability
-#                    test conflicts (22.9.4 / 22.9.8) for inbox driver
-#                    re-cataloging, addressed in r7 by makecat fallback.
-#
-# r2..r5 (2026-05-17) - initial debug iterations (P03 driver discovery,
-#                    $Ctx property bugs, Format-Elapsed type, transcript
-#                    bind).
-# ----------------------------------------------------------------------
 $Script:ScriptVersion = 'msbthpan-2026.05.18-r10'
-$Script:ScriptTag     = 'msbthpan-r9-debug-trace-rehydration-autolog-relocate-ghostcall-sweep-logtag-fix'
+$Script:ScriptTag     = 'msbthpan-debug-trace-rehydration-autolog-relocate-ghostcall-sweep-logtag-fix'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -513,7 +439,7 @@ try {
 $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash)
 
 #####################################################################
-# SECTION 0.25: Optional console transcript capture (r5 verified activation)
+# SECTION 0.25: Optional console transcript capture
 #####################################################################
 # When -LogFile is set, wrap execution in Start-Transcript so the file
 # receives every stream (Output / Host / Error / Warning / Verbose /
@@ -528,16 +454,16 @@ $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash
 # the pipeline value stream. The -LogFile path here is the recommended
 # alternative when console coloring matters to the operator.
 #
-# r5 (transcript verified activation):
+# Transcript verified activation:
 #
 #   Reports from PS 5.1.26100.32860 (Windows Server 2025) showed that
 #   `Start-Transcript -Path X -Append -Force` raised
 #   ParameterBindingException ("Parameter set cannot be resolved using
 #   the specified named parameters") only when invoked from the actual
 #   BthPan script body. Isolated minimal reproductions (clean session,
-#   same param block in a separate small .ps1) all succeeded. The
+#   same param block in a separate small.ps1) all succeeded. The
 #   root cause for the script-context-specific failure could not be
-#   pinpointed within a reasonable budget; instead, r5 takes a
+#   pinpointed within a reasonable budget; instead, takes a
 #   defense-in-depth approach:
 #
 #     1. CAPTURE the cmdlet return value (a non-empty localized success
@@ -579,10 +505,10 @@ $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash
 # paths are also recorded on $Script:LogFileSetup for the RUN
 # SUMMARY.
 #
-# Trigger:    $LogFile is non-empty AND $CleanWorkRoot AND $LogFile
+# Trigger: $LogFile is non-empty AND $CleanWorkRoot AND $LogFile
 #             resolves to a sub-path of $WorkRoot
-# Target:     <script-dir>\Deploy-MSBthPanInboxOnWindowsServer_<Action>_<ts>.log
-# Fallback:   %TEMP%\Deploy-MSBthPanInboxOnWindowsServer_<Action>_<ts>.log
+# Target: <script-dir>\Deploy-MSBthPanInboxOnWindowsServer_<Action>_<ts>.log
+# Fallback: %TEMP%\Deploy-MSBthPanInboxOnWindowsServer_<Action>_<ts>.log
 #             when script-dir is unavailable
 #
 # The intentional design choice is "relocate, do not refuse" so a
@@ -860,20 +786,19 @@ if (-not [string]::IsNullOrWhiteSpace($LogFile)) {
 }
 
 #####################################################################
-# SECTION 0.5: WDAC supplemental policy GUID configuration (r48+)
-#####################################################################
-# Before r48 the supplemental PolicyID was generated dynamically with
+# SECTION 0.5: WDAC supplemental policy GUID configuration #####################################################################
+# Previously the supplemental PolicyID was generated dynamically with
 # Set-CIPolicyIdInfo -ResetPolicyID and persisted to the workspace as
-# MsBthPanSuppPolicyId.txt. From r48 on, the script uses a fixed default
+# MsBthPanSuppPolicyId.txt. Now the script uses a fixed default
 # GUID for predictability across deploys / cleanups, while still
 # allowing operators to override via -WdacPolicyGuid (e.g. to clean up
 # a legacy dynamic GUID, or to deploy multiple copies side by side).
 #
-# WdacPolicyGuidDefault     : fixed UUID v4, chipset-specific so it
+# WdacPolicyGuidDefault: fixed UUID v4, chipset-specific so it
 #                             does not collide with the graphics or
 #                             NPU scripts' WDAC policies on a host
 #                             that has all three deployed.
-# WdacBasePolicyGuidDefault : Microsoft-shipped CI base policy ID
+# WdacBasePolicyGuidDefault: Microsoft-shipped CI base policy ID
 #                             (Windows 11 22H2+ / Server 2022+). The
 #                             supplemental policy SUPPLEMENTS this
 #                             base, meaning it is additive on top of
@@ -947,8 +872,8 @@ function Write-Detail {
     # Renders 4-space-indented plain text with NO timestamp or marker
     # prefix, so it visually attaches to the preceding context.
     #
-    # ---- r56: introduced to replace bare `Write-Host "    XXX"` calls ----
-    # Up to r55 the scripts emitted ~100 bare Write-Host calls with a
+    # ---- Introduced to replace bare `Write-Host " XXX"` calls ----
+    # Previously the scripts emitted ~100 bare Write-Host calls with a
     # hard-coded 4-space indent. Routing those through a single helper
     # makes future column-layout tweaks possible without touching every
     # call site, and gives the SPEC-mandated marker pattern a single
@@ -959,7 +884,7 @@ function Write-Detail {
     #
     # -NoNewline mirrors Write-Host's switch and is used by two-part
     # lines that compose a label-then-value pair (e.g. P08's
-    # "-> Selected /os :" + colored value).
+    # "-> Selected /os:" + colored value).
     # ====================================================================
     param(
         [Parameter(Position=0)][string]$Msg,
@@ -998,7 +923,7 @@ function Write-SubHeader {
         with a leading double-dash). Always preceded by a blank line
         for breathing room.
 
-        Defined in r8-update5. Calls to this helper were in place from
+        Defined in a previous update. Calls to this helper were in place from
         an earlier refactor but the function definition was lost in
         merge; calls survived undetected because they only exist inside
         V05 (DryRunInstall), V06 (HardwareImpactAnalysis), I00
@@ -1051,7 +976,7 @@ function Show-PowerShellEnvironment {
     # ====================================================================
     # Designed to work all the way back to PowerShell 5.1 on Windows
     # Server 2016 (the oldest in-support Windows Server). All cmdlets
-    # and APIs used here are present in PS 5.1 / .NET Framework 4.6+,
+    # and APIs used here are present in PS 5.1 /.NET Framework 4.6+,
     # so this function itself does not introduce any new compatibility
     # risk. CIM queries fall back to WMI for fragile environments.
     Write-Host ''
@@ -1173,10 +1098,10 @@ function Show-PowerShellEnvironment {
         }
         $build = [int]$os.BuildNumber
         if ($supportedBuilds.ContainsKey($build)) {
-            # r46: when running on a Workstation OS (e.g. Win11 24H2 used as
+            # When running on a Workstation OS (e.g. Win11 24H2 used as
             # a WS2025 preview), include "Workstation, profile: <ServerName>"
             # so it is obvious from this line alone that the host is NOT a
-            # Server and a profile is being applied. Pre-r46 only the Server
+            # Server and a profile is being applied. Previously only the Server
             # profile name was shown, which made the line read like an OS
             # mis-detection on Workstation hosts.
             if ($os.ProductType -eq 1) {
@@ -1268,9 +1193,9 @@ function Show-DriverInstallationOrderNotice {
         return
     }
     Write-Host ''
-    Write-Host '  =====================================================================' -ForegroundColor Yellow
+    Write-Host ' =====================================================================' -ForegroundColor Yellow
     Write-Host '  ABOUT THIS SCRIPT (bthpan inbox enablement, Microsoft-only)'           -ForegroundColor Yellow
-    Write-Host '  =====================================================================' -ForegroundColor Yellow
+    Write-Host ' =====================================================================' -ForegroundColor Yellow
     Write-Host '  Unlike the sister AMD scripts which sequence behind vendor/Windows Update'
     Write-Host '  drivers, the bthpan driver is a MICROSOFT INBOX component. There is no'
     Write-Host '  alternative vendor driver and no Windows Update package; the driver is'
@@ -1293,7 +1218,7 @@ function Set-Tls12 {
     # Enable modern TLS for Invoke-WebRequest / Invoke-RestMethod.
     # ====================================================================
     # Tls12 is the must-have (some download endpoints require it).
-    # Tls13 is added if the running .NET supports it (Framework 4.8+,
+    # Tls13 is added if the running.NET supports it (Framework 4.8+,
     # WS2022+ ships with it; WS2016/WS2019 may not). Tls11 and below
     # are intentionally NOT requested - they are deprecated and removed
     # from many endpoints.
@@ -1302,7 +1227,7 @@ function Set-Tls12 {
         $tls13 = [Net.SecurityProtocolType]::Tls13
         $protos = $protos -bor $tls13
     } catch {
-        # Tls13 enum value not present in this .NET runtime; that is
+        # Tls13 enum value not present in this.NET runtime; that is
         # fine - Tls12 alone is sufficient for everything this script
         # downloads.
     }
@@ -1314,20 +1239,20 @@ function Set-ConsoleUtf8 {
     # SPEC A.5 / D.5: enforce UTF-8 console encoding so ja-JP Japanese
     # log strings (and external tool output such as CiTool.exe) render
     # correctly instead of mojibake in cp932 (Shift-JIS). See SPEC D.16
-    # for the r57 root-cause analysis (CiTool.exe writes UTF-8 stdout).
+    # for the root-cause analysis (CiTool.exe writes UTF-8 stdout).
     # ====================================================================
     # On ja-JP Windows, the console defaults to cp932 (Shift-JIS). When
     # external programs that write UTF-8 to stdout (CiTool.exe, modern
-    # signtool, etc.) are captured via "& tool ... | Out-String", PS
+    # signtool, etc.) are captured via "& tool... | Out-String", PS
     # decodes the bytes using [Console]::OutputEncoding. If that is
     # cp932 and the tool wrote UTF-8, every multibyte character becomes
     # mojibake (e.g. "処理が成功しました" -> "蜃ｦ逅・・謌仙粥縺励∪縺励◆").
     #
     # The fix is to set ALL three encodings:
-    #   - [Console]::OutputEncoding : how PS decodes external tool stdout
+    #   - [Console]::OutputEncoding: how PS decodes external tool stdout
     #                                  AND how Write-Host writes to console
-    #   - [Console]::InputEncoding  : how external tools see piped stdin
-    #   - $OutputEncoding           : how PS writes piped data to external
+    #   - [Console]::InputEncoding: how external tools see piped stdin
+    #   - $OutputEncoding: how PS writes piped data to external
     #                                  tools (e.g. "$json | tool.exe")
     # All three must be UTF-8 for consistent round-trip behaviour.
     #
@@ -1341,22 +1266,22 @@ function Set-ConsoleUtf8 {
 }
 
 #####################################################################
-# SECTION 1b: Debug Trace Facility (r7+, structured diagnostics)
+# SECTION 1b: Debug Trace Facility
 #####################################################################
 # A reusable diagnostic helper used to pinpoint the exact failing
 # operation inside a complex function body, with three integrated
 # subsystems:
 #
-#   (1) Trace primitives  : Start-DebugTrace / Set-DebugStep /
+#   (1) Trace primitives: Start-DebugTrace / Set-DebugStep /
 #                           Stop-DebugTrace / Format-DebugFailure /
 #                           Write-DebugFailureReport
-#   (2) JSONL file output : Real-time append-only event stream to
+#   (2) JSONL file output: Real-time append-only event stream to
 #                           <WorkRoot>\logs\debugtrace.jsonl
-#   (3) JSON Export       : Point-in-time snapshot with full state,
+#   (3) JSON Export: Point-in-time snapshot with full state,
 #                           used manually and auto-triggered on phase
 #                           failure.
 #
-# Motivation: r7 investigation of Invoke-InfVerifValidation - the
+# Motivation: investigation of Invoke-InfVerifValidation - the
 # function raised System.ArgumentException but the stack trace only
 # identified the function, not the line. By instrumenting with
 # $debugStep checkpoints and a catch handler that reported the step
@@ -1709,7 +1634,7 @@ function Format-DebugFailure {
         $frame       = $Script:DebugTraceStack.Peek()
         $context     = $frame.Context
         $failedStep  = $frame.Step
-        # PS 5.1 ja-JP bug workaround: use .ToArray() not @($list).
+        # PS 5.1 ja-JP bug workaround: use.ToArray not @($list).
         $stepHistory = $frame.Steps.ToArray()
         $elapsed     = (Get-Date) - $frame.StartTime
         $phaseId     = $frame.PhaseId
@@ -2000,7 +1925,7 @@ function Export-DebugTraceJson {
         [switch]$Compress
     )
 
-    # r8-update: refactor for robustness on PS 5.1 ja-JP. The previous
+    # Refactor for robustness on PS 5.1 ja-JP. The previous
     # implementation used inline `if/else` expressions as hashtable values
     # and a property named `host` (which collides with the PS auto-
     # variable name in some parser contexts). User report on
@@ -2188,7 +2113,7 @@ function Export-DebugTraceJson {
         # `Split-Path -LiteralPath $Path -Parent`. On PS 5.1, those two
         # parameters belong to mutually-exclusive parameter sets
         # (LiteralPathSet vs ParentSet), which causes
-        # AmbiguousParameterSet at runtime. The .NET method has no such
+        # AmbiguousParameterSet at runtime. The.NET method has no such
         # constraint and behaves identically.
         $parentDir = [System.IO.Path]::GetDirectoryName($Path)
         if ($parentDir -and -not (Test-Path -LiteralPath $parentDir)) {
@@ -2229,16 +2154,16 @@ function Export-DebugTraceJson {
 # These helpers inspect every system-level setting that controls
 # whether a self-signed kernel-mode driver can load. They are read-only
 # and intended to be called from:
-#   - Show-PowerShellEnvironment   (P00 startup banner, compact line)
-#   - I00 PreInstallReview         (dedicated section with AS-IS / TO-BE)
-#   - I02 AuthorizeDriverSigning   (pre-check + AS-IS / TO-BE)
-#   - I04 PostInstallVerification  (post-reboot effective state)
+#   - Show-PowerShellEnvironment (P00 startup banner, compact line)
+#   - I00 PreInstallReview (dedicated section with AS-IS / TO-BE)
+#   - I02 AuthorizeDriverSigning (pre-check + AS-IS / TO-BE)
+#   - I04 PostInstallVerification (post-reboot effective state)
 #
 # Why this matters for this script:
 #   This script signs catalogs with a SELF-SIGNED certificate (P07).
 #   Windows will refuse to load a kernel-mode driver bound to such a
 #   catalog UNLESS:
-#     (a) Secure Boot is OFF in firmware (UEFI setup)             AND
+#     (a) Secure Boot is OFF in firmware (UEFI setup) AND
 #     (b) BCD testsigning is ON (set by I02, takes effect at boot) AND
 #     (c) HVCI / Memory Integrity is OFF (otherwise CI policy still
 #         enforces Microsoft-rooted signing)
@@ -2250,7 +2175,7 @@ function Export-DebugTraceJson {
 # testsigning when Secure Boot is on (because the bcdedit setting
 # would be silently dropped on next boot).
 #####################################################################
-# SECTION 1d: UEFI Secure Boot certificate baseline (r48, 2026-05-13+)
+# SECTION 1d: UEFI Secure Boot certificate baseline
 #####################################################################
 # Captures the runtime UEFI Secure Boot certificate / servicing state
 # and (when present) hands off to Microsoft's official sample script
@@ -2439,7 +2364,7 @@ function Get-SecureBootCertificateInventory {
     # which breaks $row.Status property access and silently mis-reports
     # the task as 'Disabled' even when it is in fact Ready/Running.
     # Get-ScheduledTask returns CIM objects with locale-independent
-    # English property names (.State = Ready / Running / Disabled / ...).
+    # English property names (.State = Ready / Running / Disabled /...).
     try {
         $task = Get-ScheduledTask -TaskPath '\Microsoft\Windows\PI\' -TaskName 'Secure-Boot-Update' -ErrorAction Stop
         if ($task) {
@@ -2490,10 +2415,10 @@ function Invoke-MsSecureBootDetectScript {
     # in a child PowerShell session with -OutputPath set to a transient
     # folder under the AMD workspace, then re-parse the resulting JSON.
     #
-    # Returns a hybrid result object. .Available indicates whether the
+    # Returns a hybrid result object..Available indicates whether the
     # script ran AND produced parseable JSON. Failures (script missing,
-    # non-zero exit + no JSON, parse errors, etc.) populate .ErrorMessage
-    # and leave .Data null - callers should fall back to the embedded
+    # non-zero exit + no JSON, parse errors, etc.) populate.ErrorMessage
+    # and leave.Data null - callers should fall back to the embedded
     # inventory in that case.
     [CmdletBinding()]
     param(
@@ -2677,16 +2602,16 @@ function Get-SecureBootBaselineSnapshot {
     # classification used by the report and the I02 pre-check.
     #
     # Health classification:
-    #   'Healthy'  - Secure Boot ON, UEFICA2023Status=Updated (or not
+    #   'Healthy' - Secure Boot ON, UEFICA2023Status=Updated (or not
     #                applicable), no UEFICA2023Error, no servicing error
     #                events captured by the MS script.
-    #   'Warning'  - Secure Boot ON but UEFI CA 2023 rollout is still
+    #   'Warning' - Secure Boot ON but UEFI CA 2023 rollout is still
     #                in flight, OR scheduled task disabled, OR the MS
     #                script reports error events (1795/1796/1802/1803).
     #   'Critical' - Secure Boot OFF (with this script's WDAC path that
     #                normally requires Secure Boot ON), OR UEFICA2023Error
     #                non-zero indicating a stuck rollout.
-    #   'Unknown'  - Could not collect Secure Boot state at all (non-UEFI
+    #   'Unknown' - Could not collect Secure Boot state at all (non-UEFI
     #                host, or Confirm-SecureBootUEFI cmdlet unavailable).
     [CmdletBinding()]
     param(
@@ -2753,7 +2678,7 @@ function Get-SecureBootBaselineSnapshot {
         Embedded   = $emb
         Microsoft  = $ms
         Health     = $health
-        # r7-fix v3: use .ToArray() instead of @($reasons) to avoid a PS 5.1
+        # an earlier fix: use.ToArray instead of @($reasons) to avoid a PS 5.1
         # ja-JP bug where @(Generic.List<T>) as a hashtable value being cast
         # to [pscustomobject] raises ArgumentException. List[string] is less
         # affected than List[object], but applied here for consistency.
@@ -2798,7 +2723,7 @@ function Show-SecureBootBaselineSnapshot {
     # banner (V06 prefixes the section with its own '--- 4. UEFI Secure
     # Boot Baseline ---' header for numbering consistency with sections
     # 1-3 above it). We print only the body to avoid the duplicate
-    # banner that was visible in the r49 first release.
+    # banner that was visible in early releases.
     Write-Host ("  Overall health     : {0}" -f $health) -ForegroundColor $healthColor
     foreach ($r in $Snapshot.Reasons) {
         Write-Detail ("- {0}" -f $r) -Color $healthColor
@@ -2873,7 +2798,7 @@ function Show-SecureBootBaselineSnapshot {
 }
 
 function Get-OrEnsureSecureBootBaseline {
-    # r50: idempotent accessor for the cached Secure Boot baseline.
+    # Idempotent accessor for the cached Secure Boot baseline.
     # Returns $Ctx.SecureBootBaseline when it is still valid; otherwise
     # re-invokes Get-SecureBootBaselineSnapshot into the current
     # $Ctx.WorkRoot so the diagnostic files (detect_stdout.log,
@@ -2891,7 +2816,7 @@ function Get-OrEnsureSecureBootBaseline {
     #   - P01 wiped the workspace under -CleanWorkRoot, deleting a
     #     JSON file that P00 had written to the workspace.
     #   - An earlier release's P00 had written the JSON to %TEMP%
-    #     (pre-r50 behaviour) and we are now reading the snapshot
+    # and we are now reading the snapshot
     #     from a phase that displays the path.
     # In either case we re-capture so the displayed path is honest.
     [CmdletBinding()]
@@ -3143,7 +3068,7 @@ function Get-BootSigningEnvironment {
     }
 
     # WDAC custom CI policy state. Two pieces of info:
-    #   1. Are the WDAC tools available?  (we can deploy if yes)
+    #   1. Are the WDAC tools available? (we can deploy if yes)
     #   2. Is OUR self-signed-allowlist supplemental currently active?
     #      (= we already have the green light to load self-signed
     #      drivers WITH Secure Boot enabled).
@@ -3165,7 +3090,7 @@ function Get-BootSigningEnvironment {
         # cert dir; we do NOT have $Ctx here, so we look for a cip
         # whose name appears in any of the active policies AND which
         # we previously saved as ours. If the caller cares about the
-        # marker, they should call Test-MsBthPanWdacPolicyDeployed -Ctx ...
+        # marker, they should call Test-MsBthPanWdacPolicyDeployed -Ctx...
         # directly. Here we only set MsBthPanSuppPolicyActive to $false.
     } catch {
         # WDAC inspection failed - leave defaults
@@ -3174,12 +3099,12 @@ function Get-BootSigningEnvironment {
     # Compute effective "can a self-signed kernel-mode driver load?"
     # There are now TWO valid paths:
     #   PATH 1 (Secure Boot ON, recommended):
-    #     Secure Boot  ON
+    #     Secure Boot ON
     #     WDAC supplemental policy with our cert deployed (MsBthPanSuppPolicyActive=true)
     #   PATH 2 (Secure Boot OFF, legacy):
-    #     Secure Boot  off
-    #     testsigning  ON
-    #     HVCI         off
+    #     Secure Boot off
+    #     testsigning ON
+    #     HVCI off
     # The caller (I02) decides which path to take based on the current
     # firmware state and -UseTestSigning override.
     $env.BlockReasons = @()
@@ -3233,8 +3158,8 @@ function Update-BootSigningEnvironmentForCtx {
 
 function Show-BootSigningEnvironment {
     # Pretty-print the boot-signing environment. Two modes:
-    #   -Compact   : one-line summary suitable for the startup banner
-    #   (default)  : full table with notes column
+    #   -Compact: one-line summary suitable for the startup banner
+    #   (default): full table with notes column
     param(
         [Parameter(Mandatory)] $BootEnv,
         [switch]$Compact
@@ -3414,10 +3339,10 @@ function Show-BootSigningChangeRequired {
 #   "trust this additional publisher" with Secure Boot still on.
 #
 # Required platform components (all present on WS2022+ / WS2025):
-#   - PowerShell 'ConfigCI' module           (cmdlets: Add-SignerRule,
+#   - PowerShell 'ConfigCI' module (cmdlets: Add-SignerRule,
 #                                             ConvertFrom-CIPolicy,
 #                                             Set-CIPolicyIdInfo)
-#   - C:\Windows\System32\CiTool.exe         (immediate activation)
+#   - C:\Windows\System32\CiTool.exe (immediate activation)
 #   - WDAC AllowAll template under
 #     C:\Windows\schemas\CodeIntegrity\ExamplePolicies\AllowAll.xml
 #
@@ -3539,12 +3464,12 @@ function Test-MsBthPanWdacPolicyDeployed {
     # Returns the deployed-policy info if our supplemental is currently
     # active, otherwise $null.
     #
-    # r48 change: detection logic is now in two stages:
+    # Detection logic is now in two stages:
     #   Stage 1 (primary): look for the fixed $Script:WdacPolicyGuid
-    #     among active CI policies. This works for any r48+ deploy.
-    #   Stage 2 (legacy fallback): if a pre-r48 MsBthPanSuppPolicyId.txt
+    #     among active CI policies. This works for any current deploy.
+    #   Stage 2 (legacy fallback): if a earlier MsBthPanSuppPolicyId.txt
     #     marker file exists in the workspace cert dir, also look for
-    #     the dynamic GUID recorded there. This lets r48+ scripts
+    #     the dynamic GUID recorded there. This lets current scripts
     #     detect legacy deploys for clean removal.
     param($Ctx)
     $active = Get-ActiveCodeIntegrityPolicies
@@ -3579,7 +3504,7 @@ function New-MsBthPanDriverWdacSupplementalPolicy {
     # everything else; only catalogs signed by our cert get the extra
     # green light.
     #
-    # r48 change: the PolicyID is now a STABLE fixed GUID (from
+    # The PolicyID is now a STABLE fixed GUID (from
     # $Script:WdacPolicyGuid, defaulting to WdacPolicyGuidDefault). This
     # means re-runs deploy / replace the same policy slot rather than
     # accumulating a new policy per run. Use -WdacPolicyGuid to override
@@ -3636,7 +3561,7 @@ function New-MsBthPanDriverWdacSupplementalPolicy {
     # ADDITIVE - keeping AllowAll rules would effectively turn off
     # enforcement for everything, defeating the point of Secure Boot.
     #
-    # r51 fix: We now strip the ENTIRE <FileRulesRef> container, not
+    # We now strip the ENTIRE <FileRulesRef> container, not
     # just its <FileRuleRef> children. On Windows Server 2025 (build
     # 26100) the AllowAll.xml template embeds <FileRulesRef> nodes
     # inside every <ProductSigners> block, and the WDAC schema
@@ -3676,13 +3601,13 @@ function New-MsBthPanDriverWdacSupplementalPolicy {
 }
 
 function Install-MsBthPanWdacPolicy {
-    # Convert the supplemental XML to .cip binary form and deploy it
+    # Convert the supplemental XML to.cip binary form and deploy it
     # into %SystemRoot%\System32\CodeIntegrity\CiPolicies\Active. On
     # platforms with CiTool.exe, refresh the active policy stack so
     # the new supplemental takes effect WITHOUT a reboot. Returns a
     # status object the caller can display.
     #
-    # r57: CiTool is invoked with the --json flag. Per CiTool --help,
+    # CiTool is invoked with the --json flag. Per CiTool --help,
     # the --json flag "formats the output as JSON and suppresses
     # input" - i.e. it removes the "Press Enter to Exit" interactive
     # prompt that CiTool prints by default when run in a console host.
@@ -3717,7 +3642,7 @@ function Install-MsBthPanWdacPolicy {
     if (Get-Command CiTool.exe -ErrorAction SilentlyContinue) {
         try {
             # CiTool returns 0 on success and prints a confirmation line.
-            # --json flag is REQUIRED (r57+): without it, CiTool prints
+            # --json flag is REQUIRED: without it, CiTool prints
             # "Press Enter to Exit" and waits for stdin, blocking I02.
             $citoolStdout = & CiTool.exe --update-policy $deployedPath --json 2>&1 | Out-String
             if ($LASTEXITCODE -eq 0) { $immediate = $true }
@@ -3761,7 +3686,7 @@ function Uninstall-MsBthPanWdacPolicy {
     # Remove a previously-deployed supplemental policy. Used by the
     # Cleanup action and by I02 when redeploying with -Force.
     #
-    # r57: --json flag suppresses CiTool's interactive ENTER prompt.
+    # --json flag suppresses CiTool's interactive ENTER prompt.
     param(
         [Parameter(Mandatory)] [string]$PolicyId
     )
@@ -3811,7 +3736,7 @@ function Test-CertAlreadyTrusted {
     # both LocalMachine\Root and LocalMachine\TrustedPublisher.
     # If $Ctx.CertThumbprint is unset (e.g. user invoked I01 directly
     # without P07 having populated Ctx in this run), derive it from
-    # the .cer file on disk.
+    # the.cer file on disk.
     param([Parameter(Mandatory)] $Ctx)
 
     $thumbprint = $Ctx.CertThumbprint
@@ -3861,13 +3786,13 @@ function Test-I02InTargetState {
 }
 
 function Test-AllPatchedDriversInStore {
-    # I03 target state: every patched .inf in $Ctx.Paths.Patched is
+    # I03 target state: every patched.inf in $Ctx.Paths.Patched is
     # present in the Windows driver store. We use pnputil /enum-drivers
     # because that is exactly what I03 itself uses to add them, so the
     # round-trip is symmetric.
     #
     # NOTE: pnputil reports drivers by their published OEM name
-    # (oemNN.inf) AND by their original INF name (Original Name :
+    # (oemNN.inf) AND by their original INF name (Original Name:
     # amdpcidev.inf). We match on the original name because that is
     # what we have in $Ctx.Paths.Patched.
     #
@@ -3890,7 +3815,7 @@ function Test-AllPatchedDriversInStore {
 
     foreach ($inf in $expected) {
         $infName = $inf.Name
-        # Match against "Original Name : <inf>" (case-insensitive,
+        # Match against "Original Name: <inf>" (case-insensitive,
         # tolerate variable whitespace and non-ASCII labels in
         # localized pnputil output).
         $pattern = '(?im)Original\s+Name\s*:\s*' + [regex]::Escape($infName)
@@ -3938,7 +3863,7 @@ function Test-WorkspaceLockHeld {
     # If no lock exists, Held=$false and other fields are blank.
     # If a lock exists but the recorded PID is no longer running, the
     # lock is stale (Held=$true, ProcessRunning=$false, Stale=$true).
-    # r55: If a lock exists AND the recorded PID matches our current
+    # If a lock exists AND the recorded PID matches our current
     # PowerShell process ($PID), the lock is treated as stale and
     # taken over silently. This handles the interactive-console case
     # where a previous run completed but the PowerShell.Exiting hook
@@ -3967,7 +3892,7 @@ function Test-WorkspaceLockHeld {
         }
     } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     if ($info.Pid) {
-        # r55: lock written by the very same PowerShell process we are
+        # Lock written by the very same PowerShell process we are
         # running in. This happens when a previous script invocation in
         # the same interactive console completed without firing the
         # Register-EngineEvent PowerShell.Exiting hook (the hook only
@@ -4051,7 +3976,7 @@ function Assert-NoConcurrentRun {
         throw $msg
     }
     if ($info.Held -and $info.Stale) {
-        # r55: distinguish "stale because the recorded PID is dead" from
+        # Distinguish "stale because the recorded PID is dead" from
         # "stale because the recorded PID is OUR pid" (interactive
         # PowerShell re-run scenario). The second case is benign and
         # frequent enough that it deserves a non-alarming message.
@@ -4196,9 +4121,9 @@ function Resolve-PhaseSelection {
     # renamed across script versions. Keys are old names, values are
     # current names. The ID lookup ('I02') always works directly and is
     # the recommended way to reference phases in scripts and pipelines.
-    # This alias map exists so callers that pre-date r30 don't break.
+    # This alias map exists so callers that predate this revision don't break.
     $nameAliases = @{
-        'EnableTestSigning' = 'AuthorizeDriverSigning'   # renamed in r30
+        'EnableTestSigning' = 'AuthorizeDriverSigning'   # renamed
     }
 
     $resolved = foreach ($needle in $OnlyPhases) {
@@ -4375,11 +4300,11 @@ function Get-MachineRegion {
 
 function Invoke-WingetSilently {
     # Wraps `winget install` with the flags needed for unattended use:
-    #   --source winget    -> skip msstore (avoids first-use disclaimers
+    #   --source winget -> skip msstore (avoids first-use disclaimers
     #                         about Terms of Transaction and the
     #                         "2-letter geographic region" notice)
     #   --accept-source-agreements / --accept-package-agreements
-    #   --silent           -> no installer GUI / no progress bars
+    #   --silent -> no installer GUI / no progress bars
     #
     # Output from winget is captured and lines that match known noise
     # patterns (msstore disclaimers, package licensing boilerplate) are
@@ -4426,9 +4351,9 @@ function Get-SevenZipPath {
 function Find-KitTool {
     param(
         [string]$Name,
-        # r7: Most kit tools live under \bin\ (signtool, inf2cat, makecat),
-        # but InfVerif lives under \Tools\. The default preserves r6-and-
-        # earlier behavior. Callers that need InfVerif pass @('Tools').
+        # Most kit tools live under \bin\ (signtool, inf2cat, makecat),
+        # but InfVerif lives under \Tools\. The default preserves older
+        #  behavior. Callers that need InfVerif pass @('Tools').
         # Pass @('bin','Tools') to scan both (useful for diagnostics).
         [string[]]$SearchSubdirs = @('bin')
     )
@@ -4443,7 +4368,7 @@ function Find-KitTool {
     # to any architecture - filtering by x64 alone misses inf2cat.exe
     # entirely and triggers an unnecessary EXE-installer fallback that
     # then fails because the kit is already installed (exit 2008).
-    # InfVerif (r7) ships under \Tools\<ver>\(x64|arm64)\ - the x86
+    # InfVerif ships under \Tools\<ver>\(x64|arm64)\ - the x86
     # preference rule still applies but we must scan a different
     # subdirectory tree. arm64 binaries must be filtered out on x64
     # hosts: running an arm64 PE under PowerShell raises "is not a
@@ -4586,7 +4511,7 @@ function Get-BthPanDriverStoreSource {
         a Windows feature update). We pick the most recently modified
         directory that contains bthpan.inf AND bthpan.sys.
 
-        r3 (WS2025 compatibility): the original .cat file is NOT
+        an earlier revision (WS2025 compatibility): the original .cat file is NOT
         required to be present in the FileRepository directory.
         On Windows Server 2025 (build 26100 family) Microsoft has
         changed the inbox-driver staging layout so that some
@@ -4598,7 +4523,7 @@ function Get-BthPanDriverStoreSource {
         original .cat is informational only and does not need to be
         present at the staging-discovery step.
 
-        Pre-r3 behaviour required >=1 .cat file in the FileRepository
+        Previously behaviour required >=1 .cat file in the FileRepository
         directory, which caused P03 to fail on a clean WS2025 install
         even though bthpan.inf and bthpan.sys were correctly staged.
     .OUTPUTS
@@ -4624,11 +4549,11 @@ function Get-BthPanDriverStoreSource {
         if (-not (Test-Path -LiteralPath $infPath))  { continue }
         if (-not (Test-Path -LiteralPath $sysPath))  { continue }
 
-        # r3: .cat file is NO LONGER required. WS2025 FileRepository
+        # .cat file is NO LONGER required. WS2025 FileRepository
         # entries may contain only INF + SYS, with the original
         # Microsoft catalog held outside FileRepository. P08 will
         # regenerate the catalog from the patched INF via inf2cat
-        # regardless of whether an original .cat is found here.
+        # regardless of whether an original.cat is found here.
         $catFiles = @(Get-ChildItem -LiteralPath $dir.FullName `
             -Filter '*.cat' -File -ErrorAction SilentlyContinue)
 
@@ -4855,9 +4780,9 @@ function Get-BthPanCurrentlyInstalledOemInfs { # psa-disable-line PSA6003 -- com
 
         # pnputil /enum-drivers output is delimited by blank lines per
         # driver package. Each block contains lines like:
-        #   Published name :   oem17.inf
-        #   Original name  :   bthpan.inf
-        #   Provider name  :   Microsoft
+        #   Published name: oem17.inf
+        #   Original name: bthpan.inf
+        #   Provider name: Microsoft
         #   ...
         $blocks = $out -split "`r?`n`r?`n"
         foreach ($block in $blocks) {
@@ -4912,15 +4837,15 @@ function Read-InfFile {
 
 function Get-InfMetadata {
     # Extract human-readable metadata from an INF file's text:
-    #   - Provider     : driver vendor (e.g. "AMD")
-    #   - Class        : Windows device class (System, USB, HIDClass, ...)
-    #   - ClassGuid    : raw GUID of the device class
-    #   - DriverVer    : version string from [Version]
-    #   - Manufacturer : manufacturer label (resolved from [Strings])
-    #   - Devices      : list of {Description, HardwareId} pairs from
+    #   - Provider: driver vendor (e.g. "AMD")
+    #   - Class: Windows device class (System, USB, HIDClass,...)
+    #   - ClassGuid: raw GUID of the device class
+    #   - DriverVer: version string from [Version]
+    #   - Manufacturer: manufacturer label (resolved from [Strings])
+    #   - Devices: list of {Description, HardwareId} pairs from
     #                    the manufacturer's model section, with strings
     #                    resolved against the [Strings] section
-    #   - DeviceCount  : count of distinct device entries
+    #   - DeviceCount: count of distinct device entries
     #
     # Returns a [pscustomobject] with the above fields. Missing fields
     # are returned as $null or empty arrays so callers can format them
@@ -4976,14 +4901,14 @@ function Get-InfMetadata {
 
     # Build [Strings] table for token resolution
     #
-    # IMPORTANT (r43 fix, mirrored from graphics-r11): the LHS character
+    # IMPORTANT: the LHS character
     # class MUST include dot and backslash. AMD INFs use token names
     # like 'amdsmbus.DeviceDesc' or 'PCI\AMDPCIE.DeviceDesc' that the
-    # pre-r43 `[A-Za-z0-9_]+` regex couldn't capture, causing the
+    # earlier `[A-Za-z0-9_]+` regex couldn't capture, causing the
     # %Token% reference to be displayed literally in P05 instead of
     # the resolved description. This was a pre-existing latent bug
-    # in both graphics and chipset parsers; r43 brings the chipset
-    # parser in sync with the graphics-r11 fix for consistency and
+    # in both graphics and chipset parsers; brings the chipset
+    # parser in sync with the graphics fix for consistency and
     # to prepare for any future AMD chipset INF using this format.
     $strings = @{}
     if ($sections.Contains('Strings')) {
@@ -5007,13 +4932,13 @@ function Get-InfMetadata {
 
     # [Manufacturer] -> mfgLabel = mfgSection,decorations
     #
-    # IMPORTANT (r42 fix, mirrored from graphics-r9): collect ALL
+    # IMPORTANT: collect ALL
     # manufacturer entries, not just the first one. While AMD chipset
     # INFs typically have a single %AMD% manufacturer (unlike the
     # graphics u0197843.inf which uses the same single-mfg pattern but
     # with quoted-token LHS lines that the previous parser also missed),
     # parsing all manufacturer entries is the correct robust behavior
-    # and protects against future format changes. Pre-r42 the parser
+    # and protects against future format changes. Previously the parser
     # took the first entry only via `break`, and Bug B below would
     # cause silent-zero-device parsing when LHS was non-canonical.
     $mfgLabel = $null
@@ -5038,40 +4963,40 @@ function Get-InfMetadata {
     # Collect device entries from the manufacturer section AND its
     # decorated variants (e.g. "Mfg" plus "Mfg.NTamd64.10.0.3..26100").
     #
-    # IMPORTANT (r31 fix): the wildcard `$baseName.*` can also match
+    # IMPORTANT: the wildcard `$baseName.*` can also match
     # DDInstall sections when the install-section name happens to share
     # a prefix with the Manufacturer section name (this happens in
     # AmdMicroPEP.inf, where DDInstall.Services entries previously
     # leaked into the device list and surfaced as bogus "device:
     # AddService / hwid: %SERVICE_FLAGS%" rows in P05).
     #
-    # IMPORTANT (r42 fix, mirrored from graphics-r9/r10): the device-
+    # IMPORTANT: the device-
     # line LHS can be ANY of three forms in real-world AMD INFs - the
-    # pre-r42 parser only accepted form (a) which is why graphics
+    # earlier parser only accepted form (a) which is why graphics
     # u0197843.inf parsed 0 devices despite having a perfectly valid
     # [Models] section (its 5,047 device lines all use form (b) with
     # double-quoted %Token% references). Although AMD chipset INFs
     # typically use form (a), this parser is kept in sync with the
     # graphics script for consistency and future-proofing.
     #
-    #   (a) %Token%       -- canonical AMD INF convention, where the
+    #   (a) %Token% -- canonical AMD INF convention, where the
     #                        token resolves against [Strings]
     #                        Example: %D1638% = svcS, PCI\VEN_1002&DEV_1638
     #
-    #   (b) "Quoted lit"  -- literal string in quotes, OR a quoted
+    #   (b) "Quoted lit" -- literal string in quotes, OR a quoted
     #                        token reference like "%Token%" (used in
     #                        AMD WHQL universal display drivers).
     #                        Example: "AMD SMBus" = svcS, PCI\VEN_1022&DEV_790B
     #                        Example: "%D1638.1%" = svcS, PCI\VEN_1002&DEV_1638
     #
-    #   (c) BareIdent     -- bare identifier (rare; seen in some
+    #   (c) BareIdent -- bare identifier (rare; seen in some
     #                        legacy AMD universal INFs). Must NOT be
     #                        a known INF directive keyword.
     #                        Example: D1638 = svcS, PCI\VEN_1002&DEV_1638
     #
     # Defense-in-depth (three checks):
     #   1. Skip lines whose LHS is a known directive keyword
-    #      (AddService, AddReg, CopyFiles, ...). This protects against
+    #      (AddService, AddReg, CopyFiles,...). This protects against
     #      DDInstall sections that share the manufacturer's name prefix.
     #   2. Each LHS form is matched by a SEPARATE regex - we don't
     #      try to consolidate them into one pattern (alternation in
@@ -5102,7 +5027,7 @@ function Get-InfMetadata {
 
                 # Pre-filter: skip lines whose LHS bare-ident is a
                 # known DDInstall directive (defends against section-
-                # name collisions, see r31 comment).
+                # name collisions, see related comment).
                 if ($ln -match '^\s*([A-Za-z][A-Za-z0-9_]+)\s*=' -and
                     ($infDirectiveBlacklist -contains $matches[1])) {
                     continue
@@ -5162,8 +5087,8 @@ function Get-InfMetadata {
         Manufacturer          = $mfgLabel
         Devices               = $devices
         DeviceCount           = $devices.Count
-        ManufacturerEntries   = $mfgSectionNames.Count   # r42: number of distinct mfg sections (>1 = multi-mfg INF)
-        ModelsSectionsScanned = $modelsSectionsScanned   # r42: number of [Mfg.NT...] sections that were scanned
+        ManufacturerEntries   = $mfgSectionNames.Count   # number of distinct mfg sections (>1 = multi-mfg INF)
+        ModelsSectionsScanned = $modelsSectionsScanned   # number of [Mfg.NT...] sections that were scanned
     }
 }
 
@@ -5696,7 +5621,7 @@ function Invoke-PrepPhase00_Initialize {
 
     if ($isWorkstation) {
         # Show the ACTUAL OS Caption (e.g. "Microsoft Windows 11 Pro") plus
-        # the Server profile this script will treat it as. Pre-r45 the
+        # the Server profile this script will treat it as. Previously the
         # display only showed the mapped profile name, which made it look
         # like the script had mis-detected the OS.
         Write-Ok "OS detected: $($Ctx.Os.Caption) (build $($Ctx.Os.ActualBuild))"
@@ -5784,7 +5709,7 @@ If you really need to install on this Workstation host, pass
         Write-Detail "ProductType: $($Ctx.Os.ProductType)  (1=Workstation, 3=Server)"
     }
 
-    # ---- UEFI Secure Boot certificate baseline (r49) ----
+    # ---- UEFI Secure Boot certificate baseline ----
     # Capture once at P00 and cache on $Ctx so later phases (P05 report
     # append, V05 / V06 display, I02 pre-check) can reuse the same
     # snapshot without re-invoking the Microsoft sample script multiple
@@ -5809,7 +5734,7 @@ function Invoke-PrepPhase01_PrepareWorkspace {
     param($Ctx)
     Write-PhaseHeader 'P01' 'PrepareWorkspace' 'Prep'
 
-    # r8-update3: pre-flight guard for the -LogFile vs -CleanWorkRoot
+    # a previous update: pre-flight guard for the -LogFile vs -CleanWorkRoot
     # collision. When the operator passes both:
     #   -LogFile <path-inside-WorkRoot>
     #   -CleanWorkRoot
@@ -5885,7 +5810,7 @@ function Invoke-PrepPhase01_PrepareWorkspace {
     $Ctx.Paths = $paths
     Write-Ok "Workspace ready under $($Ctx.WorkRoot)"
 
-    # r7+: activate the Debug Trace JSONL writer now that the workspace
+    # Activate the Debug Trace JSONL writer now that the workspace
     # logs directory exists. This is the script-wide policy decision
     # ("default ON for file output") - any pre-P01 trace events that
     # are sitting in the in-memory buffer get flushed in one shot.
@@ -5893,14 +5818,14 @@ function Invoke-PrepPhase01_PrepareWorkspace {
     Set-DebugStep 'enable Debug Trace JSONL writer'
     Enable-DebugTraceFileOutput -Directory $paths.Logs
 
-    # r7+: also activate auto-export-on-phase-failure. The phase
+    # Also activate auto-export-on-phase-failure. The phase
     # dispatcher's catch block calls Write-DebugFailureReport -AutoExport,
     # which writes a debugtrace_export_<phaseId>_<ts>.json snapshot to
     # this directory so the user has a single self-contained file to
     # attach to a bug report.
     Enable-AutoExportOnPhaseFailure -OutputDirectory $paths.Logs
 
-    # r8-update7: rehydrate $Ctx from any existing workspace artifacts
+    # a previous update: rehydrate $Ctx from any existing workspace artifacts
     # so phase queues that skip P02..P09 (e.g. -Action Verify, Cleanup,
     # Install) can still resolve paths and thumbprints that those
     # P-phases would normally populate. This is a best-effort scan -
@@ -5915,7 +5840,7 @@ function Invoke-PrepPhase01_PrepareWorkspace {
     Resume-CtxFromWorkspace -Ctx $Ctx
 
     Set-DebugStep 'acquire workspace concurrency lock'
-    # Acquire the workspace lock NOW (after the .markers/ directory
+    # Acquire the workspace lock NOW (after the.markers/ directory
     # exists). This catches the case where the user accidentally
     # starts a second instance against the same workspace - we fail
     # fast with a clear error rather than racing pnputil / CiTool.
@@ -6056,9 +5981,9 @@ function Invoke-PrepPhase02_AcquireTools { # psa-disable-line PSA6003 -- compoun
         $Ctx.SevenZip = Get-SevenZipPath
         $Ctx.Signtool = Find-KitTool 'signtool.exe'
         $Ctx.Inf2cat  = Find-KitTool 'inf2cat.exe'
-        # r7: Populate optional tools on cache-hit path so that downstream
+        # Populate optional tools on cache-hit path so that downstream
         # phases (V01 / V02 / P08 makecat fallback) can find them even
-        # when P02 is short-circuited by a stale marker from r6 or
+        # when P02 is short-circuited by a stale marker currently or
         # earlier. Both are advisory - their absence is non-fatal.
         $Ctx.Makecat  = Find-KitTool 'makecat.exe'
         $Ctx.InfVerif = Find-KitTool 'infverif.exe' -SearchSubdirs @('Tools')
@@ -6112,7 +6037,7 @@ function Invoke-PrepPhase02_AcquireTools { # psa-disable-line PSA6003 -- compoun
     Write-Detail "WDK build    : $($Ctx.Os.WdkBuild)"
     Write-Detail "Notes        : $($Ctx.Os.ToolkitNotes)"
 
-    # r51: On a clean-installed host the SDK and WDK packages are
+    # On a clean-installed host the SDK and WDK packages are
     # absent and must be downloaded via winget. The bootstrap EXEs
     # (winsdksetup.exe / wdksetup.exe) are ~1.3 MB each but the
     # background payloads they pull from Microsoft Download CDN are
@@ -6162,7 +6087,7 @@ function Invoke-PrepPhase02_AcquireTools { # psa-disable-line PSA6003 -- compoun
     Write-Ok "signtool: $($Ctx.Signtool)"
     Write-Ok "inf2cat : $($Ctx.Inf2cat)"
     Set-DebugStep 'detect optional tools (makecat / infverif)'
-    # r7: makecat is required for the inbox-driver catalog fallback in
+    # Makecat is required for the inbox-driver catalog fallback in
     # P08. It ships in the same SDK kit as inf2cat. Locating it here is
     # advisory only - P08 calls Find-KitTool again right before use.
     $Ctx.Makecat = Find-KitTool 'makecat.exe'
@@ -6171,7 +6096,7 @@ function Invoke-PrepPhase02_AcquireTools { # psa-disable-line PSA6003 -- compoun
     } else {
         Write-Warn2 'makecat.exe not found in Windows Kits. P08 inbox-driver fallback will fail if inf2cat refuses the package.'
     }
-    # r7: InfVerif is the official Microsoft INF validator (replaces ChkInf).
+    # InfVerif is the official Microsoft INF validator (replaces ChkInf).
     # Used by Invoke-InfVerifValidation to perform pre/post-patch INF
     # structural validation. InfVerif lives in \Tools\ (not \bin\) so we
     # pass an explicit SearchSubdirs override. Like makecat, this is
@@ -6206,7 +6131,7 @@ function Invoke-PrepPhase03_FetchInstaller {
         P03 finds the most recent staged copy. The required minimum is
         bthpan.inf + bthpan.sys in the FileRepository directory.
 
-        r3 (WS2025 compatibility): the original .cat file is NO LONGER
+        an earlier revision (WS2025 compatibility): the original .cat file is NO LONGER
         required to be present in the FileRepository directory. On
         Windows Server 2025 (PS 5.1.26100 family), Microsoft has
         changed the inbox-driver staging layout so the corresponding
@@ -6216,7 +6141,7 @@ function Invoke-PrepPhase03_FetchInstaller {
         patched INF and re-sign it in P09, so the original Microsoft
         catalog is informational only.
 
-        Pre-r3 behaviour required a .cat in the FileRepository
+        Previously behaviour required a .cat in the FileRepository
         directory, which caused P03 to fail on a clean WS2025 install
         even when bthpan.inf and bthpan.sys were correctly staged.
 
@@ -6267,12 +6192,12 @@ function Invoke-PrepPhase03_FetchInstaller {
     if ($src.HasOriginalCat) {
         Write-Detail "CAT(s): $($src.CatPaths.Count) file(s) found in FileRepository"
     } else {
-        # r3: Windows Server 2025 typically stages bthpan as INF+SYS
+        # Windows Server 2025 typically stages bthpan as INF+SYS
         # only; the original Microsoft catalog lives in a separate
         # CatRoot-side location (not in FileRepository). This is
         # NOT an error -- P08 (inf2cat) regenerates the catalog
         # against the patched INF and P09 self-signs it, so the
-        # original .cat is informational only.
+        # original.cat is informational only.
         Write-Detail "CAT(s): 0 file(s) in FileRepository (WS2025 layout - P08 will inf2cat a fresh catalog)"
     }
     Write-Detail "Stamp : $($src.LastWriteTime)"
@@ -6333,7 +6258,7 @@ function Invoke-PrepPhase04_ExtractInstaller {
 
     Set-DebugStep 'copy supporting files (PNF / MUI / dependents)'
     # Also copy every supporting file in the staging directory (e.g.
-    # bthpan.pnf, language MUI files, related .sys/.dll). These don't
+    # bthpan.pnf, language MUI files, related.sys/.dll). These don't
     # all need to be in the patched output, but inf2cat may want to
     # confirm cohash for each file referenced by the INF.
     $extraFiles = Get-ChildItem -LiteralPath $Ctx.BthPanSource.Path -File -ErrorAction SilentlyContinue
@@ -6453,7 +6378,7 @@ function Get-BthPanInfMetadata {
         if ($t -match $modelHdrPattern) { $inModels = $true; continue } # psa-disable-line PSA2003 -- pattern variable is initialized in the enclosing scope; $null impossible by construction
         elseif ($t -match $sectionHdr)   { $inModels = $false; continue } # psa-disable-line PSA2003 -- pattern variable is initialized in the enclosing scope; $null impossible by construction
         if ($inModels -and $t -and -not $t.StartsWith(';')) {
-            # Lines look like: %DisplayName% = InstallSection, HWID1, HWID2, ...
+            # Lines look like: %DisplayName% = InstallSection, HWID1, HWID2,...
             $kv = $t -split '=', 2
             if ($kv.Count -ne 2) { continue }
             $rhs = $kv[1].Split(',')
@@ -6562,7 +6487,7 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     $Ctx.BthPanInfPath     = $infPath
 
     Set-DebugStep 'V01: InfVerif baseline on unpatched INF'
-    # r7: V01 - Pre-patch InfVerif baseline (Stage 1 of validation-first
+    # V01 - Pre-patch InfVerif baseline (Stage 1 of validation-first
     # design). Run InfVerif against the UNPATCHED source bthpan.inf to
     # capture the baseline state before any modifications. This serves
     # two purposes:
@@ -6576,7 +6501,7 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     #   - ERROR(1204): Provider="Microsoft" (P06 fixes via F1)
     # Both are EXPECTED at this stage. We log them but do NOT fail V01.
     #
-    # r7-update (final): use splatting instead of backtick line
+    # a previous update (final): use splatting instead of backtick line
     # continuation. The backtick form has been observed to trigger
     # ArgumentException during parameter binding on some PS 5.1 builds
     # (cause not fully understood; likely a parser interaction with
@@ -6624,7 +6549,7 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
         }
     }
 
-    # r7-update: hoist inline-if out of hashtable for PS 5.1 safety
+    # Hoist inline-if out of hashtable for PS 5.1 safety
     $v01BaselineForMarker = if ($v01Result.ToolMissing) { 'skipped' } else { $v01Result.Errors.Count }
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'P05' -Metadata @{
         HwidCount        = $meta.HwidCount
@@ -6825,7 +6750,7 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
         }
 
     Set-DebugStep 'Edit-InfForServer: Workstation->Server decoration mirror'
-    # Strategy A — Workstation .1 -> Server .3 mirror via Edit-InfForServer
+    # Strategy A — Workstation.1 -> Server.3 mirror via Edit-InfForServer
     $result = Edit-InfForServer -InfPath $srcInf -OutputPath $dstInf -OsContext $Ctx.Os
     if (-not $result.Patched) {
         if ($result.Reason -like '*No client decorations*') {
@@ -6859,7 +6784,7 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
     }
 
     Set-DebugStep 'F1: Provider rewrite (%MfgName% -> %PROVIDER_NAME%)'
-    # r7: Rewrite [Version].Provider so the re-cataloged INF passes
+    # Rewrite [Version].Provider so the re-cataloged INF passes
     # InfVerif rule 1204 ("Provider cannot be 'Microsoft'"). The original
     # bthpan.inf declares Provider = %MfgName%, and MfgName resolves to
     # "Microsoft" in [strings] - which InfVerif rightly rejects for a
@@ -6879,10 +6804,10 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
         Write-Detail ("Provider already configured for re-cataloging - no change ({0})" -f $provResult.Reason)
     }
 
-    # r7: Inject a CatalogFile entry into [Version] if missing.
+    # Inject a CatalogFile entry into [Version] if missing.
     # The Microsoft inbox bthpan.inf ships WITHOUT a CatalogFile line
     # (Microsoft uses centralized catalog management). When we re-
-    # catalog with inf2cat or makecat, the resulting .cat must be
+    # catalog with inf2cat or makecat, the resulting.cat must be
     # explicitly referenced from the INF so that:
     #   - inf2cat does not reject the INF with rule 22.9.4
     #   - pnputil/SetupAPI can bind the catalog at install time (I03)
@@ -6898,7 +6823,7 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
     }
 
     Set-DebugStep 'V02: InfVerif validation on patched INF'
-    # r7: V02 - Post-patch InfVerif validation (Stage 1 of validation-
+    # V02 - Post-patch InfVerif validation (Stage 1 of validation-
     # first design). Run InfVerif against the fully patched INF to
     # confirm that:
     #   - InfVerif ERROR 1204 (Provider=Microsoft) is resolved
@@ -6909,7 +6834,7 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
     # If InfVerif is not available, we WARN but proceed - downstream
     # P08 inf2cat still catches the critical structural issues.
     #
-    # r7-update (final): use splatting + try/catch (see V01 in P05 for
+    # a previous update (final): use splatting + try/catch (see V01 in P05 for
     # the rationale - PS 5.1 ArgumentException with backtick continuation).
     # Unlike V01, V02 IS a gating check: if InfVerif rejects the patched
     # INF the script throws and aborts P06. But we still wrap the call
@@ -6956,8 +6881,8 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
     }
 
     $Ctx.PatchedBthPanInfPath = $dstInf
-    $Ctx.ExpectedCatalogName  = $catalogName  # r7: makecat fallback consumes this
-    # r7-update: hoist inline-if out of the hashtable for PS 5.1 safety
+    $Ctx.ExpectedCatalogName  = $catalogName  # makecat fallback consumes this
+    # Hoist inline-if out of the hashtable for PS 5.1 safety
     $infVerifMarkerStatus = if ($infVerifResult.ToolMissing) { 'skipped' } elseif ($infVerifResult.Validated) { 'pass' } else { 'fail' }
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'P06' -Metadata @{
         OutputPath        = $dstInf
@@ -7149,7 +7074,7 @@ function Invoke-InfVerifValidation {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)] [string]$InfPath,
-        # r7: AllowNull/AllowEmptyString - the caller may pass $Ctx.InfVerif
+        # AllowNull/AllowEmptyString - the caller may pass $Ctx.InfVerif
         # which is $null when infverif.exe is not installed. PowerShell 5.1
         # parameter binding throws ArgumentException on $null -> [string]
         # coercion in some contexts (specifically backtick line continuation
@@ -7159,7 +7084,7 @@ function Invoke-InfVerifValidation {
         [string]$InfVerifPath,
         [AllowNull()][AllowEmptyString()]
         [string]$LogPath,
-        # r7-update: removed empty string '' from ValidateSet. Empty mode
+        # Removed empty string '' from ValidateSet. Empty mode
         # is not a documented InfVerif behaviour and including '' here
         # has been observed to interact badly with parameter binding
         # in some PS 5.1 builds. Callers that want "no mode" can pass
@@ -7168,7 +7093,7 @@ function Invoke-InfVerifValidation {
         [string]$Mode = 'k'
     )
 
-    # r7-update: retrofitted to use the Section 1b Debug Trace Facility
+    # Retrofitted to use the Section 1b Debug Trace Facility
     # instead of manual $debugStep tracking. Behavior is identical -
     # Set-DebugStep marks each checkpoint, Format-DebugFailure inside
     # the catch reads the failing step name from the active frame, and
@@ -7204,7 +7129,7 @@ function Invoke-InfVerifValidation {
         $modeFlag = "/$Mode"   # e.g. '/k'
         $verbose  = '/v'
 
-        # r7-fix v2: Use [System.Diagnostics.ProcessStartInfo] + Process.Start
+        # an earlier fix: Use [System.Diagnostics.ProcessStartInfo] + Process.Start
         # directly. This is the most bulletproof invocation pattern on PS 5.1
         # - completely avoids the call operator (&), Start-Process cmdlet,
         # and stream-redirection (2>&1 | Out-String) which had each been
@@ -7251,8 +7176,8 @@ function Invoke-InfVerifValidation {
 
         Set-DebugStep 'parse errors'
         # Parse ERROR lines. Real InfVerif output examples:
-        #   ERROR(1233) in C:\path\bthpan.inf, line 14: Missing directive ...
-        #   ERROR(1204) in C:\path\bthpan.inf, line 15: Provider cannot be ...
+        #   ERROR(1233) in C:\path\bthpan.inf, line 14: Missing directive...
+        #   ERROR(1204) in C:\path\bthpan.inf, line 15: Provider cannot be...
         $parsedErrors = New-Object System.Collections.Generic.List[object]
         foreach ($rawLine in ($rawOutput -split "`r?`n")) {
             if ($rawLine -match '^\s*ERROR\(\s*(\d+)\s*\)\s+(?:in\s+\S+,\s+)?line\s+(\d+):\s*(.+?)\s*$') {
@@ -7288,9 +7213,9 @@ function Invoke-InfVerifValidation {
         }
 
         Set-DebugStep 'return result'
-        # r7-fix v3 (root cause resolved):
+        # an earlier fix (root cause resolved):
         #
-        # Replace @($parsedErrors) with $parsedErrors.ToArray().
+        # Replace @($parsedErrors) with $parsedErrors.ToArray .
         # Test-InfVerifReturnRepro.ps1 isolated this exact pattern as a
         # PowerShell 5.1 bug on ja-JP builds:
         #
@@ -7300,16 +7225,16 @@ function Invoke-InfVerifValidation {
         # operator applied to a Generic.List[object] - appears as a
         # VALUE inside a hashtable that is then cast to [pscustomobject]
         # (or new-object'd into a PSObject via -Property). The very same
-        # @() expression assigned to a plain variable works fine; only
+        # @ expression assigned to a plain variable works fine; only
         # the hashtable-value -> pscustomobject conversion path trips it.
         #
         # All three of these workarounds were verified to PASS on the
         # affected PS 5.1 build:
-        #   - $list.ToArray()
+        #   - $list.ToArray
         #   - foreach { $arr += $e }
-        #   - literal @() with no inner expansion
+        #   - literal @ with no inner expansion
         #
-        # We use .ToArray() because (a) it's the most explicit, (b) it
+        # We use.ToArray because (a) it's the most explicit, (b) it
         # always returns a properly-typed array (object[] for List[object]),
         # and (c) it works for both empty and non-empty lists without
         # branching.
@@ -7559,10 +7484,10 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
     $proc = Start-Process -FilePath $inf2cat -ArgumentList $cmdArgs -NoNewWindow -Wait -PassThru ` # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
         -RedirectStandardOutput $logPath -RedirectStandardError ($logPath + '.err')
     $elapsed = (Get-Date) - $start
-    # r6: Format-Elapsed expects [TimeSpan], not [Double]. Passing
+    # Format-Elapsed expects [TimeSpan], not [Double]. Passing
     # $elapsed (TimeSpan) directly; passing $elapsed.TotalSeconds (Double)
     # would cause "Cannot convert value to type System.TimeSpan" runtime
-    # error - a latent bug that surfaced only after r3/r4 unblocked the
+    # error - a latent bug that surfaced only after an earlier revision/unblocked the
     # earlier phases so P08 actually got to execute.
     Write-Detail "Elapsed : $(Format-Elapsed $elapsed)"
     Write-Detail "Log     : $logPath"
@@ -7581,7 +7506,7 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
         }
     }
 
-    # r7: If inf2cat still failed, inspect the log for known inbox-driver
+    # If inf2cat still failed, inspect the log for known inbox-driver
     # signability conflicts. The Microsoft inbox bthpan.sys triggers
     # Signability test rule 22.9.8 ("Windows 10/Server 10 file redistribution
     # violation") because inf2cat treats Microsoft-owned binaries as
@@ -7627,7 +7552,7 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
 
     Set-DebugStep 'enumerate produced catalog files'
     # Discover produced catalog files (works for both inf2cat success
-    # and makecat fallback - both write the .cat into $patchedDir).
+    # and makecat fallback - both write the.cat into $patchedDir).
     $cats = @(Get-ChildItem -LiteralPath $patchedDir -Filter '*.cat' -ErrorAction SilentlyContinue)
     if ($cats.Count -eq 0) {
         $sourceTool = if ($usedMakecatFallback) { 'makecat' } else { 'inf2cat' }
@@ -7782,7 +7707,7 @@ function Invoke-VerifyPhase02_VerifyCertificate {
     }
 
     Set-DebugStep 'load X509Certificate2 from PFX'
-    # Use .NET API instead of Get-PfxCertificate so the password is
+    # Use.NET API instead of Get-PfxCertificate so the password is
     # supplied non-interactively (PFX is password-protected from P07).
     $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($pfx, $Ctx.PfxPassword)
     Write-Host "  Subject       : $($cert.Subject)"
@@ -7998,7 +7923,7 @@ function Invoke-VerifyPhase03_VerifyCatalogs { # psa-disable-line PSA6003 -- com
 
             if ($isExpected) {
                 $failExpected++
-                # r31: print first 3 [skip] lines explicitly so the
+                # Print first 3 [skip] lines explicitly so the
                 # operator can see at least a few catalog names; after
                 # that, suppress further per-catalog noise. The full
                 # count appears in the verification summary below.
@@ -8016,7 +7941,7 @@ function Invoke-VerifyPhase03_VerifyCatalogs { # psa-disable-line PSA6003 -- com
             if (-not $firstFailureLogged) {
                 $firstFailureLogged = $true
                 Write-Host ''
-                Write-Host '    ========== FIRST VERIFY FAILURE - LOG DUMP ==========' -ForegroundColor Yellow
+                Write-Host ' ========== FIRST VERIFY FAILURE - LOG DUMP ==========' -ForegroundColor Yellow
                 Write-Detail "Catalog: $($cat.FullName)" -Color DarkYellow
                 Write-Detail "Classified as: $(if ($isExpected) { 'EXPECTED (untrusted root)' } else { 'REAL FAILURE' })" -Color DarkYellow
                 Write-Host '    -----------------------------------------------------' -ForegroundColor DarkGray
@@ -8084,7 +8009,7 @@ function Test-InfHasServerDecoration {
         if (-not $inMfg)                   { continue }
         if (-not $t -or $t.StartsWith(';')) { continue }
 
-        # Parse "%name% = SectionName, dec1, dec2, ..."
+        # Parse "%name% = SectionName, dec1, dec2,..."
         $kv = $t -split '=', 2
         if ($kv.Count -ne 2) { continue }
         $rhs = $kv[1].Split(',')
@@ -8099,7 +8024,7 @@ function Test-InfHasServerDecoration {
             # ProductType field (parts[3]) may be:
             #   '3' - explicit Server-only (Server is supported)
             #   '1' - explicit Workstation-only (Server is NOT supported)
-            #   ''  - empty = "any product type", which INCLUDES Server
+            #   '' - empty = "any product type", which INCLUDES Server
             # Both '3' and '' satisfy "this decoration permits Server
             # installation". An INF whose [Manufacturer] only carries
             # decorations like 'NTamd64.10.0...22000' (empty ProductType
@@ -8157,7 +8082,7 @@ function Invoke-VerifyPhase04_VerifyInfs { # psa-disable-line PSA6003 -- compoun
             # quickest way to diagnose any future regression in P06.
             if ($failCount -eq 1) {
                 Write-Host ''
-                Write-Host '    ========== FIRST V04 FAILURE - [Manufacturer] DUMP ==========' -ForegroundColor Yellow
+                Write-Host ' ========== FIRST V04 FAILURE - [Manufacturer] DUMP ==========' -ForegroundColor Yellow
                 Write-Detail "INF: $($inf.FullName)" -Color DarkYellow
                 Write-Detail "Encoding: $($infData.EncodingName)" -Color DarkYellow
                 Write-Host '    -----------------------------------------------------' -ForegroundColor DarkGray
@@ -8202,7 +8127,7 @@ function Invoke-VerifyPhase05_DryRunInstall {
     }
     Write-Ok ("Patched INF: {0}" -f $Ctx.PatchedBthPanInfPath)
 
-    # Confirm at least one .cat is present in the same directory
+    # Confirm at least one.cat is present in the same directory
     $patchedDir = Split-Path -Parent $Ctx.PatchedBthPanInfPath
     $cats = @(Get-ChildItem -LiteralPath $patchedDir -Filter '*.cat' -ErrorAction SilentlyContinue)
     if ($cats.Count -eq 0) {
@@ -8440,7 +8365,7 @@ function Invoke-InstPhase00_PreInstallReview {
     Set-DebugStep 'Section B: boot-signing environment'
     Write-SubHeader 'I00 Section B: Boot-signing environment'
     try {
-        # r8-update8: Show-BootSigningEnvironment requires a -BootEnv
+        # a previous update: Show-BootSigningEnvironment requires a -BootEnv
         # parameter (BootEnv object), not a $Ctx. Build the BootEnv via
         # Update-BootSigningEnvironmentForCtx (which inspects WDAC
         # marker via $Ctx) and pass the resulting object. The previous
@@ -8494,7 +8419,7 @@ function Invoke-InstPhase01_TrustCertificate {
 
     Set-DebugStep 'resume check: cert already trusted?'
     # Resume check.
-    # r8-update9: Test-CertAlreadyTrusted's signature is
+    # a previous update: Test-CertAlreadyTrusted's signature is
     # `param([Parameter(Mandatory)] $Ctx)`. The previous call passed
     # `-Thumbprint $Ctx.CertThumbprint` and raised
     # "パラメーター名 'Thumbprint' に一致するパラメーターが見つかりません".
@@ -8533,7 +8458,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     #   PATH A (default, RECOMMENDED): WDAC supplemental policy
     #     - Build a Code Integrity supplemental policy XML that ONLY
     #       allowlists our cert as a kernel-mode signer.
-    #     - Convert to .cip and deploy under
+    #     - Convert to.cip and deploy under
     #       %SystemRoot%\System32\CodeIntegrity\CiPolicies\Active.
     #     - Activate via CiTool.exe --update-policy (immediate, NO
     #       reboot needed on WS2022+ / Windows 11 22H2+).
@@ -8549,7 +8474,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     #     - The script will REFUSE this path when Secure Boot is on,
     #       unless -Force is also passed.
     #
-    # Renamed from Invoke-InstPhase02_EnableTestSigning in r30 to
+    # Renamed from Invoke-InstPhase02_EnableTestSigning to
     # accurately reflect that the default path is WDAC, not testsigning.
     # The phase ID 'I02' is unchanged and the old phase name
     # 'EnableTestSigning' remains accepted by Resolve-PhaseSelection
@@ -8584,7 +8509,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     Show-BootSigningEnvironment -BootEnv $bootEnvBefore
     Write-Host ''
 
-    # ---- UEFI Secure Boot baseline pre-check (r49) ----
+    # ---- UEFI Secure Boot baseline pre-check ----
     # Cross-check the firmware-layer UEFI Secure Boot state before we
     # touch the OS-layer signing surface. This is a SOFT pre-check: we
     # never block I02 on UEFI cert rollout state (the rollout and our
@@ -8661,7 +8586,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
             if ($rm.Removed) { Write-Ok 'Old policy removed.' } else { Write-Warn2 'Could not remove old policy; proceeding anyway.' }
         }
 
-        # Need the .cer (P07 product). Allow -Force to skip the check.
+        # Need the.cer (P07 product). Allow -Force to skip the check.
         $cer = if ($Ctx.CertCerPath) { $Ctx.CertCerPath } else { Join-Path $Ctx.Paths.Cert 'MS-BthPan-Driver-CodeSign.cer' }
         if (-not (Test-Path $cer)) {
             throw "I02: cert file not found at $cer - run P07 (CreateCertificate) first."
@@ -8684,7 +8609,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
         Write-Step 'Converting XML to .cip binary and deploying to active CI policies...'
         $deploy = Install-MsBthPanWdacPolicy -XmlPath $xmlPath -BinaryOutPath $cipPath
         Write-Ok ('Deployed: {0}' -f $deploy.DeployedPath)
-        # r57: migrated from bare Write-Host '    ...' to Write-Detail
+        # Migrated from bare Write-Host '...' to Write-Detail
         # for SPEC A.5 compliance. CiToolStatusLine is parsed from the
         # --json envelope and is the canonical success message string.
         Write-Detail ('Activation method: {0}' -f $deploy.ActivationMethod) -Color Gray
@@ -8709,7 +8634,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
             Write-Host '  You can proceed to I03 (InstallDrivers) right away.' -ForegroundColor Green
         }
         Write-Host ''
-        # r57: bare Write-Host '    ...' continuation lines migrated to
+        # Bare Write-Host '...' continuation lines migrated to
         # Write-Detail (SPEC A.5). The two CiTool.exe command strings
         # below stay at column 4 visually but go through the helper.
         Write-Detail 'Reversal (when you are done with this lab):' -Color DarkGray
@@ -8886,13 +8811,13 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
             Write-Skip ("Driver package already in store (exit=259): {0}" -f (Split-Path -Leaf $Ctx.PatchedBthPanInfPath))
         } elseif ($exit -eq 3010) {
             Write-Ok ("Installed with REBOOT required: {0}" -f (Split-Path -Leaf $Ctx.PatchedBthPanInfPath))
-            # r8-update9: param name is -Source, not -Phase (I02 call at
+            # a previous update: param name is -Source, not -Phase (I02 call at
             # line 8731 already uses -Source correctly).
             Set-PendingRebootMarker -Ctx $Ctx -Source 'I03'
         } else {
             Write-Ok ("Installed: {0}" -f (Split-Path -Leaf $Ctx.PatchedBthPanInfPath))
         }
-        # r6: Format-Elapsed expects [TimeSpan], not [Double] - same fix as P08 (see P08 comment).
+        # Format-Elapsed expects [TimeSpan], not [Double] - same fix as P08 (see P08 comment).
         Write-Detail ("Elapsed: {0}, log: {1}" -f (Format-Elapsed $elapsed), $logPath)
     } else {
         $tail = (Get-Content -LiteralPath $logPath -Tail 30 -ErrorAction SilentlyContinue) -join "`n"
@@ -9094,7 +9019,7 @@ function Show-ReferenceLinks { # psa-disable-line PSA6003 -- compound noun (e.g.
     #
     # Display modes:
     #   (default) - full categorized table with explanatory blurbs
-    #   -Compact  - one-line pointer telling the user how to see the
+    #   -Compact - one-line pointer telling the user how to see the
     #               full table; used by I00 to keep its output short.
     param([switch]$Compact)
 
@@ -9318,11 +9243,11 @@ function Show-Help {
     Write-Host ''
     Write-Host '  Workspace' -ForegroundColor DarkGray
     Write-Host '    -WorkRoot <path>         Working directory.' -ForegroundColor Yellow
-    Write-Host '                             Default: C:\Temp\Workspace_Microsoft-BthPan (r2+)'
+    Write-Host '                             Default: C:\Temp\Workspace_Microsoft-BthPan'
     Write-Host '    -CleanWorkRoot           Delete -WorkRoot before running anything.' -ForegroundColor Yellow
     Write-Host '    -Force                   Bypass cached phase markers (force re-run).' -ForegroundColor Yellow
     Write-Host ''
-    Write-Host '  Console transcript capture (r2+)' -ForegroundColor DarkGray
+    Write-Host '  Console transcript capture' -ForegroundColor DarkGray
     Write-Host '    -LogFile <path>          Capture full transcript to file while' -ForegroundColor Yellow
     Write-Host '                             keeping console colors. Recommended:'
     Write-Host '                             C:\Temp\ms-bthpan_<Action>_<yyyyMMdd-HHmmss>.log'
@@ -9395,20 +9320,20 @@ if ($Action -eq 'ListPhases') {
 }
 
 # ----- Build context -----
-# NOTE (r4): $Ctx is a [pscustomobject] with a FIXED schema. Every
+# NOTE: $Ctx is a [pscustomobject] with a FIXED schema. Every
 # property assigned later by a phase function (e.g. $Ctx.BthPanSource
 # = $src in P03) MUST be pre-declared here, otherwise PowerShell
 # throws "このオブジェクトにプロパティ 'X' が見つかりません" /
-# "The property 'X' cannot be found on this object". Pre-r4 builds
+# "The property 'X' cannot be found on this object". Previously builds
 # of this script were copied from the AMD chipset/graphics scripts
 # and inherited that family's property set, but the BthPan-specific
 # properties (BthPanSource, ExtractedBthPanDir, BthPanInfMetadata,
 # BthPanInfPath, PatchedBthPanInfPath, PatchedBthPanDir,
-# PatchedCatalogs, DecorationStrategy) were never added. Pre-r3
+# PatchedCatalogs, DecorationStrategy) were never added. Previously
 # this latent bug was masked because P03 always failed before
-# reaching `$Ctx.BthPanSource = $src`. r3 fixed P03's .cat
+# reaching `$Ctx.BthPanSource = $src`. fixed P03's.cat
 # precondition (WS2025-compat), which exposed this assignment to
-# the missing-property error. r4 adds all BthPan-specific
+# the missing-property error. adds all BthPan-specific
 # properties to the initial schema below.
 $Ctx = [pscustomobject]@{
     # Params
@@ -9425,41 +9350,41 @@ $Ctx = [pscustomobject]@{
 
     # Populated by phases - shared with AMD-family sister scripts
     Os = $null; Paths = $null
-    SevenZip = $null; Signtool = $null; Inf2cat = $null; Makecat = $null; InfVerif = $null  # r7: Makecat for inbox-driver fallback; InfVerif for pre/post-patch validation
+    SevenZip = $null; Signtool = $null; Inf2cat = $null; Makecat = $null; InfVerif = $null  # Makecat for inbox-driver fallback; InfVerif for pre/post-patch validation
     Installer = $null; InfInventory = $null; InfInventoryDetail = $null; PatchResults = @()
     CertPfxPath = $null; CertCerPath = $null; CertThumbprint = $null
 
-    # r7: InfVerif validation results (Stage 1 of the validation-first design)
+    # InfVerif validation results (Stage 1 of the validation-first design)
     InfVerifPrePatch  = $null   # Result of Invoke-InfVerifValidation on source bthpan.inf (V01)
     InfVerifPostPatch = $null   # Result of Invoke-InfVerifValidation on patched bthpan.inf (V02)
 
-    # r45: list of phase IDs that will execute this run (used by P00's
+    # List of phase IDs that will execute this run (used by P00's
     # Workstation-Install guard to know whether any I-phase is queued).
     SelectedPhaseIds = @()
 
-    # r49: UEFI Secure Boot baseline snapshot. Captured at P00 and
+    # UEFI Secure Boot baseline snapshot. Captured at P00 and
     # consumed by P05 (report appendix), V05/V06 (display), I02
     # (pre-check). Pre-declared as $null here so plain '.' assignment
     # works on the [pscustomobject] without requiring Add-Member.
     SecureBootBaseline = $null
 
-    # r4: BthPan-specific properties. Pre-declared so phase functions
+    # BthPan-specific properties. Pre-declared so phase functions
     # can use plain '.' assignment without Add-Member.
     BthPanSource         = $null   # P03 sets   (DriverStore source pscustomobject)
     ExtractedBthPanDir   = $null   # P04 sets   (workspace\extracted\bthpan path)
     BthPanInfMetadata    = $null   # P05 sets   (INF inventory metadata pscustomobject)
     BthPanInfPath        = $null   # P05 sets   (path to bthpan.inf in extracted dir)
     PatchedBthPanInfPath = $null   # P06 sets   (path to patched bthpan.inf)
-    ExpectedCatalogName  = $null   # P06 sets   (r7: bare filename of catalog to be generated, e.g. 'bthpan.cat')
+    ExpectedCatalogName  = $null   # P06 sets   (bare filename of catalog to be generated, e.g. 'bthpan.cat')
     PatchedBthPanDir     = $null   # P08 sets   (path to patched dir hosting catalogs)
     PatchedCatalogs      = @()     # P08 sets   (full paths to generated .cat files)
-    CatalogGenStrategy   = $null   # P08 sets   (r7: 'inf2cat' or 'makecat-fallback' - reflects which tool actually produced the .cat)
+    CatalogGenStrategy   = $null   # P08 sets   ('inf2cat' or 'makecat-fallback' - reflects which tool actually produced the .cat)
 
-    # r8-update6: Verify/Install phase outputs. Same pre-declare-as-null
+    # a previous update: Verify/Install phase outputs. Same pre-declare-as-null
     # discipline so V05/V06/I04 phase bodies can use plain '.' assignment.
     # Missing these declarations caused SetValueInvocationException
     # ('property not found on this object') when -Action PrepareVerify
-    # reached V05 for the first time (see r8-update6 changelog).
+    # reached V05 for the first time (see a previous update changelog).
     V05DryRunPlan        = $null   # V05 sets   (hashtable: HasDevice, Classification, predicted I03 outcome)
     V06DeviceStates      = $null   # V06 sets   (per-device classification array)
     V06RuntimeArtifacts  = $null   # V06 sets   (Test-BthPanRuntimeArtifacts result pscustomobject)
@@ -9508,15 +9433,15 @@ $mandatoryIds = @('P00','P01')
 $mandatory = $Script:PhaseRegistry | Where-Object { $_.Id -in $mandatoryIds -and $_.Id -notin ($selected | ForEach-Object Id) }
 $queue = @($mandatory) + @($selected)
 
-# r45: stash the phase-ID list on the context so P00 can see whether
+# Stash the phase-ID list on the context so P00 can see whether
 # any Install phase (I01-I04) is queued without re-resolving phases.
 $Ctx.SelectedPhaseIds = @($queue | ForEach-Object Id)
 
 # ----- Execute -----
-# r55: wrap the whole phase loop + summary in a try/finally so the
+# Wrap the whole phase loop + summary in a try/finally so the
 # workspace lock (acquired in P01 via Assert-NoConcurrentRun) is
 # released on EVERY exit path - normal completion, phase throw, or
-# top-level error. The pre-r55 design relied solely on the
+# top-level error. The earlier design relied solely on the
 # Register-EngineEvent PowerShell.Exiting hook in Set-WorkspaceLock,
 # which only fires when the PowerShell host process itself exits.
 # In an interactive console (where the host is reused across many
@@ -9527,7 +9452,7 @@ $Ctx.SelectedPhaseIds = @($queue | ForEach-Object Id)
 # detection in Test-WorkspaceLockHeld together close that gap.
 try {
     foreach ($phase in $queue) {
-        # r7+: open a per-phase debug trace frame. Set-DebugStep calls
+        # Open a per-phase debug trace frame. Set-DebugStep calls
         # inside the phase body are automatically attributed to this
         # frame; the JSONL stream and the phase registry both record
         # frame.open / step / frame.close events. The PhaseId parameter
@@ -9541,7 +9466,7 @@ try {
         } catch {
             $phaseFailed = $true
             Write-Fail "$($phase.Id) [$($phase.Name)] failed: $($_.Exception.Message)"
-            # r7+: emit structured failure report. -AutoExport writes a
+            # Emit structured failure report. -AutoExport writes a
             # debugtrace_export_<phaseId>_<ts>.json snapshot to
             # <WorkRoot>\logs (configured in P01 via
             # Enable-AutoExportOnPhaseFailure). The exact path is then
@@ -9568,7 +9493,7 @@ try {
     Write-Host " Script SHA256   : $($Script:ScriptHash)" -ForegroundColor DarkCyan
     Write-Host " OS              : $($Ctx.Os.Name) (build $($Ctx.Os.ActualBuild))"
     Write-Host " Workspace       : $($Ctx.WorkRoot)"
-    # r8-update4: surface -LogFile auto-relocation when it kicked in,
+    # a previous update: surface -LogFile auto-relocation when it kicked in,
     # so the operator immediately sees where their transcript actually
     # landed (vs. the path they originally typed).
     if ($Script:LogFileRelocation) {
@@ -9612,7 +9537,7 @@ try {
         Write-Host ('   {0,-5} {1,-23} {2,-8} {3,10}' -f 'SUM','(phase total)','', (Format-Elapsed ([TimeSpan]::FromSeconds($sumSeconds)))) -ForegroundColor Cyan
     }
 
-    # r7+: Debug Trace status panel. Always-on file output means there
+    # Debug Trace status panel. Always-on file output means there
     # is something interesting to report - the JSONL stream path, write
     # count, and any per-phase failure references with their auto-
     # exported JSON snapshot. This is critical when something failed:
@@ -9673,7 +9598,7 @@ try {
     Write-Host '============================================================' -ForegroundColor Magenta
 }
 finally {
-    # r8+: -ExportTraceOnExit switch handling. When the user passed
+    # -ExportTraceOnExit switch handling. When the user passed
     # -ExportTraceOnExit, write a final JSON snapshot of the trace state
     # to <WorkRoot>\logs\debugtrace_export_final_<timestamp>.json. This
     # runs INSIDE the finally so it executes regardless of how we got
@@ -9693,7 +9618,7 @@ finally {
         }
     }
 
-    # r55: release the workspace lock regardless of how we got here.
+    # Release the workspace lock regardless of how we got here.
     # Safe to call when the lock was never acquired (e.g. failure
     # before P01) because Clear-WorkspaceLock is idempotent and a
     # no-op when the lock file does not exist or $Ctx.Paths is null.
@@ -9701,7 +9626,7 @@ finally {
         try { Clear-WorkspaceLock -Ctx $Ctx } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup in finally; a failure here must not mask the original exception
     }
 
-    # r2: close the transcript opened in SECTION 0.25. Idempotent;
+    # Close the transcript opened in SECTION 0.25. Idempotent;
     # best-effort, must not mask the original exception (if any).
     if ($Script:LogFileActive) {
         try {

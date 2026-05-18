@@ -17,6 +17,7 @@ PowerShell pipeline that makes AMD's consumer-targeted Ryzen chipset, Radeon gra
 - [Why this exists](#why-this-exists)
 - [⚠️ Disclaimer (read before running)](#%EF%B8%8F-disclaimer-read-before-running)
 - [What's in the box](#whats-in-the-box)
+- [What's new](#whats-new)
 - [Risk classification of the four scripts](#risk-classification-of-the-four-scripts)
 - [Scope of coverage](#scope-of-coverage)
 - [Folder layout](#folder-layout)
@@ -38,6 +39,14 @@ PowerShell pipeline that makes AMD's consumer-targeted Ryzen chipset, Radeon gra
 - [References](#references)
 - [License](#license)
 - [Contributing](#contributing)
+
+Related documents:
+
+- [`CHANGELOG.md`](./CHANGELOG.md) — chronological per-release change log (English only)
+- [`SPEC.md`](./SPEC.md) — developer specification (architecture, conventions, design rationale; English only)
+- [`TESTING.md`](./TESTING.md) — physical-hardware validation results and regression checklist (English only)
+- [`CONTRIBUTING.md`](./CONTRIBUTING.md) — how to file issues, propose changes, and run regression tests (English only)
+- [`README.ja.md`](./README.ja.md) — Japanese translation of this document, kept in sync
 
 ---
 
@@ -83,48 +92,30 @@ For the full at-your-own-risk acknowledgements (BitLocker, anti-cheat software, 
 | `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | Graphics driver pipeline (Display, HD Audio, Audio CoProcessor, ACP, USB-C UCSI, etc.). Source: AMD Adrenalin Edition ~600 MB EXE, ~19 INFs (Vega-Polaris Legacy branch) or ~67 INFs (Main Adrenalin branch for Phoenix+). | **Stable** — same validation hosts as chipset. |
 | **`Deploy-AMDNpuDriverOnWindowsServer.ps1`** | **NPU (Ryzen AI XDNA) driver pipeline (PHX/HPT/STX/KRK).** Source: AMD Ryzen AI Software ZIP, ~250 MB, EULA-gated download (no public direct URL). Kernel-mode driver only — does NOT install Ryzen AI Software user-mode stack. | **🆘 Experimental / research-grade — NOT production-ready.** No physical-NPU validation runs have been performed. AMD account auto-download is best-effort and may break with AMD form changes. Ryzen AI Software is officially unsupported on Windows Server 2025. |
 | `Deploy-MSBthPanInboxOnWindowsServer.ps1` | **Microsoft inbox Bluetooth PAN driver (`bthpan.inf` / `bthpan.sys`) enablement pipeline.** Source: the host's own `C:\Windows\System32\DriverStore\FileRepository\bthpan.inf_amd64_*` directory — **no remote download required.** Single INF, single HWID (`BTH\MS_BTHPAN`). Distinguishes Phantom OK (bth.inf proxy match) from true resolution (Class=Net, Service=BthPan) on Windows Server. | **New** (r1) — initial release. Logic shares the same Phase / Secure Boot / WDAC framework as the AMD scripts; INF patch surface is much smaller (1 INF, 1 HWID). Physical validation on ThinkPad + Intel AX210 + WS2025 build 26100.32860 is the planned first test target. |
-| `README.md` | This document. |  |
-| `README.ja.md` | Japanese translation. |  |
-| `SPEC.md` | Developer specification (per-script details, INF parsing strategy, WDAC policy structure). |  |
-| `SPEC.ja.md` | Japanese translation of SPEC.md. |  |
-| `TESTING.md` | Physical-hardware validation results. Includes the NPU script's far weaker validation status. |  |
-| `TESTING.ja.md` | Japanese translation of TESTING.md. |  |
-| `CONTRIBUTING.md` | How to file issues, propose changes, and run regression tests. |  |
+| `README.md` | This document (English; the master). |  |
+| `README.ja.md` | Japanese translation of `README.md`, kept in sync. |  |
+| `SPEC.md` | Developer specification (per-script details, INF parsing strategy, WDAC policy structure). **English only.** |  |
+| `TESTING.md` | Physical-hardware validation results. Includes the NPU script's far weaker validation status. **English only.** |  |
+| `CHANGELOG.md` | Chronological per-release change log. **English only.** |  |
+| `CONTRIBUTING.md` | How to file issues, propose changes, and run regression tests. **English only.** |  |
 | `LICENSE` | MIT License. |  |
 
 All four PowerShell scripts share the same 21-phase architecture, the same self-signing model, and the same WDAC authorisation path. They write to separate workspaces (`C:\Temp\Workspace_AMD-Chipset`, `C:\Temp\Workspace_AMD-Graphics`, `C:\Temp\Workspace_AMD-NPU`, `C:\Temp\Workspace_Microsoft-BthPan`) and use separate self-signed certificates + separate WDAC supplemental policy GUIDs so they never collide. From Chipset r59 / Graphics r27 / NPU r9 / BthPan r9, all four workspaces are relocated under `C:\Temp\Workspace_*` for cluster-and-purge convenience; the script auto-creates `C:\Temp` on demand.
 
 ---
 
-## What's new in 2026-05-18 (r60 / r28 / r10 / r10)
+## What's new
 
-This release is a **cross-script consistency pass + psa.py 3.2.0 integration**. No new pipeline features were added; existing functionality is preserved end-to-end. Highlights:
+See [CHANGELOG.md](./CHANGELOG.md) for the chronological per-release entry log
+(every revision from r1 onward, organised by date and by script). For the
+architectural rationale behind individual fixes, see
+[SPEC.md Part D](./SPEC.md#part-d--known-pitfalls--lessons-learned).
 
-- **AMDNpu helper-function parity**. The NPU script (r9 → r10) gained the helper functions that had remained un-ported from the BthPan r9 work: `Write-Detail` (4-space indented continuation rows), `Assert-PowerShellCompatibility` (hard-fail pre-flight separated from `Show-PowerShellEnvironment` display), and a hash-matched canonical `Show-PowerShellEnvironment` (169 lines, the same body used by Chipset / Graphics / MSBthPan). The previous AMDNpu-specific `Test-AdminPrivilege` and `Set-NetworkProtocol` are renamed to `Assert-Admin` and `Set-Tls12` to match the sister scripts. `Set-Tls12` adopts the canonical Chipset / Graphics / MSBthPan body (TLS 1.2 + TLS 1.3 when available; **TLS 1.0 / 1.1 are intentionally excluded** per RFC 8996); the previous AMDNpu body that enabled Tls10 / Tls11 has been removed as a security regression.
-
-- **AMDNpu now ships its own NPU-specific `Show-DriverInstallationOrderNotice`**, plus simplified `Get-BootSigningEnvironment` / `Show-BootSigningEnvironment` stubs (Secure Boot + testsigning probe only; full WDAC enumeration remains in the Chipset / Graphics / MSBthPan family).
-
-- **psa.py 3.2.0 baseline**. Every PowerShell script in the repository now passes `psa.py --config .psa.config.json` with **0 errors / 0 warnings / 0 info**. This is the first revision where the canonical static-analysis baseline is fully clean across all four scripts simultaneously. The repository ships a new `.psa.config.json` (see [Static analysis](#psapy--powershell-static-analyzer) below) that opts in to the project-pipeline rules (PSAP0001 phase-naming, PSAP0002 script-identifier presence) and configures PSA8001 (cross-file function-body drift) to ignore the script-specific phase functions.
-
-- **Sister-script consistency enforcement**. PSA8001 (new in psa.py 3.2.0) now actively guards **34 shared helper functions** across all four scripts (including `Format-Elapsed`, `Write-Detail`, the full `Start-DebugTrace` / `Stop-DebugTrace` / `Write-DebugFailureReport` family, `Export-DebugTraceJson`, every member of the Secure Boot baseline diagnostic trio, the four `Write-*` log-line helpers, and the entire `_DebugTrace_*` private helper set). Any future PR that lets these drift across the four scripts will fail the static-analysis gate.
-
-- **psa.py 3.2.0 false-positive fixes (silent)**. The earlier `PSA1001` (brace imbalance) and `PSA2001` (undefined-variable) false positives observed against r59 / r27 in Chipset / Graphics were psa.py tokenizer bugs around PowerShell's `""` (double-quote-doubling) escape and the `` `` `` (double-backtick) escape, plus mis-handling of `$Script:` scope qualifiers as references. Fixed in psa.py 3.2.0; no script-side change was required.
-
-Bug fixes carried forward from the 2026-05-17 release (r59 / r27 / r9 / r9): Debug Trace Facility (SECTION 1b), `Resume-CtxFromWorkspace` rehydration, `-LogFile` auto-relocation (SECTION 0.25), and the PS 5.1 ja-JP `Split-Path -LiteralPath` bug avoidance via `[System.IO.Path]::GetDirectoryName()`.
-
-## What's new in 2026-05-17 (r59 / r27 / r9 / r9)
-
-The four scripts share a synchronised 2026-05-17 release. Each crossed an independent revision counter — Chipset → r59, Graphics → r27, NPU → r9, BthPan → r9 — but the substantive changes are the same Debug-Trace-and-resume bundle, lifted from BthPan's r2-through-r9 work and then ported into each sister script. Highlights:
-
-- **Debug Trace Facility (SECTION 1b, ~882 lines per script)**. A reusable diagnostic helper with 14 functions (`Start-DebugTrace` / `Set-DebugStep` / `Stop-DebugTrace` / `Format-DebugFailure` / `Write-DebugFailureReport` / file-output / auto-export-on-failure / JSON snapshot). Call-site `Set-DebugStep` checkpoints are placed across every P/V/I phase function (~92 calls in Chipset / Graphics, 44 in NPU due to its smaller phase bodies). When a phase fails, you get a JSONL stream plus a self-contained snapshot JSON under `<WorkRoot>\logs\` showing the exact step that failed.
-
-- **`Resume-CtxFromWorkspace` rehydration helper**. Lets `-Action Verify` and `-Action Install -OnlyPhases I01` run against a workspace that was prepared in a previous run, without re-executing P02-P09. Chipset / Graphics / BthPan reconstruct the `$Ctx` PSCustomObject; NPU (which uses `$Script:` scope variables computed at param-block time) ships a lighter diagnostic-only variant that detects pre-existing PFX / CER / patched INFs and emits a one-line confirmation.
-
-- **`-LogFile` auto-relocation (SECTION 0.25)**. When the supplied `-LogFile` path is outside the workspace, the script auto-relocates it under `<script-dir>\` (or `%TEMP%\` as fallback) and verifies `Start-Transcript` actually wrote bytes to disk (no more silent failures).
-
-- **PS 5.1 ja-JP `Split-Path` bug fix**. `Split-Path -LiteralPath $path -Parent` raised `AmbiguousParameterSet` on Windows PowerShell 5.1 ja-JP and silently broke `-LogFile` activation for years. All four scripts now use `[System.IO.Path]::GetDirectoryName()` instead.
-
-PSA static-analysis baselines are preserved end-to-end. No new findings were introduced by the r9 release across any of the four scripts.
+The latest release at the time of writing is
+**Chipset r60 / Graphics r28 / NPU r10 / BthPan r10** (2026-05-18), a
+cross-script consistency pass that brings every script to the psa.py 3.2.0
+baseline. The Debug Trace Facility (SECTION 1b) introduced in the previous
+release (r59 / r27 / r9 / r9, 2026-05-17) remains the headline feature.
 
 ## Risk classification of the four scripts
 
@@ -191,14 +182,16 @@ Deploy-Drivers-For-WindowsServer/
 ├── Deploy-AMDGraphicsDriverOnWindowsServer.ps1    Graphics driver pipeline (21 phases)
 ├── Deploy-AMDNpuDriverOnWindowsServer.ps1         NPU (Ryzen AI XDNA) pipeline (21 phases)
 ├── Deploy-MSBthPanInboxOnWindowsServer.ps1        Microsoft inbox bthpan pipeline (21 phases)
-├── README.md                                      This document (English)
-├── README.ja.md                                   Japanese translation of README
-├── TESTING.md                                     Physical-hardware validation results
-├── TESTING.ja.md                                  Japanese translation of TESTING
-├── SPEC.md                                        Developer specification (English)
-├── SPEC.ja.md                                     Japanese translation of SPEC
-├── CONTRIBUTING.md                                Issue / PR guidelines
+├── README.md                                      This document (English; master)
+├── README.ja.md                                   Japanese translation, kept in sync
+├── TESTING.md                                     Physical-hardware validation results (EN only)
+├── SPEC.md                                        Developer specification (EN only)
+├── CHANGELOG.md                                   Chronological per-release change log (EN only)
+├── CONTRIBUTING.md                                Issue / PR guidelines (EN only)
+├── SECURITY.md                                    Vulnerability reporting (EN only)
+├── CODE_OF_CONDUCT.md                             Community behaviour (EN only)
 ├── LICENSE                                        MIT License
+├── .psa.config.json                               psa.py configuration (PSAP rules opt-in)
 ├── .gitattributes                                 Git line-ending normalization
 └── .gitignore                                     Standard ignores
 ```
@@ -1083,8 +1076,7 @@ For the full design rationale, output format reference, and an extended CI integ
 
 For the full developer specification — including phase architecture rules, banner / log conventions, parameter naming conventions, CSV / JSONL output format, path-handling rules (`-LiteralPath`), and the quality gates enforced by `psa.py` — see:
 
-- [**SPEC.md**](./SPEC.md) — English developer specification (the authoritative reference for contributors and AI assistants working on this codebase)
-- [**SPEC.ja.md**](./SPEC.ja.md) — Japanese translation of SPEC.md
+- [**SPEC.md**](./SPEC.md) — Developer specification (the authoritative reference for contributors and AI assistants working on this codebase). **English only** per the repository-wide documentation language policy (see SPEC.md §A.12).
 
 `SPEC.md` is structured in three parts:
 
@@ -1116,7 +1108,7 @@ A note on git's internal storage: git applies standard text normalization at com
 
 ### Markdown documents (`*.md`)
 
-All `*.md` files (including `README.md`, `README.ja.md`, `TESTING.md`, `TESTING.ja.md`, `SPEC.md`, `SPEC.ja.md`, `CONTRIBUTING.md`) are stored and checked out as **UTF-8 without BOM** with **LF** line endings — the GitHub-native convention for Markdown rendering. The `.gitattributes` rule:
+All `*.md` files (`README.md`, `README.ja.md`, `TESTING.md`, `SPEC.md`, `CHANGELOG.md`, `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`) are stored and checked out as **UTF-8 without BOM** with **LF** line endings — the GitHub-native convention for Markdown rendering. The `.gitattributes` rule:
 
 ```
 *.md text eol=lf
@@ -1159,10 +1151,11 @@ The Japanese log strings inside the `.ps1` scripts are designed to render correc
 
 ### This repository
 
-- [TESTING.md](./TESTING.md) — Physical-hardware validation results and the NPU script's far weaker validation status.
-- [TESTING.ja.md](./TESTING.ja.md) — Japanese translation of TESTING.md.
+- [TESTING.md](./TESTING.md) — Physical-hardware validation results and the NPU script's far weaker validation status. **English only.**
+- [SPEC.md](./SPEC.md) — Developer specification. **English only.**
+- [CHANGELOG.md](./CHANGELOG.md) — Chronological per-release change log. **English only.**
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — How to contribute.
-- [README.ja.md](./README.ja.md) — Japanese translation of this document.
+- [README.ja.md](./README.ja.md) — Japanese translation of this document, kept in sync.
 - [`psa.py` canonical location (ai-generated-artifacts)](https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/python/powershell-static-analyzer) — PowerShell static analyzer used by this repository's CI gates.
 
 ---
@@ -1185,38 +1178,4 @@ Additional community documents:
 
 - [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) — Expected behaviour when interacting through Issues, Pull Requests, and Security Advisories. Tailored to the safety implications of self-signed kernel-mode drivers.
 - [`SECURITY.md`](./SECURITY.md) — How to report security-impacting defects (driver-signing flaws, WDAC policy scope errors, credential exposure). **Do NOT file these as public Issues** — use the private Security Advisory channel instead.
-
----
-
-## r54+ — AMD Chipset Software 8.x extraction support
-
-Starting with the Chipset script's r54 revision, the P04 ExtractInstaller phase supports AMD's new two-layer installer architecture used in Chipset Software 8.x (8.02.18.557 and later). The installer wraps an InstallShield SFX inside an NSIS shell that 7-Zip alone cannot fully unpack; r54 adds a dedicated `InstallShield /a + recursive msiexec /a` strategy that handles the format end-to-end.
-
-The new extraction emits a per-OS-variant INF coverage diagnostic so operators can confirm the right driver subdirectory was unpacked for their host OS:
-
-| Host OS family | Preferred INF subdirectory |
-| --- | --- |
-| Windows Server 2025 / 2022 (Windows 11-based) | `W11x64\` |
-| Windows Server 2019 / 2016 (Windows 10-based) | `WTx64\` |
-
-For the full architecture (two-layer wrapper, 35 sub-MSIs, AMD's actual driver-registration logic via `pnputil`), see [SPEC.md §B.1 "AMD 8.x installer architecture (r54+)"](SPEC.md#amd-8x-installer-architecture-r54). For the regression test of this extraction path, see [TESTING.md §8 "r54+ — AMD Chipset Software 8.x extraction diagnostic format"](TESTING.md#8-r54--amd-chipset-software-8x-extraction-diagnostic-format).
-
----
-
-## r57+ / r25+ / r7+ — CiTool non-interactive mode + Console UTF-8 enforcement
-
-Starting with Chipset r59 / Graphics r27 / NPU r9, the script no longer hangs at I02 waiting for ENTER input, and Japanese log output (especially the CiTool.exe status line) renders correctly on ja-JP Windows.
-
-### What changed
-
-| Aspect | Pre-r57 / pre-r25 / pre-r6 (broken) | Post-r57 / r25 / r7 (fixed) |
-| --- | --- | --- |
-| CiTool.exe invocation | `& CiTool.exe --update-policy <cip>` blocks on `"Press Enter to Exit"` (~60-75s wait for operator ENTER per call) | `& CiTool.exe --update-policy <cip> --json` — the `--json` flag suppresses the interactive prompt (Microsoft's documented non-interactive mode) |
-| ja-JP console encoding | `[Console]::OutputEncoding` stays at cp932; CiTool's UTF-8 stdout displays as mojibake (`蜃ｦ逅・・謌仙粥縺励∪縺励◆`) | P00 calls `Set-ConsoleUtf8` which sets `[Console]::OutputEncoding`, `[Console]::InputEncoding`, and `$OutputEncoding` to UTF-8 |
-| pnputil exit=259 (chipset / graphics) | Classified as `failed` in the I03 summary, diverging from I04's `REBOOT_NEEDED` / no-op recognition | New `no-op (already present)` status surfaced via `Write-Skip [~]`. I03 summary now reports `{ok} ok ({reboot} need reboot, {noop} no-op) / {failed} failed / {skipped} skipped` |
-| I02 console output | Bare `Write-Host '    Activation method: ...'` (SPEC §A.5 violation; r56/r24 Write-Detail sweep miss) | Migrated to `Write-Detail` helper for SPEC §A.5 compliance |
-
-For root-cause analyses and verification trails, see:
-
-- **SPEC §D.16** — CiTool.exe `--json` and Console UTF-8 enforcement (full verification commands operators can run locally)
-- **SPEC §D.17** — pnputil exit=259 reclassification (duplicate-source-INF behaviour on chipset)
+- [`CHANGELOG.md`](./CHANGELOG.md) — Chronological per-release change log (every revision from r1 onward, organised by date and by script).

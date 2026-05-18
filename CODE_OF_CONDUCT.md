@@ -60,7 +60,7 @@ This Code of Conduct applies to interactions **within this repository** (Issues,
 - **具体的に**: 対象スクリプト (`Deploy-AMDChipsetDriverOnWindowsServer.ps1` / `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` / `Deploy-AMDNpuDriverOnWindowsServer.ps1` / `Deploy-MSBthPanInboxOnWindowsServer.ps1`)、 リビジョン (`$Script:ScriptVersion`)、 議論対象の phase ID (P00〜I04) を明示してください
 - **正確に**: 観測 (ログ行のテキスト、 exit code、 Device Manager の状態) と推測を区別し、 不確実な点は不確実と明示してください。 ドライバインストール診断には自明でない失敗モード (REBOOT_NEEDED、 Phantom OK、 exit=259 等) が多く、 言い換えたサマリよりも具体的なログ証拠の方がはるかに有用です
 - **建設的に**: 問題を指摘する際は、 実装できなくても修正案の方向性を簡潔に添えてください。 新規プラットフォーム固有の挙動を発見した場合は、 `SPEC.md` §D エントリ追加に十分なログコンテキストを共有してください
-- **スコープを尊重する**: 本リポジトリの目的は [`README.ja.md`](./README.ja.md) および [`SPEC.ja.md`](./SPEC.ja.md) に明記されています。 ターゲットは AMD コンシューマー向けハードウェア (Ryzen chipset / Radeon iGPU / Ryzen AI NPU) と Microsoft inbox ドライバ 1 種 (BthPan) を Windows Server 上で動作させることです。 スコープ外の要望 (他ベンダー、 サーバー級 EPYC、 対象デバイスのない仮想環境等) は丁重にお断りします。 エスカレートはお控えください
+- **スコープを尊重する**: 本リポジトリの目的は [`README.ja.md`](./README.ja.md) および [`SPEC.md`](./SPEC.md) (英語のみ) に明記されています。 ターゲットは AMD コンシューマー向けハードウェア (Ryzen chipset / Radeon iGPU / Ryzen AI NPU) と Microsoft inbox ドライバ 1 種 (BthPan) を Windows Server 上で動作させることです。 スコープ外の要望 (他ベンダー、 サーバー級 EPYC、 対象デバイスのない仮想環境等) は丁重にお断りします。 エスカレートはお控えください
 - **安全への配慮を尊重する**: 本スクリプトはカーネルモードドライバを自己生成証明書で再署名し、 WDAC supplemental policy を deploy し、 OS のドライバストアを変更します。 誤用は BSOD、 BitLocker リカバリプロンプト、 anti-cheat トリガー、 起動不能ホストを引き起こし得ます。 Issue スレッド内のアドバイスは適切な慎重さをもって扱い、 [`README.ja.md`](./README.ja.md) の免責事項を operator が回避することを助長しないでください
 - **AI 支援由来であることを尊重する**: 本リポジトリのドキュメント (`README.md` / `SPEC.md` / `TESTING.md` と各日本語版) は AI 支援で生成されたものであり、 事実誤認・ハルシネーション・情報の陳腐化を含み得ます。 具体的な誤りの指摘は歓迎しますが、 「AI 生成コンテンツ全般への包括的批判」 は本 Issue トラッカーの対象外です
 

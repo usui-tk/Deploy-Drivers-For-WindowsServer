@@ -8,8 +8,8 @@
     catalog with a self-generated certificate.
 
     Companion to:
-      - Deploy-AMDChipsetDriverOnWindowsServer.ps1 (r47)
-      - Deploy-AMDGraphicsDriverOnWindowsServer.ps1 (r16)
+      - Deploy-AMDChipsetDriverOnWindowsServer.ps1
+      - Deploy-AMDGraphicsDriverOnWindowsServer.ps1
 
     Architecture: same 21-phase pipeline (P00-P09 prep, V01-V06 verify, I00-I04 install).
 
@@ -115,12 +115,12 @@
 
 .PARAMETER WorkRoot
     Override the default workspace path. Default: C:\Temp\Workspace_AMD-NPU
-    (r8+: relocated under C:\Temp\Workspace_* to keep workspace data
+    (relocated under C:\Temp\Workspace_* to keep workspace data
     clustered under one parent directory that is trivial to inspect and
     purge. The script auto-creates C:\Temp on demand.)
 
 .PARAMETER LogFile
-    (r8+) Optional path to capture the full console transcript to a
+    Optional path to capture the full console transcript to a
     file. When set, the script wraps its execution in
     Start-Transcript / Stop-Transcript so the file receives every
     stream (Output / Host / Error / Warning / Verbose / Debug) as
@@ -155,7 +155,7 @@
 
 .EXAMPLE
     # Pipeline soundness check WITHOUT -OfflineZip. Will only succeed if a ZIP is
-    # found via Tier 4 auto-scan (script dir / ./cache / workspace download dir / ~/Downloads).
+    # found via Tier 4 auto-scan (script dir /./cache / workspace download dir / ~/Downloads).
     # If no ZIP is cached anywhere, P03 will throw "All 4 download tiers exhausted".
     .\Deploy-AMDNpuDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot
 
@@ -182,7 +182,7 @@
         -RyzenAiSoftwareVersion latest
 
 .EXAMPLE
-    # (r8+) Capture full transcript while keeping console colors
+    # Capture full transcript while keeping console colors
     $ts  = Get-Date -Format 'yyyyMMdd-HHmmss'
     $log = "C:\Temp\npu_PrepareVerify_$ts.log"
     .\Deploy-AMDNpuDriverOnWindowsServer.ps1 `
@@ -197,7 +197,7 @@
         Tee-Object -FilePath "C:\Temp\npu_Install_$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
 
 .NOTES
-    Version: r8
+    Version: an earlier revision
     Author : Deploy-AMD-Drivers-For-WindowsServer contributors
     License: MIT
     Repo   : https://github.com/usui-tk/Deploy-AMD-Drivers-For-WindowsServer
@@ -242,7 +242,7 @@ param(
     [switch]$ForceAmdAccountAuth,
 
     [Parameter()]
-    # r5 bugfix: include '' so that the default (parameter omitted)
+    # bugfix: include '' so that the default (parameter omitted)
     # passes ValidateSet on the line 'Script:NpuOverride = $NpuOverride'
     # assignment, which re-evaluates parameter validation in PSv5. The
     # empty value means "no override; auto-detect via Get-AmdNpuPlatform".
@@ -270,18 +270,18 @@ param(
     [switch]$CleanWorkRoot,
 
     [Parameter()]
-    # r8+: relocated under C:\Temp\Workspace_* to keep workspace data
+    # Relocated under C:\Temp\Workspace_* to keep workspace data
     # clustered under one parent directory that is trivial to inspect
     # and purge. The script auto-creates C:\Temp if it does not exist.
     [string]$WorkRoot = 'C:\Temp\Workspace_AMD-NPU',
 
     [Parameter()]
-    # === Console transcript capture (r8+) ============================
+    # === Console transcript capture ============================
     # Optional path; when set, the script wraps its execution in
     # Start-Transcript / Stop-Transcript so the file gets every stream
     # as plain text while the live console keeps its Write-Host color
     # decoration. This is the recommended replacement for the legacy
-    # `... *>&1 | Tee-Object -FilePath ...` idiom, which strips
+    # `... *>&1 | Tee-Object -FilePath...` idiom, which strips
     # Write-Host coloring on the way through the pipeline.
     [string]$LogFile = '',
 
@@ -325,14 +325,14 @@ $Script:CertValidityYears       = $CertValidityYears
 # Script-scope state
 # =============================================================================
 $Script:ScriptVersion       = 'npu-2026.05.18-r10'
-$Script:ScriptTag           = 'npu-r9-debug-trace-facility-instrumentation-resume-ctx-autolog'
+$Script:ScriptTag           = 'npu-debug-trace-facility-instrumentation-resume-ctx-autolog'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-AMD-Drivers-For-WindowsServer'
 $Script:CertSubjectCn       = 'AMD NPU Driver Self-Sign (WS2025 Lab, At Own Risk)'
 $Script:WdacPolicyName      = 'AMD-NPU-Driver-SelfSign-Lab'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the
 # -WdacPolicyGuid parameter, e.g. when cleaning up a legacy deploy whose
-# PolicyId differs from the default (pre-r3 deploys generated dynamic GUIDs).
+# PolicyId differs from the default.
 $Script:WdacPolicyGuidDefault = '8B2C4F12-1E9D-4D7B-A4F8-9C7E2B6A53D1'
 $Script:WdacPolicyGuid      = if (-not [string]::IsNullOrWhiteSpace($WdacPolicyGuid)) {
     $WdacPolicyGuid.Trim('{','}','(',')',' ')
@@ -376,7 +376,7 @@ try {
 $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash)
 
 #####################################################################
-# SECTION 0.25: Optional console transcript capture (r59: verified activation + auto-relocation)
+# SECTION 0.25: Optional console transcript capture
 #####################################################################
 # When -LogFile is set, wrap execution in Start-Transcript so the file
 # receives every stream (Output / Host / Error / Warning / Verbose /
@@ -391,16 +391,16 @@ $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash
 # the pipeline value stream. The -LogFile path here is the recommended
 # alternative when console coloring matters to the operator.
 #
-# r5 (transcript verified activation):
+# Transcript verified activation:
 #
 #   Reports from PS 5.1.26100.32860 (Windows Server 2025) showed that
 #   `Start-Transcript -Path X -Append -Force` raised
 #   ParameterBindingException ("Parameter set cannot be resolved using
 #   the specified named parameters") only when invoked from the actual
 #   BthPan script body. Isolated minimal reproductions (clean session,
-#   same param block in a separate small .ps1) all succeeded. The
+#   same param block in a separate small.ps1) all succeeded. The
 #   root cause for the script-context-specific failure could not be
-#   pinpointed within a reasonable budget; instead, r5 takes a
+#   pinpointed within a reasonable budget; instead, takes a
 #   defense-in-depth approach:
 #
 #     1. CAPTURE the cmdlet return value (a non-empty localized success
@@ -442,10 +442,10 @@ $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash
 # paths are also recorded on $Script:LogFileSetup for the RUN
 # SUMMARY.
 #
-# Trigger:    $LogFile is non-empty AND $CleanWorkRoot AND $LogFile
+# Trigger: $LogFile is non-empty AND $CleanWorkRoot AND $LogFile
 #             resolves to a sub-path of $WorkRoot
-# Target:     <script-dir>\Deploy-AMDNpuDriverOnWindowsServer_<Action>_<ts>.log
-# Fallback:   %TEMP%\Deploy-AMDNpuDriverOnWindowsServer_<Action>_<ts>.log
+# Target: <script-dir>\Deploy-AMDNpuDriverOnWindowsServer_<Action>_<ts>.log
+# Fallback: %TEMP%\Deploy-AMDNpuDriverOnWindowsServer_<Action>_<ts>.log
 #             when script-dir is unavailable
 #
 # The intentional design choice is "relocate, do not refuse" so a
@@ -778,7 +778,7 @@ $Script:DetectedPlatform = @{
     SignToolPath       = $null
     Inf2CatPath        = $null
     SevenZipPath       = $null
-    # ----- r4: UEFI Secure Boot baseline (snapshot captured at P00, reused
+    # ----- UEFI Secure Boot baseline (snapshot captured at P00, reused
     # by P05 report, V05 / V06 display, I02 pre-check). See section
     # 'UEFI Secure Boot certificate baseline' above for the snapshot
     # functions and Get-OrEnsureSecureBootBaseline helper.
@@ -797,15 +797,15 @@ $Script:PhaseResults = @{}
 # format and timing information.
 #
 # Marker semantics:
-#   [*] Cyan     - Step (action being performed)
-#   [+] Green    - Ok   (success / positive result)
-#   [!] Yellow   - Warn (degraded / suspicious; non-fatal)
-#   [X] Red      - Fail (operation failed)
+#   [*] Cyan - Step (action being performed)
+#   [+] Green - Ok (success / positive result)
+#   [!] Yellow - Warn (degraded / suspicious; non-fatal)
+#   [X] Red - Fail (operation failed)
 #   [~] DarkGray - Skip (no-op / cached / informational)
 #
-# Phase entry: Write-PhaseHeader  (Magenta '=' x72) - rendered by dispatcher
-# Sub-section: Write-SubHeader    (Cyan      '=' x72) - in-phase Level-1 banner
-# Sub-section: Write-SubHeader2   (DarkCyan  '-' x72) - in-phase Level-2 banner
+# Phase entry: Write-PhaseHeader (Magenta '=' x72) - rendered by dispatcher
+# Sub-section: Write-SubHeader (Cyan '=' x72) - in-phase Level-1 banner
+# Sub-section: Write-SubHeader2 (DarkCyan '-' x72) - in-phase Level-2 banner
 # =============================================================================
 function Format-Elapsed {
     param([TimeSpan]$Span)
@@ -857,8 +857,8 @@ function Write-Detail {
     # Renders 4-space-indented plain text with NO timestamp or marker
     # prefix, so it visually attaches to the preceding context.
     #
-    # ---- r10: ported from MSBthPan / AMD Chipset / AMD Graphics ----
-    # Up to r9 the NPU script did NOT have this helper, leading to bare
+    # ---- Ported from MSBthPan / AMD Chipset / AMD Graphics ----
+    # Previously the NPU script did NOT have this helper, leading to bare
     # Write-Host calls with hard-coded 4-space indents. Routing those
     # through a single helper makes future column-layout tweaks possible
     # without touching every call site, and gives the SPEC-mandated
@@ -962,7 +962,7 @@ function Show-PowerShellEnvironment {
     # ====================================================================
     # Designed to work all the way back to PowerShell 5.1 on Windows
     # Server 2016 (the oldest in-support Windows Server). All cmdlets
-    # and APIs used here are present in PS 5.1 / .NET Framework 4.6+,
+    # and APIs used here are present in PS 5.1 /.NET Framework 4.6+,
     # so this function itself does not introduce any new compatibility
     # risk. CIM queries fall back to WMI for fragile environments.
     Write-Host ''
@@ -1084,10 +1084,10 @@ function Show-PowerShellEnvironment {
         }
         $build = [int]$os.BuildNumber
         if ($supportedBuilds.ContainsKey($build)) {
-            # r46: when running on a Workstation OS (e.g. Win11 24H2 used as
+            # When running on a Workstation OS (e.g. Win11 24H2 used as
             # a WS2025 preview), include "Workstation, profile: <ServerName>"
             # so it is obvious from this line alone that the host is NOT a
-            # Server and a profile is being applied. Pre-r46 only the Server
+            # Server and a profile is being applied. Previously only the Server
             # profile name was shown, which made the line read like an OS
             # mis-detection on Workstation hosts.
             if ($os.ProductType -eq 1) {
@@ -1209,7 +1209,7 @@ function Assert-PowerShellCompatibility {
     # Soft warnings (e.g. unknown OS build) live in
     # Show-PowerShellEnvironment instead.
     #
-    # ---- r10: ported from the sister scripts (Chipset / Graphics /
+    # ---- Ported from the sister scripts (Chipset / Graphics /
     # MSBthPan). Previously the NPU script relied on the PS-version
     # check embedded inside its stub Show-PowerShellEnvironment, which
     # mixed display with hard-fail logic. Splitting the two into
@@ -1243,7 +1243,7 @@ will not work correctly inside a 32-bit host.
 }
 
 function Assert-Admin {
-    # ---- r10: renamed from Test-AdminPrivilege; body aligned with the
+    # ---- Renamed from Test-AdminPrivilege; body aligned with the
     # canonical implementation in the sister scripts (Chipset / Graphics
     # / MSBthPan). The previous AMDNpu-specific implementation returned
     # $true and emitted Write-Ok / Write-Fail; the canonical version is
@@ -1261,12 +1261,12 @@ function Set-Tls12 {
     # Enable modern TLS for Invoke-WebRequest / Invoke-RestMethod.
     # ====================================================================
     # Tls12 is the must-have (some download endpoints require it).
-    # Tls13 is added if the running .NET supports it (Framework 4.8+,
+    # Tls13 is added if the running.NET supports it (Framework 4.8+,
     # WS2022+ ships with it; WS2016/WS2019 may not). Tls11 and below
     # are intentionally NOT requested - they are deprecated and removed
     # from many endpoints.
     #
-    # ---- r10: renamed from Set-NetworkProtocol and replaced its body ----
+    # ---- Renamed from Set-NetworkProtocol and replaced its body ----
     # The previous AMDNpu-specific implementation explicitly enabled
     # Tls10 and Tls11, which is a security regression vs the sister
     # scripts (RFC 8996 deprecated TLS 1.0/1.1 in March 2021, and most
@@ -1278,7 +1278,7 @@ function Set-Tls12 {
         $tls13 = [Net.SecurityProtocolType]::Tls13
         $protos = $protos -bor $tls13
     } catch {
-        # Tls13 enum value not present in this .NET runtime; that is
+        # Tls13 enum value not present in this.NET runtime; that is
         # fine - Tls12 alone is sufficient for everything this script
         # downloads.
     }
@@ -1290,20 +1290,20 @@ function Set-ConsoleUtf8 {
     # SPEC A.5 / D.5: enforce UTF-8 console encoding so ja-JP Japanese
     # log strings (and external tool output such as CiTool.exe) render
     # correctly instead of mojibake in cp932 (Shift-JIS). See SPEC D.16
-    # for the r7 root-cause analysis (CiTool.exe writes UTF-8 stdout).
+    # for the root-cause analysis (CiTool.exe writes UTF-8 stdout).
     # ====================================================================
     # On ja-JP Windows, the console defaults to cp932 (Shift-JIS). When
     # external programs that write UTF-8 to stdout (CiTool.exe, modern
-    # signtool, etc.) are captured via "& tool ... | Out-String", PS
+    # signtool, etc.) are captured via "& tool... | Out-String", PS
     # decodes the bytes using [Console]::OutputEncoding. If that is
     # cp932 and the tool wrote UTF-8, every multibyte character becomes
     # mojibake (e.g. "処理が成功しました" -> "蜃ｦ逅・・謌仙粥縺励∪縺励◆").
     #
     # The fix is to set ALL three encodings:
-    #   - [Console]::OutputEncoding : how PS decodes external tool stdout
+    #   - [Console]::OutputEncoding: how PS decodes external tool stdout
     #                                  AND how Write-Host writes to console
-    #   - [Console]::InputEncoding  : how external tools see piped stdin
-    #   - $OutputEncoding           : how PS writes piped data to external
+    #   - [Console]::InputEncoding: how external tools see piped stdin
+    #   - $OutputEncoding: how PS writes piped data to external
     #                                  tools (e.g. "$json | tool.exe")
     # All three must be UTF-8 for consistent round-trip behaviour.
     try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
@@ -1315,7 +1315,7 @@ function Show-DriverInstallationOrderNotice {
     # ====================================================================
     # NPU-specific driver install order notice (compact + verbose).
     # ====================================================================
-    # r10: ported the API surface (-Compact switch, two-mode output) from
+    # Ported the API surface (-Compact switch, two-mode output) from
     # the sister scripts (Chipset / Graphics / MSBthPan) so that the
     # canonical Show-PowerShellEnvironment body can call it without
     # adaptation. The CONTENT however is NPU-specific because the install
@@ -1333,9 +1333,9 @@ function Show-DriverInstallationOrderNotice {
         return
     }
     Write-Host ''
-    Write-Host '  =====================================================================' -ForegroundColor Yellow
+    Write-Host ' =====================================================================' -ForegroundColor Yellow
     Write-Host '  ABOUT THIS SCRIPT (AMD NPU kernel-mode driver, EXPERIMENTAL)'           -ForegroundColor Yellow
-    Write-Host '  =====================================================================' -ForegroundColor Yellow
+    Write-Host ' =====================================================================' -ForegroundColor Yellow
     Write-Host '  This script deploys ONLY the AMD NPU (Ryzen AI XDNA) kernel-mode driver'
     Write-Host '  (kipudrv.sys / amdxdna.inf). It does NOT install the Ryzen AI Software'
     Write-Host '  user-mode stack (Python/conda environments, ONNX runtime, VAI EP). Per'
@@ -1358,13 +1358,13 @@ function Get-BootSigningEnvironment {
     # ====================================================================
     # NPU-specific simplified boot-signing environment probe.
     # ====================================================================
-    # r10: minimal port from the sister scripts. The full canonical
+    # Minimal port from the sister scripts. The full canonical
     # implementation (Chipset / Graphics / MSBthPan, ~172 lines) enumerates
     # WDAC Code Integrity policies via CiTool.exe and Get-CimInstance
     # against Win32_DeviceGuard. For the NPU script's experimental scope
     # we return only the Secure Boot baseline state; WDAC policy
     # enumeration is left to the sister scripts. Callers should not rely
-    # on the .Policies or .HVCI fields here.
+    # on the.Policies or.HVCI fields here.
     #
     # The returned object is intentionally compatible with the
     # Show-BootSigningEnvironment stub below.
@@ -1398,7 +1398,7 @@ function Show-BootSigningEnvironment {
     # ====================================================================
     # NPU-specific simplified boot-signing environment display.
     # ====================================================================
-    # r10: minimal port. Renders the same one-line summary format as the
+    # Minimal port. Renders the same one-line summary format as the
     # canonical -Compact mode in the sister scripts. The verbose table
     # mode (WDAC policy enumeration) is intentionally not implemented
     # here; for the full diagnostic, run the Chipset script's V01.
@@ -1474,12 +1474,12 @@ function Get-PhaseListByAction {
     [OutputType([string[]])]
     param([string]$Action)
     # Sister-script-aligned action -> phase mapping:
-    #   Prepare       : Prep only
-    #   Verify        : Verify only
-    #   PrepareVerify : Prep + Verify (no system-state change)
-    #   Install       : Inst only (assumes Prep+Verify ran in a prior invocation
+    #   Prepare: Prep only
+    #   Verify: Verify only
+    #   PrepareVerify: Prep + Verify (no system-state change)
+    #   Install: Inst only (assumes Prep+Verify ran in a prior invocation
     #                   and patched artifacts are still on disk)
-    #   All           : Prep + Verify + Inst (full pipeline end-to-end)
+    #   All: Prep + Verify + Inst (full pipeline end-to-end)
     switch ($Action) {
         'PrepareVerify' {
             return ($Script:PhaseRegistry | Where-Object { $_.Group -eq 'Prep' -or $_.Group -eq 'Verify' } | Select-Object -ExpandProperty Id)
@@ -1520,7 +1520,7 @@ function Show-PhaseList {
 }
 
 # =============================================================================
-# UEFI Secure Boot certificate baseline (r4 port from chipset/graphics)
+# UEFI Secure Boot certificate baseline (port from chipset/graphics)
 # =============================================================================
 # These helpers capture and present the host's UEFI Secure Boot rollout
 # state - separately from the OS-layer self-signing pipeline this script
@@ -1530,22 +1530,22 @@ function Show-PhaseList {
 # specific (NPU keeps state on $Script:DetectedPlatform rather than $Ctx).
 
 #####################################################################
-# SECTION 1b: Debug Trace Facility (r9+, structured diagnostics)
+# SECTION 1b: Debug Trace Facility
 #####################################################################
 # A reusable diagnostic helper used to pinpoint the exact failing
 # operation inside a complex function body, with three integrated
 # subsystems:
 #
-#   (1) Trace primitives  : Start-DebugTrace / Set-DebugStep /
+#   (1) Trace primitives: Start-DebugTrace / Set-DebugStep /
 #                           Stop-DebugTrace / Format-DebugFailure /
 #                           Write-DebugFailureReport
-#   (2) JSONL file output : Real-time append-only event stream to
+#   (2) JSONL file output: Real-time append-only event stream to
 #                           <WorkRoot>\logs\debugtrace.jsonl
-#   (3) JSON Export       : Point-in-time snapshot with full state,
+#   (3) JSON Export: Point-in-time snapshot with full state,
 #                           used manually and auto-triggered on phase
 #                           failure.
 #
-# Motivation: r7 investigation of Invoke-InfVerifValidation - the
+# Motivation: investigation of Invoke-InfVerifValidation - the
 # function raised System.ArgumentException but the stack trace only
 # identified the function, not the line. By instrumenting with
 # $debugStep checkpoints and a catch handler that reported the step
@@ -1898,7 +1898,7 @@ function Format-DebugFailure {
         $frame       = $Script:DebugTraceStack.Peek()
         $context     = $frame.Context
         $failedStep  = $frame.Step
-        # PS 5.1 ja-JP bug workaround: use .ToArray() not @($list).
+        # PS 5.1 ja-JP bug workaround: use.ToArray not @($list).
         $stepHistory = $frame.Steps.ToArray()
         $elapsed     = (Get-Date) - $frame.StartTime
         $phaseId     = $frame.PhaseId
@@ -2189,7 +2189,7 @@ function Export-DebugTraceJson {
         [switch]$Compress
     )
 
-    # r8-update: refactor for robustness on PS 5.1 ja-JP. The previous
+    # Refactor for robustness on PS 5.1 ja-JP. The previous
     # implementation used inline `if/else` expressions as hashtable values
     # and a property named `host` (which collides with the PS auto-
     # variable name in some parser contexts). User report on
@@ -2377,7 +2377,7 @@ function Export-DebugTraceJson {
         # `Split-Path -LiteralPath $Path -Parent`. On PS 5.1, those two
         # parameters belong to mutually-exclusive parameter sets
         # (LiteralPathSet vs ParentSet), which causes
-        # AmbiguousParameterSet at runtime. The .NET method has no such
+        # AmbiguousParameterSet at runtime. The.NET method has no such
         # constraint and behaves identically.
         $parentDir = [System.IO.Path]::GetDirectoryName($Path)
         if ($parentDir -and -not (Test-Path -LiteralPath $parentDir)) {
@@ -2412,7 +2412,7 @@ function Export-DebugTraceJson {
 }
 
 #####################################################################
-# SECTION 1d: UEFI Secure Boot certificate baseline (r48, 2026-05-13+)
+# SECTION 1d: UEFI Secure Boot certificate baseline
 #####################################################################
 # Captures the runtime UEFI Secure Boot certificate / servicing state
 # and (when present) hands off to Microsoft's official sample script
@@ -2601,7 +2601,7 @@ function Get-SecureBootCertificateInventory {
     # which breaks $row.Status property access and silently mis-reports
     # the task as 'Disabled' even when it is in fact Ready/Running.
     # Get-ScheduledTask returns CIM objects with locale-independent
-    # English property names (.State = Ready / Running / Disabled / ...).
+    # English property names (.State = Ready / Running / Disabled /...).
     try {
         $task = Get-ScheduledTask -TaskPath '\Microsoft\Windows\PI\' -TaskName 'Secure-Boot-Update' -ErrorAction Stop
         if ($task) {
@@ -2652,10 +2652,10 @@ function Invoke-MsSecureBootDetectScript {
     # in a child PowerShell session with -OutputPath set to a transient
     # folder under the AMD workspace, then re-parse the resulting JSON.
     #
-    # Returns a hybrid result object. .Available indicates whether the
+    # Returns a hybrid result object..Available indicates whether the
     # script ran AND produced parseable JSON. Failures (script missing,
-    # non-zero exit + no JSON, parse errors, etc.) populate .ErrorMessage
-    # and leave .Data null - callers should fall back to the embedded
+    # non-zero exit + no JSON, parse errors, etc.) populate.ErrorMessage
+    # and leave.Data null - callers should fall back to the embedded
     # inventory in that case.
     [CmdletBinding()]
     param(
@@ -2839,16 +2839,16 @@ function Get-SecureBootBaselineSnapshot {
     # classification used by the report and the I02 pre-check.
     #
     # Health classification:
-    #   'Healthy'  - Secure Boot ON, UEFICA2023Status=Updated (or not
+    #   'Healthy' - Secure Boot ON, UEFICA2023Status=Updated (or not
     #                applicable), no UEFICA2023Error, no servicing error
     #                events captured by the MS script.
-    #   'Warning'  - Secure Boot ON but UEFI CA 2023 rollout is still
+    #   'Warning' - Secure Boot ON but UEFI CA 2023 rollout is still
     #                in flight, OR scheduled task disabled, OR the MS
     #                script reports error events (1795/1796/1802/1803).
     #   'Critical' - Secure Boot OFF (with this script's WDAC path that
     #                normally requires Secure Boot ON), OR UEFICA2023Error
     #                non-zero indicating a stuck rollout.
-    #   'Unknown'  - Could not collect Secure Boot state at all (non-UEFI
+    #   'Unknown' - Could not collect Secure Boot state at all (non-UEFI
     #                host, or Confirm-SecureBootUEFI cmdlet unavailable).
     [CmdletBinding()]
     param(
@@ -2955,7 +2955,7 @@ function Show-SecureBootBaselineSnapshot {
     # banner (V06 prefixes the section with its own '--- 4. UEFI Secure
     # Boot Baseline ---' header for numbering consistency with sections
     # 1-3 above it). We print only the body to avoid the duplicate
-    # banner that was visible in the r49 first release.
+    # banner that was visible in early releases.
     Write-Host ("  Overall health     : {0}" -f $health) -ForegroundColor $healthColor
     foreach ($r in $Snapshot.Reasons) {
         Write-Host ("    - {0}" -f $r) -ForegroundColor $healthColor
@@ -3140,7 +3140,7 @@ function Format-SecureBootBaselineForReport {
 }
 
 function Get-OrEnsureSecureBootBaseline {
-    # r4 (port from chipset/graphics): idempotent accessor for the
+    # Port from chipset/graphics: idempotent accessor for the
     # cached Secure Boot baseline. Returns
     # $Script:DetectedPlatform.SecureBootBaseline when it is still
     # valid; otherwise re-invokes Get-SecureBootBaselineSnapshot into
@@ -3605,7 +3605,7 @@ function Test-NpuDriverRaiCompatibility {
 #   Tier 1: -InstallerUrl explicit URL (highest priority)
 #   Tier 2: -AmdAccountUser/-AmdAccountPassword auto-download via account.amd.com
 #   Tier 3: AMD EULA-gated direct fetch probe (typically fails but kept for future-proofing)
-#   Tier 4: -OfflineZip or local cache (script-sibling .zip, $WorkRoot\download\*.zip)
+#   Tier 4: -OfflineZip or local cache (script-sibling.zip, $WorkRoot\download\*.zip)
 # =============================================================================
 
 function Resolve-AmdNpuDriverUrl {
@@ -4177,16 +4177,16 @@ function Find-Inf2CatPath {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    # NOTE (r5 bugfix - unrelated to secureboot baseline feature):
+    # NOTE (bugfix - unrelated to secureboot baseline feature):
     # inf2cat.exe ships ONLY in x86 form under the Windows SDK/WDK 'bin'
     # tree (Microsoft has never produced an x64 build of this tool).
     # Therefore we cannot reuse the generic Find-ToolPath helper, which
-    # filters to '\x64\' / '\amd64\' paths only. Pre-r5 NPU releases
+    # filters to '\x64\' / '\amd64\' paths only. Previously NPU releases
     # called Find-ToolPath -ToolFilename 'inf2cat.exe' which silently
     # returned $null on every machine, then failed P02 by trying to
     # install the WDK via winget (which itself does not ship the WDK
     # as a winget package).
-    # r5 replicates the lookup the sister scripts use: walk the SDK
+    # Replicates the lookup the sister scripts use: walk the SDK
     # bin tree directly, no architecture filter, pick the highest
     # FileVersion.
     $roots = @(
@@ -4248,7 +4248,7 @@ function Install-RequiredTools { # psa-disable-line PSA6003 -- compound noun (e.
     [CmdletBinding()]
     param()
 
-    # r6: Pre-flight detection so we can surface a single, consolidated
+    # Pre-flight detection so we can surface a single, consolidated
     # heads-up to the user BEFORE the long winget runs start. On a
     # clean-installed host the SDK and WDK packages are absent and
     # must be downloaded via winget. The bootstrap EXEs are small
@@ -4411,10 +4411,10 @@ function Expand-AmdNpuPackage {
     New-Item -Path $DestinationDir -ItemType Directory -Force | Out-Null
 
     # Run 7z.exe x with full paths, overwrite, no progress, no echo
-    #   x       - extract with full paths
-    #   -y      - assume yes on all queries
-    #   -bso0   - disable standard-output messages (we still capture warnings/errors)
-    #   -bsp0   - disable progress output
+    #   x - extract with full paths
+    #   -y - assume yes on all queries
+    #   -bso0 - disable standard-output messages (we still capture warnings/errors)
+    #   -bsp0 - disable progress output
     #   -o<dir> - output directory (no space after -o per 7-Zip syntax)
     $sevenZipArgs = @(
         'x'
@@ -4503,7 +4503,7 @@ function Expand-AmdNpuPackage {
 }
 
 # =============================================================================
-# INF parser core (P05/P06) — same logic as chipset r47, NPU-tuned
+# INF parser core (P05/P06) — same logic as chipset an earlier revision, NPU-tuned
 # =============================================================================
 function Read-InfFileLines { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
@@ -4616,7 +4616,7 @@ function Read-InfManufacturer {
                 $fullSection = "$sectionName.$dec"
                 $result.ManufacturerDecorations += $dec
 
-                # Detect ProductType=3 decoration (ends in .3 after the build number)
+                # Detect ProductType=3 decoration (ends in.3 after the build number)
                 if ($dec -match '\.3$') {
                     $result.ServerDecorations += $dec
                     $result.HasServerDecoration = $true
@@ -4718,7 +4718,7 @@ function Add-ProductType3Decoration {
     }
     $newLines.Add('[Manufacturer]')
 
-    # Rewrite [Manufacturer] entries with appended .3 mirrors
+    # Rewrite [Manufacturer] entries with appended.3 mirrors
     for ($i = $manufacturerRange.Start; $i -le $manufacturerRange.End; $i++) {
         $line = $lines[$i]
         $stripped = ($line -split ';', 2)[0].Trim()
@@ -4733,7 +4733,7 @@ function Add-ProductType3Decoration {
             if ($Matches[3]) {
                 $existingDecorations = $Matches[3].Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ }
             }
-            # Mirror each Workstation decoration with .3 if not already present
+            # Mirror each Workstation decoration with.3 if not already present
             $mirroredDecorations = @($existingDecorations)
             foreach ($dec in $existingDecorations) {
                 if ($dec -match '\.3$') { continue }
@@ -4771,7 +4771,7 @@ function Add-ProductType3Decoration {
         }
         if (-not $matchedDecoration) { continue }
 
-        # Build the .3 mirror
+        # Build the.3 mirror
         $mirroredSectionName = "$section.3"
         if ($inf.SectionLineRanges.ContainsKey($mirroredSectionName)) { continue }  # already exists
 
@@ -5054,7 +5054,7 @@ function New-WdacSupplementalPolicy {
     Set-RuleOption -FilePath $XmlOutputPath -Option 0  # Enabled:UMCI
     Set-RuleOption -FilePath $XmlOutputPath -Option 16 # Enabled:Update Policy No Reboot
 
-    # Convert to binary .cip
+    # Convert to binary.cip
     Write-Step ('ConvertFrom-CIPolicy -> {0}' -f $BinOutputPath)
     ConvertFrom-CIPolicy -XmlFilePath $XmlOutputPath -BinaryFilePath $BinOutputPath | Out-Null
 
@@ -5076,7 +5076,7 @@ function Install-WdacPolicy {
 
     $citool = Get-Command CiTool.exe -ErrorAction SilentlyContinue
     if ($citool) {
-        # r7: --json flag REQUIRED to suppress "Press Enter to Exit"
+        # --json flag REQUIRED to suppress "Press Enter to Exit"
         # interactive prompt CiTool prints by default. Without it the
         # script blocks at I02 waiting for stdin. See SPEC D.16.
         Write-Step ('CiTool --update-policy --json "{0}"' -f $BinPath)
@@ -5129,7 +5129,7 @@ function Remove-WdacPolicy {
     param([Parameter(Mandatory)][string]$PolicyGuid)
     $citool = Get-Command CiTool.exe -ErrorAction SilentlyContinue
     if ($citool) {
-        # r7: --json flag suppresses CiTool's interactive ENTER prompt.
+        # --json flag suppresses CiTool's interactive ENTER prompt.
         Write-Step ('CiTool --remove-policy --json {{{0}}}' -f $PolicyGuid)
         & $citool.Source --remove-policy ('{' + $PolicyGuid + '}') --json 2>&1 | ForEach-Object {
             if ([string]$_ -and [string]$_ -ne '') { Write-Skip ("    {0}" -f $_) }
@@ -5204,7 +5204,7 @@ function Install-PatchedDriver {
 }
 
 # =============================================================================
-# Driver version comparison (chipset r46 timezone fix preserved)
+# Driver version comparison (timezone fix preserved)
 # =============================================================================
 function ConvertFrom-DriverVerString {
     <#
@@ -5245,7 +5245,7 @@ function Compare-InfDriverVer {
         Compares an installed driver's date/version (from Win32_PnPSignedDriver) vs a
         patched INF's DriverVer line.
     .NOTES
-        Preserves chipset r46 fix: Win32_PnPSignedDriver.DriverDate is stored as UTC
+        Preserves chipset fix: Win32_PnPSignedDriver.DriverDate is stored as UTC
         midnight; CIM cmdlets convert to local time. Comparing .Date truncates to
         year/month/day to avoid timezone-induced false positives.
     #>
@@ -5257,7 +5257,7 @@ function Compare-InfDriverVer {
         [datetime]$PatchedDate,
         $PatchedVersion
     )
-    # Use .Date (year/month/day truncation) to avoid timezone mismatch
+    # Use.Date (year/month/day truncation) to avoid timezone mismatch
     $cdate = if ($CurrentDate) { $CurrentDate.Date } else { $null }
     $pdate = if ($PatchedDate) { $PatchedDate.Date } else { $null }
 
@@ -5323,7 +5323,7 @@ function Invoke-PrepPhase00_Initialize {
     Write-Warn2 'not function on Server 2025 without unofficial workarounds.'
     Write-Host ''
 
-    # ---- UEFI Secure Boot certificate baseline (r4 port from chipset/graphics) ----
+    # ---- UEFI Secure Boot certificate baseline (port from chipset/graphics) ----
     # Capture once at P00 and cache on $Script:DetectedPlatform so later
     # phases (P05 report append, V05 / V06 display, I02 pre-check) can
     # reuse the same snapshot without re-invoking the Microsoft sample
@@ -5367,8 +5367,8 @@ function Resume-CtxFromWorkspace {
         Failures are non-fatal: each branch swallows its own error
         and lets downstream preconditions raise a clearer message.
 
-        r9 (2026-05-17) - introduced for sister-script function-name
-        parity (Chipset r59 / Graphics r27 / BthPan r9). The NPU
+        an earlier revision (2026-05-17) - introduced for sister-script function-name
+        parity (/ Graphics an earlier revision / BthPan an earlier revision). The NPU
         implementation is intentionally lighter than the chipset /
         graphics versions because NPU's static `$Script: variable
         design already makes the resume case work without explicit
@@ -5428,7 +5428,7 @@ function Invoke-PrepPhase01_PrepareWorkspace {
     }
     Write-Ok ("Workspace ready at: {0}" -f $Script:WorkRoot)
 
-    # r9: detect and log pre-existing workspace artifacts so that
+    # Detect and log pre-existing workspace artifacts so that
     # -Action Verify / -Action Install (-OnlyPhases I01) running
     # against a populated workspace surfaces explicit confirmation.
     # See function Resume-CtxFromWorkspace above for design notes.
@@ -5654,8 +5654,8 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
 
     $Script:DetectedPlatform.InfInventory = $inventory
 
-    # ---- r4: write inf_inventory_report.txt (text-format inventory + Secure Boot baseline appendix) ----
-    # Until r3, $Script:InventoryReportPath was declared but never written.
+    # ---- Write inf_inventory_report.txt (text-format inventory + Secure Boot baseline appendix) ----
+    # Previously, $Script:InventoryReportPath was declared but never written.
     # We now populate it so artefacts are aligned with the chipset / graphics
     # scripts (which both produce an inf_inventory_report.txt with a UEFI
     # Secure Boot Baseline appendix at the end). NPU's inventory is much
@@ -5738,7 +5738,7 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
                 $failed++
             }
 
-            # Also copy associated .cat / .sys / .pdb / etc to patched dir (sibling files)
+            # Also copy associated.cat /.sys /.pdb / etc to patched dir (sibling files)
             $sourceDir = Split-Path $e.FullPath -Parent
             Get-ChildItem -Path $sourceDir -File | Where-Object {
                 $_.Extension -in @('.cat','.sys','.dll','.pdb','.man','.cab','.exe','.bin','.xml','.json')
@@ -6143,7 +6143,7 @@ function Invoke-VerifyPhase05_DryRunInstall {
         Write-Warn2 ('{0} INF would attempt a downgrade; pnputil normally refuses these.' -f $cDowngrade)
     }
 
-    # ---- r4: compact UEFI Secure Boot baseline readout (chipset/graphics parity) ----
+    # ---- Compact UEFI Secure Boot baseline readout (chipset/graphics parity) ----
     # Operators reviewing V05 should know whether the firmware-layer Secure
     # Boot trust state is healthy BEFORE committing to the OS-layer self-
     # signing path in I02 / I03. The compact one-liner here is identical to
@@ -6167,10 +6167,10 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     # structured to mirror the chipset / graphics V06 layout while accounting
     # for NPU's single-device characteristic:
     #
-    #   Section 1: AS-IS - hardware enumeration on this host (current state)
-    #   Section 2: AS-IS / TO-BE driver comparison (per-device delta)
-    #   Section 3: Risk classification (NPU-specific: HIGH / MEDIUM / LOW)
-    #   Section 4: Ryzen AI Software user-mode stack reminder
+    # Section 1: AS-IS - hardware enumeration on this host (current state)
+    # Section 2: AS-IS / TO-BE driver comparison (per-device delta)
+    # Section 3: Risk classification (NPU-specific: HIGH / MEDIUM / LOW)
+    # Section 4: Ryzen AI Software user-mode stack reminder
     #
     # The "WILL be replaced" / "WILL NOT be replaced" / "Already up to date"
     # terminology is borrowed directly from the chipset / graphics V06 so
@@ -6328,7 +6328,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     Write-Skip 'See the I04 post-install guidance for installer download URLs.'
 
     # ------------------------------------------------------------------
-    # Section 5: UEFI Secure Boot Baseline (r4 port from chipset/graphics)
+    # Section 5: UEFI Secure Boot Baseline (port from chipset/graphics)
     # ------------------------------------------------------------------
     # The same firmware-layer view that the sister scripts show. This is
     # informational only (the self-signing trust chain we operate on is
@@ -6408,7 +6408,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     Set-DebugStep 'build and deploy WDAC supplemental Code Integrity policy'
     Write-Step 'Building and deploying WDAC supplemental Code Integrity policy'
 
-    # ---- UEFI Secure Boot baseline pre-check (r4 port from chipset/graphics) ----
+    # ---- UEFI Secure Boot baseline pre-check (port from chipset/graphics) ----
     # Cross-check the firmware-layer UEFI Secure Boot state before we
     # touch the OS-layer signing surface. This is a SOFT pre-check: we
     # never block I02 on UEFI cert rollout state (the rollout and our
@@ -6876,7 +6876,7 @@ finally {
     if ($Script:TopLevelException) {
         Write-Host ''
         Write-Fail 'Script terminated with errors. See messages above.'
-        # r8: close the transcript opened above. Idempotent; best-effort,
+        # Close the transcript opened above. Idempotent; best-effort,
         # must not mask the original exception (if any).
         if ($Script:LogFileActive) {
             try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup
@@ -6886,7 +6886,7 @@ finally {
     } else {
         Write-Host ''
         Write-Ok 'Script completed successfully.'
-        # r8: close the transcript opened above. Idempotent; best-effort.
+        # Close the transcript opened above. Idempotent; best-effort.
         if ($Script:LogFileActive) {
             try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup
             $Script:LogFileActive = $false
@@ -6895,112 +6895,3 @@ finally {
     }
 }
 
-# REVISION HISTORY
-# ================
-#
-# r9 (2026-05-17): Debug Trace Facility + call-site instrumentation
-#
-#   This release brings the NPU script to sister-script parity with
-#   BthPan r9 / Chipset r59 / Graphics r27 along five axes: the
-#   transcript-relocation logic, the workspace-resume helper, the
-#   Debug Trace Facility, and the call-site Set-DebugStep checkpoints
-#   that turn opaque failures into pinpointed step traces. Two
-#   minor cleanups (Split-Path PS 5.1 ja-JP bug and log filename
-#   naming) were folded in.
-#
-#   Bug fixes & cleanup (Phase 1C-1, +8 lines):
-#   - Split-Path -LiteralPath -Parent AmbiguousParameterSet bug at
-#     L396 fixed by switching to [System.IO.Path]::GetDirectoryName.
-#     This was the PS 5.1 ja-JP critical bug that long-prevented
-#     reliable -LogFile activation, identical to the bug fixed in
-#     BthPan r9, Chipset r59, and Graphics r27.
-#   - Log filename hint convention unified across sister scripts:
-#     'amd-npu_<Action>_<ts>.log' -> 'npu_<Action>_<ts>.log' in the
-#     three hint locations (L136, L187, L197). Cert subject names,
-#     workspace path 'Workspace_AMD-NPU', and WDAC policy name
-#     'AMD-NPU-Driver-SelfSign-Lab' remain unchanged.
-#   - D8 (SECTION number duplication) was NOT applicable to NPU:
-#     the only SECTION header at r8 was SECTION 1d; no conflict.
-#
-#   SECTION 0.25 migration (Phase 1C-2a, +297 lines):
-#   - The r8 minimal Start-Transcript wrapper at L378-L425 was
-#     replaced with the full SECTION 0.25 'Optional console
-#     transcript capture' block ported from Chipset r59:
-#       * -LogFile auto-relocation under <script-dir>\ when the
-#         user-supplied path is outside the workspace.
-#       * Transcript-verified activation (Start-Transcript success
-#         is verified by reading back the file rather than trusted
-#         blindly).
-#       * %TEMP% fallback when the script-dir path is unwritable.
-#       * Identical setup-elapsed reporting and best-effort cleanup
-#         pattern as the chipset / graphics sister scripts.
-#   - 6 script-name occurrences inside SECTION 0.25 were rewritten
-#     from Deploy-AMDChipsetDriverOnWindowsServer to
-#     Deploy-AMDNpuDriverOnWindowsServer (filename hints only).
-#
-#   Resume support (Phase 1C-2b, +72 lines):
-#   - Resume-CtxFromWorkspace function added (~70 lines), called
-#     from the end of P01.
-#   - DESIGN NOTE: unlike Chipset r59 / Graphics r27 / BthPan r9
-#     which keep state in a `$Ctx PSCustomObject and need to
-#     repopulate CertPfxPath / CertCerPath / CertThumbprint /
-#     PatchedDirs on resume, the NPU script holds cert and patched
-#     paths in static `$Script: scope variables computed at
-#     param-block evaluation time (L344-L349). The thumbprint is
-#     not cached at all; V02 and the Cleanup path re-derive it from
-#     the on-disk PFX via X509Certificate2. Consequently the NPU
-#     adaptation of this helper has no state to restore - it detects
-#     pre-existing PFX / CER / patched INF artifacts and emits a
-#     one-line Write-Skip diagnostic so operators running -Action
-#     Verify or -Action Install -OnlyPhases I01 against a populated
-#     workspace see explicit confirmation of pickup. Function name
-#     and call site are preserved for sister-script parity.
-#
-#   Debug Trace Facility (Phase 1D-1, +882 lines):
-#   - SECTION 1b inserted (between the SECTION 1c-preceding prose
-#     and SECTION 1d): 14 trace functions ported byte-for-byte from
-#     Chipset r59 (which itself is BthPan r9 with one header-line
-#     edit). Only the section header version marker was adjusted:
-#     '(r59+, structured diagnostics)' -> '(r9+, structured
-#     diagnostics)'. The 14 functions are:
-#       Start-DebugTrace, Set-DebugStep, Stop-DebugTrace,
-#       Format-DebugFailure, Write-DebugFailureReport,
-#       Enable-DebugTraceFileOutput, Disable-DebugTraceFileOutput,
-#       Get-DebugTraceFileOutputStatus,
-#       Enable-AutoExportOnPhaseFailure, Export-DebugTraceJson,
-#       and 4 internal helpers (_DebugTrace_NextSeq, _Now,
-#       _WriteJsonlLine, _RetireFrame).
-#   - The facility is script-agnostic (no chipset / graphics /
-#     bthpan / npu identifiers inside the SECTION 1b body), so the
-#     migration was a literal copy rather than an adaptation.
-#
-#   Call-site instrumentation (Phase 1D-2, +44 lines):
-#   - 44 Set-DebugStep checkpoints placed across all 21 P/V/I phase
-#     functions: P00-P09 (17), V01-V06 (14), I00-I04 (13). The
-#     checkpoint count is smaller than Chipset r59's because the
-#     NPU phase function bodies are substantially shorter (e.g.
-#     NPU P00 = 46 lines vs Chipset P00 = 143 lines) and have
-#     fewer distinct branch / loop / external-API boundaries to
-#     annotate.
-#   - Step label text follows the same '<verb> <object>' phrasing
-#     convention used in BthPan r9 / Chipset r59 / Graphics r27.
-#     NPU-specific operations are labelled with NPU-specific
-#     wording (e.g. 'detect NPU platform and resolve installer
-#     source', 'match detected NPU HW ID against patched INFs');
-#     operations shared with the sister scripts (PFX/CER/INF/cat
-#     verification, signtool / pnputil / Add-CertToTrustStore /
-#     Install-WdacPolicy) use labels close to the sister-script
-#     wording for cross-script diff-readability.
-#
-#   PSA static-analysis baseline preserved end-to-end:
-#     0 errors / 30 warnings / 0 info  (unchanged from r8 baseline)
-#   The 30 warnings are all pre-existing in NPU r8 (PSA3004 empty
-#   catch blocks for best-effort cleanup, PSA6003 plural-noun
-#   recommendations, and PSA2003 -match $null comparisons). None
-#   of the 1,303 added lines from r8 to r9 introduced a new PSA
-#   finding.
-#
-#   File metrics:
-#     r8 baseline : 5,267 lines / 246,042 bytes / SHA(12) 8e7c39bf26c6
-#     r9 release  : 6,570 lines / 307,863 bytes (delta +1,303 lines / +61,821 bytes)
-#

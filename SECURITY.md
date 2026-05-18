@@ -115,9 +115,9 @@ For completeness, the following are already enforced by the repository:
 参考までに、 本リポジトリではすでに以下を運用しています:
 
 - **リポジトリ・スクリプト本体に実在の機密情報を含めない**。 PFX パスワードはデフォルト空文字列。 実パスワードを使いたい operator は param block の `[string]$PfxPassword = ''` を自身で変更する想定です。 [`README.ja.md`](./README.ja.md) 「自己署名証明書」 参照
-- **スクリプト別の workspace 分離**。 各スクリプトは専用 workspace path (`C:\AMD-Chipset-WS`、 `C:\AMD-Graphics-WS`、 `C:\AMD-NPU-WS`、 `C:\MSBthPan-WS`) に書き込み、 別々の自己署名証明書 + WDAC supplemental policy GUID を使用してクロススクリプト trust リークを回避。 [`SPEC.ja.md`](./SPEC.ja.md) §A.1.4 および §B 各スクリプト識別欄参照
+- **スクリプト別の workspace 分離**。 各スクリプトは専用 workspace path (`C:\AMD-Chipset-WS`、 `C:\AMD-Graphics-WS`、 `C:\AMD-NPU-WS`、 `C:\MSBthPan-WS`) に書き込み、 別々の自己署名証明書 + WDAC supplemental policy GUID を使用してクロススクリプト trust リークを回避。 [`SPEC.md`](./SPEC.md) §A.1.4 および §B 各スクリプト識別欄参照
 - **Secure Boot は ON のまま**。 いずれのスクリプトも `bcdedit /set testsigning on` を要求・推奨・実行しません (明示的 opt-in の `-UseTestSigning` を除く。 これは `README.md` に最終手段のラボオプションとして文書化されています)。 デフォルトパスは Secure Boot 下での WDAC supplemental policy 認可で、 これは Windows Server 2022+ / Windows 11 22H2+ における Microsoft のサポート対象パスです
-- **PSP / TPM ドライバ置換は明示的 BitLocker 警告でゲート**。 P06 は BitLocker リカバリプロンプトのリスクを提示しない限り `amdpsp.inf` をパッチしません。 [`SPEC.ja.md`](./SPEC.ja.md) §B.1 参照
+- **PSP / TPM ドライバ置換は明示的 BitLocker 警告でゲート**。 P06 は BitLocker リカバリプロンプトのリスクを提示しない限り `amdpsp.inf` をパッチしません。 [`SPEC.md`](./SPEC.md) §B.1 参照
 - **自己署名 CA の認可範囲は限定的、 包括的ではない**。 supplemental policy はパッチ済み INF に対する kernel-mode signer として **per-script の自己署名証明書のみ** を認可します — グローバル trusted publisher としては追加しません
-- **`psa.py` による静的解析**。 4 スクリプトはすべて [`psa.py`](https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/python/powershell-static-analyzer/) で検証され、 プレーンテキストパスワードパラメータ・ `Invoke-Expression` 使用・脆弱なハッシュアルゴリズム・ ハードコード `ComputerName` 等の foot-gun をカバーするセキュリティクラスルール (`PSA5xxx`) が適用されます。 [`SPEC.ja.md`](./SPEC.ja.md) §A.11 参照
+- **`psa.py` による静的解析**。 4 スクリプトはすべて [`psa.py`](https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/python/powershell-static-analyzer/) で検証され、 プレーンテキストパスワードパラメータ・ `Invoke-Expression` 使用・脆弱なハッシュアルゴリズム・ ハードコード `ComputerName` 等の foot-gun をカバーするセキュリティクラスルール (`PSA5xxx`) が適用されます。 [`SPEC.md`](./SPEC.md) §A.11 参照
 - **実行パスより前に免責事項を提示**。 [`README.ja.md`](./README.ja.md) は冒頭で明示的な at-your-own-risk 警告を提示し、 `-Action Install` は operator が受諾しなければ進まない最終確認バナーを表示します

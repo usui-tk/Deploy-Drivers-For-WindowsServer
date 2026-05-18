@@ -7,7 +7,10 @@ This document consolidates the validation results for `Deploy-Drivers-For-Window
 3. **Validation Result 3 (NPU script)** — **🆘 NOT YET VALIDATED on physical NPU hardware. See [§3](#3-validation-result-3-npu-script--currently-unverified) for the current limited validation status.**
 4. **Validation Result 4 (BthPan script)** — ⏳ **PLANNED.** ThinkPad + Intel AX210 + Windows Server 2025 build 26100.32860 is the first physical-validation target. See [§4](#4-validation-result-4-bthpan-script--planned) for the planned test sequence.
 
-🇯🇵 **Japanese version: see [TESTING.ja.md](./TESTING.ja.md).**
+> **Documentation language policy**: This document is maintained in
+> English only. See `README.md` and `README.ja.md` for the bilingual
+> entry-point documentation; for the repository-wide language policy
+> see `SPEC.md` §A.12.
 
 ---
 
@@ -22,15 +25,40 @@ This document consolidates the validation results for `Deploy-Drivers-For-Window
 | **NPU (r9)** | ❌ **none** (no physical NPU machine in maintainer's lab) | ❌ **never executed** | **Experimental / research-grade only. Do not deploy in production.** |
 | **BthPan (r9)** | ⏳ **planned** — ThinkPad + Intel AX210 + Windows Server 2025 build 26100.32860 is the first target (see §4 below) | ❌ **not yet executed** | New script; physical validation pending. Logic shares the proven Phase / Secure Boot / WDAC framework from the Chipset script (Edit-InfForServer, Get-OsContext, Resolve-PhaseSelection, etc. are verbatim-inherited from Chipset r57). |
 
-> **Note on r56 / r24 behaviour change**: The category-priority override added in chipset r56 and graphics r24 (see SPEC §D.15) changes the install-decision semantics in a breaking way: self-signed `[C]` drivers now always supersede Microsoft generic `[A]` and vendor `[B]` drivers regardless of version. The pre-r56/r23 physical-hardware validation results below remain *structurally* valid (extraction, patching, signing, WDAC deployment all behave the same), but the **V05/V06/I03 driver-install decisions will differ** — devices that the prior versions classified as `SKIP-newer` are now classified as `INSTALL_UPGRADE`. Re-validation on the M75q Tiny Gen 2 and X13 Gen 1 AMD fixtures is recommended after deploying r56/r24.
+> **Note on the category-priority override** (see SPEC §D.15): The
+> category-priority override changes the install-decision semantics
+> in a breaking way for chipset and graphics: self-signed `[C]` drivers
+> now always supersede Microsoft generic `[A]` and vendor `[B]` drivers
+> regardless of version. Earlier physical-hardware validation results
+> below remain *structurally* valid (extraction, patching, signing,
+> WDAC deployment all behave the same), but the **V05 / V06 / I03
+> driver-install decisions will differ** — devices that earlier
+> revisions classified as `SKIP-newer` are now classified as
+> `INSTALL_UPGRADE`. Re-validation on the M75q Tiny Gen 2 and X13 Gen 1
+> AMD fixtures is recommended after upgrading.
 >
-> **Note on r57 / r25 / r7 fixes (2026-05-17)**: Three operational issues were identified in r56 / r24 / r6 logs from a clean WS2025 install and fixed in r57 / r25 / r7 — see [§9 r57+ regression scenarios](#9-r57--r25--r7--regression-scenarios) for the regression test scenarios. Briefly:
+> **Note on the CiTool / UTF-8 / pnputil operational fixes**
+> (see SPEC §D.5 / §D.16 / §D.17, and the regression scenarios in
+> [§9](#9-regression-scenarios-citool--utf-8--pnputil) below).
+> Three operational issues were identified on a clean WS2025 install
+> and fixed:
 >
-> 1. CiTool.exe was invoked without `--json` and blocked at I02 on "Press Enter to Exit" stdin prompt (SPEC §D.16);
-> 2. Console encoding was never set to UTF-8 so CiTool's ja-JP stdout displayed as mojibake (SPEC §D.5 / §D.16);
-> 3. pnputil exit=259 (`ERROR_NO_MORE_ITEMS`) was misclassified as failure in the I03 summary, diverging from I04's correct REBOOT_NEEDED/no-op recognition (SPEC §D.17).
+> 1. CiTool.exe was invoked without `--json` and blocked at I02 on
+>    "Press Enter to Exit" stdin prompt (SPEC §D.16);
+> 2. Console encoding was never set to UTF-8 so CiTool's ja-JP stdout
+>    displayed as mojibake (SPEC §D.5 / §D.16);
+> 3. pnputil exit=259 (`ERROR_NO_MORE_ITEMS`) was misclassified as
+>    failure in the I03 summary, diverging from I04's correct
+>    REBOOT_NEEDED / no-op recognition (SPEC §D.17).
 >
-> These fixes do NOT alter the structural pipeline behaviour validated on the M75q / X13 Gen 1 AMD fixtures (extraction, patching, signing, WDAC deployment all behave the same). The user-visible improvements are: I02 no longer hangs ~60-75 s waiting for ENTER; the CiTool log line reads `処理が成功しました` instead of `蜃ｦ逅・・謌仙粥縺励∪縺励◆`; the I03 summary reports `no-op (already present)` instead of mis-counted failures.
+> These fixes do NOT alter the structural pipeline behaviour validated
+> on the M75q / X13 Gen 1 AMD fixtures (extraction, patching, signing,
+> WDAC deployment all behave the same). The user-visible improvements
+> are: I02 no longer hangs ~60-75 s waiting for ENTER; the CiTool log
+> line reads `処理が成功しました` instead of mojibake; the I03 summary
+> reports `no-op (already present)` instead of mis-counted failures.
+> See [CHANGELOG.md](./CHANGELOG.md) for the release in which each fix
+> landed.
 
 The NPU script's verification is currently limited to:
 
@@ -707,23 +735,15 @@ Once §4.5 PASS is achieved with the default Strategy A, the planned regression 
 
 ## 6. Discovered bugs and fix history
 
-The following bugs were found and fixed during the validation runs above:
+The complete per-bug discovery-and-fix history is consolidated in
+[`CHANGELOG.md`](./CHANGELOG.md), under "Discovered bugs and fix history
+(validation-discovered)". That table maps each validation-discovered bug
+to the script revision where it was found and the revision where it was
+fixed, with cross-references to the relevant SPEC.md Part D section for
+root-cause analysis.
 
-| Discovery environment | Version | Fix version | Summary |
-|---|---|---|---|
-| ThinkPad X13 Gen 1 (Win11 24H2) | chipset r45 | r46 | Timezone bug in `Compare-InfDriverVer` (UTC midnight `DriverDate` was converted to local 09:00 by CIM cmdlets, causing the same-version case to be misreported as "current newer than patched"). Fixed by comparing `.Date` (year/month/day truncation) only. |
-| ThinkPad X13 Gen 1 (Win11 24H2) | r45 / r14 | r46 / r15 | The P05 / P00 compatibility check displayed `Host OS: Windows Server 2025` even on a Workstation host, which was confusing. Now shows the actual `Caption` plus the mapped profile side by side. |
-| ThinkPad X13 Gen 1 (Win11 24H2) | graphics r14 | r16 / r47 | V05 "would upgrade 1067/1067 matched device(s)" inflation. `$matchedDevices` was being appended per INF HWID variant rather than per physical device, inflating counts. Fixed by deduplication on the physical DeviceID. |
-| ThinkPad X13 Gen 1 (Win11 24H2) | graphics r14 | r16 / r47 | Same-version, newer-date upgrade case formerly produced the nonsensical `patched newer (X) than current (X)` message. Now displays `patched same version (X) but newer date; PnP ranking prefers newer-dated driver` for clarity. |
-| Pipeline review (no field reports) | NPU r1 | (placeholder) | Currently no field-discovered bugs — but **no field reports exist either**, because the NPU script has not been run on physical NPU hardware yet. |
-| Lab (Win Server 2025, ja-JP) | chipset r49 (during validation) | r49 published, r50 polish | Three corrections during the initial Secure Boot baseline rollout: (a) `schtasks.exe /FO CSV` headers are ja-JP-localized — replaced with `Get-ScheduledTask`. (b) MS sample script's `-OutputPath` validator regex rejects every absolute Windows path containing `:` — added stdout-JSON extraction fallback. (c) `Show-...` and V06 caller printed a duplicate banner — removed inner banner. |
-| Lab (Win Server 2025, ja-JP) | chipset r49 / graphics r18 / NPU r4 | r50 / r19 / r5 | Polish patch: P00 wrote diagnostic files to `%TEMP%` when the workspace had not been created yet, which on `-CleanWorkRoot` runs left stale paths visible in V06. Replaced with consistent workspace-co-located diagnostics via the new `Get-OrEnsureSecureBootBaseline` helper. |
-| Lab (Win Server 2025, ja-JP) | NPU r4 | r5 | `Find-Inf2CatPath` filtered to `\x64\` / `\amd64\` directories, but inf2cat.exe is x86-only; P02 always failed with "inf2cat not found" then attempted winget WDK install (also fails — WDK is not on winget). Replaced helper body with x86-aware tree walk. |
-| Lab (Win Server 2025, ja-JP) | NPU r4 | r5 | `[ValidateSet]` on `-NpuOverride` rejected the default empty string, emitting a noisy warning on every invocation. Added `''` to the set. |
-| Clean Windows Server 2025 install (interactive console) | chipset r54 / graphics r19→r22 | chipset r55 / graphics r23 | Workspace lock leaked across runs in the same PowerShell host. The lock file `<WorkRoot>\.markers\RUN.lock` was written with the current `$PID` but the only cleanup was a `Register-EngineEvent PowerShell.Exiting` action that never fires inside an interactive console. The next run in the same console then saw the leftover lock with PID == its own host PID and was rejected as "another instance is already running". Fixed by (a) self-PID detection in `Test-WorkspaceLockHeld` (treat lock with `Pid==$PID` as stale and overtake silently) and (b) wrapping the main phase loop in `try { ... } finally { Clear-WorkspaceLock ... }` so the lock is released on every exit path. NPU script is unaffected (no workspace lock implemented; see SPEC §D.13). |
-| Clean Windows Server 2025 install | chipset r54 | r55 | r54's new `Expand-AmdInstaller_ViaInstallShield` dropped `installshield-admin.log` and 12 per-sub-MSI `msiexec-admin-*.log` files at the workspace root, instead of `<WorkRoot>\logs\` alongside the existing `inf2cat_*.log` / `signtool_*.log` / `verify_*.log` / `pnputil_*.log` files. Root cause: `$parentDir = Split-Path $DestinationPath -Parent` resolved to the workspace root because the caller passed `$Ctx.Paths.Extract` (= `<WorkRoot>\extracted`). Fixed by adding an optional `-LogDir` parameter to both `Expand-AmdInstaller` and `Expand-AmdInstaller_ViaInstallShield`; `Invoke-PrepPhase04_ExtractInstaller` now passes `$Ctx.Paths.Logs`. Chipset only — graphics uses a single `msiexec /i` invocation and is not affected. See SPEC §D.14. |
-
-For full validation logs and the corresponding fix commits, see <https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/commits/main>.
+For full validation logs and the corresponding fix commits, see
+<https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/commits/main>.
 
 ---
 
@@ -770,9 +790,15 @@ Run all four scripts in PrepareVerify mode on the same host with `-CleanWorkRoot
 ---
 
 
-## 8. r54+ — AMD Chipset Software 8.x extraction diagnostic format
+## 8. AMD Chipset Software 8.x extraction diagnostic format
 
-Starting with the Chipset script's r54 revision, the P04 ExtractInstaller phase includes a new "Strategy 2/3" path designed for AMD Chipset Software 8.x (8.02.18.557 and later). This section documents the expected diagnostic output and the validation procedure for the new extraction path.
+This section documents the expected diagnostic output and the
+validation procedure for AMD's two-layer Chipset Software 8.x
+(8.02.18.557 and later) extraction path. The extraction strategy and
+its historical evolution are described in
+[SPEC §D.12](./SPEC.md#d12-chipset-r54--installshield-sfx-extraction-for-amd-8x-installers);
+the revision in which this strategy was introduced is logged in
+[CHANGELOG.md](./CHANGELOG.md).
 
 ### 8.1 Why a new strategy was needed
 
@@ -781,7 +807,7 @@ AMD Chipset Software 8.x ships as a two-layer wrapper:
 1. **Outer layer**: NSIS self-extracting EXE (7-Zip can extract this).
 2. **Inner layer**: InstallShield SFX in `ISSetupStream` format (7-Zip CANNOT extract; only InstallShield's own `/a` admin install can).
 
-Pre-r54 revisions detected the 7-Zip failure on the inner layer and fell back to launching the installer and harvesting from `C:\AMD\`, which is fragile because AMD aggressively cleans up that directory. r54 inserts a dedicated InstallShield-aware strategy between the old 7-Zip strategy and the launch-watch fallback.
+Earlier revisions detected the 7-Zip failure on the inner layer and fell back to launching the installer and harvesting from `C:\AMD\`, which is fragile because AMD aggressively cleans up that directory. The current pipeline inserts a dedicated InstallShield-aware strategy between the old 7-Zip strategy and the launch-watch fallback.
 
 See `SPEC.md` §B.1 "AMD 8.x installer architecture (r54+)" for the full architecture.
 
@@ -834,24 +860,29 @@ If the PREFERRED variant shows `0 INF(s)` despite the extraction succeeding, the
 
 ### 8.5 Fallback behaviour
 
-If Strategy 2 fails for any reason (caught by the `try { ... } catch` block in `Expand-AmdInstaller`), the script falls through to Strategy 3/3 (launch + watch), preserving the pre-r54 behaviour. The console output in that case will be:
+If Strategy 2 fails for any reason (caught by the `try { ... } catch` block in `Expand-AmdInstaller`), the script falls through to Strategy 3/3 (launch + watch), preserving the legacy behaviour from earlier revisions. The console output in that case will be:
 
 ```
 [!] InstallShield /a strategy failed: <error message>
     Strategy 3/3: launch installer and harvest from C:\AMD\
 ```
 
-This is the same fallback path used by pre-r54 revisions and should be considered a regression fallback only.
+This is the legacy fallback path used by earlier revisions and should be considered a regression fallback only.
 
 ---
 
-## 9. r57+ / r25+ / r7+ — Regression scenarios
+## 9. Regression scenarios: CiTool / UTF-8 / pnputil
 
-These regression scenarios validate the three fixes introduced in chipset r59 / graphics r27 / NPU r9 (2026-05-17). All three can be exercised on the same WS2025 install used for §1 (M75q Tiny Gen 2) without re-imaging.
+These regression scenarios validate the three operational fixes for
+the CiTool interactive-prompt, ja-JP UTF-8 console encoding, and the
+pnputil exit=259 reclassification (root causes in SPEC §D.5 / §D.16 /
+§D.17; release information in [CHANGELOG.md](./CHANGELOG.md)). All
+three can be exercised on the same WS2025 install used for §1
+(M75q Tiny Gen 2) without re-imaging.
 
 ### 9.1 CiTool ENTER-prompt hang (SPEC §D.16)
 
-**Pre-r57 / r25 / r6 symptom**: I02 stalls ~60-75 s between the two log lines below; pressing ENTER in the active console resumes the script:
+**Pre-fix symptom**: I02 stalls ~60-75 s between the two log lines below; pressing ENTER in the active console resumes the script:
 
 ```
 [*] Converting XML to .cip binary and deploying to active CI policies...
@@ -881,7 +912,7 @@ If this returns control to the prompt immediately, the `--json` mechanism is fun
 
 ### 9.2 Console UTF-8 enforcement (SPEC §D.5 / §D.16)
 
-**Pre-r57 / r25 / r6 symptom**: I02 log line reads:
+**Pre-fix symptom**: I02 log line reads:
 
 ```
 CiTool: 蜃ｦ逅・・謌仙粥縺励∪縺励◆
@@ -922,7 +953,7 @@ $stdout | Select-String '"OperationResult"' -CaseSensitive
 
 ### 9.3 pnputil exit=259 reclassification (SPEC §D.17)
 
-**Pre-r57 / r25 symptom (chipset)**: On a clean WS2025 install, I03 final summary reports:
+**Pre-fix symptom (chipset)**: On a clean WS2025 install, I03 final summary reports:
 
 ```
 Driver install: 52 ok (2 need reboot) / 3 failed / 0 skipped (current newer)
@@ -941,7 +972,7 @@ And the I03 per-INF lines previously rendered as `[!]   exit=259 (see ...)` now 
 **Pass criterion**:
 1. I03 failure count is 0 on a clean install (modulo any genuine pnputil errors).
 2. I04 `FAILED` count matches I03 `failed` count (both should be 0 or both should be the same non-zero number).
-3. Devices that pre-r57 showed under both "I03: 3 failed" AND "I04: REBOOT_NEEDED" now show only under "I04: REBOOT_NEEDED" with the corresponding I03 entries marked `no-op`.
+3. Devices that earlier showed under both "I03: 3 failed" AND "I04: REBOOT_NEEDED" now show only under "I04: REBOOT_NEEDED" with the corresponding I03 entries marked `no-op`.
 
 **Verification command (post-install state inspection)**:
 
@@ -957,11 +988,11 @@ $ws = 'C:\Temp\Workspace_AMD-Chipset'
 
 ### 9.4 Combined regression checklist
 
-When validating r57 / r25 / r7 on the M75q Tiny Gen 2 or X13 Gen 1 AMD fixtures:
+When validating these fixes on the M75q Tiny Gen 2 or X13 Gen 1 AMD fixtures:
 
 | # | Check | Pass criterion |
 |---|---|---|
-| 1 | Banner shows `chipset-2026.05.17-r59` (or `graphics-2026.05.17-r27` / `npu-2026.05.17-r9`) at script startup | ✓ correct version string |
+| 1 | Banner shows the script version string (e.g., `chipset-YYYY.MM.DD-rNN`) at script startup | ✓ correct version string |
 | 2 | P00 log emits `[~] Console encoding set to UTF-8` (NPU only) or simply does not display mojibake later | ✓ no cp932 indicator in CiTool output |
 | 3 | I02 completes in < 10 s WITHOUT operator stdin input | ✓ no hang at "Converting XML to .cip binary..." |
 | 4 | I02 final line includes `Activation method: CiTool (immediate, no reboot)` rendered via `Write-Detail` (4-space indent, Gray) | ✓ visually subordinate to the preceding `[+] Deployed:` marker line |
