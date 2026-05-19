@@ -786,7 +786,7 @@ and either added here or fixed.
 | `Deploy-AMDNpuDriverOnWindowsServer.ps1`        |  **0** |    **0** |  **0** |   **0** |
 | `Deploy-MSBthPanInboxOnWindowsServer.ps1`       |  **0** |    **0** |  **0** |   **0** |
 
-The 2026-05-18 release is the **first revision where the canonical static-analysis baseline is fully clean across all four scripts simultaneously** (with the canonical `.psa.config.json` as documented above).
+The 2026-05-18 release is the **first revision where the canonical static-analysis baseline is fully clean across all four scripts simultaneously** (with the canonical `.psa.config.json` as documented above). The subsequent 2026-05-20 cross-script consistency release (`debugtrace-helper-internal-cleanup`, Chipset r62 / Graphics r30 / NPU r13 / MSBthPan r12) **preserves this baseline unchanged at 0 / 0 / 0** on all four scripts. The release refines three shared helper functions (`_DebugTrace_WriteJsonlLine`, `Export-DebugTraceJson`, `Show-PowerShellEnvironment`) and is byte-for-byte synchronized across all four scripts per PSA8001 (see [CHANGELOG.md](./CHANGELOG.md) for the verified per-function SHA-256 hashes).
 
 How the previously-documented findings were resolved in this sync:
 

@@ -23,6 +23,70 @@ independently.
 ## [Unreleased]
 
 ### Changed
+- **Chipset r62 / Graphics r30 / NPU r13 / MSBthPan r12 (cross-script consistency release — `debugtrace-helper-internal-cleanup`).**
+  Backport from the sibling repository
+  [`usui-tk/ai-generated-artifacts`](https://github.com/usui-tk/ai-generated-artifacts)
+  (`scripts/powershell/download-speakerdeck-oracle4engineer/Download-SpeakerDeck.ps1`).
+  Three internal-quality refinements to shared helper functions in the
+  Debug Trace facility and the environment-display function. **All four
+  scripts MUST be bumped together** because the affected functions are
+  shared helpers governed by `psa.py` rule PSA8001 (function-body drift)
+  — see [`SPEC.md`](./SPEC.md) §A.11.5b.
+  - **`_DebugTrace_WriteJsonlLine` — rename parameter `$Event` to
+    `$EventObject` to avoid shadowing the PowerShell automatic
+    variable `$Event`.** `$Event` is populated by the engine inside
+    event-subscriber action blocks (`Register-ObjectEvent`,
+    `Register-WmiEvent`, etc.). The original parameter name would have
+    silently misbehaved if this helper were ever called from inside
+    such a block. PSScriptAnalyzer rule
+    `PSAvoidAssignmentToAutomaticVariable` flags this as a Warning.
+    A multi-line comment immediately above the `param()` block
+    records the rationale verbatim so future maintainers do not
+    "fix" the renamed parameter back to `$Event`. Call-site signature
+    is unchanged (all current call sites pass the event object as a
+    positional argument, e.g.,
+    `_DebugTrace_WriteJsonlLine ([pscustomobject]@{ kind = ... })`),
+    so no downstream code requires modification.
+  - **`Export-DebugTraceJson` — add `[OutputType([string])]`
+    attribute.** The function returns the resolved export path as a
+    `[string]`. The explicit `OutputType` declaration documents this
+    contract to PowerShell tooling (IntelliSense, `Get-Command -Syntax`,
+    `Get-Help`) and to PSScriptAnalyzer (rule
+    `PSUseOutputTypeCorrectly`, Information level). Pure annotation —
+    no behavioural change.
+  - **`Show-PowerShellEnvironment` — add explicit `param()` block plus
+    `[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWMICmdlet')]`
+    with rationale.** The function already implements an intentional
+    `Get-WmiObject` fallback path (CIM is the primary path; WMI is
+    the secondary path used only when CIM is constrained on Server Core
+    or other restricted images). The `param()` block was previously
+    omitted (PowerShell allows this for parameterless functions);
+    adding the explicit `param()` is a precondition for attaching the
+    suppression attribute. The `Justification` argument records the
+    design intent verbatim so the suppression does not become a
+    silent "ignore everything" gate. This change is preparatory for a
+    future introduction of PSScriptAnalyzer in this repository's CI
+    pipeline; today's `psa.py` baseline (0/0/0 on all four scripts)
+    is unaffected.
+  - PSA8001 (function-body drift) verification: after the change, the
+    SHA-256 hashes of all three modified function bodies are identical
+    across all four scripts (`_DebugTrace_WriteJsonlLine` hash prefix
+    `be240309b6ef`, `Export-DebugTraceJson` `ec7c3a391fd5`,
+    `Show-PowerShellEnvironment` `dfbdef374b4c`). Every script grew
+    by exactly +913 bytes, confirming structural symmetry.
+  - `Deploy-AMDChipsetDriverOnWindowsServer.ps1`: `$Script:ScriptVersion`
+    bumped to `chipset-2026.05.20-r62`, `$Script:ScriptTag` set to
+    `debugtrace-helper-internal-cleanup`.
+  - `Deploy-AMDGraphicsDriverOnWindowsServer.ps1`:
+    `$Script:ScriptVersion` bumped to `graphics-2026.05.20-r30`,
+    `$Script:ScriptTag` set to `debugtrace-helper-internal-cleanup`.
+  - `Deploy-AMDNpuDriverOnWindowsServer.ps1`: `$Script:ScriptVersion`
+    bumped to `npu-2026.05.20-r13`, `$Script:ScriptTag` set to
+    `debugtrace-helper-internal-cleanup`.
+  - `Deploy-MSBthPanInboxOnWindowsServer.ps1`: `$Script:ScriptVersion`
+    bumped to `msbthpan-2026.05.20-r12`, `$Script:ScriptTag` set to
+    `debugtrace-helper-internal-cleanup`.
+
 - **Chipset r61 / Graphics r29 (`.NOTES` header pattern alignment).** The
   Chipset and Graphics scripts' `.NOTES` headers have been restructured
   to follow the same sidebar pattern used by NPU r12 and MSBthPan r11,

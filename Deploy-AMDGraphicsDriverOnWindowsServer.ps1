@@ -762,8 +762,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'graphics-2026.05.18-r29'
-$Script:ScriptTag     = 'notes-header-pattern-alignment'
+$Script:ScriptVersion = 'graphics-2026.05.20-r30'
+$Script:ScriptTag     = 'debugtrace-helper-internal-cleanup'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -1302,6 +1302,11 @@ function Show-PowerShellEnvironment {
     # and APIs used here are present in PS 5.1 /.NET Framework 4.6+,
     # so this function itself does not introduce any new compatibility
     # risk. CIM queries fall back to WMI for fragile environments.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
+        'PSAvoidUsingWMICmdlet', '',
+        Justification = 'Intentional Get-WmiObject fallback path. CIM is the primary path; WMI is the secondary path used only when CIM is constrained on Server Core / restricted images. PowerShell 5.1 supports both; the script targets PS 5.1+ as its baseline.')]
+    param()
+
     Write-Host ''
     Write-Host '========================================================================'
     Write-Host ' PowerShell Execution Environment'
@@ -1748,21 +1753,29 @@ function _DebugTrace_WriteJsonlLine {
     # pre-activation buffer if file output isn't enabled yet). All
     # failures are absorbed so the script body is never disrupted by
     # trace bookkeeping.
-    param([Parameter(Mandatory)] $Event)
+    #
+    # The parameter is named $EventObject (rather than the more natural
+    # $Event) because $Event is a PowerShell automatic variable populated
+    # inside event-subscriber action blocks (Register-ObjectEvent,
+    # Register-WmiEvent, etc.). Reusing the name would shadow that
+    # built-in and silently misbehave if this function were ever called
+    # from inside such a block. See PSScriptAnalyzer rule
+    # PSAvoidAssignmentToAutomaticVariable.
+    param([Parameter(Mandatory)] $EventObject)
 
     # Add monotonic sequence number for stable cross-event ordering.
-    $Event | Add-Member -MemberType NoteProperty -Name 'seq' -Value (_DebugTrace_NextSeq) -Force
+    $EventObject | Add-Member -MemberType NoteProperty -Name 'seq' -Value (_DebugTrace_NextSeq) -Force
 
     try {
-        $json = $Event | ConvertTo-Json -Depth $Script:DebugTraceJsonDepth -Compress
+        $json = $EventObject | ConvertTo-Json -Depth $Script:DebugTraceJsonDepth -Compress
     } catch {
         # If JSON conversion fails (e.g. circular reference somewhere),
         # fall back to a minimal hand-written line so we still record
         # something. Increment error counter and stash last error.
         $Script:DebugTraceJsonlErrorCount++
         $Script:DebugTraceJsonlLastError = $_.Exception.Message
-        $kind = if ($Event.PSObject.Properties['kind']) { $Event.kind } else { 'unknown' }
-        $ctx  = if ($Event.PSObject.Properties['ctx'])  { $Event.ctx  } else { '?' }
+        $kind = if ($EventObject.PSObject.Properties['kind']) { $EventObject.kind } else { 'unknown' }
+        $ctx  = if ($EventObject.PSObject.Properties['ctx'])  { $EventObject.ctx  } else { '?' }
         $json = ('{{"ts":"{0}","seq":{1},"kind":"{2}","ctx":"{3}","err":"json-serialize-failed"}}' `
                     -f (_DebugTrace_Now), $Script:DebugTraceEventSeq, $kind, $ctx)
     }
@@ -2271,6 +2284,7 @@ function Export-DebugTraceJson {
         The output file path (for chaining).
     #>
     [CmdletBinding()]
+    [OutputType([string])]
     param(
         [Parameter(Mandatory=$true)] [string]$Path,
         [switch]$IncludeEvents,
