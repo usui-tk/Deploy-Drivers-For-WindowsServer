@@ -627,8 +627,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.05.20-r62'
-$Script:ScriptTag     = 'debugtrace-helper-internal-cleanup'
+$Script:ScriptVersion = 'chipset-2026.05.20-r63'
+$Script:ScriptTag     = 'psa-py-v360-baseline-uplift'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -1171,7 +1171,7 @@ function Show-PowerShellEnvironment {
     # risk. CIM queries fall back to WMI for fragile environments.
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
         'PSAvoidUsingWMICmdlet', '',
-        Justification = 'Intentional Get-WmiObject fallback path. CIM is the primary path; WMI is the secondary path used only when CIM is constrained on Server Core / restricted images. PowerShell 5.1 supports both; the script targets PS 5.1+ as its baseline.')]
+        Justification = 'Intentional Get-WmiObject fallback path. CIM is the primary path; WMI is the secondary path used only when CIM is constrained on Server Core / restricted images. PowerShell 5.1 supports both; the script targets PS 5.1+ as its baseline.')]  # psa-disable-line PSA3006 -- intentional fallback when CIM is constrained; PS 5.1 still supports WMI cmdlets
     param()
 
     Write-Host ''
@@ -1212,7 +1212,7 @@ function Show-PowerShellEnvironment {
         try {
             # WS2016 / WS2019 sometimes have CIM service issues on
             # constrained images (e.g. Server Core); fall back to WMI.
-            $os = Get-WmiObject -Class Win32_OperatingSystem -ErrorAction Stop
+            $os = Get-WmiObject -Class Win32_OperatingSystem -ErrorAction Stop  # psa-disable-line PSA3006 -- intentional fallback when CIM is constrained; PS 5.1 still supports WMI cmdlets
         } catch {
             $os = $null
         }
@@ -1858,6 +1858,7 @@ function Format-DebugFailure {
         ScriptStackTrace, StepHistory (object[]).
     #>
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)] $ErrorRecord
     )
@@ -2101,6 +2102,7 @@ function Get-DebugTraceFileOutputStatus { # psa-disable-line PSA6003 -- "Status"
         Return the current state of the JSONL writer for diagnostics.
     #>
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param()
     return [pscustomobject]@{
         Enabled         = $Script:DebugTraceJsonlEnabled
@@ -2453,6 +2455,7 @@ function Get-SecureBootCertificateInventory {
     # when Microsoft's sample Detect script is NOT present on the host.
     # All access is read-only; failures are captured rather than thrown.
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param()
 
     $inv = [pscustomobject]@{
@@ -2654,6 +2657,7 @@ function Invoke-MsSecureBootDetectScript {
     # and leave.Data null - callers should fall back to the embedded
     # inventory in that case.
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)] [string]$WorkRoot,
         [string]$DetectScriptPath
@@ -3048,6 +3052,7 @@ function Get-OrEnsureSecureBootBaseline {
     #     from a phase that displays the path.
     # In either case we re-capture so the displayed path is honest.
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)] $Ctx
     )
@@ -3083,6 +3088,7 @@ function Format-SecureBootBaselineForReport {
     # appending to inf_inventory_report.txt. Mirrors the on-screen V06
     # block but without colour codes / cursor positioning.
     [CmdletBinding()]
+    [OutputType([string])]
     param(
         [Parameter(Mandatory)] $Snapshot
     )
@@ -4386,7 +4392,7 @@ function Get-OsContext {
         $osCim = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
     } catch {
         try {
-            $osCim = Get-WmiObject -Class Win32_OperatingSystem -ErrorAction Stop
+            $osCim = Get-WmiObject -Class Win32_OperatingSystem -ErrorAction Stop  # psa-disable-line PSA3006 -- intentional fallback when CIM is constrained; PS 5.1 still supports WMI cmdlets
         } catch {
             throw "Failed to query Win32_OperatingSystem via both CIM and WMI: $($_.Exception.Message)"
         }
@@ -4507,8 +4513,8 @@ function Get-MachineRegion {
     #   3. Tail of Get-Culture.Name (e.g. en-US -> US).
     #   4. Static fallback "US".
     try {
-        $home = Get-WinHomeLocation -ErrorAction Stop
-        if ($home -and $home.HomeLocation) {
+        $winHomeLocation = Get-WinHomeLocation -ErrorAction Stop
+        if ($winHomeLocation -and $winHomeLocation.HomeLocation) {
             # GeoId -> 2-letter via RegionInfo enumeration. Looking up by
             # English name is brittle, so prefer CurrentRegion.
             $r = [System.Globalization.RegionInfo]::CurrentRegion.TwoLetterISORegionName
@@ -4912,7 +4918,9 @@ function Install-WindowsWdkFallback {
 # Returns $null on WMI failure (purely informational - non-fatal).
 # ====================================================================
 function Get-AmdChipsetPlatform {
-    [CmdletBinding()] param()
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
 
     try {
         $cpu = Get-CimInstance -ClassName Win32_Processor -ErrorAction Stop |
@@ -5030,6 +5038,7 @@ function _NewChipsetPlatform {
 
 function Get-LatestAmdChipsetUrl {
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)] [string[]]$LandingUrls,
         [Parameter(Mandatory)] [string]$FallbackUrl
@@ -5226,6 +5235,7 @@ function Test-RobocopyResult {
     # Returns a result object; does NOT throw. The caller decides how to
     # react (throw / warn / retry) based on.Success.
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)] [string]$SourcePath,
         [Parameter(Mandatory)] [string]$DestinationPath
@@ -5626,6 +5636,7 @@ function Expand-AmdInstaller_ViaInstallShield {
     #
     # =====================================================================
     [CmdletBinding()]
+    [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)] [string]$InstallerPath,
         [Parameter(Mandatory)] [string]$DestinationPath,
@@ -9188,7 +9199,7 @@ function Get-AmdHardwareInventory {
             })
     } catch {
         try {
-            $devices = @(Get-WmiObject -Class Win32_PnPEntity -ErrorAction Stop |
+            $devices = @(Get-WmiObject -Class Win32_PnPEntity -ErrorAction Stop |  # psa-disable-line PSA3006 -- intentional fallback when CIM is constrained; PS 5.1 still supports WMI cmdlets
                 Where-Object {
                     ($_.PNPDeviceID -and $_.PNPDeviceID -match $rxId) -or # psa-disable-line PSA2003 -- pattern variable is initialized in the enclosing scope; $null impossible by construction
                     ($_.Manufacturer -and $_.Manufacturer -match $rxMfg) # psa-disable-line PSA2003 -- pattern variable is initialized in the enclosing scope; $null impossible by construction
@@ -9311,7 +9322,7 @@ function Get-DeviceCurrentDriver {
             Where-Object DeviceID -eq $DeviceID | Select-Object -First 1
     } catch {
         try {
-            $drv = Get-WmiObject -Class Win32_PnPSignedDriver -ErrorAction Stop |
+            $drv = Get-WmiObject -Class Win32_PnPSignedDriver -ErrorAction Stop |  # psa-disable-line PSA3006 -- intentional fallback when CIM is constrained; PS 5.1 still supports WMI cmdlets
                 Where-Object DeviceID -eq $DeviceID | Select-Object -First 1
         } catch {
             return $null

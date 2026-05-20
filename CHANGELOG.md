@@ -23,6 +23,78 @@ independently.
 ## [Unreleased]
 
 ### Changed
+- **Chipset r63 / Graphics r31 / NPU r14 / MSBthPan r13 (cross-script consistency release — `psa-py-v360-baseline-uplift`).**
+  Coordinated uplift to keep the static-analysis baseline clean
+  against the upstream
+  [`psa.py` v3.6.0](https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/python/powershell-static-analyzer)
+  release. Five new rules were added to `psa.py` (PSA2007, PSA2008,
+  PSA3006, PSA6007, PSA6008) and the PSA2002 risky-shadow set was
+  expanded from 8 to 38 entries — together they would have raised
+  ~90 new findings across the four scripts if left unaddressed. The
+  uplift below restores **0 errors / 0 warnings / 0 info on all four
+  scripts** while preserving PSA8001 byte-for-byte parity on the
+  shared helpers.
+
+  **True defects fixed (auto-variable shadowing — would have
+  malfunctioned at runtime in subtle ways):**
+  - `$home = Get-WinHomeLocation ...` → `$winHomeLocation = ...`
+    (in `Get-MachineRegion`, present in Chipset / Graphics /
+    MSBthPan; NPU does not contain this function).
+    `$HOME` is the engine's user-profile path; assigning to it
+    inside a function pollutes the script scope and would have
+    given misleading results to any subsequent `$HOME`-based path
+    construction.
+  - `$profile = 'WS2025'` (and 8 more lines in the same OS-profile
+    mapping block) → `$osProfile = 'WS2025'` (in
+    `Show-OperatingSystemDetail`, NPU only).
+    `$PROFILE` is the engine's PowerShell-profile-script path;
+    reassigning it inside a function would have masked the user's
+    actual `$PROFILE` for the rest of the script execution.
+
+  **Documentation / contract refinements (no runtime behaviour change):**
+  - `[OutputType([<type>])]` declarations added to **27 functions**
+    across the four scripts (5 common helpers in all four scripts:
+    `Format-DebugFailure`, `Format-SecureBootBaselineForReport`,
+    `Get-DebugTraceFileOutputStatus`,
+    `Get-SecureBootCertificateInventory`,
+    `Invoke-MsSecureBootDetectScript`; plus 22 script-specific
+    helpers). The annotations make the function's return contract
+    visible to `Get-Command -Syntax`, `Get-Help -Full`,
+    IntelliSense, and downstream PSScriptAnalyzer type inference.
+  - `Get-OrEnsureSecureBootBaseline` (per-script by design — already
+    in `psa8001_ignore_functions`) gained the annotation in all
+    four scripts.
+
+  **Intentional WMI fallback paths now have inline suppression:**
+  - 15 lines across the four scripts (5 in Chipset, 5 in Graphics,
+    2 in NPU, 3 in MSBthPan) where `Get-WmiObject` is a deliberate
+    fallback for CIM-constrained environments now carry the inline
+    suppression marker
+    `# psa-disable-line PSA3006 -- intentional fallback when CIM is constrained; PS 5.1 still supports WMI cmdlets`.
+    These lines are unchanged behaviourally; only the comment was
+    appended.
+
+  **Verification (post-uplift):**
+  - `python3 psa.py <script>` on all four scripts: 0/0/0
+  - `python3 psa.py <all-four-scripts> --config .psa.config.json`
+    (PSA8001 multi-file mode): clean
+  - PSA8001 byte-for-byte parity of shared helpers preserved
+    (verified by SHA-256 of each shared-helper body across the
+    four scripts).
+
+  `$Script:ScriptVersion` bumps:
+  - `Deploy-AMDChipsetDriverOnWindowsServer.ps1`:
+    `chipset-2026.05.20-r62` → `chipset-2026.05.20-r63`
+  - `Deploy-AMDGraphicsDriverOnWindowsServer.ps1`:
+    `graphics-2026.05.20-r30` → `graphics-2026.05.20-r31`
+  - `Deploy-AMDNpuDriverOnWindowsServer.ps1`:
+    `npu-2026.05.20-r13` → `npu-2026.05.20-r14`
+  - `Deploy-MSBthPanInboxOnWindowsServer.ps1`:
+    `msbthpan-2026.05.20-r12` → `msbthpan-2026.05.20-r13`
+
+  All four `$Script:ScriptTag` values are set to
+  `'psa-py-v360-baseline-uplift'`.
+
 - **Chipset r62 / Graphics r30 / NPU r13 / MSBthPan r12 (cross-script consistency release — `debugtrace-helper-internal-cleanup`).**
   Backport from the sibling repository
   [`usui-tk/ai-generated-artifacts`](https://github.com/usui-tk/ai-generated-artifacts)

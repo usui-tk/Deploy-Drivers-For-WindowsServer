@@ -762,8 +762,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'graphics-2026.05.20-r30'
-$Script:ScriptTag     = 'debugtrace-helper-internal-cleanup'
+$Script:ScriptVersion = 'graphics-2026.05.20-r31'
+$Script:ScriptTag     = 'psa-py-v360-baseline-uplift'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -1304,7 +1304,7 @@ function Show-PowerShellEnvironment {
     # risk. CIM queries fall back to WMI for fragile environments.
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
         'PSAvoidUsingWMICmdlet', '',
-        Justification = 'Intentional Get-WmiObject fallback path. CIM is the primary path; WMI is the secondary path used only when CIM is constrained on Server Core / restricted images. PowerShell 5.1 supports both; the script targets PS 5.1+ as its baseline.')]
+        Justification = 'Intentional Get-WmiObject fallback path. CIM is the primary path; WMI is the secondary path used only when CIM is constrained on Server Core / restricted images. PowerShell 5.1 supports both; the script targets PS 5.1+ as its baseline.')]  # psa-disable-line PSA3006 -- intentional fallback when CIM is constrained; PS 5.1 still supports WMI cmdlets
     param()
 
     Write-Host ''
@@ -1345,7 +1345,7 @@ function Show-PowerShellEnvironment {
         try {
             # WS2016 / WS2019 sometimes have CIM service issues on
             # constrained images (e.g. Server Core); fall back to WMI.
-            $os = Get-WmiObject -Class Win32_OperatingSystem -ErrorAction Stop
+            $os = Get-WmiObject -Class Win32_OperatingSystem -ErrorAction Stop  # psa-disable-line PSA3006 -- intentional fallback when CIM is constrained; PS 5.1 still supports WMI cmdlets
         } catch {
             $os = $null
         }
@@ -1991,6 +1991,7 @@ function Format-DebugFailure {
         ScriptStackTrace, StepHistory (object[]).
     #>
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)] $ErrorRecord
     )
@@ -2234,6 +2235,7 @@ function Get-DebugTraceFileOutputStatus { # psa-disable-line PSA6003 -- "Status"
         Return the current state of the JSONL writer for diagnostics.
     #>
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param()
     return [pscustomobject]@{
         Enabled         = $Script:DebugTraceJsonlEnabled
@@ -2587,6 +2589,7 @@ function Get-SecureBootCertificateInventory {
     # when Microsoft's sample Detect script is NOT present on the host.
     # All access is read-only; failures are captured rather than thrown.
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param()
 
     $inv = [pscustomobject]@{
@@ -2788,6 +2791,7 @@ function Invoke-MsSecureBootDetectScript {
     # and leave.Data null - callers should fall back to the embedded
     # inventory in that case.
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)] [string]$WorkRoot,
         [string]$DetectScriptPath
@@ -3183,6 +3187,7 @@ function Get-OrEnsureSecureBootBaseline {
     #     from a phase that displays the path.
     # In either case we re-capture so the displayed path is honest.
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)] $Ctx
     )
@@ -3218,6 +3223,7 @@ function Format-SecureBootBaselineForReport {
     # appending to inf_inventory_report.txt. Mirrors the on-screen V06
     # block but without colour codes / cursor positioning.
     [CmdletBinding()]
+    [OutputType([string])]
     param(
         [Parameter(Mandatory)] $Snapshot
     )
@@ -4522,7 +4528,7 @@ function Get-OsContext {
         $osCim = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
     } catch {
         try {
-            $osCim = Get-WmiObject -Class Win32_OperatingSystem -ErrorAction Stop
+            $osCim = Get-WmiObject -Class Win32_OperatingSystem -ErrorAction Stop  # psa-disable-line PSA3006 -- intentional fallback when CIM is constrained; PS 5.1 still supports WMI cmdlets
         } catch {
             throw "Failed to query Win32_OperatingSystem via both CIM and WMI: $($_.Exception.Message)"
         }
@@ -4643,8 +4649,8 @@ function Get-MachineRegion {
     #   3. Tail of Get-Culture.Name (e.g. en-US -> US).
     #   4. Static fallback "US".
     try {
-        $home = Get-WinHomeLocation -ErrorAction Stop
-        if ($home -and $home.HomeLocation) {
+        $winHomeLocation = Get-WinHomeLocation -ErrorAction Stop
+        if ($winHomeLocation -and $winHomeLocation.HomeLocation) {
             # GeoId -> 2-letter via RegionInfo enumeration. Looking up by
             # English name is brittle, so prefer CurrentRegion.
             $r = [System.Globalization.RegionInfo]::CurrentRegion.TwoLetterISORegionName
@@ -5098,7 +5104,9 @@ function Install-WindowsWdkFallback {
 #   Source = short label of where the value came from (for logging)
 # ====================================================================
 function Get-AmdGpuTarget {
-    [CmdletBinding()] param()
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
 
     # Step 1: dGPU search via PnPEntity. Only accept a dGPU if it has
     # a SPECIFIC model identifier in its name (RX/Pro/AI Pro/Wxxxx/
@@ -5166,7 +5174,9 @@ function Get-AmdGpuTarget {
 # hyphens as the path separator.
 # ====================================================================
 function Convert-AmdProductNameToSlug {
-    [CmdletBinding()] param([Parameter(Mandatory)] [string]$Name)
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)] [string]$Name)
     $s = $Name.ToLower().Trim()
     $s = $s -replace '\(tm\)|\(r\)|\(c\)', ''
     $s = $s -replace 'with\s+radeon\s+graphics', ''   # APU "AMD Ryzen 7 5800U with Radeon Graphics"
@@ -5189,7 +5199,9 @@ function Convert-AmdProductNameToSlug {
 # Returns $null if no recognizable 4-digit model is found.
 # ====================================================================
 function Get-AmdProductSeriesNumber {
-    [CmdletBinding()] param([Parameter(Mandatory)] [string]$Name)
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([Parameter(Mandatory)] [string]$Name)
     # Match a 4-digit (or "Rxxxx" / "Wxxxx") model number embedded in the name.
     if ($Name -match '\b[RW]?(\d)\d{3}\w*\b') {
         return ([int]$matches[1]) * 1000
@@ -5315,7 +5327,9 @@ $Script:AmdCodenameMap = @{
 # replaced with spaces, surrounding whitespace trimmed).
 # ====================================================================
 function Get-AmdCodenameNormalizedKey {
-    [CmdletBinding()] param([Parameter(Mandatory)] [string]$Codename)
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)] [string]$Codename)
     $key = $Codename.Trim().ToLower()
     # Split on whitespace and hyphens, collapse to single space
     $parts = [regex]::Split($key, '[\s_\-/]+') | Where-Object { $_ }
@@ -5341,7 +5355,9 @@ function Get-AmdCodenameNormalizedKey {
 # null.
 # ====================================================================
 function Get-AmdCodenameFromUrl {
-    [CmdletBinding()] param([Parameter(Mandatory)] [string]$Url)
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)] [string]$Url)
     $browserUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36'
     try {
         $resp = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 30 -UserAgent $browserUA -ErrorAction Stop
@@ -5428,6 +5444,7 @@ function Get-AmdCodenameFromUrl {
 # ====================================================================
 function Get-AmdDriverBranchPreference {
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param(
         [pscustomobject]$GpuTarget,
         [string]$Codename
@@ -5640,7 +5657,9 @@ function Get-AmdDriverBranchPreference {
 # Returns $null if no pattern matched (caller should fall back).
 # ====================================================================
 function Get-AmdProductPageUrl {
-    [CmdletBinding()] param([Parameter(Mandatory)] [string]$ProductName)
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)] [string]$ProductName)
     $slug   = Convert-AmdProductNameToSlug -Name $ProductName
     $series = Get-AmdProductSeriesNumber  -Name $ProductName
     if (-not $series) { return $null }
@@ -5691,7 +5710,9 @@ function Get-AmdGraphicsLandingUrls { # psa-disable-line PSA6003 -- compound nou
     # Returning the Target alongside the URLs lets the P03 caller pass
     # it to Get-AmdDriverBranchPreference WITHOUT re-running detection
     # (and re-printing the detection log lines).
-    [CmdletBinding()] param([Parameter(Mandatory)] [string[]]$DefaultUrls)
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)] [string[]]$DefaultUrls)
 
     $detected = Get-AmdGpuTarget
     if ($null -eq $detected) {
@@ -5736,6 +5757,7 @@ function Get-LatestAmdGraphicsUrl {
     #     branches gives the wrong driver for Vega-generation hardware.
     # ====================================================================
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)] [string[]]$LandingUrls,
         [Parameter(Mandatory)] [string]$FallbackUrl,
@@ -5928,6 +5950,7 @@ function Test-RobocopyResult {
     # Returns a result object; does NOT throw. The caller decides how to
     # react (throw / warn / retry) based on.Success.
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)] [string]$SourcePath,
         [Parameter(Mandatory)] [string]$DestinationPath
@@ -9594,7 +9617,7 @@ function Get-AmdHardwareInventory {
             })
     } catch {
         try {
-            $devices = @(Get-WmiObject -Class Win32_PnPEntity -ErrorAction Stop |
+            $devices = @(Get-WmiObject -Class Win32_PnPEntity -ErrorAction Stop |  # psa-disable-line PSA3006 -- intentional fallback when CIM is constrained; PS 5.1 still supports WMI cmdlets
                 Where-Object {
                     ($_.PNPDeviceID -and $_.PNPDeviceID -match $rxId) -or # psa-disable-line PSA2003 -- pattern variable is initialized in the enclosing scope; $null impossible by construction
                     ($_.Manufacturer -and $_.Manufacturer -match $rxMfg) # psa-disable-line PSA2003 -- pattern variable is initialized in the enclosing scope; $null impossible by construction
@@ -9717,7 +9740,7 @@ function Get-DeviceCurrentDriver {
             Where-Object DeviceID -eq $DeviceID | Select-Object -First 1
     } catch {
         try {
-            $drv = Get-WmiObject -Class Win32_PnPSignedDriver -ErrorAction Stop |
+            $drv = Get-WmiObject -Class Win32_PnPSignedDriver -ErrorAction Stop |  # psa-disable-line PSA3006 -- intentional fallback when CIM is constrained; PS 5.1 still supports WMI cmdlets
                 Where-Object DeviceID -eq $DeviceID | Select-Object -First 1
         } catch {
             return $null

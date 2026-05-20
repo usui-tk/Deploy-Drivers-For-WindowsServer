@@ -325,8 +325,8 @@ $Script:CertValidityYears       = $CertValidityYears
 # =============================================================================
 # Script-scope state
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.05.20-r13'
-$Script:ScriptTag           = 'debugtrace-helper-internal-cleanup'
+$Script:ScriptVersion       = 'npu-2026.05.20-r14'
+$Script:ScriptTag           = 'psa-py-v360-baseline-uplift'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 $Script:CertSubjectCn       = 'AMD NPU Driver Self-Sign (WS2025 Lab, At Own Risk)'
@@ -968,7 +968,7 @@ function Show-PowerShellEnvironment {
     # risk. CIM queries fall back to WMI for fragile environments.
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
         'PSAvoidUsingWMICmdlet', '',
-        Justification = 'Intentional Get-WmiObject fallback path. CIM is the primary path; WMI is the secondary path used only when CIM is constrained on Server Core / restricted images. PowerShell 5.1 supports both; the script targets PS 5.1+ as its baseline.')]
+        Justification = 'Intentional Get-WmiObject fallback path. CIM is the primary path; WMI is the secondary path used only when CIM is constrained on Server Core / restricted images. PowerShell 5.1 supports both; the script targets PS 5.1+ as its baseline.')]  # psa-disable-line PSA3006 -- intentional fallback when CIM is constrained; PS 5.1 still supports WMI cmdlets
     param()
 
     Write-Host ''
@@ -1009,7 +1009,7 @@ function Show-PowerShellEnvironment {
         try {
             # WS2016 / WS2019 sometimes have CIM service issues on
             # constrained images (e.g. Server Core); fall back to WMI.
-            $os = Get-WmiObject -Class Win32_OperatingSystem -ErrorAction Stop
+            $os = Get-WmiObject -Class Win32_OperatingSystem -ErrorAction Stop  # psa-disable-line PSA3006 -- intentional fallback when CIM is constrained; PS 5.1 still supports WMI cmdlets
         } catch {
             $os = $null
         }
@@ -1144,43 +1144,43 @@ function Show-OperatingSystemDetail {
     $productType = [int]$os.ProductType  # 1=Workstation, 2=DC, 3=Server
 
     # Profile mapping based on NT build (chipset/graphics scripts share this matrix)
-    $profile = $null
+    $osProfile = $null
     $inf2cat = $null
     if ($build -ge 26100) {
         # Win11 24H2 and Server 2025 share build 26100
-        $profile = 'WS2025'
+        $osProfile = 'WS2025'
         $inf2cat = 'Server2025_X64'
     } elseif ($build -ge 22631) {
         # Win11 23H2
-        $profile = 'WS2022-equiv'
+        $osProfile = 'WS2022-equiv'
         $inf2cat = 'ServerFE_X64'
     } elseif ($build -ge 22000) {
         # Win11 21H2/22H2
-        $profile = 'WS2022-equiv'
+        $osProfile = 'WS2022-equiv'
         $inf2cat = 'ServerFE_X64'
     } elseif ($build -ge 20348) {
         # Server 2022
-        $profile = 'WS2022'
+        $osProfile = 'WS2022'
         $inf2cat = 'ServerFE_X64'
     } elseif ($build -ge 19041) {
         # Win10 20H2/21H2/22H2
-        $profile = 'WS2019-equiv'
+        $osProfile = 'WS2019-equiv'
         $inf2cat = 'ServerRS5_X64'
     } elseif ($build -ge 17763) {
         # Server 2019
-        $profile = 'WS2019'
+        $osProfile = 'WS2019'
         $inf2cat = 'ServerRS5_X64'
     } elseif ($build -ge 14393) {
         # Server 2016
-        $profile = 'WS2016'
+        $osProfile = 'WS2016'
         $inf2cat = 'Server2016_X64'
     } else {
-        $profile = 'Unknown'
+        $osProfile = 'Unknown'
         $inf2cat = $null
     }
 
     Write-Ok ("OS detected     : {0} (build {1})" -f $caption, $build)
-    Write-Skip ("Profile applied : {0}" -f $profile)
+    Write-Skip ("Profile applied : {0}" -f $osProfile)
     Write-Skip ("inf2cat /os: switch : {0}" -f $inf2cat)
     Write-Skip ("ProductType     : {0}  (1=Workstation, 3=Server)" -f $productType)
 
@@ -1200,7 +1200,7 @@ function Show-OperatingSystemDetail {
         OsCaption       = $caption
         OsBuild         = $build
         OsProductType   = $productType
-        OsProfile       = $profile
+        OsProfile       = $osProfile
         Inf2CatOsSwitch = $inf2cat
         IsWorkstationOs = $isWorkstation
         IsServer2025    = $isServer2025
@@ -1904,6 +1904,7 @@ function Format-DebugFailure {
         ScriptStackTrace, StepHistory (object[]).
     #>
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)] $ErrorRecord
     )
@@ -2147,6 +2148,7 @@ function Get-DebugTraceFileOutputStatus { # psa-disable-line PSA6003 -- "Status"
         Return the current state of the JSONL writer for diagnostics.
     #>
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param()
     return [pscustomobject]@{
         Enabled         = $Script:DebugTraceJsonlEnabled
@@ -2472,6 +2474,7 @@ function Get-SecureBootCertificateInventory {
     # when Microsoft's sample Detect script is NOT present on the host.
     # All access is read-only; failures are captured rather than thrown.
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param()
 
     $inv = [pscustomobject]@{
@@ -2673,6 +2676,7 @@ function Invoke-MsSecureBootDetectScript {
     # and leave.Data null - callers should fall back to the embedded
     # inventory in that case.
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)] [string]$WorkRoot,
         [string]$DetectScriptPath
@@ -3049,6 +3053,7 @@ function Format-SecureBootBaselineForReport {
     # appending to inf_inventory_report.txt. Mirrors the on-screen V06
     # block but without colour codes / cursor positioning.
     [CmdletBinding()]
+    [OutputType([string])]
     param(
         [Parameter(Mandatory)] $Snapshot
     )
@@ -3181,6 +3186,7 @@ function Get-OrEnsureSecureBootBaseline {
     #     JSON file that P00 had written to the workspace.
     # In that case we re-capture so the displayed path is honest.
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param()
 
     $needCapture = $true
@@ -4261,6 +4267,7 @@ function Install-RequiredTools { # psa-disable-line PSA6003 -- compound noun (e.
         flows used by the chipset and graphics scripts.
     #>
     [CmdletBinding()]
+    [OutputType([hashtable])]
     param()
 
     # Pre-flight detection so we can surface a single, consolidated
