@@ -22,6 +22,69 @@ independently.
 
 ## [Unreleased]
 
+### Documentation
+- **SPEC.md A.2 expansion + new D.23 lessons-learned entry — `encoding-and-line-endings-comprehensive`.**
+  Documentation-only revision (no `.ps1` content change; revision counters
+  not bumped). Captures the cross-file encoding / line-ending contract for
+  this repository in a single canonical reference, and records the
+  lessons learned from a defect caught in the `detection-accuracy-multi-os`
+  release where a Python content-generation helper emitted LF-only line
+  endings into a `.ps1` file. The defect was silently corrected by the
+  repository's `.gitattributes` (`*.ps1 text working-tree-encoding=UTF-8
+  eol=crlf`) during `git add`, but only after a byte-level diff against
+  the committed copy surfaced a +105 byte delta with no visible content
+  change.
+
+  **What was added:**
+  - **SPEC §A.2** gains four new subsections that promote the encoding
+    contract from a two-row table to a normative spec:
+    - **A.2.1** — Per-file-type encoding & line-ending contract (`.ps1`,
+      `.md`, `.txt`, `.yml`, `.yaml`, `.json`, `.toml`, `.py`, binary
+      blobs) with explicit rationale for each.
+    - **A.2.2** — Five tooling rules with worked Python / Bash code
+      examples showing the WRONG and CORRECT patterns for emitting
+      `.ps1` content. Covers Python `open()` defaults, triple-quoted
+      string literals, `str_replace`-style in-place edits, shell
+      heredocs, and `.md` inverse defaults.
+    - **A.2.3** — Pre-commit verification commands (PowerShell + Bash)
+      that compare CR-byte count vs. LF-byte count, check for the
+      UTF-8 BOM, and run the AST parser. The CR/LF equality check is
+      the only one that catches the specific defect described in D.23.
+    - **A.2.4** — Explicit statement that `.gitattributes` is a safety
+      net, not a contract, with four scenarios where its normalization
+      does NOT apply (raw downloads, `git show <blob>`, working-tree
+      `psa.py` runs, mid-session editor re-reads).
+  - **SPEC §D.23** — Full lessons-learned write-up of the mixed-line-
+    ending defect: symptom, byte-level forensic trail, root cause
+    (Python triple-quoted string literals terminate with LF on every
+    host platform regardless of destination file convention), why the
+    AST parser / `grep` / `psa.py` all failed to detect it, lessons
+    learned (AI-agent file generation is the highest-risk vector, ZIP
+    archives bypass `.gitattributes`), and a 7-step quick-reference
+    checklist for any tool / agent emitting `.ps1` content.
+
+  **Forensic data from the original defect** (preserved in D.23 for
+  reference):
+  - File: `Deploy-MSBthPanInboxOnWindowsServer.ps1`.
+  - Region: `Get-BthPanNetChildBinding` function body, lines 4675–4779.
+  - Pre-commit: LF=10205, CR=10100, LF-only=105 lines, size=507,514.
+  - Post-commit: LF=10205, CR=10205, LF-only=0 lines, size=507,619.
+  - Delta: +105 bytes, exactly the line count of the inserted function
+    body. `.gitattributes` added one CR per LF-only line during commit
+    normalization.
+  - All four `.ps1` scripts pass full verification (CR/LF equality, BOM
+    present, AST 0 errors, `psa.py` 0 errors) in the post-commit
+    GitHub state.
+
+  **Why this is a documentation-only release**:
+  - No `.ps1` content change; the `Get-BthPanNetChildBinding` function
+    is already correctly CRLF-terminated in the committed GitHub copy
+    via `.gitattributes` normalization on the original `git add`.
+  - No revision-counter bump on Chipset / Graphics / NPU / BthPan
+    scripts.
+  - Verification confirmed: AST 0 errors, CR=LF on all four scripts,
+    BOM intact on all four scripts.
+
 ### Added
 - **Chipset r64 / Graphics r32 / NPU r15 / BthPan r14 — Hardware-detection
   accuracy + Multi-OS resilience pass (`detection-accuracy-multi-os`).**

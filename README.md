@@ -1118,6 +1118,12 @@ If you edit these files on Windows with an editor that auto-injects a BOM into `
 
 The Japanese log strings inside the `.ps1` scripts are designed to render correctly on a ja-JP Windows console that is set to UTF-8 (`chcp 65001`). If your console is at the default ja-JP code page (932 / Shift-JIS), Japanese strings may garble. The scripts include a `[Console]::OutputEncoding = [System.Text.Encoding]::UTF8` call in P00 to enforce this, but if you redirect output to a file via `*>&1 | Tee-Object`, set your file encoding explicitly to UTF-8 to avoid double-encoding.
 
+### Programmatic emission of `.ps1` content (Python helpers, AI agents, code generators)
+
+If you ever produce `.ps1` content from a program (a Python helper script, a Bash heredoc, an AI agent that writes files, a code generator that synthesises new helper functions), you **must** ensure the bytes you emit conform to the UTF-8 + BOM + CRLF contract before they reach disk. Language defaults are uniformly wrong for this — Python's `"""..."""` triple-quoted strings, Node's template literals, Go raw strings, and shell heredocs all emit LF-only output on Linux / macOS regardless of the destination file's convention. A `.ps1` file with mixed line endings (some lines CRLF, others LF) will pass `pwsh -ParseFile` cleanly and look identical in any visual diff, but a byte-level check reveals the defect — and on a strict-CRLF consumer (some signtool builds, certain MSI authoring tools) it will fail at use time.
+
+The canonical reference for the per-file-type contract, the corrective tooling patterns (Python `open(..., 'wb')` + explicit BOM + `\n` → `\r\n`), and the pre-commit verification commands is **[SPEC §A.2](./SPEC.md#a2-source-file-format)** (subsections **A.2.1** through **A.2.4**). The full forensic trail of the one occurrence of this defect that reached this repository — caught and silently corrected by `.gitattributes` at commit time — is recorded in **[SPEC §D.23](./SPEC.md#d23-mixed-line-endings-in-programmatically-emitted-ps1-content-python-script-defect)**.
+
 ---
 
 ## References

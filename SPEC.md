@@ -169,6 +169,155 @@ If a 5th script is added (e.g. ROCm runtime, audio coprocessor), use `C:\Temp\Wo
 16. Top-level try/finally dispatcher that prints Show-RunSummary regardless of exit path
 ```
 
+### A.2.1 Per-file-type encoding & line-ending contract (cross-repo overview)
+
+Each file extension has a non-negotiable contract that is enforced by `.gitattributes` at commit / checkout time. Any tooling that produces files for this repository — manual edits, IDE saves, code-generation scripts, AI-agent edits — **must** emit bytes that already conform to this contract; relying on `.gitattributes` to silently fix things at commit time is a fragile workflow (see A.2.4 below).
+
+| Extension | Encoding | Line endings | BOM | Enforced by | Reason |
+| --- | --- | --- | --- | --- | --- |
+| `*.ps1`, `*.psm1`, `*.psd1` | UTF-8 | **CRLF** | **required** | `PSA7001` + `.gitattributes` (`text working-tree-encoding=UTF-8 eol=crlf`) | Windows PowerShell 5.1 on ja-JP locale falls back to Shift-JIS when BOM is absent → ja-JP string literals corrupt at parse time. CRLF is required by signtool / pnputil and by the existing tooling baseline. |
+| `*.md` | UTF-8 | **LF** | **forbidden** | `.gitattributes` (`text eol=lf`) | GitHub-native rendering convention. BOM breaks some Markdown renderers and shows as `` (mojibake) at file start. |
+| `*.txt`, `*.yml`, `*.yaml`, `*.json`, `*.toml` | UTF-8 | LF | forbidden | `.gitattributes` (`text eol=lf`) | Cross-platform tool convention. JSON parsers in particular reject leading BOM in strict mode. |
+| `*.py` | UTF-8 | LF | forbidden | `.gitattributes` (`text eol=lf`) | PEP 8 / PEP 263 convention. Python 3 accepts UTF-8 source by default; BOM is allowed but discouraged. |
+| `*.cer`, `*.pfx`, `*.cat`, `*.zip`, `*.png`, etc. | binary | n/a | n/a | `.gitattributes` (`binary` or explicit `-text`) | Git must not touch line endings on binary blobs. |
+
+> **PSA7001** is the static-analysis rule that enforces the `.ps1` contract; see A.11 for the full rule list and how `psa.py` reports violations.
+
+### A.2.2 Tooling rules — programmatic edits MUST preserve the contract
+
+When emitting `.ps1` content from any program (Python script, Bash heredoc, AI-agent file generation, etc.), the **default** behaviour of most language runtimes is the wrong one — they emit LF-only without BOM. The following rules prevent the most common defects:
+
+**Rule 1 — Python scripts that emit `.ps1` content MUST explicitly normalize to CRLF and prepend the UTF-8 BOM.**
+
+```python
+# WRONG — produces LF-only without BOM
+with open('Deploy-X.ps1', 'w', encoding='utf-8') as f:
+    f.write(new_content)
+
+# WRONG — encoding='utf-8-sig' adds BOM but newlines still default to LF
+# on Linux/macOS (open() in text mode does NOT translate \n to \r\n on these platforms)
+with open('Deploy-X.ps1', 'w', encoding='utf-8-sig') as f:
+    f.write(new_content)
+
+# CORRECT — explicit CRLF + BOM, works identically on every platform
+with open('Deploy-X.ps1', 'wb') as f:
+    f.write(b'\xef\xbb\xbf')                        # UTF-8 BOM
+    f.write(new_content.replace('\n', '\r\n').encode('utf-8'))
+
+# CORRECT (alternative) — newline parameter overrides platform default
+with open('Deploy-X.ps1', 'w', encoding='utf-8-sig', newline='\r\n') as f:
+    # Note: with newline='\r\n', Python does NOT add CR to existing \r\n,
+    # so input must contain LF only (not CRLF) — round-trip-safe
+    f.write(new_content.replace('\r\n', '\n'))
+```
+
+**Rule 2 — When inserting new lines into an existing `.ps1` file, the inserted content MUST match the existing line endings.**
+
+The hardest-to-find defect is *mixed* line endings: most of the file is CRLF (correct), but one inserted function body is LF-only (broken). PowerShell's AST parser accepts both forms silently — meaning an `AST 0 errors` result does NOT prove the file is well-formed. Insertion tools must either:
+
+- Read the surrounding context, identify its line ending, and emit the new lines with the same terminator.
+- Or normalize the entire output to CRLF after insertion.
+
+```python
+# WRONG — Python's triple-quoted string literal has LF terminators
+new_function = """
+function Get-NewHelper {
+    Write-Host 'hi'
+}
+"""
+patched = before + new_function + after  # mixes CRLF (before/after) with LF (new_function)
+
+# CORRECT — convert to CRLF before inserting
+new_function = """
+function Get-NewHelper {
+    Write-Host 'hi'
+}
+""".replace('\n', '\r\n')
+patched = before + new_function + after  # uniform CRLF throughout
+```
+
+**Rule 3 — When using `str_replace`-style in-place edits, the new content MUST match the line ending of the surrounding file.**
+
+Most in-place edit tools (PowerShell's `-replace`, sed, perl `-i`, and most IDE refactoring tools) preserve the *surrounding* file's line endings but use the literal bytes of the replacement string. If the replacement string was authored on a system that emits LF (a Linux IDE, a webform, a chat-app paste) and is dropped into a CRLF file, the inserted region becomes LF-only — exactly the defect Rule 2 warns about.
+
+**Rule 4 — Heredocs in shell scripts produce LF-only output. Pipe through `unix2dos` or equivalent before writing `.ps1`.**
+
+```bash
+# WRONG
+cat > Deploy-X.ps1 << 'EOF'
+#Requires -Version 5.1
+function Get-Foo { 'hi' }
+EOF
+
+# CORRECT
+cat > Deploy-X.ps1 << 'EOF' && unix2dos Deploy-X.ps1
+#Requires -Version 5.1
+function Get-Foo { 'hi' }
+EOF
+# (or use printf with explicit \r\n)
+```
+
+**Rule 5 — `.md` files are the inverse: never emit CRLF or BOM.** Editors that auto-detect "Windows line endings" or auto-insert BOM (notably older Notepad++ configurations and some VS Code extensions) must be configured to suppress those defaults when saving Markdown.
+
+### A.2.3 Verification commands (run before committing)
+
+`.gitattributes` will catch most defects at commit time but only by rewriting the file — which produces a confusing diff and may indicate other problems were also silently rewritten. Run these checks before `git add` so the working tree matches the canonical form ahead of time.
+
+**PowerShell (Windows authoring environment):**
+
+```powershell
+# CR / LF byte counts. For .ps1 files these MUST be equal (every LF preceded by CR).
+$path = 'Deploy-AMDChipsetDriverOnWindowsServer.ps1'
+$bytes = [System.IO.File]::ReadAllBytes($path)
+$cr = ($bytes | Where-Object { $_ -eq 13 }).Count
+$lf = ($bytes | Where-Object { $_ -eq 10 }).Count
+Write-Host ("CR: $cr / LF: $lf / mismatch: $($lf - $cr) LF-only line(s)")
+
+# BOM check (must be EF BB BF for .ps1)
+$first3 = ($bytes[0..2] | ForEach-Object { '{0:X2}' -f $_ }) -join ' '
+Write-Host ("First 3 bytes: $first3 (expected: EF BB BF)")
+
+# PowerShell AST parse — NOT a proof of correctness for encoding, but a necessary baseline
+$errors = $null
+$null = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$errors)
+Write-Host ("AST parse errors: $($errors.Count)")
+```
+
+**Bash / WSL (Linux authoring environment):**
+
+```bash
+file Deploy-AMDChipsetDriverOnWindowsServer.ps1
+# Expected output: "UTF-8 Unicode (with BOM) text, with CRLF line terminators"
+
+# Equality check: LF byte count must equal CR byte count for .ps1
+file=Deploy-AMDChipsetDriverOnWindowsServer.ps1
+cr=$(tr -cd '\r' < "$file" | wc -c)
+lf=$(tr -cd '\n' < "$file" | wc -c)
+echo "CR=$cr LF=$lf LF-only=$((lf-cr))"
+# LF-only MUST equal 0 for the file to be PSA7001-compliant
+
+# Cross-file check for all .ps1 files in repo
+for f in Deploy-*.ps1; do
+    cr=$(tr -cd '\r' < "$f" | wc -c); lf=$(tr -cd '\n' < "$f" | wc -c)
+    bom=$(head -c 3 "$f" | od -An -t x1 | tr -d ' ')
+    printf "%-50s CR=%6d LF=%6d delta=%5d BOM=%s\n" "$f" "$cr" "$lf" "$((lf-cr))" "$bom"
+done
+# Every row must show delta=0 and BOM=efbbbf
+```
+
+### A.2.4 `.gitattributes` is a safety net, not a substitute for correct emission
+
+The repository's `.gitattributes` rule `*.ps1 text working-tree-encoding=UTF-8 eol=crlf` will normalize line endings during `git add` (commit time) and during `git checkout` (working-tree projection). This catches the LF-only-line defect *for files that go through a normal git workflow*. It does NOT save you in the following scenarios:
+
+- **Files shared outside git** — a `.ps1` file emailed, uploaded to a ZIP, or downloaded via the GitHub Raw URL bypasses `.gitattributes` normalization. The recipient sees whatever bytes the producer emitted.
+- **Files inspected via `git show <commit>:<path>`** — this returns the *blob* form (BOM + LF), not the working-tree form (BOM + CRLF). Tooling that consumes blob content directly must apply CRLF normalization itself.
+- **AST / `psa.py` analysis on the working tree at the moment of authoring** — if the file is locally LF-only and you run `psa.py` before `git add`, `psa.py` will (correctly) report `PSA7001` failure. The defect is real until commit normalization, not a phantom.
+- **Editor tooling that re-reads the file mid-session** — if your editor reads a CRLF file, holds it in memory as LF-only (most editors do this), and writes back as LF-only, the disk file is now LF-only until `.gitattributes` next normalizes it.
+
+**Bottom line**: emit correct bytes at the source. Treat `.gitattributes` as a defensive check, not as the source of truth.
+
+For the detailed war story of how this exact defect was caught in this repository, see [SPEC §D.23](#d23-mixed-line-endings-in-programmatically-emitted-ps1-content-python-script-defect).
+
 ---
 
 ## A.3 Banner & Version Identification
@@ -2348,6 +2497,76 @@ Three new return fields are added to the result object: `CimBridgeTried`, `CimBr
 - On Japanese WS2025 (build 26100.32860) with the originally-broken bthpan state: D.19 fixes deliver TrueResolution; I05 short-circuits as no-op. ✓
 - On a deliberately-broken WS2025 state (manual driver removal): D.19 detects phantom; I05 Attempt 1 (`Restart-PnpDevice`) recovers; `I04OverallResult` promoted to `'TrueResolution'`; no reboot. ✓
 - WS2019 + WS2016: not yet verified on real hardware. The capability matrix above is derived from Microsoft documentation; field validation is pending. (Tracking in `TESTING.md` §multi-OS validation.)
+
+---
+
+## D.23 Mixed line endings in programmatically emitted `.ps1` content (Python-script defect)
+
+**Symptom**: A ZIP archive of the repository was prepared in a working directory, delivered, and committed to GitHub. After commit, `git pull` followed by a byte-level diff against the originally-delivered ZIP showed that exactly one of the four `.ps1` scripts had grown by **+105 bytes** for no visible content reason. PowerShell `AST 0 errors` and visual inspection both passed; the discrepancy did not surface until a byte-counting verification was run after the commit.
+
+**Investigation (verification trail)**: The 105-byte delta was traced to a contiguous 105-line region (`Get-BthPanNetChildBinding` function body, lines 4675–4779 in `Deploy-MSBthPanInboxOnWindowsServer.ps1`). Counting CR and LF bytes directly (rather than relying on line counts):
+
+```
+Pre-commit (ZIP):        LF=10205   CR=10100   LF-only lines=105   size=507514
+Post-commit (GitHub):    LF=10205   CR=10205   LF-only lines=  0   size=507619
+                                                                   delta=+105
+```
+
+LF-byte count is identical, but CR-byte count grew by 105 — exactly the line count of the inserted function. The pre-commit file had 105 lines terminated by LF only (no CR), embedded in a file whose other 10100 lines were correctly CRLF-terminated. `git add` applied the `.gitattributes` rule `*.ps1 text working-tree-encoding=UTF-8 eol=crlf` and rewrote those 105 lines to CRLF at commit time, producing the byte delta after `git pull`.
+
+The defective lines all came from a single source: a Python helper script used to insert the `Get-BthPanNetChildBinding` function into the BthPan `.ps1`. The Python script used a triple-quoted string literal for the function body — Python's string literals terminate lines with LF on every platform regardless of the source-file's own line endings. The script then concatenated this LF-only block between two CRLF regions of the original `.ps1`, producing a file with mixed line endings.
+
+**Root cause**: Programmatic content generation that uses language defaults (Python `"""..."""`, Python `open()` text-mode write, Bash heredoc, JavaScript template literals, Go raw strings, etc.) emits LF-only output regardless of the destination file's line-ending convention. The defect is invisible to:
+
+- **PowerShell's AST parser** — accepts mixed line endings as valid.
+- **Visual diff tools** — display lines, not bytes; LF and CRLF render identically.
+- **`grep`-based "line containing CR" counts** — count *matching lines*, not CR bytes; consecutive CRs on adjacent lines don't change the count meaningfully on inspection.
+- **The static analyser `psa.py`** — at the time of the defect, `PSA7001` checked for BOM presence and "predominantly CRLF" but did not assert *all* lines are CRLF. (Subsequent rule strengthening is tracked separately.)
+
+The defect surfaces only when:
+
+- A byte-level diff runs against a committed (`.gitattributes`-normalised) copy.
+- An equality check on CR-byte-count vs. LF-byte-count is performed explicitly.
+- A `.ps1` script that has mixed line endings is loaded by a tool that strictly requires CRLF (signtool's catalog inspection on some older builds, certain MSI authoring tools).
+
+**Fix (immediate)**: The committed GitHub copy is correct because `.gitattributes` normalised at commit time. No code change is required to recover from the specific occurrence. The structural fix is to prevent recurrence by:
+
+1. **Update all repository-internal Python content-generation scripts** to emit CRLF + BOM bytes explicitly. The canonical pattern is binary-mode write with explicit BOM prefix and `\n` → `\r\n` substitution applied to the encoded text. See A.2.2 Rule 1 for the exact code.
+2. **Add a pre-commit verification step** (manual or scripted) that runs the byte-count equality check in A.2.3. A failed check is a signal to investigate *before* `.gitattributes` silently rewrites the file.
+3. **Document the contract** so future contributors (human or AI agent) emit conforming bytes at the source. The expanded A.2 section is the canonical reference.
+
+**Why `.gitattributes` did not prevent the defect from reaching the ZIP**: The ZIP archive was generated from the working tree directly, without going through `git add` first. `git archive` would have applied the `eol=crlf` normalisation at archive time (because `git archive` honours `export-subst` and `text` attributes), but the ZIP in question was created with `zip -r` from the working tree — which copies bytes verbatim. Result: the ZIP carried the LF-only defect; the next `git add` (performed by the recipient when committing) normalised it.
+
+**Lessons learned**:
+
+- **AI-agent file generation is a high-risk source of this defect.** Tools that "write a file" via a programming-language abstraction (Python `open()`, Node's `fs.writeFile`, etc.) default to platform-native line endings on the host where the agent runs — Linux for most cloud-hosted agents. The output is LF-only regardless of the destination file's convention. Agents authoring `.ps1` content must apply A.2.2 Rule 1 every time.
+- **Visual inspection and AST parsing are necessary but not sufficient** for `.ps1` correctness. The full verification surface is:
+  - UTF-8 BOM present (first 3 bytes `EF BB BF`).
+  - CR-byte count equals LF-byte count (every LF preceded by a CR).
+  - AST parse 0 errors.
+  - `psa.py` 0 errors.
+- **A ZIP archive of working-tree files bypasses `.gitattributes` normalisation.** When packaging a repository for offline delivery, run the A.2.3 verification commands first; do not assume the committed-form bytes will be in the archive.
+- **`git archive` is the safer alternative to `zip -r`** for repository snapshots, because it applies attributes at archive time. `git archive --format=zip HEAD -o snapshot.zip` produces normalised content; `zip -r snapshot.zip .` does not.
+
+**Quick-reference checklist for any tool / agent emitting `.ps1` content**:
+
+1. Open the destination in binary mode (or set `newline='\r\n'` on a text-mode stream).
+2. Write `\xef\xbb\xbf` as the first three bytes if creating from scratch.
+3. Convert every `\n` in the payload to `\r\n` before writing.
+4. After writing, run `tr -cd '\r' < file | wc -c` and `tr -cd '\n' < file | wc -c`; they MUST be equal.
+5. Run `head -c 3 file | od -An -t x1`; output MUST be `ef bb bf`.
+6. Run PowerShell AST parse; expect 0 errors.
+7. Run `psa.py` on the file; expect 0 errors.
+
+Steps 4–7 are independent — passing one does not imply passing the others. The defect described in this entry passes steps 5–7 and fails step 4.
+
+**Scope**: Affects any future contribution that programmatically produces `.ps1` content — Python helpers, Bash heredocs, AI-agent file-write actions. Documentation contributions (`.md` files) are subject to the inverse contract: LF-only without BOM (see A.2.1). The same class of defect — mixed line endings — could manifest in `.md` if a `\r\n`-producing tool writes into an LF-only file; the symptom would be GitHub rendering showing stray `^M` markers in code blocks or other formatting glitches.
+
+**Cross-references**:
+- A.2.1 — Per-file-type contract.
+- A.2.2 — Tooling rules (the corrective patterns).
+- A.2.3 — Verification commands.
+- A.2.4 — Why `.gitattributes` is a safety net, not a contract.
 
 ---
 
