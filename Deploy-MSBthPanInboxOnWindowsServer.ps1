@@ -3689,12 +3689,42 @@ function Install-MsBthPanWdacPolicy {
         }
     }
 
+    # ---- WS2019 fallback: PS_UpdateAndCompareCIPolicy CIM method ----
+    # When CiTool.exe is absent (WS2019 and earlier do not ship it),
+    # the policy may still be hot-loaded via the WMI/CIM bridge
+    # PS_UpdateAndCompareCIPolicy in root\Microsoft\Windows\CI. This
+    # method exists on WS2019+ but not on WS2016, so failure here is
+    # not fatal - the legacy reboot path remains as the final fallback.
+    $cimBridgeTried   = $false
+    $cimBridgeStdout  = ''
+    $cimBridgeError   = ''
+    if (-not $immediate) {
+        $cimBridgeTried = $true
+        try {
+            $cimArgs = @{ FilePath = $deployedPath }
+            $cimResult = Invoke-CimMethod -Namespace 'root\Microsoft\Windows\CI' `
+                -ClassName 'PS_UpdateAndCompareCIPolicy' `
+                -MethodName 'Update' `
+                -Arguments $cimArgs `
+                -ErrorAction Stop
+            $rv = if ($null -ne $cimResult.ReturnValue) { [int]$cimResult.ReturnValue } else { -1 }
+            $cimBridgeStdout = ('PS_UpdateAndCompareCIPolicy.Update returned {0}' -f $rv)
+            if ($rv -eq 0) {
+                $immediate = $true
+                if (-not $citoolStatusLine) { $citoolStatusLine = $cimBridgeStdout }
+            }
+        } catch {
+            # CIM class not present (WS2016) or other failure - fall through to reboot
+            $cimBridgeError = $_.Exception.Message
+        }
+    }
+
     return [pscustomobject]@{
         PolicyId         = $policyId
         XmlPath          = $XmlPath
         BinaryPath       = $BinaryOutPath
         DeployedPath     = $deployedPath
-        ActivationMethod = if ($immediate) { 'CiTool (immediate, no reboot)' } else { 'reboot' }
+        ActivationMethod = if ($immediate) { if ($cimBridgeTried -and (-not $citoolStdout)) { 'CIM bridge (PS_UpdateAndCompareCIPolicy, no reboot)' } else { 'CiTool (immediate, no reboot)' } } else { 'reboot' }
         RebootRequired   = -not $immediate
         CiToolStdout     = $citoolStdout
         CiToolStderr     = $citoolStderr
@@ -4122,6 +4152,7 @@ $Script:PhaseRegistry = @(
     [pscustomobject]@{ Id='I02'; Name='AuthorizeDriverSigning'; Group='Inst';   Func='Invoke-InstPhase02_AuthorizeDriverSigning' }
     [pscustomobject]@{ Id='I03'; Name='InstallDrivers';    Group='Inst';   Func='Invoke-InstPhase03_InstallDrivers'      }
     [pscustomobject]@{ Id='I04'; Name='PostInstallVerification'; Group='Inst'; Func='Invoke-InstPhase04_PostInstallVerification' }
+    [pscustomobject]@{ Id='I05'; Name='ForceRebind';             Group='Inst'; Func='Invoke-InstPhase05_ForceRebind'             }
 )
 
 function Resolve-PhaseSelection {
@@ -4641,6 +4672,115 @@ function Get-MsBthPanDevice {
     return ,$rows
 }
 
+function Get-BthPanNetChildBinding { # psa-disable-line PSA6003 -- compound noun (Bindings) is semantically plural for set-returning helpers
+    <#
+    .SYNOPSIS
+        Locate ANY Net-class device bound to the bthpan service, in a
+        language-independent way.
+    .DESCRIPTION
+        When bthpan.inf (or its patched oem*.inf clone) binds successfully,
+        the resulting NIC may appear via either of two device topologies:
+
+          (a) Legacy: the BTH\MS_BTHPAN\<uid> parent device itself flips
+              its Class from "Bluetooth" to "Net" and its Service to
+              "BthPan". DriverInfPath then points to oem*.inf.
+
+          (b) Modern (observed on WS2025): the BTH\MS_BTHPAN\<uid> parent
+              remains as a "detached shell" (empty Class/Service/InfPath)
+              while bthpan.sys is loaded against a SEPARATE Net-class
+              device instance. The original Invoke-InstPhase04 only
+              inspected the parent and therefore failed to recognise true
+              resolution in this topology.
+
+        This helper enumerates all Net-class devices on the host and
+        returns those bound to bthpan.sys / ms_bthpan, using ONLY
+        identifier fields that are NEVER localized:
+          - DriverFileName  == 'bthpan.sys'
+          - ComponentID     == 'ms_bthpan'
+          - PnPDeviceID     matches /^BTH\\MS_BTHPAN(XFER)?\\/
+
+        FriendlyName / InterfaceDescription are intentionally NOT used
+        for matching (they are localized: e.g., Japanese WS2025 shows
+        "Bluetooth デバイス (パーソナル エリア ネットワーク)"). They are
+        returned in the result object for human-readable display only.
+    .PARAMETER ExpectedSelfSignThumbprint
+        Optional. When supplied, the helper also reads the bound
+        driver's catalog signature via Get-AuthenticodeSignature and
+        marks `IsSignedByUs = $true` when the leaf-cert thumbprint
+        matches this value (typically $Ctx.CertThumbprint).
+    .OUTPUTS
+        Array of [pscustomobject] (empty array when no binding found).
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param(
+        [string]$ExpectedSelfSignThumbprint = ''
+    )
+    $results = @()
+    try {
+        $adapters = Get-NetAdapter -ErrorAction SilentlyContinue
+        foreach ($a in $adapters) {
+            $byDriver    = ($a.DriverFileName -and $a.DriverFileName -ieq 'bthpan.sys')
+            $byComponent = ($a.ComponentID    -and $a.ComponentID    -ieq 'ms_bthpan')
+            $byPnpId     = ($a.PnPDeviceID    -and $a.PnPDeviceID    -match '^BTH\\MS_BTHPAN(?:XFER)?\\')
+            if (-not ($byDriver -or $byComponent -or $byPnpId)) { continue }
+
+            # Pull the binding INF path (oem*.inf form) via Get-PnpDeviceProperty.
+            $infPath = $null
+            $service = $null
+            try {
+                $props = Get-PnpDeviceProperty -InstanceId $a.PnPDeviceID `
+                    -KeyName 'DEVPKEY_Device_DriverInfPath','DEVPKEY_Device_Service' `
+                    -ErrorAction SilentlyContinue
+                if ($props) {
+                    $infPath = ($props | Where-Object KeyName -eq 'DEVPKEY_Device_DriverInfPath' | Select-Object -First 1).Data
+                    $service = ($props | Where-Object KeyName -eq 'DEVPKEY_Device_Service'       | Select-Object -First 1).Data
+                }
+            } catch {} # psa-disable-line PSA3004 -- best-effort; missing properties are non-fatal
+
+            # If thumbprint expectation supplied, evaluate signature.
+            $isSignedByUs   = $false
+            $catThumbprint  = $null
+            if ($ExpectedSelfSignThumbprint -and $infPath) {
+                $catPath = Join-Path (Join-Path $env:windir 'INF') ([System.IO.Path]::ChangeExtension($infPath, '.cat'))
+                if (Test-Path -LiteralPath $catPath) {
+                    try {
+                        $sig = Get-AuthenticodeSignature -LiteralPath $catPath -ErrorAction Stop
+                        if ($sig -and $sig.SignerCertificate) {
+                            $catThumbprint = $sig.SignerCertificate.Thumbprint
+                            if ($catThumbprint -eq $ExpectedSelfSignThumbprint) {
+                                $isSignedByUs = $true
+                            }
+                        }
+                    } catch {} # psa-disable-line PSA3004 -- best-effort
+                }
+            }
+
+            $matchedBy = @()
+            if ($byDriver)    { $matchedBy += 'DriverFileName=bthpan.sys' }
+            if ($byComponent) { $matchedBy += 'ComponentID=ms_bthpan' }
+            if ($byPnpId)     { $matchedBy += 'PnPDeviceID~BTH\MS_BTHPAN' }
+
+            $results += [pscustomobject]@{
+                InstanceId           = $a.PnPDeviceID
+                InterfaceDescription = $a.InterfaceDescription  # display-only (localized)
+                DriverInfPath        = $infPath                 # oem*.inf form, language-independent
+                DriverFileName       = $a.DriverFileName
+                DriverProvider       = $a.DriverProvider
+                ServiceName          = $a.ServiceName
+                ServiceFromPnp       = $service
+                ComponentID          = $a.ComponentID
+                Status               = $a.Status
+                CatThumbprint        = $catThumbprint
+                IsSignedByUs         = $isSignedByUs
+                MatchedBy            = $matchedBy
+            }
+        }
+    } catch {} # psa-disable-line PSA3004 -- best-effort; failure means "no binding found"
+    return ,$results
+}
+
+
 function Get-MsBthPanDeviceState {
     <#
     .SYNOPSIS
@@ -4705,6 +4845,7 @@ function Get-MsBthPanDeviceState {
     # Classification
     $classification = 'Other'
     $reason         = ''
+    $netChildBinding = $null
     if ($status -eq 'Error') {
         $classification = 'Unknown'
         $reason = 'Device is in error state (code 28 / no driver bound).'
@@ -4721,6 +4862,26 @@ function Get-MsBthPanDeviceState {
         $reason = 'bthpan.inf is bound directly; Class=Net; Service=BthPan.'
     }
 
+    # ---- Net-class child fallback (modern WS2025 topology) --------------
+    # If the legacy property-based classification above came back 'Other'
+    # but the device is NOT in error state, the parent BTH\MS_BTHPAN may
+    # simply be the "detached shell" topology: bthpan.sys IS loaded, but
+    # against a separate Net-class device instance rather than this parent.
+    # In that case true resolution IS achieved; we just have to look
+    # elsewhere to see it.
+    if ($classification -eq 'Other' -and $status -ne 'Error') {
+        $netBindings = Get-BthPanNetChildBinding
+        if ($netBindings -and $netBindings.Count -gt 0) {
+            $netChildBinding = $netBindings[0]
+            $classification  = 'True'
+            $reason = ('Net-class child binding found: InstanceId={0}, DriverFile={1}, Service={2}. ' +
+                       'Parent BTH\MS_BTHPAN is in detached-shell state (normal for this binding model).' -f
+                       $netChildBinding.InstanceId,
+                       $netChildBinding.DriverFileName,
+                       $netChildBinding.ServiceName)
+        }
+    }
+
     return [pscustomobject]@{
         InstanceId           = $InstanceId
         Status               = $status
@@ -4734,6 +4895,7 @@ function Get-MsBthPanDeviceState {
         Driver               = [string]$bag['DEVPKEY_Device_Driver']
         Classification       = $classification
         ClassificationReason = $reason
+        NetChildBinding      = $netChildBinding
     }
 }
 
@@ -4764,24 +4926,170 @@ function Test-BthPanRuntimeArtifacts { # psa-disable-line PSA6003 -- compound no
         $hasService = Test-Path -LiteralPath $svcKey
     } catch {} # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
 
+    # ---- Language-independent NetAdapter detection ----
+    # Legacy implementation regexed against InterfaceDescription, which
+    # is LOCALIZED by Windows and varies between editions:
+    #   English  : "Bluetooth Device (Personal Area Network)"
+    #   Japanese : "Bluetooth デバイス (パーソナル エリア ネットワーク)"
+    #              (older builds had "(個人ネットワーク)" which is what
+    #               the legacy regex tried to catch - but the modern
+    #               Japanese form is "パーソナル", not "個人", so the
+    #               legacy pattern silently missed real bindings on
+    #               Japanese WS2025).
+    # The fix matches against stable, NEVER-localized identifiers:
+    #   - DriverFileName == 'bthpan.sys' (the actual loaded SYS file)
+    #   - ComponentID    == 'ms_bthpan'  (Microsoft's stable component ID)
+    #   - PnPDeviceID    starts with 'BTH\MS_BTHPAN' (PnP enumerator ID)
+    # Any one match is sufficient; we use OR. This works identically on
+    # English / Japanese / German / Chinese Windows builds.
     $hasNetAdapter = $false
+    $netAdapterDetail = $null
     try {
         $adapters = Get-NetAdapter -ErrorAction SilentlyContinue
         foreach ($a in $adapters) {
-            if ($a.InterfaceDescription -match 'Bluetooth.*Personal Area Network' -or
-                $a.InterfaceDescription -match 'Bluetooth.*PAN'                 -or
-                $a.InterfaceDescription -match 'Bluetooth デバイス \(個人.*\)') {
-                $hasNetAdapter = $true
+            $byDriver    = ($a.DriverFileName -and $a.DriverFileName -ieq 'bthpan.sys')
+            $byComponent = ($a.ComponentID    -and $a.ComponentID    -ieq 'ms_bthpan')
+            $byPnpId     = ($a.PnPDeviceID    -and $a.PnPDeviceID    -match '^BTH\\MS_BTHPAN(?:XFER)?\\')
+            if ($byDriver -or $byComponent -or $byPnpId) {
+                $hasNetAdapter   = $true
+                $netAdapterDetail = [pscustomobject]@{
+                    InstanceId           = $a.PnPDeviceID
+                    InterfaceDescription = $a.InterfaceDescription
+                    DriverFileName       = $a.DriverFileName
+                    ComponentID          = $a.ComponentID
+                    ServiceName          = $a.ServiceName
+                    MatchedBy            = @(
+                        if ($byDriver)    { 'DriverFileName=bthpan.sys' }
+                        if ($byComponent) { 'ComponentID=ms_bthpan' }
+                        if ($byPnpId)     { 'PnPDeviceID~BTH\MS_BTHPAN' }
+                    )
+                }
                 break
             }
         }
     } catch {} # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
 
     return [pscustomobject]@{
-        HasSysFile     = $hasSysFile
-        SysFilePath    = $sysFile
-        HasServiceKey  = $hasService
-        HasNetAdapter  = $hasNetAdapter
+        HasSysFile        = $hasSysFile
+        SysFilePath       = $sysFile
+        HasServiceKey     = $hasService
+        HasNetAdapter     = $hasNetAdapter
+        NetAdapterDetail  = $netAdapterDetail
+    }
+}
+
+function Get-RebindCapabilities {
+    <#
+    .SYNOPSIS
+        Probe the host for available rebind cmdlets (Multi-OS support).
+    .DESCRIPTION
+        Returns a flag bag the caller uses to select an available code
+        path across WS2016 / 2019 / 2022 / 2025:
+          - Restart-PnpDevice      : WS2019+ (build 17763+)
+          - Disable/Enable-PnpDevice: WS2019+
+          - pnputil.exe            : ALL WS versions (shipped since Vista)
+          - Stop/Start-Service     : ALL WS versions
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+    $caps = [pscustomobject]@{
+        RestartPnp     = ($null -ne (Get-Command Restart-PnpDevice  -ErrorAction SilentlyContinue))
+        DisableEnable  = ($null -ne (Get-Command Disable-PnpDevice  -ErrorAction SilentlyContinue)) -and
+                         ($null -ne (Get-Command Enable-PnpDevice   -ErrorAction SilentlyContinue))
+        Pnputil        = $false
+        ServiceControl = $true
+    }
+    try {
+        if (Get-Command 'pnputil.exe' -ErrorAction SilentlyContinue) { $caps.Pnputil = $true }
+    } catch {} # psa-disable-line PSA3004 -- best-effort capability probe
+    return $caps
+}
+
+function Invoke-BthPanSoftRebind {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$InstanceId)
+    try {
+        Write-Detail ('  [Attempt 1] Restart-PnpDevice -InstanceId {0}' -f $InstanceId)
+        Restart-PnpDevice -InstanceId $InstanceId -Confirm:$false -ErrorAction Stop
+        Start-Sleep -Seconds 2
+        return $true
+    } catch {
+        Write-Warn2 ('  [Attempt 1] Restart-PnpDevice failed: {0}' -f $_.Exception.Message)
+        return $false
+    }
+}
+
+function Invoke-BthPanDisableEnableRebind {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$InstanceId)
+    try {
+        Write-Detail ('  [Attempt 2] Disable-PnpDevice -> Enable-PnpDevice -InstanceId {0}' -f $InstanceId)
+        Disable-PnpDevice -InstanceId $InstanceId -Confirm:$false -ErrorAction Stop
+        Start-Sleep -Seconds 2
+        Enable-PnpDevice  -InstanceId $InstanceId -Confirm:$false -ErrorAction Stop
+        Start-Sleep -Seconds 3
+        return $true
+    } catch {
+        Write-Warn2 ('  [Attempt 2] Disable/Enable-PnpDevice failed: {0}' -f $_.Exception.Message)
+        try { Enable-PnpDevice -InstanceId $InstanceId -Confirm:$false -ErrorAction SilentlyContinue } catch {} # psa-disable-line PSA3004 -- best-effort recovery
+        return $false
+    }
+}
+
+function Invoke-BthPanPnputilRebind {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$InstanceId)
+    try {
+        Write-Detail ('  [Attempt 3] pnputil /remove-device {0}' -f $InstanceId)
+        $p1 = @{
+            FilePath = 'pnputil.exe'
+            ArgumentList = @('/remove-device', $InstanceId)
+            NoNewWindow = $true; Wait = $true; PassThru = $true
+            RedirectStandardOutput = 'NUL'; RedirectStandardError = 'NUL'
+        }
+        $proc1 = Start-Process @p1 # psa-disable-line PSA3001 -- splatting canonical for pnputil
+        Start-Sleep -Seconds 2
+        Write-Detail '  [Attempt 3] pnputil /scan-devices'
+        $p2 = @{
+            FilePath = 'pnputil.exe'
+            ArgumentList = @('/scan-devices')
+            NoNewWindow = $true; Wait = $true; PassThru = $true
+            RedirectStandardOutput = 'NUL'; RedirectStandardError = 'NUL'
+        }
+        $proc2 = Start-Process @p2 # psa-disable-line PSA3001 -- splatting canonical for pnputil
+        Start-Sleep -Seconds 3
+        return ($proc1.ExitCode -eq 0 -or $proc2.ExitCode -eq 0)
+    } catch {
+        Write-Warn2 ('  [Attempt 3] pnputil rebind failed: {0}' -f $_.Exception.Message)
+        return $false
+    }
+}
+
+function Invoke-BthPanServiceRestart {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    try {
+        $svc = Get-Service -Name 'BthPan' -ErrorAction SilentlyContinue
+        if (-not $svc) {
+            Write-Warn2 '  [Attempt 4] BthPan service not registered. Cannot restart.'
+            return $false
+        }
+        Write-Detail '  [Attempt 4] Stop-Service BthPan -> Start-Service BthPan'
+        if ($svc.Status -eq 'Running') {
+            Stop-Service -Name 'BthPan' -Force -ErrorAction Stop
+            Start-Sleep -Seconds 2
+        }
+        Start-Service -Name 'BthPan' -ErrorAction Stop
+        Start-Sleep -Seconds 3
+        return $true
+    } catch {
+        Write-Warn2 ('  [Attempt 4] BthPan service restart failed: {0}' -f $_.Exception.Message)
+        return $false
     }
 }
 
@@ -5707,7 +6015,7 @@ function Invoke-PrepPhase00_Initialize {
         # ===== Workstation Install guard =====
         # Refuse to run any Install phase (I01-I04) on Workstation,
         # unless -AllowWorkstationInstall was explicitly passed.
-        $hasInstallPhases = @($Ctx.SelectedPhaseIds | Where-Object { $_ -match '^I0[0-4]$' }).Count -gt 0
+        $hasInstallPhases = @($Ctx.SelectedPhaseIds | Where-Object { $_ -match '^I0[0-5]$' }).Count -gt 0
         if ($hasInstallPhases -and -not $Ctx.AllowWorkstationInstall) {
             $msg = @"
 Refusing to run Install phases (I01-I04) on Workstation OS (ProductType=1).
@@ -7510,8 +7818,16 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
     $cmdArgs = @('/driver:' + $patchedDir, '/os:' + $osArg, '/verbose')
     Write-Step "Running inf2cat /driver:$patchedDir /os:$osArg ..."
     $start = Get-Date
-    $proc = Start-Process -FilePath $inf2cat -ArgumentList $cmdArgs -NoNewWindow -Wait -PassThru ` # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
-        -RedirectStandardOutput $logPath -RedirectStandardError ($logPath + '.err')
+    $procParams = @{
+        FilePath               = $inf2cat
+        ArgumentList           = $cmdArgs
+        NoNewWindow            = $true
+        Wait                   = $true
+        PassThru               = $true
+        RedirectStandardOutput = $logPath
+        RedirectStandardError  = ($logPath + '.err')
+    }
+    $proc = Start-Process @procParams # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
     $elapsed = (Get-Date) - $start
     # Format-Elapsed expects [TimeSpan], not [Double]. Passing
     # $elapsed (TimeSpan) directly; passing $elapsed.TotalSeconds (Double)
@@ -7530,8 +7846,16 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
             Write-Warn2 'inf2cat failed with the full 4-SKU target list. Retrying without Server2016_X64...'
             $reduced = @($effective | Where-Object { $_ -ne 'Server2016_X64' })
             $args2 = @('/driver:' + $patchedDir, '/os:' + ($reduced -join ','), '/verbose')
-            $proc = Start-Process -FilePath $inf2cat -ArgumentList $args2 -NoNewWindow -Wait -PassThru ` # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
-                -RedirectStandardOutput $logPath -RedirectStandardError ($logPath + '.err')
+            $procParams2 = @{
+                FilePath               = $inf2cat
+                ArgumentList           = $args2
+                NoNewWindow            = $true
+                Wait                   = $true
+                PassThru               = $true
+                RedirectStandardOutput = $logPath
+                RedirectStandardError  = ($logPath + '.err')
+            }
+            $proc = Start-Process @procParams2 # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
         }
     }
 
@@ -7646,8 +7970,16 @@ function Invoke-PrepPhase09_SignCatalogs { # psa-disable-line PSA6003 -- compoun
             '/v',
             $cat
         )
-        $proc = Start-Process -FilePath $signtool -ArgumentList $cmdArgs -NoNewWindow -Wait -PassThru ` # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
-            -RedirectStandardOutput $log -RedirectStandardError ($log + '.err')
+        $signProcParams = @{
+            FilePath               = $signtool
+            ArgumentList           = $cmdArgs
+            NoNewWindow            = $true
+            Wait                   = $true
+            PassThru               = $true
+            RedirectStandardOutput = $log
+            RedirectStandardError  = ($log + '.err')
+        }
+        $proc = Start-Process @signProcParams # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
         if ($proc.ExitCode -ne 0) {
             $tail = (Get-Content -LiteralPath $log -Tail 30 -ErrorAction SilentlyContinue) -join "`n"
             if ($tail) { Write-Host $tail -ForegroundColor DarkGray }
@@ -8820,8 +9152,16 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
     )
     Write-Step ("pnputil /add-driver {0} /install" -f $Ctx.PatchedBthPanInfPath)
     $start = Get-Date
-    $proc = Start-Process -FilePath 'pnputil.exe' -ArgumentList $cmdArgs -NoNewWindow -Wait -PassThru ` # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
-        -RedirectStandardOutput $logPath -RedirectStandardError ($logPath + '.err')
+    $pnpProcParams = @{
+        FilePath               = 'pnputil.exe'
+        ArgumentList           = $cmdArgs
+        NoNewWindow            = $true
+        Wait                   = $true
+        PassThru               = $true
+        RedirectStandardOutput = $logPath
+        RedirectStandardError  = ($logPath + '.err')
+    }
+    $proc = Start-Process @pnpProcParams # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
     $elapsed = (Get-Date) - $start
     $exit = $proc.ExitCode
 
@@ -8859,9 +9199,16 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
     # and binds to the patched bthpan.inf.
     Write-Step 'pnputil /scan-devices (force PnP rescan, rebinding may follow)'
     $scanLog = Join-Path $Ctx.Paths.Logs 'pnputil_scan-devices.log'
-    $scanProc = Start-Process -FilePath 'pnputil.exe' -ArgumentList @('/scan-devices') ` # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
-        -NoNewWindow -Wait -PassThru `
-        -RedirectStandardOutput $scanLog -RedirectStandardError ($scanLog + '.err')
+    $scanProcParams = @{
+        FilePath               = 'pnputil.exe'
+        ArgumentList           = @('/scan-devices')
+        NoNewWindow            = $true
+        Wait                   = $true
+        PassThru               = $true
+        RedirectStandardOutput = $scanLog
+        RedirectStandardError  = ($scanLog + '.err')
+    }
+    $scanProc = Start-Process @scanProcParams # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
     if ($scanProc.ExitCode -eq 0) {
         Write-Ok 'PnP rescan completed.'
     } else {
@@ -8909,8 +9256,23 @@ function Invoke-InstPhase04_PostInstallVerification {
             Write-Detail ("  DriverInfPath : {0}" -f $st.DriverInfPath)
             Write-Detail ("  Class         : {0}" -f $st.Class)
             Write-Detail ("  Service       : {0}" -f $st.Service)
+            if ($st.NetChildBinding) {
+                Write-Detail '  --- Net-class child binding (modern topology) ---'
+                Write-Detail ("    Net InstanceId : {0}" -f $st.NetChildBinding.InstanceId)
+                Write-Detail ("    DriverFile     : {0}" -f $st.NetChildBinding.DriverFileName)
+                Write-Detail ("    DriverInfPath  : {0}" -f $st.NetChildBinding.DriverInfPath)
+                Write-Detail ("    ServiceName    : {0}" -f $st.NetChildBinding.ServiceName)
+                Write-Detail ("    InterfaceDesc  : {0}" -f $st.NetChildBinding.InterfaceDescription)
+                Write-Detail ("    MatchedBy      : {0}" -f ($st.NetChildBinding.MatchedBy -join ', '))
+            }
             switch ($st.Classification) {
-                'True'    { Write-Ok   ("  [OK]   TRUE resolution: oem*.inf bound, Class=Net, Service=BthPan") }
+                'True'    {
+                    if ($st.NetChildBinding) {
+                        Write-Ok ("  [OK]   TRUE resolution (via Net-class child binding): bthpan.sys loaded, BthPan service active.")
+                    } else {
+                        Write-Ok ("  [OK]   TRUE resolution: oem*.inf bound, Class=Net, Service=BthPan")
+                    }
+                }
                 'Phantom' { Write-Fail ("  [FAIL] PHANTOM OK: bth.inf proxy-match. bthpan.sys NOT loaded.")
                             $allTrue = $false }
                 'Unknown' { Write-Fail ("  [FAIL] Unknown device (code 28). Driver bind did not occur.")
@@ -8939,8 +9301,16 @@ function Invoke-InstPhase04_PostInstallVerification {
     if ($signtool -and $Ctx.PatchedCatalogs -and $Ctx.PatchedCatalogs.Count -gt 0) {
         $cat = $Ctx.PatchedCatalogs[0]
         $log = Join-Path $Ctx.Paths.Logs ('verify_postinstall_' + (Split-Path -Leaf $cat) + '.log')
-        $proc = Start-Process -FilePath $signtool -ArgumentList @('verify','/pa','/v',$cat) ` # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
-            -NoNewWindow -Wait -PassThru -RedirectStandardOutput $log -RedirectStandardError ($log + '.err')
+        $verifyProcParams = @{
+            FilePath               = $signtool
+            ArgumentList           = @('verify','/pa','/v',$cat)
+            NoNewWindow            = $true
+            Wait                   = $true
+            PassThru               = $true
+            RedirectStandardOutput = $log
+            RedirectStandardError  = ($log + '.err')
+        }
+        $proc = Start-Process @verifyProcParams # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
         if ($proc.ExitCode -eq 0) {
             Write-Ok 'signtool verify /pa: catalog signature is valid + trusted.'
         } else {
@@ -8981,6 +9351,173 @@ function Invoke-InstPhase04_PostInstallVerification {
     }
     Write-PhaseFooter 'I04' 'done'
 }
+
+function Invoke-InstPhase05_ForceRebind {
+    <#
+    .SYNOPSIS
+        Last-resort rebind cascade. Activates only when I04 reported
+        'PartialOrPhantom' (a real, post-[B]-detection failure).
+    .DESCRIPTION
+        I04's improved detection ([B]: Net-class child fallback) eliminates
+        false negatives caused by the modern detached-shell topology.
+        When I04 STILL cannot find a true binding, the host has a
+        legitimate stuck state. I05 escalates through four rebind
+        strategies, re-running I04's detection after each to short-
+        circuit on first success.
+
+        Strategy ladder (gentle -> aggressive):
+          Attempt 1: Restart-PnpDevice                       (WS2019+)
+          Attempt 2: Disable + Enable PnpDevice              (WS2019+)
+          Attempt 3: pnputil /remove-device + /scan-devices  (all WS)
+          Attempt 4: Stop + Start BthPan service             (all WS)
+
+        Capability detection (Get-RebindCapabilities) selects available
+        attempts; missing cmdlets are gracefully skipped to support
+        WS2016 where Restart-PnpDevice may be absent.
+
+        Skip conditions (immediate no-op):
+          - I04 has not run                          -> warn + skip
+          - I04 result is 'TrueResolution'           -> no work needed
+          - I04 result is 'NoDevice'                 -> no device to rebind
+    #>
+    param($Ctx)
+    Write-PhaseHeader 'I05' 'ForceRebind' 'Inst'
+
+    Set-DebugStep 'I05 gate: inspect I04 outcome'
+    if (-not $Ctx.I04OverallResult) {
+        Write-Warn2 'I05 requires I04 to have run first. Run with -Action Install. Skipping.'
+        Set-PhaseMarker -Ctx $Ctx -PhaseId 'I05' -Metadata @{ Skipped=$true; Reason='no I04 result' }
+        Write-PhaseFooter 'I05' 'skipped'
+        return
+    }
+    if ($Ctx.I04OverallResult -in @('TrueResolution', 'NoDevice')) {
+        Write-Skip ('I04 result is {0} - no rebind needed. I05 is a no-op.' -f $Ctx.I04OverallResult)
+        Set-PhaseMarker -Ctx $Ctx -PhaseId 'I05' -Metadata @{ Skipped=$true; Reason=$Ctx.I04OverallResult }
+        Write-PhaseFooter 'I05' 'no-op'
+        return
+    }
+
+    Set-DebugStep 'I05 Section 1: detect available rebind capabilities'
+    Write-SubHeader 'I05 Section 1: Rebind capability detection (Multi-OS)'
+    $caps = Get-RebindCapabilities
+    Write-Detail ('  Restart-PnpDevice (WS2019+)          : {0}' -f $caps.RestartPnp)
+    Write-Detail ('  Disable+Enable-PnpDevice (WS2019+)   : {0}' -f $caps.DisableEnable)
+    Write-Detail ('  pnputil.exe (all WS versions)        : {0}' -f $caps.Pnputil)
+    Write-Detail ('  Stop/Start-Service (all WS versions) : {0}' -f $caps.ServiceControl)
+
+    Set-DebugStep 'I05 Section 2: enumerate stuck devices'
+    Write-SubHeader 'I05 Section 2: Devices needing rebind'
+    $devices = Get-MsBthPanDevice
+    if ($devices.Count -eq 0) {
+        Write-Skip 'No BTH\MS_BTHPAN device present. Nothing to rebind.'
+        Set-PhaseMarker -Ctx $Ctx -PhaseId 'I05' -Metadata @{ Skipped=$true; Reason='no device' }
+        Write-PhaseFooter 'I05' 'no-op'
+        return
+    }
+    Write-Detail ('  {0} device(s) to inspect.' -f $devices.Count)
+
+    Set-DebugStep 'I05 Section 3: escalating rebind cascade'
+    Write-SubHeader 'I05 Section 3: Rebind cascade'
+    $perDeviceResults = @()
+    foreach ($dev in $devices) {
+        $stPre = Get-MsBthPanDeviceState -InstanceId $dev.InstanceId
+        if ($stPre.Classification -eq 'True') {
+            Write-Ok ('  [{0}] Already TRUE - skipping cascade for this device.' -f $dev.InstanceId)
+            $perDeviceResults += [pscustomobject]@{ InstanceId=$dev.InstanceId; Outcome='AlreadyTrue'; AttemptWon=0 }
+            continue
+        }
+
+        Write-Detail ('  ---- Device: {0} ----' -f $dev.InstanceId)
+        $won = 0; $done = $false
+
+        # Attempt 1: Restart-PnpDevice
+        if (-not $done -and $caps.RestartPnp) {
+            if (Invoke-BthPanSoftRebind -InstanceId $dev.InstanceId) {
+                $st = Get-MsBthPanDeviceState -InstanceId $dev.InstanceId
+                if ($st.Classification -eq 'True') {
+                    Write-Ok '  [Attempt 1] TRUE Resolution achieved via Restart-PnpDevice.'
+                    $won = 1; $done = $true
+                } else {
+                    Write-Detail ('  [Attempt 1] Still {0}. Escalating...' -f $st.Classification)
+                }
+            }
+        } elseif (-not $caps.RestartPnp) {
+            Write-Detail '  [Attempt 1] SKIPPED (Restart-PnpDevice unavailable - likely WS2016).'
+        }
+
+        # Attempt 2: Disable + Enable
+        if (-not $done -and $caps.DisableEnable) {
+            if (Invoke-BthPanDisableEnableRebind -InstanceId $dev.InstanceId) {
+                $st = Get-MsBthPanDeviceState -InstanceId $dev.InstanceId
+                if ($st.Classification -eq 'True') {
+                    Write-Ok '  [Attempt 2] TRUE Resolution achieved via Disable+Enable-PnpDevice.'
+                    $won = 2; $done = $true
+                } else {
+                    Write-Detail ('  [Attempt 2] Still {0}. Escalating...' -f $st.Classification)
+                }
+            }
+        } elseif (-not $caps.DisableEnable) {
+            Write-Detail '  [Attempt 2] SKIPPED (Disable/Enable-PnpDevice unavailable on this OS).'
+        }
+
+        # Attempt 3: pnputil /remove-device + /scan-devices
+        if (-not $done -and $caps.Pnputil) {
+            if (Invoke-BthPanPnputilRebind -InstanceId $dev.InstanceId) {
+                $st = Get-MsBthPanDeviceState -InstanceId $dev.InstanceId
+                if ($st.Classification -eq 'True') {
+                    Write-Ok '  [Attempt 3] TRUE Resolution achieved via pnputil rebind.'
+                    $won = 3; $done = $true
+                } else {
+                    Write-Detail ('  [Attempt 3] Still {0}. Escalating...' -f $st.Classification)
+                }
+            }
+        }
+
+        # Attempt 4: Service restart
+        if (-not $done) {
+            if (Invoke-BthPanServiceRestart) {
+                $st = Get-MsBthPanDeviceState -InstanceId $dev.InstanceId
+                if ($st.Classification -eq 'True') {
+                    Write-Ok '  [Attempt 4] TRUE Resolution achieved via BthPan service restart.'
+                    $won = 4; $done = $true
+                } else {
+                    Write-Fail ('  [Attempt 4] Final attempt - still {0}. Reboot required.' -f $st.Classification)
+                }
+            }
+        }
+
+        $perDeviceResults += [pscustomobject]@{
+            InstanceId = $dev.InstanceId
+            Outcome    = if ($done) { 'Recovered' } else { 'StillFailing' }
+            AttemptWon = $won
+        }
+    }
+    $Ctx.I05PerDeviceResults = $perDeviceResults
+
+    Set-DebugStep 'I05 final verdict'
+    Write-SubHeader 'I05 Final Verdict'
+    $allRecovered = ($perDeviceResults.Count -gt 0) -and
+                    (($perDeviceResults | Where-Object { $_.Outcome -eq 'StillFailing' }).Count -eq 0)
+    if ($allRecovered) {
+        Write-Ok '*** I05 ForceRebind succeeded: TRUE Resolution achieved without reboot ***'
+        $Ctx.I05OverallResult = 'Recovered'
+        $Ctx.I04OverallResult = 'TrueResolution'
+        Clear-PendingRebootMarker -Ctx $Ctx
+    } else {
+        Write-Fail '*** I05 ForceRebind exhausted all attempts. Reboot is required. ***'
+        Write-Detail 'After reboot, re-run with -Action Install to confirm true resolution.'
+        $Ctx.I05OverallResult = 'StillFailing'
+    }
+
+    Set-PhaseMarker -Ctx $Ctx -PhaseId 'I05' -Metadata @{
+        OverallResult  = $Ctx.I05OverallResult
+        DeviceCount    = $devices.Count
+        RecoveredCount = ($perDeviceResults | Where-Object { $_.Outcome -in @('Recovered','AlreadyTrue') }).Count
+        FailingCount   = ($perDeviceResults | Where-Object { $_.Outcome -eq 'StillFailing' }).Count
+    }
+    Write-PhaseFooter 'I05' 'done'
+}
+
 
 
 #####################################################################
@@ -9419,6 +9956,8 @@ $Ctx = [pscustomobject]@{
     V06RuntimeArtifacts  = $null   # V06 sets   (Test-BthPanRuntimeArtifacts result pscustomobject)
     V06RiskClass         = $null   # V06 sets   (overall risk classification string; consumed by I00 recap)
     I04OverallResult     = $null   # I04 sets   ('TrueResolution' | 'PartialOrPhantom' | 'NoDevice')
+    I05OverallResult     = $null   # I05 sets   ('Recovered' | 'StillFailing' | $null when skipped)
+    I05PerDeviceResults  = @()     # I05 fills per-device rebind outcomes
     I04DeviceStates      = $null   # I04 sets   (per-device classification array, post-install)
     I04RuntimeArtifacts  = $null   # I04 sets   (Test-BthPanRuntimeArtifacts result, post-install)
 }

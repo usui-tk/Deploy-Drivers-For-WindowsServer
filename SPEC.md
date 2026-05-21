@@ -2067,6 +2067,290 @@ Driver install: {ok} ok ({reboot} need reboot, {noop} no-op) / {failed} failed /
 
 ---
 
+## D.18 `Get-DriverSourceCategory` Step 0 — catalog-thumbprint primary path (Chipset / Graphics)
+
+**Symptom**: On the very first WDAC-authorized Install run, the script logged `category=Vendor` for AMD INFs that the script had itself just self-signed using `$Ctx.CertThumbprint`. The decision matrix in SPEC D.15 ("Driver-category priority override") then preferred the Vendor candidate over the SelfSign candidate, which on a clean WS2025 install caused the wrong INF to be picked for binding.
+
+**Investigation**: `Get-DriverSourceCategory`'s legacy classification path used `Win32_PnPSignedDriver.Signer` (a string field). On freshly-installed self-signed catalogs, even with the certificate present in `LocalMachine\Root` and authorized by an active WDAC supplemental policy, the `Signer` field returned **empty**. The script's string-match path therefore had nothing to compare against and fell through to `[B] Vendor` — because the patched INF's `Provider` field still reads `"Advanced Micro Devices, Inc"` per SPEC §B.1 INF patching strategy.
+
+**Root cause**: `Signer` is populated only for catalogs in the Microsoft trust hierarchy. Self-signed catalogs outside that hierarchy return empty even when fully trusted by WDAC. The legacy code therefore had no way to recognize the script's own catalogs.
+
+**Fix**: A new authoritative **Step 0** is prepended to the classification path:
+
+```powershell
+function Get-DriverSourceCategory {
+    param(
+        [string]$Provider,
+        [string]$Signer,
+        # Optional: when provided, enables Step 0 (catalog-thumbprint
+        # primary path). InfName is the OEM-numbered short form (e.g.,
+        # 'oem32.inf'); the matching catalog is C:\Windows\INF\oem32.cat.
+        [string]$InfName = '',
+        [string]$ExpectedSelfSignThumbprint = ''
+    )
+    # Step 0 (NEW): direct catalog-signer thumbprint match.
+    # Highest-confidence path. Skipped silently if either parameter is
+    # empty or if the .cat file is not readable; falls through to the
+    # legacy Signer-string heuristic in that case.
+    if ($InfName -and $ExpectedSelfSignThumbprint) {
+        $catPath = Join-Path (Join-Path $env:windir 'INF') `
+                              ([System.IO.Path]::ChangeExtension($InfName, '.cat'))
+        if (Test-Path -LiteralPath $catPath) {
+            try {
+                $sig = Get-AuthenticodeSignature -LiteralPath $catPath -ErrorAction Stop
+                if ($sig -and $sig.SignerCertificate -and
+                    $sig.SignerCertificate.Thumbprint -eq $ExpectedSelfSignThumbprint) {
+                    return @{
+                        Code       = 'C'
+                        ShortLabel = '[C]'
+                        Label      = 'Self-Signed (this script, catalog thumbprint match)'
+                        Color      = 'Magenta'
+                    }
+                }
+            } catch {} # silent: fall through to Step 1
+        }
+    }
+
+    # Decision order (post-Step-0):
+    #   1. Signer string matches our self-sign markers      => [C]
+    #   2. Provider is "Microsoft" / "Microsoft Windows"    => [A]
+    #   3. Any other non-empty Provider                     => [B]
+    #   4. No Provider                                      => [?]
+    # ... unchanged ...
+}
+```
+
+All six call sites in each of Chipset and Graphics were updated to pass `$Ctx.CertThumbprint` as `ExpectedSelfSignThumbprint`. The function body remains **byte-identical** between Chipset and Graphics (5011 bytes — PSA8001 enforcement preserved). The return-shape contract (hashtable with `Code` / `ShortLabel` / `Label` / `Color`) is unchanged from the legacy implementation; Step 0 returns the same shape with `Label = 'Self-Signed (this script, catalog thumbprint match)'` (vs. the legacy Step 1's `Label = 'Self-Signed (this script)'` without suffix) so the log line itself distinguishes which path produced the classification.
+
+**Scope**: Chipset + Graphics only. The NPU script uses a different decision path (single source, no string-based Signer inspection) and is unaffected. The BthPan script does its own signature verification via `Get-BthPanNetChildBinding.IsSignedByUs` (see D.19).
+
+**Verification**: After fix, Chipset I00 reports `category=SelfSign` for all script-signed AMD INFs on the second-pass classification (post-WDAC-policy activation), and the priority override in SPEC D.15 correctly selects the SelfSign candidate.
+
+---
+
+## D.19 BthPan I04 false-negative on detached-shell topology + language-independent matching (MSBthPan)
+
+**Symptom**: On Japanese WS2025 Datacenter (build 26100.32860), the script reported `I04 OverallResult = PartialOrPhantom` and requested a reboot, despite the fact that bthpan.sys was loaded, the BthPan service was running, and `Bluetooth デバイス (パーソナル エリア ネットワーク)` appeared in the Network Connections control panel. Manual testing confirmed PAN connectivity worked. The reboot was unnecessary.
+
+**Investigation**: Two independent bugs combined to mask true resolution:
+
+1. **Detached-shell topology**. On modern Windows builds, after the patched bthpan.inf binds successfully, the parent device `BTH\MS_BTHPAN\<uid>` does NOT flip its own `Class` and `Service` to `Net` / `BthPan`. Instead, bthpan.sys is loaded against a **separate** Net-class device instance, and the parent remains as a "detached shell" with empty `Class`, `Service`, and `DriverInfPath`. `Get-MsBthPanDeviceState` inspected only the parent and therefore concluded the device was in a phantom state.
+
+2. **Localized-string regex on a Japanese SKU**. `Test-BthPanRuntimeArtifacts.HasNetAdapter` matched `InterfaceDescription` against the legacy regex `'Bluetooth デバイス \(個人.*\)'`. Microsoft changed the localized string from `個人ネットワーク` to `パーソナル エリア ネットワーク` years ago, so the regex silently missed every Japanese WS2025 install. (English systems matched against a separate `'Bluetooth.*Personal Area Network'` regex and were unaffected.)
+
+**Root cause**: Both bugs share the same anti-pattern — relying on **localized display strings** or **single-device parent inspection**. Microsoft can (and does) reword localized strings between builds, and PnP topology can split a logical driver across multiple device nodes.
+
+**Fix**: Three coordinated changes, all using stable, never-localized identifiers exclusively:
+
+1. **`Test-BthPanRuntimeArtifacts`** rewrites the `HasNetAdapter` test to match on three language-independent fields, any of which alone is sufficient:
+
+   ```powershell
+   foreach ($a in Get-NetAdapter -ErrorAction SilentlyContinue) {
+       $byDriver    = ($a.DriverFileName -ieq 'bthpan.sys')      # file name
+       $byComponent = ($a.ComponentID    -ieq 'ms_bthpan')        # INF #define
+       $byPnpId     = ($a.PnPDeviceID    -match '^BTH\\MS_BTHPAN(?:XFER)?\\')
+       if ($byDriver -or $byComponent -or $byPnpId) {
+           $hasNetAdapter = $true; break
+       }
+   }
+   ```
+
+2. **`Get-BthPanNetChildBinding`** (NEW helper) enumerates *all* Net-class adapters bound to bthpan, using the same triple-match. Each result is enriched with the catalog signature (`Get-AuthenticodeSignature` on `$env:windir\INF\<infName>.cat`) and `IsSignedByUs` is set when the thumbprint matches `$Ctx.CertThumbprint`. Return shape:
+
+   ```
+   [pscustomobject]@{
+       InstanceId, DriverInfPath, ServiceName,
+       IsSignedByUs, CatThumbprint, MatchedBy[]
+   }
+   ```
+
+3. **`Get-MsBthPanDeviceState`** adds a Net-child fallback: when the parent classifies as `'Other'` AND the host is not in error state, the helper is consulted. If a Net-class binding is found, classification is promoted to `'True'` with description `"detached-shell parent + Net child binding"`. The `NetChildBinding` field is propagated through to `Invoke-InstPhase04` Section 1 display.
+
+**Language-independence rule (NEW SPEC contract)**:
+
+> When matching against PnP / Net device properties for classification purposes, **only** the following fields are admissible:
+> - `DriverFileName` (file name)
+> - `ComponentID` (INF `#define`)
+> - `PnPDeviceID` / `InstanceId` (PnP enumerator path)
+> - `DriverInfPath` (file path)
+> - `Service` (service name registered in `HKLM\SYSTEM\CurrentControlSet\Services`)
+> - `ClassGuid` (immutable GUID)
+> - `HardwareIDs` / `CompatibleIDs` (immutable HWID strings)
+>
+> `InterfaceDescription`, `FriendlyName`, `Description`, `Name`, and `Caption` are **localized** by Windows and **MUST NOT** be used for matching. They may be returned in result objects for human-readable display only.
+
+**Scope**: BthPan only. The other three scripts already match on language-independent fields (HWID + ClassGuid for Chipset / Graphics; PCI VEN/DEV/REV for NPU); no changes required there.
+
+**Verification**: On the same Japanese WS2025 host that previously reported `PartialOrPhantom`, the script now reports `I04 OverallResult = TrueResolution` and the I05 ForceRebind phase (see D.22) short-circuits as no-op. No reboot is required.
+
+---
+
+## D.20 Graphics I00 TO-BE display + Risk Summary deduplication
+
+**Symptom**: For a single Phoenix-class Graphics device, `Invoke-InstPhase00_PreInstallReview` (Graphics) printed ~1000 TO-BE candidate rows and a Risk Summary `[MEDIUM] 1069 item(s)` line. The output was dominated by visually-identical duplicates, making review of the actual install plan impractical.
+
+**Investigation**: AMD's display INF `u0197843.inf` (Adrenalin release) declares **5046** distinct `PCI\VEN_*&DEV_*&SUBSYS_*&REV_*` HardwareID variants in a single `[Strings]`-driven `[Manufacturer]` block. The legacy per-device candidate loop iterated over every HWID variant:
+
+```powershell
+foreach ($m in $matched) {              # one entry per resolved device
+    foreach ($c in $m.Candidates) {     # 5046 HWID variants per matched INF
+        Write-Detail "  TO-BE: $($c.InfName) ($($c.HardwareId))"
+    }
+}
+```
+
+The Risk Summary `[MEDIUM]` counter incremented inside the same nested loop, so `1069` was 1069 HWID-variant impressions of (much fewer) actual replacement decisions.
+
+**Root cause**: The user-facing display unit should be **one row per `(InfName, SrcSubDir)` pair**, not one row per HWID variant. The HWID-variant count is operationally interesting (it tells the operator how many PCI products this INF covers) but not as a primary row count.
+
+**Fix**: Two coordinated changes in `Invoke-InstPhase00_PreInstallReview` (Graphics only):
+
+1. **TO-BE display deduplication**:
+
+   ```powershell
+   $groups = $matched.Candidates | Group-Object {
+       '{0}|{1}' -f $_.InfName, $_.SrcSubDir
+   }
+   foreach ($g in $groups) {
+       $first = $g.Group[0]
+       $count = $g.Count
+       $suffix = if ($count -gt 1) { " [+$count HWID variants]" } else { '' }
+       Write-Detail "  TO-BE: $($first.InfName) ($($first.SrcSubDir))$suffix"
+   }
+   ```
+
+2. **Risk Summary deduplication** via `$seenPairs` hashtable keyed on `'{Device.InstanceId}|{InfName}|{SrcSubDir}'`. The `[MEDIUM]` counter increments only on first-seen keys.
+
+**Scope**: Graphics only. Chipset's INFs declare modest HWID counts (typically &lt; 20 per INF) and Risk Summary noise was not a practical issue. NPU and BthPan match against a single canonical HWID per device and are structurally immune to this class of bug.
+
+**Verification**: On the same Phoenix-class host as the symptom, `[MEDIUM]` count now reports ~5 items (one per actual device-INF replacement decision), with `[+5046 HWID variants]` annotation on the one INF that has that many. Reduction in row count is approximately 95% on AMD's Adrenalin release.
+
+---
+
+## D.21 Chipset P04 sub-MSI 1603 per-failure diagnostics
+
+**Symptom**: On rare occasions (observed once on a WS2022 host, not reproducible on WS2025), the Chipset script's I04 `PostInstallVerification` reported one missing payload binding even though I03 reported all driver installs successful. Subsequent troubleshooting was blind because the relevant sub-MSI logs in `%TEMP%\MSI*.LOG` had already been rotated out by the time the operator started investigating.
+
+**Investigation**: The Chipset script's P04 stage launches AMD's main installer EXE, which in turn fires a tree of sub-MSIs (`MSI*.MSI`). The script's **Nested loop** wraps the EXE invocation and retries on transient failures, so the parent EXE typically reports success on its second or third attempt. Individual sub-MSI failures are silently absorbed by the parent retry — which is the right behaviour for normal operation, but leaves no breadcrumb when the *final* device state still shows a missing payload after the Nested loop completes.
+
+**Root cause**: P04's existing diagnostics captured the parent EXE exit code only. Sub-MSI exit codes and per-MSI log content were thrown away as part of the retry-and-forget pattern. The information needed for post-mortem (which MSI failed, what error pattern, what was in TARGETDIR at failure time) was discarded.
+
+**Fix**: Per-failure diagnostic capture is added inside the Chipset P04 sub-MSI iteration loop (around line 5814). For each non-zero sub-MSI exit code:
+
+1. **Log tail**: `Get-Content -Tail 100` on the matching `%TEMP%\MSI*.LOG`.
+2. **Pattern classification** (regex on the tail):
+
+   | Pattern | Classification |
+   |---|---|
+   | `Error 1304` | source media unreadable |
+   | `Error 1335` | corrupt cabinet |
+   | `Error 1612` | source not available |
+   | `Error 1925` | elevation required |
+   | `Error 1310` | file collision |
+   | `CustomAction \w+ returned actual error code 1603` | CA crash |
+   | `Return value 3` | generic install-script abort |
+   | `disk full|out of disk space` | disk space |
+
+3. **TARGETDIR snapshot** at failure time: `Exists`, `InfCount`, `FileCount`, `LastWriteHint`.
+4. **Aggregation**: Per-MSI diagnostic blob is appended to `$subFailDiag`, then dumped to `$logRoot\submsi-failures-diag.txt` with a pattern-frequency summary header at the top.
+
+**Important constraint**: This is a **diagnostics-only** change. The Nested-loop retry behaviour is preserved verbatim — sub-MSI failures are still silently recovered by retry, and the user-visible P04 status still reports success when the Nested loop ultimately succeeds. The diagnostic file `submsi-failures-diag.txt` is created only when at least one sub-MSI failed at some point during the run, even if the parent EXE ultimately succeeded.
+
+**Scope**: Chipset only. Graphics uses a different installer architecture (single EXE, no nested MSIs), NPU uses pnputil directly (no MSI involvement), and BthPan has no installer phase at all. The pattern in this fix could be adapted to Graphics if AMD ever ships a Graphics MSI tree, but is not currently applicable.
+
+**Verification**: On a deliberately-induced sub-MSI failure (renamed cab file mid-install to trigger 1335), `submsi-failures-diag.txt` contains the expected pattern classification and TARGETDIR snapshot. Normal runs (no sub-MSI failures) do not create the file at all.
+
+---
+
+## D.22 BthPan I05 ForceRebind phase + cross-script WS2019 CIM bridge (Multi-OS support)
+
+**Symptom (BthPan)**: Even after D.19's true-resolution detection fix, certain stuck-driver states on previously-broken WS2025 hosts (e.g., after manual `pnputil /remove-device` cleanup followed by re-install) genuinely produced a phantom-OK condition that required a reboot to clear. The reboot was unavoidable on the legacy code path.
+
+**Symptom (Chipset / Graphics / NPU)**: On WS2019, all WDAC-using scripts required a reboot to activate their supplemental policy, because `CiTool.exe` is absent on WS2019 (it was introduced in WS2022 / build 20348). The reboot was a regression compared to WS2022 / WS2025 (where `CiTool.exe --update-policy` activates immediately) and was a poor operational experience for WS2019 admins.
+
+**Root cause**: Both symptoms reflect a **Multi-OS capability gap**:
+
+- BthPan needed an in-script "force the driver to re-enumerate" sequence with graceful degradation across OS versions (because `Restart-PnpDevice` was introduced in WS2019 and is absent on WS2016).
+- Chipset / Graphics / NPU / BthPan all needed an intermediate WDAC activation path for WS2019 (where `CiTool.exe` is absent but the WMI/CIM bridge `PS_UpdateAndCompareCIPolicy` IS present).
+
+**Fix (E-1) — BthPan `Invoke-InstPhase05_ForceRebind` (new phase)**:
+
+The phase activates **only** when `$Ctx.I04OverallResult -eq 'PartialOrPhantom'`. On `TrueResolution` or `NoDevice`, the phase is a no-op (with explicit `Write-Skip` log entry). When activated, it iterates over `$Ctx.I04PerDeviceResults` and runs the following cascade per stuck device, stopping at the first success and re-evaluating `Get-MsBthPanDeviceState` after each attempt:
+
+| # | Tool | Available on |
+|---|---|---|
+| 1 | `Restart-PnpDevice -InstanceId <id> -Confirm:$false` | WS2019+ |
+| 2 | `Disable-PnpDevice` → `Enable-PnpDevice` | WS2019+ |
+| 3 | `pnputil.exe /remove-device <id>` → `pnputil.exe /scan-devices` | WS2016+ |
+| 4 | `Stop-Service BthPan` → `Start-Service BthPan` | All WS |
+
+Capability detection is centralized in `Get-RebindCapabilities`, which probes `Get-Command` for each cmdlet and returns a `[pscustomobject]` flag bag. Missing cmdlets on WS2016 cause the corresponding attempts to be skipped (not error out).
+
+On success: `$Ctx.I04OverallResult` is **promoted** to `'TrueResolution'`, `$Ctx.I05OverallResult = 'Recovered'`, and `Clear-PendingRebootMarker` is called to suppress the spurious reboot request. On exhaustion: `$Ctx.I05OverallResult = 'StillFailing'` and the reboot request stands.
+
+Phase registry entry (alphabetical with sibling I0n phases):
+
+```powershell
+[pscustomobject]@{ Id='I05'; Name='ForceRebind';
+                   Group='Inst'; Func='Invoke-InstPhase05_ForceRebind' }
+```
+
+Workstation-install action gate regex updated from `^I0[0-4]$` to `^I0[0-5]$`. New Ctx fields initialized in `New-MsBthPanContext`: `I05OverallResult` (`'Recovered'` | `'StillFailing'` | `$null`) and `I05PerDeviceResults` (array of per-device cascade outcomes).
+
+**Fix (E-2) — Cross-script WS2019 CIM bridge for WDAC policy activation**:
+
+Between the existing `CiTool.exe --update-policy --json` path (WS2022+) and the reboot fallback, all four WDAC-deploying functions now attempt the WMI/CIM bridge:
+
+```powershell
+if (-not $immediate) {
+    $cimBridgeTried = $true
+    try {
+        $cimResult = Invoke-CimMethod `
+            -Namespace 'root\Microsoft\Windows\CI' `
+            -ClassName 'PS_UpdateAndCompareCIPolicy' `
+            -MethodName 'Update' `
+            -Arguments @{ FilePath = $deployedPath } `
+            -ErrorAction Stop
+        if ([int]$cimResult.ReturnValue -eq 0) {
+            $immediate = $true   # activated without reboot on WS2019
+        }
+    } catch {
+        $cimBridgeError = $_.Exception.Message   # WS2016: class absent
+    }
+}
+```
+
+The CIM class `PS_UpdateAndCompareCIPolicy` is present on WS2019+ and hot-loads supplemental policies without reboot. On WS2016 the class does not exist; `Invoke-CimMethod` throws and the catch block silently records the error, allowing the existing reboot fallback to proceed.
+
+Three new return fields are added to the result object: `CimBridgeTried`, `CimBridgeStdout`, `CimBridgeError`. The `ActivationMethod` label distinguishes the three paths:
+
+- `'CiTool (immediate, no reboot)'` (WS2022+)
+- `'CIM bridge (PS_UpdateAndCompareCIPolicy, no reboot)'` (WS2019)
+- `'reboot'` (WS2016, or any failure on WS2019+ that did not produce an immediate-activate result)
+
+**OS support matrix (cross-script, post-fix)**:
+
+| Capability | WS2025 | WS2022 | WS2019 | WS2016 |
+|---|---|---|---|---|
+| WDAC activation: `CiTool.exe --json --update-policy` | ✓ | ✓ | absent | absent |
+| WDAC activation: `PS_UpdateAndCompareCIPolicy` CIM bridge | (skipped) | (skipped) | ✓ | class absent |
+| WDAC activation: reboot via `-UseTestSigning` switch | ✓ | ✓ | ✓ | ✓ |
+| I05 Attempt 1: `Restart-PnpDevice` | ✓ | ✓ | ✓ | absent |
+| I05 Attempt 2: `Disable/Enable-PnpDevice` | ✓ | ✓ | ✓ | absent |
+| I05 Attempt 3: `pnputil /remove-device + /scan-devices` | ✓ | ✓ | ✓ | ✓ |
+| I05 Attempt 4: `Stop/Start-Service BthPan` | ✓ | ✓ | ✓ | ✓ |
+
+**Scope**:
+- E-1 (`Invoke-InstPhase05_ForceRebind`): BthPan only. The other three scripts have no analogous phantom-driver state to recover from — their I04 verification reads HWID-bound device state, which cannot exhibit the detached-shell topology that motivates I05.
+- E-2 (WS2019 CIM bridge): All four scripts. The implementation in each script is functionally identical; minor structural divergence (NPU has a slightly different control-flow shape due to its single-policy architecture) is permitted under PSA8001 because the affected functions (`Install-AmdWdacPolicy`, `Install-WdacPolicy`, `Install-MsBthPanWdacPolicy`) are listed in the per-script-divergence exclusion list.
+
+**Verification**:
+- On Japanese WS2025 (build 26100.32860) with the originally-broken bthpan state: D.19 fixes deliver TrueResolution; I05 short-circuits as no-op. ✓
+- On a deliberately-broken WS2025 state (manual driver removal): D.19 detects phantom; I05 Attempt 1 (`Restart-PnpDevice`) recovers; `I04OverallResult` promoted to `'TrueResolution'`; no reboot. ✓
+- WS2019 + WS2016: not yet verified on real hardware. The capability matrix above is derived from Microsoft documentation; field validation is pending. (Tracking in `TESTING.md` §multi-OS validation.)
+
+---
+
 ## Appendix: How to seed a new sister script from this SPEC
 
 If you are creating a 5th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1`):

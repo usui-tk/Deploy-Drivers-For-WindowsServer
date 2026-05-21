@@ -3903,12 +3903,42 @@ function Install-AmdWdacPolicy {
         }
     }
 
+    # ---- WS2019 fallback: PS_UpdateAndCompareCIPolicy CIM method ----
+    # When CiTool.exe is absent (WS2019 and earlier do not ship it),
+    # the policy may still be hot-loaded via the WMI/CIM bridge
+    # PS_UpdateAndCompareCIPolicy in root\Microsoft\Windows\CI. This
+    # method exists on WS2019+ but not on WS2016, so failure here is
+    # not fatal - the legacy reboot path remains as the final fallback.
+    $cimBridgeTried   = $false
+    $cimBridgeStdout  = ''
+    $cimBridgeError   = ''
+    if (-not $immediate) {
+        $cimBridgeTried = $true
+        try {
+            $cimArgs = @{ FilePath = $deployedPath }
+            $cimResult = Invoke-CimMethod -Namespace 'root\Microsoft\Windows\CI' `
+                -ClassName 'PS_UpdateAndCompareCIPolicy' `
+                -MethodName 'Update' `
+                -Arguments $cimArgs `
+                -ErrorAction Stop
+            $rv = if ($null -ne $cimResult.ReturnValue) { [int]$cimResult.ReturnValue } else { -1 }
+            $cimBridgeStdout = ('PS_UpdateAndCompareCIPolicy.Update returned {0}' -f $rv)
+            if ($rv -eq 0) {
+                $immediate = $true
+                if (-not $citoolStatusLine) { $citoolStatusLine = $cimBridgeStdout }
+            }
+        } catch {
+            # CIM class not present (WS2016) or other failure - fall through to reboot
+            $cimBridgeError = $_.Exception.Message
+        }
+    }
+
     return [pscustomobject]@{
         PolicyId         = $policyId
         XmlPath          = $XmlPath
         BinaryPath       = $BinaryOutPath
         DeployedPath     = $deployedPath
-        ActivationMethod = if ($immediate) { 'CiTool (immediate, no reboot)' } else { 'reboot' }
+        ActivationMethod = if ($immediate) { if ($cimBridgeTried -and (-not $citoolStdout)) { 'CIM bridge (PS_UpdateAndCompareCIPolicy, no reboot)' } else { 'CiTool (immediate, no reboot)' } } else { 'reboot' }
         RebootRequired   = -not $immediate
         CiToolStdout     = $citoolStdout
         CiToolStderr     = $citoolStderr
@@ -5781,6 +5811,7 @@ function Expand-AmdInstaller_ViaInstallShield {
 
     $subSuccess = 0
     $subFail    = 0
+    $subFailDiag = @()
     foreach ($msi in $msiFiles) {
         # Per-sub-MSI log goes to $logRoot (typically $Ctx.Paths.Logs)
         # rather than $parentDir (workspace root). Previously these files
@@ -5792,16 +5823,132 @@ function Expand-AmdInstaller_ViaInstallShield {
             '/qn',
             '/l*v', ('"{0}"' -f $subLog)
         )
-        $sub = Start-Process -FilePath 'msiexec.exe' -ArgumentList $subArgs ` # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
-                              -PassThru -Wait -WindowStyle Hidden
+        $subProcParams = @{
+            FilePath     = 'msiexec.exe'
+            ArgumentList = $subArgs
+            PassThru     = $true
+            Wait         = $true
+            WindowStyle  = 'Hidden'
+        }
+        $sub = Start-Process @subProcParams # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
         if ($sub.ExitCode -eq 0) {
             $subSuccess++
         } else {
             $subFail++
             Write-Detail ("    sub-MSI exit {0}: {1} (log: {2})" -f $sub.ExitCode, $msi.Name, $subLog) -Color DarkGray
+
+            # ---- Enhanced diagnostics (Enhancement [D]) ----
+            # Capture extra context for each failed sub-MSI so the cause
+            # is traceable AFTER the fact. Without this, the only signal
+            # was the bare exit code, which is insufficient when the
+            # Nested-loop recovery later succeeds (the original failure
+            # log gets buried). The data is collected into $subFailDiag
+            # and dumped to a single diagnostic file at end-of-loop.
+            $tail = @()
+            $pattern = 'unknown'
+            try {
+                if (Test-Path -LiteralPath $subLog) {
+                    # Tail last 100 lines for context
+                    $tail = Get-Content -LiteralPath $subLog -Tail 100 -ErrorAction SilentlyContinue
+                    # Heuristic pattern classification from log content
+                    $joined = ($tail -join "`n")
+                    if     ($joined -match 'Error 1304') { $pattern = '1304: target file in use / locked' }
+                    elseif ($joined -match 'Error 1335') { $pattern = '1335: source cabinet corrupt' }
+                    elseif ($joined -match 'Error 1612') { $pattern = '1612: source unavailable' }
+                    elseif ($joined -match 'Error 1925') { $pattern = '1925: per-machine requires elevation' }
+                    elseif ($joined -match 'Action ended.*Failed') { $pattern = 'custom action failure' }
+                    elseif ($joined -match 'Out of disk space') { $pattern = 'disk full' }
+                    elseif ($joined -match 'Cannot create file|Error 1310') { $pattern = '1310: file system collision (path already exists)' }
+                    elseif ($joined -match 'Return value 3\b') { $pattern = 'generic fatal (Return value 3)' }
+                    elseif ($joined -match 'CustomAction.*returned actual error code 1603') { $pattern = '1603: nested CustomAction returned 1603 (recursive admin install conflict)' }
+                }
+            } catch {} # psa-disable-line PSA3004 -- best-effort diagnostic collection
+
+            # Capture state of TARGETDIR at failure time (count files
+            # already produced by other sub-MSIs - helps prove whether
+            # this MSI's failure left the tree intact).
+            $targetState = @{
+                Exists         = (Test-Path -LiteralPath $DestinationPath)
+                InfCount       = 0
+                FileCount      = 0
+                LastWriteHint  = $null
+            }
+            try {
+                if ($targetState.Exists) {
+                    $targetState.InfCount  = (@(Get-ChildItem -Path $DestinationPath -Recurse -File -Filter '*.inf' -ErrorAction SilentlyContinue)).Count
+                    $targetState.FileCount = (@(Get-ChildItem -Path $DestinationPath -Recurse -File -ErrorAction SilentlyContinue)).Count
+                    $newest = Get-ChildItem -Path $DestinationPath -Recurse -File -ErrorAction SilentlyContinue |
+                        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                    if ($newest) {
+                        $targetState.LastWriteHint = ('{0}  (last: {1})' -f $newest.FullName, $newest.LastWriteTime.ToString('s'))
+                    }
+                }
+            } catch {} # psa-disable-line PSA3004 -- best-effort diagnostic collection
+
+            $subFailDiag += [pscustomobject]@{
+                MsiName      = $msi.Name
+                MsiPath      = $msi.FullName
+                ExitCode     = $sub.ExitCode
+                LogPath      = $subLog
+                LogExists    = (Test-Path -LiteralPath $subLog)
+                LogTail      = $tail
+                Pattern      = $pattern
+                TargetState  = $targetState
+            }
         }
     }
     Write-Detail ("  msiexec /a : {0} succeeded, {1} failed" -f $subSuccess, $subFail) -Color DarkGray
+
+    # ---- Enhancement [D]: dump diagnostic file once for ALL sub-MSI failures ----
+    if ($subFailDiag.Count -gt 0) {
+        $diagFile = Join-Path $logRoot 'submsi-failures-diag.txt'
+        $diagLines = @()
+        $diagLines += '====================================================================='
+        $diagLines += 'P04 sub-MSI failure diagnostics (Enhancement [D])'
+        $diagLines += ('Generated   : {0}' -f (Get-Date -Format s))
+        $diagLines += ('Total sub-MSIs   : {0}' -f $msiFiles.Count)
+        $diagLines += ('Succeeded        : {0}' -f $subSuccess)
+        $diagLines += ('Failed           : {0}' -f $subFail)
+        $diagLines += ''
+        $diagLines += 'NOTE: Sub-MSI failures here may be auto-recovered by the Nested-loop'
+        $diagLines += '      stage. Inspect this file only when the parent pipeline reports'
+        $diagLines += '      payload-missing AFTER nested recovery.'
+        $diagLines += '====================================================================='
+        # Pattern frequency summary
+        $patternGroups = $subFailDiag | Group-Object Pattern | Sort-Object Count -Descending
+        $diagLines += ''
+        $diagLines += 'Failure pattern frequency:'
+        foreach ($pg in $patternGroups) {
+            $diagLines += ('  {0,4} x {1}' -f $pg.Count, $pg.Name)
+        }
+        # Per-MSI detail
+        foreach ($d in $subFailDiag) {
+            $diagLines += ''
+            $diagLines += '---------------------------------------------------------------------'
+            $diagLines += ('MSI         : {0}' -f $d.MsiName)
+            $diagLines += ('Path        : {0}' -f $d.MsiPath)
+            $diagLines += ('Exit code   : {0}' -f $d.ExitCode)
+            $diagLines += ('Pattern     : {0}' -f $d.Pattern)
+            $diagLines += ('Log path    : {0} (exists={1})' -f $d.LogPath, $d.LogExists)
+            $diagLines += ('Target tree : exists={0}, INFs={1}, files={2}' -f
+                            $d.TargetState.Exists, $d.TargetState.InfCount, $d.TargetState.FileCount)
+            if ($d.TargetState.LastWriteHint) {
+                $diagLines += ('Last write  : {0}' -f $d.TargetState.LastWriteHint)
+            }
+            if ($d.LogTail.Count -gt 0) {
+                $diagLines += '--- log tail (last 100 lines) ---'
+                $diagLines += $d.LogTail
+            } else {
+                $diagLines += '(no log content captured)'
+            }
+        }
+        try {
+            $diagLines | Set-Content -LiteralPath $diagFile -Encoding UTF8 -ErrorAction Stop
+            Write-Detail ("  Failure diagnostics written to: {0}" -f $diagFile) -Color DarkYellow
+        } catch {
+            Write-Warn2 ("  Could not write sub-MSI diagnostic file: {0}" -f $_.Exception.Message)
+        }
+    }
 
     if ($subSuccess -eq 0) {
         throw "All $($msiFiles.Count) sub-MSI admin installs failed. Inspect logs in $logRoot\msiexec-admin-*.log"
@@ -9533,47 +9680,75 @@ function Compare-InfDriverVer {
 function Get-DriverSourceCategory {
     # ====================================================================
     # Classify a driver by its source / publisher into one of four
-    # buckets (per user request - enhancement, fixed):
+    # buckets:
     #
     #   [A] Microsoft (OS in-box drivers)
     #   [B] Hardware vendor / IHV (signed by AMD, NVIDIA, OEM, etc.)
     #   [C] Self-signed by THIS script's certificate
     #   [?] Unknown / unsigned / uncategorizable
     #
-    # ---- BUGFIX: trust Provider, NOT Signer ----
-    # Previously, the function fell through from Provider to Signer when
-    # checking for [A] Microsoft. That was wrong: the Signer field on
-    # ANY WHQL-signed Windows driver reads "Microsoft Windows", because
-    # Microsoft cosigns all WHQL submissions through the Windows
-    # Hardware Compatibility Program. AMD's chipset drivers, NVIDIA's
-    # GPU drivers, Realtek's audio drivers - they ALL have
-    # Signer="Microsoft Windows" because that's how Windows Code
-    # Integrity recognizes them as trusted at boot.
+    # ---- Enhancement (2026-05): catalog-thumbprint primary path ----
+    # The legacy implementation relied solely on Win32_PnPSignedDriver.
+    # Signer (a friendly-name string) to detect [C] Self-Signed. In
+    # practice WMI returns an empty Signer for self-signed catalogs
+    # whose root CA is NOT in the Microsoft trust hierarchy, even
+    # AFTER our cert has been imported into LocalMachine\Root and
+    # WDAC has authorized it. That made Step 1 (string match) miss
+    # legitimately self-signed drivers, which then fell through to
+    # Step 3 and were reported as [B] Vendor because the patched INF
+    # still has Provider="Advanced Micro Devices, Inc".
     #
-    # Result: a vendor driver from AMD with Provider="Advanced Micro
-    # Devices, Inc" and Signer="Microsoft Windows" was being classified
-    # as [A] Microsoft instead of [B] Vendor. The user reported this
-    # in the V06 log (oem17.inf, oem26.inf, oem12.inf etc all flagged
-    # [A] when they're really AMD-shipped vendor drivers).
+    # New Step 0 reads the on-disk catalog (.cat) directly via
+    # Get-AuthenticodeSignature and compares SignerCertificate.
+    # Thumbprint against the caller-supplied ExpectedSelfSignThumbprint
+    # (typically $Ctx.CertThumbprint). When the thumbprints match, the
+    # driver is conclusively classified as [C], independent of how WMI
+    # chose to render the Signer field.
     #
-    # The fix: the Provider field is the AUTHORITATIVE signal of who
-    # AUTHORED the driver. Signer is only useful for the [C] self-
-    # signed detection (because our cert subject is unique enough).
+    # ---- BUGFIX (legacy): trust Provider, NOT Signer ----
+    # The Signer field on ANY WHQL-signed driver reads "Microsoft
+    # Windows" because MS cosigns WHQL submissions; that is why we
+    # NEVER consult Signer for [A] Microsoft detection (vendor
+    # drivers from AMD/NVIDIA/etc. would all collapse to [A]).
     #
-    # New decision order:
-    #   1. Signer matches our self-sign markers => [C]
-    #   2. Provider is "Microsoft" (and only Microsoft) => [A]
-    #      In-box MS generics report Provider as "Microsoft" or
-    #      "Microsoft Corporation". Vendor drivers report their
-    #      vendor name even when WHQL-signed.
-    #   3. Any other non-empty Provider => [B] Vendor
+    # Decision order:
+    #   0. (NEW) Catalog thumbprint matches ExpectedSelfSignThumbprint => [C]
+    #   1. Signer string matches our self-sign markers => [C]
+    #      (fallback for callers that cannot resolve the .cat path)
+    #   2. Provider is "Microsoft" / "Microsoft Windows" / "Microsoft Corporation" => [A]
+    #   3. Any other non-empty Provider => [B]
     #   4. No Provider => [?]
     # ====================================================================
     param(
         [string]$Provider,
-        [string]$Signer
+        [string]$Signer,
+        # Optional: when provided, enables Step 0 (catalog-thumbprint
+        # primary path). InfName is the OEM-numbered short form (e.g.,
+        # 'oem32.inf'); the matching catalog is C:\Windows\INF\oem32.cat.
+        [string]$InfName = '',
+        [string]$ExpectedSelfSignThumbprint = ''
     )
-    # Step 1: Self-signed by us
+    # Step 0 (NEW): direct catalog-signer thumbprint match.
+    # Highest-confidence path. Skipped silently if either parameter is
+    # empty or if the .cat file is not readable; falls through to the
+    # legacy Signer-string heuristic in that case.
+    if ($InfName -and $ExpectedSelfSignThumbprint) {
+        $catPath = Join-Path (Join-Path $env:windir 'INF') ([System.IO.Path]::ChangeExtension($InfName, '.cat'))
+        if (Test-Path -LiteralPath $catPath) {
+            try {
+                $sig = Get-AuthenticodeSignature -LiteralPath $catPath -ErrorAction Stop
+                if ($sig -and $sig.SignerCertificate -and
+                    $sig.SignerCertificate.Thumbprint -eq $ExpectedSelfSignThumbprint) {
+                    return @{
+                        Code='C'; ShortLabel='[C]'
+                        Label='Self-Signed (this script, catalog thumbprint match)'
+                        Color='Magenta'
+                    }
+                }
+            } catch {} # psa-disable-line PSA3004 -- best-effort; fall through to Signer-string match
+        }
+    }
+    # Step 1 (FALLBACK): Signer string match
     if ($Signer) {
         if ($Signer -match '(?i)\bSelf-Sign\b' -or
             $Signer -match '(?i)At Own Risk' -or
@@ -9699,7 +9874,7 @@ function Resolve-PerDeviceDriverDecision {
     # Category-priority override (see function header for rationale).
     # The TO-BE driver this pipeline produces is always [C] Self-signed,
     # so any AS-IS category OTHER than [C] is automatically superseded.
-    $curCatInfo = Get-DriverSourceCategory -Provider $Current.Provider -Signer $Current.Signer
+    $curCatInfo = Get-DriverSourceCategory -Provider $Current.Provider -Signer $Current.Signer -InfName $Current.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint
     $curCatCode = if ($curCatInfo) { $curCatInfo.Code } else { '?' }
     if ($curCatCode -ne 'C') {
         return @{
@@ -9805,7 +9980,7 @@ function Resolve-PerInfInstallDecision {
         # Determine current-driver category. If [A]/[B]/[?], the
         # category-priority override makes this an UPGRADE regardless
         # of version comparison.
-        $curCatInfo = Get-DriverSourceCategory -Provider $cur.Provider -Signer $cur.Signer
+        $curCatInfo = Get-DriverSourceCategory -Provider $cur.Provider -Signer $cur.Signer -InfName $cur.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint
         $curCatCode = if ($curCatInfo) { $curCatInfo.Code } else { '?' }
         if ($curCatCode -ne 'C') {
             $upgrades++
@@ -9889,7 +10064,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     foreach ($d in $hwAll) {
         $cur = Get-DeviceCurrentDriver -DeviceID $d.DeviceID
         $cat = if ($cur) {
-            Get-DriverSourceCategory -Provider $cur.Provider -Signer $cur.Signer
+            Get-DriverSourceCategory -Provider $cur.Provider -Signer $cur.Signer -InfName $cur.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint
         } else {
             @{ Code='?'; ShortLabel='[?]'; Label='No driver bound'; Color='DarkGray' }
         }
@@ -10405,7 +10580,7 @@ function Invoke-InstPhase00_PreInstallReview {
         if ($infs.Count -gt 0) {
             $cur = Get-DeviceCurrentDriver -DeviceID $d.DeviceID
             $cat = if ($cur) {
-                Get-DriverSourceCategory -Provider $cur.Provider -Signer $cur.Signer
+                Get-DriverSourceCategory -Provider $cur.Provider -Signer $cur.Signer -InfName $cur.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint
             } else {
                 @{ Code='?'; ShortLabel='[?]'; Label='No driver bound'; Color='DarkGray' }
             }
@@ -11275,8 +11450,8 @@ function Invoke-InstPhase04_PostInstallVerification {
         # state captures Provider only (not Signer); the AFTER state
         # we re-query from Win32_PnPSignedDriver to get full Signer.
         $afterCur = Get-DeviceCurrentDriver -DeviceID $devId
-        $afterCat  = if ($afterCur)  { Get-DriverSourceCategory -Provider $afterCur.Provider  -Signer $afterCur.Signer  } else { @{ Code='?'; ShortLabel='[?]'; Label='No driver'; Color='DarkGray' } }
-        $beforeCat = if ($b -and $b.Provider) { Get-DriverSourceCategory -Provider $b.Provider -Signer $null } else { @{ Code='?'; ShortLabel='[?]'; Label='Unknown'; Color='DarkGray' } }
+        $afterCat  = if ($afterCur)  { Get-DriverSourceCategory -Provider $afterCur.Provider -Signer $afterCur.Signer -InfName $afterCur.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint  } else { @{ Code='?'; ShortLabel='[?]'; Label='No driver'; Color='DarkGray' } }
+        $beforeCat = if ($b -and $b.Provider) { Get-DriverSourceCategory -Provider $b.Provider -Signer $null -InfName $b.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint } else { @{ Code='?'; ShortLabel='[?]'; Label='Unknown'; Color='DarkGray' } }
 
         # Classify disposition
         # Adds a new disposition KEPT_CURRENT for the case where

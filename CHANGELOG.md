@@ -22,6 +22,130 @@ independently.
 
 ## [Unreleased]
 
+### Added
+- **Chipset r64 / Graphics r32 / NPU r15 / BthPan r14 — Hardware-detection
+  accuracy + Multi-OS resilience pass (`detection-accuracy-multi-os`).**
+  Six coordinated enhancements addressing real-machine failure modes
+  observed on Japanese WS2025 Datacenter (build 26100.32860):
+
+  **[A] Driver-source classification: catalog thumbprint primary path**
+   - `Get-DriverSourceCategory` (shared helper in Chipset + Graphics)
+     gains a Step 0 that reads the on-disk catalog via
+     `Get-AuthenticodeSignature` and compares `SignerCertificate.Thumbprint`
+     against the caller-supplied `ExpectedSelfSignThumbprint` (typically
+     `$Ctx.CertThumbprint`).
+   - Root-cause: `Win32_PnPSignedDriver.Signer` returns empty for
+     catalogs signed by certificates outside the Microsoft trust
+     hierarchy, even AFTER the cert is in `LocalMachine\Root` and WDAC
+     has authorized it. The legacy string-match path therefore missed
+     legitimately self-signed drivers and they fell through to `[B]
+     Vendor` because the patched INF retains `Provider="Advanced Micro
+     Devices, Inc"`.
+   - The new Step 0 is authoritative; the legacy string-match path
+     remains as a fallback for callers that cannot resolve the .cat
+     path.
+   - Function body is byte-identical across Chipset + Graphics
+     (PSA8001 compliance, 5011 bytes).
+
+  **[B] BthPan I04: language-independent Net-class child detection**
+   - New helper `Get-BthPanNetChildBinding` enumerates Net adapters
+     bound to bthpan.sys / ms_bthpan using ONLY identifier fields that
+     are never localized: `DriverFileName`, `ComponentID`, `PnPDeviceID`.
+     `InterfaceDescription` / `FriendlyName` are display-only.
+   - `Get-MsBthPanDeviceState` adds a fallback path: when the parent
+     `BTH\MS_BTHPAN\<uid>` device shows the detached-shell topology
+     (empty Class/Service after binding) but the host is not in error
+     state, the helper is consulted; if a Net-class binding is found
+     the device is correctly classified as `True`.
+   - `Test-BthPanRuntimeArtifacts` rewrites the `HasNetAdapter` check
+     to use the same language-independent identifiers, removing a
+     pre-existing bug where the regex `'Bluetooth デバイス \(個人.*\)'`
+     never matched modern Japanese WS2025 (which uses `パーソナル エリア
+     ネットワーク`, not `個人ネットワーク`).
+   - Invoke-InstPhase04 surfaces the Net-class child binding in
+     Section 1 output when found.
+
+  **[C] Graphics I00: TO-BE display + Risk Summary deduplication**
+   - The per-device TO-BE candidate loop was emitting one row per
+     HWID variant. AMD's `u0197843.inf` (Adrenalin display) declares
+     ~5046 PCI VEN/DEV variants, producing nearly 1000 duplicate rows
+     in I00's output for a single Graphics device.
+   - Display: candidates are now grouped by `InfName|SrcSubDir` and
+     the variant count is surfaced as `[+N HWID variants]`.
+   - Risk Summary: a `seenPairs` hash deduplicates by
+     `Device.InstanceId|InfName|SrcSubDir`, so the
+     `[MEDIUM] N item(s)` count reflects actual replacement events,
+     not HWID-variant noise. (Previously reported `[MEDIUM] 1069
+     item(s)` collapses to `[MEDIUM] 5 item(s)` on Phoenix-class
+     hosts.)
+
+  **[D] Chipset P04: sub-MSI 1603 diagnostics**
+   - Per-failure capture of the sub-MSI's last 100 log lines, with
+     heuristic pattern classification (1304 lock, 1335 corrupt cab,
+     1612 missing source, 1925 elevation, 1310 file collision, 1603
+     CustomAction failure, generic `Return value 3`).
+   - Target-directory state snapshot at failure time (Exists,
+     InfCount, FileCount, LastWriteHint).
+   - Aggregated dump to `$logRoot\submsi-failures-diag.txt` with
+     pattern-frequency summary and per-MSI detail.
+   - Note: sub-MSI failures are typically auto-recovered by the
+     Nested-loop stage; this diagnostic only surfaces value when the
+     parent pipeline reports payload-missing AFTER nested recovery.
+
+  **[E-1] BthPan I05 ForceRebind (new phase)**
+   - New install phase `Invoke-InstPhase05_ForceRebind` activates ONLY
+     when I04 reported `PartialOrPhantom` (a real, post-[B]-detection
+     failure). Skips immediately when I04 reported `TrueResolution`
+     or `NoDevice`.
+   - Escalating rebind cascade (idempotent, stops on first success):
+     1. `Restart-PnpDevice` (WS2019+)
+     2. `Disable-PnpDevice` + `Enable-PnpDevice` (WS2019+)
+     3. `pnputil /remove-device` + `/scan-devices` (all WS)
+     4. `Stop-Service BthPan` + `Start-Service BthPan` (all WS)
+   - Capability detection (`Get-RebindCapabilities`) selects available
+     attempts; missing cmdlets are gracefully skipped on WS2016.
+   - On success, promotes `I04OverallResult` to `TrueResolution` and
+     clears the pending-reboot marker via `Clear-PendingRebootMarker`.
+   - Phase registry, workstation-install gate (`I0[0-4]` → `I0[0-5]`),
+     and Ctx schema (`I05OverallResult`, `I05PerDeviceResults`) all
+     updated.
+
+  **[E-2] WS2019 CIM bridge for WDAC supplemental policy (all 4 scripts)**
+   - `Install-AmdWdacPolicy` / `Install-MsBthPanWdacPolicy` /
+     `Install-WdacPolicy` (NPU) gain an intermediate fallback layer
+     between the CiTool path (WS2022+) and the reboot fallback:
+     `Invoke-CimMethod -Namespace 'root\Microsoft\Windows\CI'
+     -ClassName 'PS_UpdateAndCompareCIPolicy' -MethodName 'Update'
+     -Arguments @{FilePath=$deployedPath}`.
+   - WS2019 can now activate supplemental policies WITHOUT reboot
+     (previously the script required reboot on WS2019 because CiTool
+     is absent). WS2016 lacks `PS_UpdateAndCompareCIPolicy` and
+     correctly falls through to the reboot path.
+   - Return objects extended with `CimBridgeTried`, `CimBridgeStdout`,
+     `CimBridgeError` so callers can diagnose which path was taken.
+   - `ActivationMethod` label surfaces the chosen path:
+     `CiTool (immediate, no reboot)` |
+     `CIM bridge (PS_UpdateAndCompareCIPolicy, no reboot)` | `reboot`.
+
+  **OS support matrix (clarified):**
+
+  | Capability                              | WS2025 | WS2022 | WS2019 | WS2016 |
+  |---|---|---|---|---|
+  | CiTool.exe (immediate policy refresh)   | ✅    | ✅    | ❌    | ❌    |
+  | PS_UpdateAndCompareCIPolicy CIM bridge  | ✅    | ✅    | ✅    | ❌    |
+  | Restart-PnpDevice (I05 Attempt 1)       | ✅    | ✅    | ✅    | ⚠️   |
+  | Disable/Enable-PnpDevice (I05 Attempt 2)| ✅    | ✅    | ✅    | ⚠️   |
+  | pnputil /remove-device (I05 Attempt 3)  | ✅    | ✅    | ✅    | ✅    |
+  | BCDEdit testsigning fallback             | ✅    | ✅    | ✅    | ✅    |
+
+  Verified outcomes per script:
+   - All 4 scripts: AST 0 parse errors.
+   - `Get-DriverSourceCategory`: byte-identical across Chipset + Graphics (PSA8001).
+   - PSA8001 baseline: 49 pre-existing violations, 0 net change from this release.
+   - Bilingual READMEs and SPEC.md updated to document the new I05
+     phase, multi-OS fallback chain, and language-independent detection
+     design.
+
 ### Changed
 - **Chipset r63 / Graphics r31 / NPU r14 / MSBthPan r13 (cross-script consistency release — `psa-py-v360-baseline-uplift`).**
   Coordinated uplift to keep the static-analysis baseline clean

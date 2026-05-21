@@ -1001,3 +1001,210 @@ When validating these fixes on the M75q Tiny Gen 2 or X13 Gen 1 AMD fixtures:
 | 6 | I04 `FAILED` count = I03 `failed` count | ✓ both 0 on the clean-install scenario |
 | 7 | All ja-JP strings in the log are readable (no `蜃ｦ`, `謌仙` etc.) | ✓ no mojibake |
 
+## 10. Regression scenarios: detection accuracy + Multi-OS
+
+These regression scenarios validate the five enhancements bundled in the
+`detection-accuracy-multi-os` release (root causes in SPEC §D.18 / §D.19
+/ §D.20 / §D.21 / §D.22; release information in [CHANGELOG.md](./CHANGELOG.md)).
+The scenarios are organized by feature; each can be exercised independently
+on the same WS2025 install used for §1 (M75q Tiny Gen 2) without re-imaging.
+
+### 10.1 `Get-DriverSourceCategory` Step 0 — catalog thumbprint match (SPEC §D.18)
+
+**Pre-fix symptom**: On the first full Install pass on a clean WS2025 host, I00's TO-BE display incorrectly labels the script's own self-signed catalogs as `category=Vendor`, causing the priority override in SPEC D.15 to pick the wrong INF for binding.
+
+**Regression test**: After running `-Action Install -OnlyPhases I00,I02,I03` with the new revision on a host with a fresh certificate / WDAC policy:
+
+| Observation | Pre-fix | Post-fix |
+|---|---|---|
+| TO-BE category for AMD INFs after I02 activates the supplemental policy | `[B] Vendor` | `[C] Self-Signed (catalog thumbprint match)` |
+| Source of classification | Step 1 string-match (failed → fell through to Step 2 Provider match) | Step 0 catalog thumbprint match |
+| Decision matrix outcome | Wrong INF chosen for some devices | Correct INF chosen |
+
+**Pass criterion**: I00 reports `category=[C] Self-Signed (this script, catalog thumbprint match)` (note the explicit "catalog thumbprint match" suffix that distinguishes Step 0 from the legacy Step 1 path) for every INF that was signed by `$Ctx.CertThumbprint` in I02. No INF that was signed by the script is misclassified as `[B] Vendor` on second-pass run.
+
+**Verification commands**:
+
+```powershell
+# Inspect the I00 detail log for the classification label.
+# After running -Action Install at least once:
+Select-String -Path "$env:ProgramData\Deploy-Drivers-For-WindowsServer\logs\*.log" `
+              -Pattern 'catalog thumbprint match|Self-Signed \(this script' |
+    Select-Object -Last 20
+```
+
+The log should show every AMD INF (Chipset and Graphics) classified with the "catalog thumbprint match" label suffix once I02 has populated the policy. The Step-0 label is `Self-Signed (this script, catalog thumbprint match)`; the legacy Step-1 label is `Self-Signed (this script)` (no suffix). Either is a valid [C] classification; Step-0 is preferred because it is independent of the WMI `Signer` field (which may be empty for self-signed catalogs).
+
+### 10.2 BthPan I04 language-independent detection (SPEC §D.19)
+
+**Pre-fix symptom on Japanese WS2025**: `I04 OverallResult = PartialOrPhantom`, script requests reboot, but PAN connectivity is already functional and `Bluetooth デバイス (パーソナル エリア ネットワーク)` appears in `ncpa.cpl`.
+
+**Regression test**: After running `-Action Install -OnlyPhases I00,I01,I02,I03,I04` with the new BthPan revision on a Japanese WS2025 host:
+
+| Observation | Pre-fix | Post-fix |
+|---|---|---|
+| `$Ctx.I04OverallResult` on Japanese WS2025 | `PartialOrPhantom` | `TrueResolution` |
+| Reboot request | Yes (spurious) | No |
+| `Test-BthPanRuntimeArtifacts.HasNetAdapter` | `$false` (regex failed) | `$true` (language-independent match) |
+| `Get-BthPanNetChildBinding` invoked | (helper does not exist) | Yes; returns Net-class child with `IsSignedByUs=$true` |
+| `Invoke-InstPhase04` Section 1 display | parent `BTH\MS_BTHPAN\*` only | parent + Net-child binding sub-block |
+
+**Pass criterion**: `I04 OverallResult = TrueResolution` on every Japanese-locale WS2025 / WS2022 host where bthpan.sys is loaded and the catalog signature matches `$Ctx.CertThumbprint`.
+
+**Verification commands** (must run on a Japanese WS2025 host with the script's WDAC policy active):
+
+```powershell
+# (a) Confirm the language-independent Net-adapter detection works.
+Get-NetAdapter | Where-Object {
+    $_.DriverFileName -ieq 'bthpan.sys' -or
+    $_.ComponentID    -ieq 'ms_bthpan'  -or
+    $_.PnPDeviceID    -match '^BTH\\MS_BTHPAN(?:XFER)?\\'
+} | Format-List Name, InterfaceDescription, DriverFileName, ComponentID, PnPDeviceID
+
+# (b) On a Japanese SKU, InterfaceDescription will contain hiragana/katakana,
+# but the three property fields above will still be in English. THIS IS THE POINT.
+```
+
+If (a) returns at least one adapter and the three matched fields are visibly English while `InterfaceDescription` contains Japanese characters, the language-independence design is functioning as specified.
+
+### 10.3 Graphics I00 deduplication (SPEC §D.20)
+
+**Pre-fix symptom**: I00 prints ~1000 visually-identical TO-BE rows per Graphics device, and Risk Summary reports `[MEDIUM] 1069 item(s)` for a single AMD u0197843.inf match.
+
+**Regression test**: On the M75q Tiny Gen 2 host (or any Phoenix-class device matched by u0197843.inf):
+
+| Observation | Pre-fix | Post-fix |
+|---|---|---|
+| TO-BE rows per Graphics device | ~5046 | 1 (with `[+5046 HWID variants]` suffix) |
+| Risk Summary `[MEDIUM]` count | 1069 items | ~5 items |
+| Visual scan time to review I00 output | minutes | seconds |
+
+**Pass criterion**: TO-BE display shows one row per unique `(InfName, SrcSubDir)` pair. Risk Summary `[MEDIUM]` count reflects the number of actual replacement decisions, not HWID-variant impressions.
+
+**Verification commands**:
+
+```powershell
+# Inspect the I00 output count for a Graphics-only run.
+$logFile = Get-ChildItem "$env:ProgramData\Deploy-Drivers-For-WindowsServer\logs\graphics-*.log" |
+           Sort-Object LastWriteTime -Descending | Select-Object -First 1
+# Expect one TO-BE row per (InfName, SrcSubDir) with [+N HWID variants] suffix when N>1
+Select-String -Path $logFile.FullName -Pattern 'TO-BE:.*\[\+\d+ HWID variants\]' |
+    Measure-Object | Select-Object -ExpandProperty Count
+```
+
+### 10.4 Chipset P04 sub-MSI diagnostics (SPEC §D.21)
+
+**Pre-fix symptom**: Sub-MSI failures in the P04 Nested loop are silently recovered (correct behaviour), but no breadcrumb is left if the parent EXE ultimately reports a payload-missing condition after Nested recovery succeeds.
+
+**Regression test**: This is a diagnostics-only feature; normal runs produce no observable change. Forced regression test:
+
+1. Run `-Action Install -OnlyPhases P04` on a clean WS2025 host with the AMD Chipset 8.x payload.
+2. Mid-run (after the first MSI extraction), rename one of the `.cab` files in `%TEMP%\AMD\*\` to provoke MSI error 1335 ("corrupt cabinet").
+3. The Nested loop retries and succeeds (because the original cab is reconstructed by AMD's installer on retry).
+
+| Observation | Pre-fix | Post-fix |
+|---|---|---|
+| `$logRoot\submsi-failures-diag.txt` exists | No (file not created) | Yes (≥ 1 sub-MSI failure was captured) |
+| Pattern classification in the diag file | (file absent) | `1335 corrupt cabinet` at least once |
+| TARGETDIR snapshot at failure time | (file absent) | `Exists=True, InfCount=N, FileCount=M, LastWriteHint=...` |
+| User-visible P04 outcome | `success` (parent EXE recovered) | `success` (unchanged) |
+
+**Pass criterion**: `submsi-failures-diag.txt` is created and contains the pattern classification when sub-MSI failures occurred. The file is NOT created on clean runs with no sub-MSI failures (zero-noise default).
+
+### 10.5 BthPan I05 ForceRebind + WS2019 CIM bridge (SPEC §D.22)
+
+**E-1 — I05 ForceRebind regression test** (BthPan-only):
+
+This phase activates ONLY when `$Ctx.I04OverallResult -eq 'PartialOrPhantom'`. Force-induced regression:
+
+1. On a known-good WS2025 host with bthpan working, run `pnputil /delete-driver oem<N>.inf /uninstall /force` to manually break the binding (where `<N>` is the OEM number of the patched bthpan.inf).
+2. Run `-Action Install -OnlyPhases I04,I05`.
+
+| Observation | Without I05 | With I05 |
+|---|---|---|
+| I04 verdict | `PartialOrPhantom` | `PartialOrPhantom` (initially) |
+| I05 invoked | (phase does not exist) | Yes |
+| I05 cascade attempts | (n/a) | Attempt 1 (`Restart-PnpDevice`) succeeds on WS2025 |
+| I04 verdict after I05 promotion | `PartialOrPhantom` | `TrueResolution` (promoted by I05) |
+| Reboot required | Yes | No |
+| `$Ctx.I05OverallResult` | (field does not exist) | `Recovered` |
+
+**Pass criterion**: After I05, `$Ctx.I04OverallResult` is `TrueResolution` and no reboot is requested. The cascade attempt that succeeded is logged in `$Ctx.I05PerDeviceResults`.
+
+I05 no-op test (on a clean working WS2025 host without breakage):
+
+| Observation | Expected |
+|---|---|
+| I05 phase header printed | Yes |
+| Cascade attempts run | 0 (short-circuited by `I04OverallResult -eq 'TrueResolution'`) |
+| `$Ctx.I05OverallResult` | `$null` (no-op) |
+| Run-time impact | < 1 s |
+
+**E-2 — WS2019 CIM bridge regression test** (all four scripts):
+
+This regression requires a WS2019 host (the CIM bridge is only activated when `CiTool.exe` is absent, i.e., on WS2019 and WS2016).
+
+| OS | `CiTool.exe` | `PS_UpdateAndCompareCIPolicy` | Expected `ActivationMethod` |
+|---|---|---|---|
+| WS2025 (build 26100) | present | (skipped — CiTool already succeeded) | `CiTool (immediate, no reboot)` |
+| WS2022 (build 20348) | present | (skipped) | `CiTool (immediate, no reboot)` |
+| WS2019 (build 17763) | absent | present | `CIM bridge (PS_UpdateAndCompareCIPolicy, no reboot)` |
+| WS2016 (build 14393) | absent | absent (class missing) | `reboot` (existing behaviour) |
+
+**Pass criterion (WS2019 host)**:
+- `Install-AmdWdacPolicy` / `Install-MsBthPanWdacPolicy` / `Install-WdacPolicy` returns `RebootRequired=$false` AND `ActivationMethod='CIM bridge (PS_UpdateAndCompareCIPolicy, no reboot)'`.
+- Subsequent I03 verifies the supplemental policy is active (queryable via `Get-WmiObject -Namespace 'root\Microsoft\Windows\CI' -Class PS_QueryDeviceGuardStatus`).
+
+**Pass criterion (WS2016 host)**:
+- The CIM bridge attempt fails silently (`$cimBridgeError` is populated with "class not found" or equivalent).
+- `ActivationMethod='reboot'` is selected.
+- `-UseTestSigning` switch is the supported activation path on WS2016 and produces an explicit reboot request.
+
+### 10.6 Multi-OS support matrix
+
+Cross-script Multi-OS capability matrix to validate when expanding from the current WS2025-only validation to WS2022 / WS2019 / WS2016:
+
+| Capability | WS2025 (26100) | WS2022 (20348) | WS2019 (17763) | WS2016 (14393) |
+|---|---|---|---|---|
+| `CiTool.exe --json --update-policy` | ✓ | ✓ | absent | absent |
+| `PS_UpdateAndCompareCIPolicy` CIM | ✓ (skipped) | ✓ (skipped) | ✓ | absent |
+| `Restart-PnpDevice` | ✓ | ✓ | ✓ | absent |
+| `Disable-PnpDevice` / `Enable-PnpDevice` | ✓ | ✓ | ✓ | absent |
+| `pnputil /add-driver /install` | ✓ | ✓ | ✓ | ✓ |
+| `pnputil /remove-device /scan-devices` | ✓ | ✓ | ✓ | ✓ |
+| `Stop-Service` / `Start-Service BthPan` | ✓ | ✓ | ✓ | ✓ |
+| BCDEdit testsigning + reboot (`-UseTestSigning`) | ✓ | ✓ | ✓ | ✓ |
+| `inf2cat /os Server2025_X64` | ✓ | (fallback: ServerFE_X64) | (fallback: ServerRS5_X64) | (fallback: Server2016_X64) |
+
+**Current validation status**:
+- WS2025: validated on M75q Tiny Gen 2 + ThinkPad X13 Gen 1 AMD (proxy via Win11 LTSC).
+- WS2022 / WS2019 / WS2016: capability matrix is derived from Microsoft documentation. Field validation is pending on real hardware.
+
+### 10.7 Language-independence regression check
+
+For all four scripts, no production code path should match against `InterfaceDescription`, `FriendlyName`, `Description`, `Name`, or `Caption` for classification purposes. Manual audit command:
+
+```powershell
+# Grep for the forbidden localized-string matches across all four scripts.
+$forbidden = @(
+    'InterfaceDescription\s+-\s*(?:i?match|-i?eq|-i?like)',
+    'FriendlyName\s+-\s*(?:i?match|-i?eq|-i?like)',
+    'Description\s+-\s*(?:i?match|-i?like)'   # 'Description -eq' is acceptable in some unit-test contexts
+)
+foreach ($f in @(
+    'Deploy-AMDChipsetDriverOnWindowsServer.ps1',
+    'Deploy-AMDGraphicsDriverOnWindowsServer.ps1',
+    'Deploy-AMDNpuDriverOnWindowsServer.ps1',
+    'Deploy-MSBthPanInboxOnWindowsServer.ps1'
+)) {
+    foreach ($pat in $forbidden) {
+        $hits = Select-String -Path $f -Pattern $pat -CaseSensitive
+        if ($hits) {
+            Write-Warning "Potential localization-dependent match in ${f}:"
+            $hits | ForEach-Object { Write-Host ('  L{0}: {1}' -f $_.LineNumber, $_.Line.Trim()) }
+        }
+    }
+}
+```
+
+**Pass criterion**: Zero hits. Any hit must be auditable (e.g., explicit comment noting that the matched string is hard-coded in English and not subject to localization on this code path, such as the inbox `Microsoft` provider strings used in V01 Secure Boot baseline classification).

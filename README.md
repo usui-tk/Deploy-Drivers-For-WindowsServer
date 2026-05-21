@@ -495,7 +495,9 @@ $cred = Get-Credential -UserName 'you@example.com' -Message 'AMD account passwor
 
 ---
 
-## Pipeline architecture (21 phases)
+## Pipeline architecture (21 + 1 phases)
+
+The four scripts share a 21-phase pipeline (P00–P09, V01–V06, I00–I04). The BthPan script adds **one extra Install-group phase (`I05`)** that recovers from a stuck-driver state without reboot when (and only when) I04 detected one. The 21 shared phases are run by all four scripts; I05 is BthPan-only.
 
 | Group | ID | Name | What it does |
 | --- | --- | --- | --- |
@@ -517,9 +519,10 @@ $cred = Get-Credential -UserName 'you@example.com' -Message 'AMD account passwor
 | Verify | V06 | HardwareImpactAnalysis | Enumerate AMD hardware on this host, compare AS-IS drivers against TO-BE patched drivers, classify upgrade risk (HIGH / MEDIUM / LOW); the NPU script also reminds the operator about the Ryzen AI Software user-mode stack |
 | Inst | I00 | PreInstallReview | Print the V06 risk summary; require operator acknowledgement (NPU script: also requires explicit `I AGREE` for the Ryzen AI EULA) |
 | Inst | I01 | TrustCertificate | Import CER into `LocalMachine\Root` + `LocalMachine\TrustedPublisher` |
-| Inst | I02 | AuthorizeDriverSigning | Build + deploy the WDAC supplemental policy that allowlists this cert as a kernel-mode signer (default path); fall back to `bcdedit /set testsigning on` only if `-UseTestSigning` is passed |
+| Inst | I02 | AuthorizeDriverSigning | Build + deploy the WDAC supplemental policy that allowlists this cert as a kernel-mode signer (default path); fall back to `bcdedit /set testsigning on` only if `-UseTestSigning` is passed. Activation is attempted via three tiers (`CiTool.exe --json` on WS2022+, the WMI/CIM `PS_UpdateAndCompareCIPolicy` bridge on WS2019, and the BCDEdit testsigning + reboot path on WS2016 or any host where both above fail) — see [SPEC §D.22](./SPEC.md). |
 | Inst | I03 | InstallDrivers | `pnputil /add-driver <patched.inf> /install` for every in-scope INF |
-| Inst | I04 | PostInstallVerification | Re-enumerate AMD hardware, confirm `[C] Self-signed` driver bound to each target device; the NPU script also displays Ryzen AI Software user-mode stack installation guidance |
+| Inst | I04 | PostInstallVerification | Re-enumerate AMD hardware, confirm `[C] Self-signed` driver bound to each target device; the NPU script also displays Ryzen AI Software user-mode stack installation guidance. For the BthPan script, this phase uses language-independent identifiers (`DriverFileName`, `ComponentID`, `PnPDeviceID`) and is therefore correct on Japanese, Chinese, German, etc. SKUs — see [SPEC §D.19](./SPEC.md). |
+| Inst | **I05** | **ForceRebind** (**BthPan only**) | When (and only when) `I04 OverallResult = PartialOrPhantom`, escalate through `Restart-PnpDevice` → `Disable/Enable-PnpDevice` → `pnputil /remove-device /scan-devices` → `Stop/Start-Service BthPan` to recover the driver binding without reboot. Capabilities are auto-detected on WS2016 / WS2019 / WS2022 / WS2025 and missing cmdlets are gracefully skipped — see [SPEC §D.22](./SPEC.md). On success, `I04 OverallResult` is promoted to `TrueResolution` and the pending-reboot marker is cleared. |
 
 ---
 

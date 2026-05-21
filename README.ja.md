@@ -492,7 +492,9 @@ $cred = Get-Credential -UserName 'you@example.com' -Message 'AMD アカウント
 
 ---
 
-## パイプラインアーキテクチャ (21 phase)
+## パイプラインアーキテクチャ (21 + 1 phase)
+
+4 スクリプトは 21 phase (P00–P09、V01–V06、I00–I04) を共有します。BthPan スクリプトはこれに加えて、I04 で実機の "詰まりドライバ" を検出した場合 (かつその場合のみ) に再起動なしでドライバ binding を復旧する Install group phase (**`I05`**) を追加実装しています。共通 21 phase は 4 スクリプト全てで実行され、 I05 は BthPan 専用です。
 
 | Group | ID | 名称 | 内容 |
 | --- | --- | --- | --- |
@@ -514,9 +516,10 @@ $cred = Get-Credential -UserName 'you@example.com' -Message 'AMD アカウント
 | Verify | V06 | HardwareImpactAnalysis | ホスト上の AMD ハードウェアを enumerate、AS-IS ドライバとパッチ済み TO-BE ドライバを比較、リスク (HIGH / MEDIUM / LOW) 分類。NPU スクリプトでは Ryzen AI Software user-mode stack 関連の通知も表示 |
 | Inst | I00 | PreInstallReview | V06 リスクサマリを表示、operator の確認を要求 (NPU スクリプトでは Ryzen AI EULA への明示的 `I AGREE` 入力も要求) |
 | Inst | I01 | TrustCertificate | CER を `LocalMachine\Root` + `LocalMachine\TrustedPublisher` に import |
-| Inst | I02 | AuthorizeDriverSigning | 当該証明書を kernel-mode 署名者として allowlist する WDAC supplemental policy を build + deploy (デフォルトパス)、`-UseTestSigning` 指定時のみ legacy `bcdedit /set testsigning on` 経路に fallback |
+| Inst | I02 | AuthorizeDriverSigning | 当該証明書を kernel-mode 署名者として allowlist する WDAC supplemental policy を build + deploy (デフォルトパス)、`-UseTestSigning` 指定時のみ legacy `bcdedit /set testsigning on` 経路に fallback。 supplemental policy の有効化は 3 段階で試行します — WS2022 以降では `CiTool.exe --json`、WS2019 では WMI/CIM 経由の `PS_UpdateAndCompareCIPolicy` bridge、WS2016 ないし上記いずれも失敗したホストでは BCDEdit testsigning + 再起動 — 詳細は [SPEC §D.22](./SPEC.md) を参照 |
 | Inst | I03 | InstallDrivers | 対象 INF 全てに対して `pnputil /add-driver <patched.inf> /install` を実行 |
-| Inst | I04 | PostInstallVerification | AMD ハードウェアを再 enumerate、各対象デバイスに `[C] Self-signed` ドライバが bind されたか確認。NPU スクリプトでは Ryzen AI Software user-mode stack インストール guidance も表示 |
+| Inst | I04 | PostInstallVerification | AMD ハードウェアを再 enumerate、各対象デバイスに `[C] Self-signed` ドライバが bind されたか確認。NPU スクリプトでは Ryzen AI Software user-mode stack インストール guidance も表示。 BthPan スクリプトの本 phase は言語非依存の識別子 (`DriverFileName`、`ComponentID`、`PnPDeviceID`) のみを用いるため、日本語・中国語・ドイツ語などの SKU でも正しく動作します — 詳細は [SPEC §D.19](./SPEC.md) を参照 |
+| Inst | **I05** | **ForceRebind** (**BthPan 専用**) | `I04 OverallResult = PartialOrPhantom` の場合に限り (かつその場合のみ) 起動。`Restart-PnpDevice` → `Disable/Enable-PnpDevice` → `pnputil /remove-device /scan-devices` → `Stop/Start-Service BthPan` のエスカレーション順序で再起動なしのドライバ復旧を試行します。WS2016 / WS2019 / WS2022 / WS2025 上で利用可能なコマンドレットを自動検出し、ない場合はそのアテンプトを skip して次へ進みます — 詳細は [SPEC §D.22](./SPEC.md) を参照。成功時は `I04 OverallResult` を `TrueResolution` に昇格させ、pending-reboot marker を消去します |
 
 ---
 

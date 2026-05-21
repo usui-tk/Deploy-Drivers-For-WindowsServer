@@ -5135,13 +5135,47 @@ function Install-WdacPolicy {
         }
         $dest = Join-Path $activeDir ('{' + $PolicyGuid + '}.cip')
         Copy-Item -Path $BinPath -Destination $dest -Force
+
+        # ---- WS2019 fallback: PS_UpdateAndCompareCIPolicy CIM method ----
+        # WS2019 (build 17763) does not ship CiTool.exe but CAN hot-load
+        # a supplemental policy via the WMI/CIM bridge in
+        # root\Microsoft\Windows\CI. WS2016 lacks this class and falls
+        # through to the original "reboot may be required" path.
+        $cimSucceeded   = $false
+        $cimError       = ''
+        try {
+            $cimResult = Invoke-CimMethod -Namespace 'root\Microsoft\Windows\CI' `
+                -ClassName 'PS_UpdateAndCompareCIPolicy' `
+                -MethodName 'Update' `
+                -Arguments @{ FilePath = $dest } `
+                -ErrorAction Stop
+            if ($cimResult -and ([int]$cimResult.ReturnValue -eq 0)) {
+                $cimSucceeded = $true
+            }
+        } catch {
+            # CIM class not present (WS2016) or other failure
+            $cimError = $_.Exception.Message
+        }
+
+        if ($cimSucceeded) {
+            Write-Ok 'WS2019 CIM bridge (PS_UpdateAndCompareCIPolicy.Update): activated without reboot.'
+            return @{
+                ExitCode = 0
+                Output   = @('Activated via PS_UpdateAndCompareCIPolicy')
+                Success  = $true
+                Method   = 'CIMBridge'
+            }
+        }
+
         Write-Warn2 'CiTool not available; copied .cip to Active policy directory.'
         Write-Warn2 'A reboot may be required for the policy to take effect.'
+        if ($cimError) { Write-Detail ('  (WS2019 CIM bridge tried but failed: {0})' -f $cimError) }
         return @{
             ExitCode = 0
             Output   = @('Copied to Active dir')
             Success  = $true
             Method   = 'FileCopy'
+            CimError = $cimError
         }
     }
 }

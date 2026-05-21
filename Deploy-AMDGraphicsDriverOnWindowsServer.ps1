@@ -4037,12 +4037,42 @@ function Install-AmdWdacPolicy {
         }
     }
 
+    # ---- WS2019 fallback: PS_UpdateAndCompareCIPolicy CIM method ----
+    # When CiTool.exe is absent (WS2019 and earlier do not ship it),
+    # the policy may still be hot-loaded via the WMI/CIM bridge
+    # PS_UpdateAndCompareCIPolicy in root\Microsoft\Windows\CI. This
+    # method exists on WS2019+ but not on WS2016, so failure here is
+    # not fatal - the legacy reboot path remains as the final fallback.
+    $cimBridgeTried   = $false
+    $cimBridgeStdout  = ''
+    $cimBridgeError   = ''
+    if (-not $immediate) {
+        $cimBridgeTried = $true
+        try {
+            $cimArgs = @{ FilePath = $deployedPath }
+            $cimResult = Invoke-CimMethod -Namespace 'root\Microsoft\Windows\CI' `
+                -ClassName 'PS_UpdateAndCompareCIPolicy' `
+                -MethodName 'Update' `
+                -Arguments $cimArgs `
+                -ErrorAction Stop
+            $rv = if ($null -ne $cimResult.ReturnValue) { [int]$cimResult.ReturnValue } else { -1 }
+            $cimBridgeStdout = ('PS_UpdateAndCompareCIPolicy.Update returned {0}' -f $rv)
+            if ($rv -eq 0) {
+                $immediate = $true
+                if (-not $citoolStatusLine) { $citoolStatusLine = $cimBridgeStdout }
+            }
+        } catch {
+            # CIM class not present (WS2016) or other failure - fall through to reboot
+            $cimBridgeError = $_.Exception.Message
+        }
+    }
+
     return [pscustomobject]@{
         PolicyId         = $policyId
         XmlPath          = $XmlPath
         BinaryPath       = $BinaryOutPath
         DeployedPath     = $deployedPath
-        ActivationMethod = if ($immediate) { 'CiTool (immediate, no reboot)' } else { 'reboot' }
+        ActivationMethod = if ($immediate) { if ($cimBridgeTried -and (-not $citoolStdout)) { 'CIM bridge (PS_UpdateAndCompareCIPolicy, no reboot)' } else { 'CiTool (immediate, no reboot)' } } else { 'reboot' }
         RebootRequired   = -not $immediate
         CiToolStdout     = $citoolStdout
         CiToolStderr     = $citoolStderr
@@ -9993,47 +10023,75 @@ function Compare-InfDriverVer {
 function Get-DriverSourceCategory {
     # ====================================================================
     # Classify a driver by its source / publisher into one of four
-    # buckets (per user request - enhancement, fixed):
+    # buckets:
     #
     #   [A] Microsoft (OS in-box drivers)
     #   [B] Hardware vendor / IHV (signed by AMD, NVIDIA, OEM, etc.)
     #   [C] Self-signed by THIS script's certificate
     #   [?] Unknown / unsigned / uncategorizable
     #
-    # ---- BUGFIX: trust Provider, NOT Signer ----
-    # Previously, the function fell through from Provider to Signer when
-    # checking for [A] Microsoft. That was wrong: the Signer field on
-    # ANY WHQL-signed Windows driver reads "Microsoft Windows", because
-    # Microsoft cosigns all WHQL submissions through the Windows
-    # Hardware Compatibility Program. AMD's chipset drivers, NVIDIA's
-    # GPU drivers, Realtek's audio drivers - they ALL have
-    # Signer="Microsoft Windows" because that's how Windows Code
-    # Integrity recognizes them as trusted at boot.
+    # ---- Enhancement (2026-05): catalog-thumbprint primary path ----
+    # The legacy implementation relied solely on Win32_PnPSignedDriver.
+    # Signer (a friendly-name string) to detect [C] Self-Signed. In
+    # practice WMI returns an empty Signer for self-signed catalogs
+    # whose root CA is NOT in the Microsoft trust hierarchy, even
+    # AFTER our cert has been imported into LocalMachine\Root and
+    # WDAC has authorized it. That made Step 1 (string match) miss
+    # legitimately self-signed drivers, which then fell through to
+    # Step 3 and were reported as [B] Vendor because the patched INF
+    # still has Provider="Advanced Micro Devices, Inc".
     #
-    # Result: a vendor driver from AMD with Provider="Advanced Micro
-    # Devices, Inc" and Signer="Microsoft Windows" was being classified
-    # as [A] Microsoft instead of [B] Vendor. The user reported this
-    # in the V06 log (oem17.inf, oem26.inf, oem12.inf etc all flagged
-    # [A] when they're really AMD-shipped vendor drivers).
+    # New Step 0 reads the on-disk catalog (.cat) directly via
+    # Get-AuthenticodeSignature and compares SignerCertificate.
+    # Thumbprint against the caller-supplied ExpectedSelfSignThumbprint
+    # (typically $Ctx.CertThumbprint). When the thumbprints match, the
+    # driver is conclusively classified as [C], independent of how WMI
+    # chose to render the Signer field.
     #
-    # The fix: the Provider field is the AUTHORITATIVE signal of who
-    # AUTHORED the driver. Signer is only useful for the [C] self-
-    # signed detection (because our cert subject is unique enough).
+    # ---- BUGFIX (legacy): trust Provider, NOT Signer ----
+    # The Signer field on ANY WHQL-signed driver reads "Microsoft
+    # Windows" because MS cosigns WHQL submissions; that is why we
+    # NEVER consult Signer for [A] Microsoft detection (vendor
+    # drivers from AMD/NVIDIA/etc. would all collapse to [A]).
     #
-    # New decision order:
-    #   1. Signer matches our self-sign markers => [C]
-    #   2. Provider is "Microsoft" (and only Microsoft) => [A]
-    #      In-box MS generics report Provider as "Microsoft" or
-    #      "Microsoft Corporation". Vendor drivers report their
-    #      vendor name even when WHQL-signed.
-    #   3. Any other non-empty Provider => [B] Vendor
+    # Decision order:
+    #   0. (NEW) Catalog thumbprint matches ExpectedSelfSignThumbprint => [C]
+    #   1. Signer string matches our self-sign markers => [C]
+    #      (fallback for callers that cannot resolve the .cat path)
+    #   2. Provider is "Microsoft" / "Microsoft Windows" / "Microsoft Corporation" => [A]
+    #   3. Any other non-empty Provider => [B]
     #   4. No Provider => [?]
     # ====================================================================
     param(
         [string]$Provider,
-        [string]$Signer
+        [string]$Signer,
+        # Optional: when provided, enables Step 0 (catalog-thumbprint
+        # primary path). InfName is the OEM-numbered short form (e.g.,
+        # 'oem32.inf'); the matching catalog is C:\Windows\INF\oem32.cat.
+        [string]$InfName = '',
+        [string]$ExpectedSelfSignThumbprint = ''
     )
-    # Step 1: Self-signed by us
+    # Step 0 (NEW): direct catalog-signer thumbprint match.
+    # Highest-confidence path. Skipped silently if either parameter is
+    # empty or if the .cat file is not readable; falls through to the
+    # legacy Signer-string heuristic in that case.
+    if ($InfName -and $ExpectedSelfSignThumbprint) {
+        $catPath = Join-Path (Join-Path $env:windir 'INF') ([System.IO.Path]::ChangeExtension($InfName, '.cat'))
+        if (Test-Path -LiteralPath $catPath) {
+            try {
+                $sig = Get-AuthenticodeSignature -LiteralPath $catPath -ErrorAction Stop
+                if ($sig -and $sig.SignerCertificate -and
+                    $sig.SignerCertificate.Thumbprint -eq $ExpectedSelfSignThumbprint) {
+                    return @{
+                        Code='C'; ShortLabel='[C]'
+                        Label='Self-Signed (this script, catalog thumbprint match)'
+                        Color='Magenta'
+                    }
+                }
+            } catch {} # psa-disable-line PSA3004 -- best-effort; fall through to Signer-string match
+        }
+    }
+    # Step 1 (FALLBACK): Signer string match
     if ($Signer) {
         if ($Signer -match '(?i)\bSelf-Sign\b' -or
             $Signer -match '(?i)At Own Risk' -or
@@ -10159,7 +10217,7 @@ function Resolve-PerDeviceDriverDecision {
     # Category-priority override (see function header for rationale).
     # The TO-BE driver this pipeline produces is always [C] Self-signed,
     # so any AS-IS category OTHER than [C] is automatically superseded.
-    $curCatInfo = Get-DriverSourceCategory -Provider $Current.Provider -Signer $Current.Signer
+    $curCatInfo = Get-DriverSourceCategory -Provider $Current.Provider -Signer $Current.Signer -InfName $Current.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint
     $curCatCode = if ($curCatInfo) { $curCatInfo.Code } else { '?' }
     if ($curCatCode -ne 'C') {
         return @{
@@ -10265,7 +10323,7 @@ function Resolve-PerInfInstallDecision {
         # Determine current-driver category. If [A]/[B]/[?], the
         # category-priority override makes this an UPGRADE regardless
         # of version comparison.
-        $curCatInfo = Get-DriverSourceCategory -Provider $cur.Provider -Signer $cur.Signer
+        $curCatInfo = Get-DriverSourceCategory -Provider $cur.Provider -Signer $cur.Signer -InfName $cur.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint
         $curCatCode = if ($curCatInfo) { $curCatInfo.Code } else { '?' }
         if ($curCatCode -ne 'C') {
             $upgrades++
@@ -10349,7 +10407,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     foreach ($d in $hwAll) {
         $cur = Get-DeviceCurrentDriver -DeviceID $d.DeviceID
         $cat = if ($cur) {
-            Get-DriverSourceCategory -Provider $cur.Provider -Signer $cur.Signer
+            Get-DriverSourceCategory -Provider $cur.Provider -Signer $cur.Signer -InfName $cur.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint
         } else {
             @{ Code='?'; ShortLabel='[?]'; Label='No driver bound'; Color='DarkGray' }
         }
@@ -10845,7 +10903,7 @@ function Invoke-InstPhase00_PreInstallReview {
         if ($infs.Count -gt 0) {
             $cur = Get-DeviceCurrentDriver -DeviceID $d.DeviceID
             $cat = if ($cur) {
-                Get-DriverSourceCategory -Provider $cur.Provider -Signer $cur.Signer
+                Get-DriverSourceCategory -Provider $cur.Provider -Signer $cur.Signer -InfName $cur.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint
             } else {
                 @{ Code='?'; ShortLabel='[?]'; Label='No driver bound'; Color='DarkGray' }
             }
@@ -10888,12 +10946,32 @@ function Invoke-InstPhase00_PreInstallReview {
             } else {
                 Write-Host  '    AS-IS  : (no driver currently bound to this device)' -ForegroundColor Yellow
             }
-            foreach ($c in $m.Candidates) {
+            # ---- Deduplicate candidates for display ----
+            # An INF can have N HWID variants (e.g., AMD's u0197843.inf
+            # ships ~5046 PCI VEN/DEV variants). The candidate-collection
+            # logic may return the same INF up to N times when many
+            # variants matched. Showing 5046 identical TO-BE rows per
+            # device is noise; collapse them and surface the variant
+            # count instead.
+            $uniqueCandidates = $m.Candidates | Group-Object -Property { '{0}|{1}' -f $_.InfName, $_.SrcSubDir } | ForEach-Object {
+                $first = $_.Group[0]
+                [pscustomobject]@{
+                    InfName     = $first.InfName
+                    SrcSubDir   = $first.SrcSubDir
+                    DriverVer   = $first.DriverVer
+                    Provider    = $first.Provider
+                    Class       = $first.Class
+                    FullPath    = $first.FullPath
+                    HwidVariants = $_.Count
+                }
+            }
+            foreach ($c in $uniqueCandidates) {
                 $cParsed = ConvertFrom-DriverVerString -Raw $c.DriverVer
                 $cVerStr = if ($cParsed -and $cParsed.Version) { $cParsed.Version.ToString() } else { '?' }
                 $cDateStr = if ($cParsed -and $cParsed.Date)   { $cParsed.Date.ToString('yyyy-MM-dd') } else { '         ?' }
                 $cProv = if ($c.Provider) { $c.Provider } else { '(unknown)' }
-                Write-Host ($rowFmt -f 'TO-BE', '[C]', $cProv, $cVerStr, $cDateStr, $c.InfName) -ForegroundColor Magenta
+                $suffix = if ($c.HwidVariants -gt 1) { ('  [+{0} HWID variants]' -f ($c.HwidVariants - 1)) } else { '' }
+                Write-Host (($rowFmt -f 'TO-BE', '[C]', $cProv, $cVerStr, $cDateStr, $c.InfName) + $suffix) -ForegroundColor Magenta
                 Write-Host ('              src: {0}' -f $c.SrcSubDir) -ForegroundColor DarkGray
             }
         }
@@ -10935,10 +11013,17 @@ function Invoke-InstPhase00_PreInstallReview {
 
     Set-DebugStep 'Section: risk summary (V06 delegate)'
     # ---- Risk summary (delegates to V06's risk classification) ----
+    # Same HWID-variant deduplication as the TO-BE display above:
+    # tally each (device, INF) pair ONCE so the risk counts reflect
+    # actual replacement events, not HWID-variant noise.
     Write-Host '--- Risk summary (please review BEFORE proceeding) ---' -ForegroundColor Cyan
     $byRisk = @{ HIGH = @(); MEDIUM = @(); LOW = @() }
+    $seenPairs = @{}
     foreach ($m in $matched) {
         foreach ($c in $m.Candidates) {
+            $pairKey = '{0}|{1}|{2}' -f $m.Device.InstanceId, $c.InfName, $c.SrcSubDir
+            if ($seenPairs.ContainsKey($pairKey)) { continue }
+            $seenPairs[$pairKey] = $true
             $risk = Get-InfRiskCategory -InfName $c.InfName -Class $c.Class
             $byRisk[$risk.Level] += [pscustomobject]@{
                 Device = $m.Device; Inf = $c; Reason = $risk.Reason
@@ -11714,8 +11799,8 @@ function Invoke-InstPhase04_PostInstallVerification {
         # state captures Provider only (not Signer); the AFTER state
         # we re-query from Win32_PnPSignedDriver to get full Signer.
         $afterCur = Get-DeviceCurrentDriver -DeviceID $devId
-        $afterCat  = if ($afterCur)  { Get-DriverSourceCategory -Provider $afterCur.Provider  -Signer $afterCur.Signer  } else { @{ Code='?'; ShortLabel='[?]'; Label='No driver'; Color='DarkGray' } }
-        $beforeCat = if ($b -and $b.Provider) { Get-DriverSourceCategory -Provider $b.Provider -Signer $null } else { @{ Code='?'; ShortLabel='[?]'; Label='Unknown'; Color='DarkGray' } }
+        $afterCat  = if ($afterCur)  { Get-DriverSourceCategory -Provider $afterCur.Provider -Signer $afterCur.Signer -InfName $afterCur.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint  } else { @{ Code='?'; ShortLabel='[?]'; Label='No driver'; Color='DarkGray' } }
+        $beforeCat = if ($b -and $b.Provider) { Get-DriverSourceCategory -Provider $b.Provider -Signer $null -InfName $b.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint } else { @{ Code='?'; ShortLabel='[?]'; Label='Unknown'; Color='DarkGray' } }
 
         # Classify disposition
         # Adds a new disposition KEPT_CURRENT for the case where
