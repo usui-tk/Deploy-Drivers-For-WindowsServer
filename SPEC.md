@@ -961,7 +961,7 @@ How the previously-documented findings were resolved in this sync:
 
 ### A.11.5b Shared-helper contract (PSA8001-enforced)
 
-PSA8001 (cross-file function-body drift) enforces that **34 helper functions** are byte-for-byte identical across all four pipeline scripts. The current contract surface (see [CHANGELOG.md](./CHANGELOG.md) for the verified baseline):
+Across all four pipeline scripts, **34 helper functions** are inherited verbatim from the canonical baseline. PSA8001 (cross-file function-body drift) actively enforces byte-for-byte identity on **30 of them**; the remaining **4 Secure Boot baseline diagnostic helpers** (listed in `.psa.config.json` `psa8001_ignore_functions`: `Format-SecureBootBaselineForReport`, `Get-SecureBootCertificateInventory`, `Get-MsSecureBootExampleScriptPath`, `Invoke-MsSecureBootDetectScript`) are still inherited verbatim so that any future PSA8001 uplift on those 4 sees a consistent baseline. The current contract surface (see [CHANGELOG.md](./CHANGELOG.md) for the verified baseline):
 
 **Logging primitives (12 functions)**
 
@@ -975,11 +975,11 @@ PSA8001 (cross-file function-body drift) enforces that **34 helper functions** a
 
 `Set-Tls12`, `Set-ConsoleUtf8`, `Assert-Admin`, `Assert-PowerShellCompatibility`, `Show-PowerShellEnvironment`
 
-**Secure Boot baseline diagnostic helpers (5 functions)**
+**Secure Boot baseline diagnostic helpers (5 functions; 1 PSA8001-enforced + 4 PSA8001-ignored-but-still-verbatim)**
 
-`Format-SecureBootBaselineForReport`, `Get-SecureBootCertificateInventory`, `Get-MsSecureBootExampleScriptPath`, `Invoke-MsSecureBootDetectScript`, `Export-DebugTraceJson`
+`Format-SecureBootBaselineForReport` *(ignored)*, `Get-SecureBootCertificateInventory` *(ignored)*, `Get-MsSecureBootExampleScriptPath` *(ignored)*, `Invoke-MsSecureBootDetectScript` *(ignored)*, `Export-DebugTraceJson` *(enforced)*
 
-**Verifying the contract locally**: run psa.py against all four scripts in a single invocation. Any drift in the 34 functions above will produce a PSA8001 error pointing at the function header. Functions intentionally per-script (phase functions, `Show-Help`, `Show-PhaseList`, `Find-KitTool`, per-driver-family helpers) are listed in `psa8001_ignore_functions` in `.psa.config.json`; functions identical in only 2-3 of the 4 scripts (e.g., AMD-family-only helpers, MSBthPan-only helpers) are not currently enforced because their absence in the 4th script is by design.
+**Verifying the contract locally**: run psa.py against all four scripts in a single invocation. Any drift in the **30 PSA8001-enforced functions** above will produce a PSA8001 error pointing at the function header. Drift in the **4 PSA8001-ignored Secure Boot baseline diagnostic helpers** will not be flagged by `psa.py` (those helpers are listed in `psa8001_ignore_functions` because their call sites reference `$Ctx`-shaped context indirectly and one variant exists across the four driver scripts), but is still a contract violation that maintainers MUST manually verify on touch — see SPEC §D.25 r03 status note for the rationale. Functions intentionally per-script (phase functions, `Show-Help`, `Show-PhaseList`, `Find-KitTool`, per-driver-family helpers) are also listed in `psa8001_ignore_functions` in `.psa.config.json`; functions identical in only 2-3 of the 4 scripts (e.g., AMD-family-only helpers, MSBthPan-only helpers) are not currently enforced because their absence in the 4th script is by design.
 
 When adding a new shared helper that should remain in sync across all four scripts, add it to all four scripts with identical bodies and do NOT add it to `psa8001_ignore_functions`. PSA8001 will then enforce its sync invariant from that point onward.
 
@@ -3068,7 +3068,7 @@ wdac\
       "validFrom": "...",
       "validTo": "...",
       "addedBy": "Deploy-AMDChipsetDriverOnWindowsServer.ps1",
-      "addedByVersion": "chipset-2026.05.22-r67",
+      "addedByVersion": "chipset-2026.05.23-r67",
       "addedAt": "..."
     }
   ],
@@ -3076,7 +3076,7 @@ wdac\
   "deploymentHistory": [ ... ],       // capped at historyMaxEntries (default 50)
   "historyMaxEntries": 50,
   "externalScriptVersion": "wdac-2026.05.23-r03",
-  "externalScriptCanonicalHash": "6cf37a33..."
+  "externalScriptCanonicalHash": "4958bbaa..."
 }
 ```
 
