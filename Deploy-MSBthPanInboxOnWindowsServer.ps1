@@ -413,8 +413,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-$Script:ScriptVersion = 'msbthpan-2026.05.20-r13'
-$Script:ScriptTag     = 'psa-py-v360-baseline-uplift'
+$Script:ScriptVersion = 'msbthpan-2026.05.22-r14'
+$Script:ScriptTag     = 'detection-accuracy-multi-os'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -9393,7 +9393,11 @@ function Invoke-InstPhase05_ForceRebind {
     if ($Ctx.I04OverallResult -in @('TrueResolution', 'NoDevice')) {
         Write-Skip ('I04 result is {0} - no rebind needed. I05 is a no-op.' -f $Ctx.I04OverallResult)
         Set-PhaseMarker -Ctx $Ctx -PhaseId 'I05' -Metadata @{ Skipped=$true; Reason=$Ctx.I04OverallResult }
-        Write-PhaseFooter 'I05' 'no-op'
+        # Write-PhaseFooter's $Status ValidateSet only accepts 'done','cached',
+        # 'skipped','failed'. The user-facing "no-op" wording stays in the
+        # Write-Skip log line above; the phase footer must use 'skipped'
+        # to satisfy the parameter validator.
+        Write-PhaseFooter 'I05' 'skipped'
         return
     }
 
@@ -9411,7 +9415,10 @@ function Invoke-InstPhase05_ForceRebind {
     if ($devices.Count -eq 0) {
         Write-Skip 'No BTH\MS_BTHPAN device present. Nothing to rebind.'
         Set-PhaseMarker -Ctx $Ctx -PhaseId 'I05' -Metadata @{ Skipped=$true; Reason='no device' }
-        Write-PhaseFooter 'I05' 'no-op'
+        # Same rationale as the earlier 'no-op' -> 'skipped' substitution
+        # above: ValidateSet on Write-PhaseFooter requires one of
+        # done/cached/skipped/failed.
+        Write-PhaseFooter 'I05' 'skipped'
         return
     }
     Write-Detail ('  {0} device(s) to inspect.' -f $devices.Count)

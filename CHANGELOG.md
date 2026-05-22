@@ -88,8 +88,9 @@ independently.
 ### Added
 - **Chipset r64 / Graphics r32 / NPU r15 / BthPan r14 — Hardware-detection
   accuracy + Multi-OS resilience pass (`detection-accuracy-multi-os`).**
-  Six coordinated enhancements addressing real-machine failure modes
-  observed on Japanese WS2025 Datacenter (build 26100.32860):
+  Nine coordinated enhancements addressing real-machine failure modes
+  observed on Japanese WS2025 Datacenter (build 26100.32860) and
+  Japanese WS2022 Datacenter (build 20348):
 
   **[A] Driver-source classification: catalog thumbprint primary path**
    - `Get-DriverSourceCategory` (shared helper in Chipset + Graphics)
@@ -201,13 +202,109 @@ independently.
   | pnputil /remove-device (I05 Attempt 3)  | ✅    | ✅    | ✅    | ✅    |
   | BCDEdit testsigning fallback             | ✅    | ✅    | ✅    | ✅    |
 
+  **[F] I04 driver-source classification: OEM-name set lookup (Step 0b)**
+   - `Get-DriverSourceCategory` (shared helper in Chipset + Graphics)
+     gains a Step 0b that consults a pre-built `KnownOurInfSet`
+     hashtable passed by the caller. When `Win32_PnPSignedDriver.InfName`
+     returns the OEM-numbered short name (`oem45.inf`) on one build
+     but the original short name (`u0201039.inf`) on another, Step 0a's
+     `C:\Windows\INF\<InfName>.cat` path lookup misses on the
+     latter — the catalog file there is named `oem45.cat`, not
+     `u0201039.cat`. Step 0b removes this dependency on the WMI
+     short-name encoding by using a name-set that already maps both
+     forms to the same release.
+   - New helper `Get-OurSignedOemInfSet` (also shared, byte-identical
+     across Chipset + Graphics) builds the set once per I04 invocation:
+     - **Pass 1**: scans `C:\Windows\INF\oem*.cat`, calls
+       `Get-AuthenticodeSignature` on each, and adds matching
+       `oem<N>.inf` / `oem<N>.cat` names to the set when the
+       `SignerCertificate.Thumbprint` equals `$Ctx.CertThumbprint`.
+     - **Pass 2**: runs `pnputil /enum-drivers`, parses the
+       Published Name / Original Name pairs (English + Japanese
+       label patterns: `Published Name` / `公開名` /
+       `発行された名前`, `Original Name` / `元の名前` /
+       `元のファイル名` / `元のドライバー名`), and aliases each
+       matched OEM-numbered name to its original short name in the
+       set.
+   - Symptom this fixes (operator observation): Graphics I04
+     `[LOADED]` row for `AMD Radeon(TM) Graphics` displayed
+     `AFTER: [B] Vendor` instead of the correct `AFTER: [C]
+     Self-Signed (this script)` after a successful install. After
+     the fix it consistently reports `[C]`.
+   - Function body of both shared helpers stays byte-identical
+     across Chipset + Graphics (PSA8001 compliance verified by
+     `diff`).
+
+  **[G] I04 disposition: new `LOADED-via-OS-binding` branch**
+   - The post-install disposition logic in
+     `Invoke-InstPhase04_PostInstallVerification` (Chipset + Graphics)
+     gains a new classification branch between
+     `BeforeDriverVersion != AfterDriverVersion -> LOADED` and the
+     conservative `else -> REBOOT_NEEDED` fallback.
+   - When the OS reports the device is currently bound to one of OUR
+     signed INFs (per the `$ourInfSet` built in [F] above), the
+     device is classified as `LOADED` even when the BEFORE/AFTER
+     `DriverVersion` comparison returned same-version. This is
+     accurate: the device has already accepted our binding; the
+     version field simply did not change because the binary content
+     of our driver matched what was already in the store.
+   - Symptom this fixes (operator observation): the I03 vs I04
+     "reboot pending" counter discrepancy. I03 reported `1 INF
+     installed (REBOOT REQUIRED)` but I04 reported `REBOOT_NEEDED:
+     5 device(s)` on the chipset script (and `0` vs `4` on the
+     graphics script). The conservative fallback was over-counting
+     devices that were actually LOADED-but-version-unchanged.
+
+  **[H] I04 REBOOT_NEEDED display: informative fallbacks for empty fields**
+   - When `$p.Before.DriverVersion` is empty (Microsoft inbox class
+     driver with no version field) the display now renders
+     `Still on v(unknown)` instead of `Still on v` (no value).
+   - When `$p.Candidate` is null (no HWID in our patched set
+     matched this device's `PNPDeviceID` via
+     `Build-PatchedInfHwidIndex`) the display falls back to the
+     OS-reported `InfName` as `(OS-bound: <name>)` rather than the
+     unhelpful `(none)`. This gives the operator an actionable hint
+     about which driver Windows is currently binding even when our
+     INF index does not have a corresponding entry.
+   - Cosmetic-only change to the per-device output; no impact on
+     classification counters.
+
   Verified outcomes per script:
    - All 4 scripts: AST 0 parse errors.
    - `Get-DriverSourceCategory`: byte-identical across Chipset + Graphics (PSA8001).
+   - `Get-OurSignedOemInfSet` (new): byte-identical across Chipset + Graphics (PSA8001).
    - PSA8001 baseline: 49 pre-existing violations, 0 net change from this release.
    - Bilingual READMEs and SPEC.md updated to document the new I05
-     phase, multi-OS fallback chain, and language-independent detection
-     design.
+     phase, multi-OS fallback chain, language-independent detection
+     design, and the [F]-[H] post-install verification improvements.
+
+### Fixed
+- **MSBthPan r14 — I05 `ParameterArgumentValidationError` on early-return paths.**
+  `Invoke-InstPhase05_ForceRebind` called
+  `Write-PhaseFooter 'I05' 'no-op'` on two early-return paths
+  (I04 result is `TrueResolution` / `NoDevice`, and the
+  `BTH\MS_BTHPAN` device is absent), but the `Write-PhaseFooter`
+  cmdlet's `[Parameter()] [ValidateSet('done','cached','skipped','failed')]
+  [string]$Status` validator rejects `'no-op'` as an invalid value
+  and aborts the phase with a `ParameterArgumentValidationError`.
+   - Symptom (operator log): `Cannot validate argument on parameter
+     'Status'. The argument "no-op" does not belong to the set
+     "done,cached,skipped,failed"` raised at `I05` after a clean,
+     no-rebind-needed install (the `Write-Skip` line above the
+     footer is logged correctly, but the phase exit code becomes
+     non-zero).
+   - Fix: both `'no-op'` literals are replaced with `'skipped'`
+     (the user-visible `Write-Skip 'I05 is a no-op'` /
+     `Write-Skip 'Nothing to rebind'` lines are preserved on stdout;
+     only the footer-status token changes). The third
+     `Write-PhaseFooter 'I05' 'done'` path on the successful-rebind
+     branch is unaffected.
+   - Per-revision compliance: `Set-PhaseMarker -Metadata @{
+     Skipped=$true; Reason=$Ctx.I04OverallResult }` is retained, so
+     the SPEC.md §D.22 "I05 is a no-op when I04 reports
+     `TrueResolution`/`NoDevice`" contract is unchanged in behaviour
+     and trace metadata; only the user-facing footer-status token
+     is corrected.
 
 ### Changed
 - **Chipset r63 / Graphics r31 / NPU r14 / MSBthPan r13 (cross-script consistency release — `psa-py-v360-baseline-uplift`).**

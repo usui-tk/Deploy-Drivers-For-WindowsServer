@@ -762,8 +762,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'graphics-2026.05.20-r31'
-$Script:ScriptTag     = 'psa-py-v360-baseline-uplift'
+$Script:ScriptVersion = 'graphics-2026.05.22-r32'
+$Script:ScriptTag     = 'detection-accuracy-multi-os'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -10020,6 +10020,118 @@ function Compare-InfDriverVer {
     return 0
 }
 
+function Get-OurSignedOemInfSet {
+    # ====================================================================
+    # Build a lookup hashtable of INF / catalog filenames known to be
+    # signed by the supplied $ExpectedThumbprint. Designed to be built
+    # ONCE per Invoke-InstPhase04 invocation and passed into every
+    # Get-DriverSourceCategory call via -KnownOurInfSet. This avoids
+    # the per-device disk I/O that Step 0a otherwise pays when the
+    # post-install snapshot enumerates dozens of devices.
+    #
+    # The set is built in two passes:
+    #   1. Direct scan of C:\Windows\INF\oem*.cat - for each catalog
+    #      file whose signer thumbprint matches $ExpectedThumbprint, add
+    #      both 'oem<N>.inf' and 'oem<N>.cat' to the set.
+    #   2. pnputil /enum-drivers cross-reference - the pnputil output
+    #      maps each OEM-published name to its Original Name (e.g.,
+    #      oem45.inf -> u0201039.inf). For every match found in pass 1,
+    #      also add the Original Name to the set. This handles cases
+    #      where Win32_PnPSignedDriver.InfName returns the original
+    #      short name instead of the OEM-numbered form. The pnputil
+    #      label-line regex matches both English ("Published Name",
+    #      "Original Name") and Japanese ("公開名" / "発行された名前",
+    #      "元の名前" / "元のファイル名") variants observed across
+    #      WS2016 / WS2019 / WS2022 / WS2025 builds.
+    #
+    # Keys are stored lower-case; callers MUST use ToLowerInvariant
+    # before lookup.
+    #
+    # Returns: hashtable on success, empty hashtable on failure or when
+    #          no catalogs match the thumbprint.
+    # ====================================================================
+    param([Parameter(Mandatory)] [string]$ExpectedThumbprint)
+    $set = @{}
+    if ([string]::IsNullOrWhiteSpace($ExpectedThumbprint)) { return $set }
+
+    # ---- Pass 1: scan C:\Windows\INF\oem*.cat ----
+    $infDir = Join-Path $env:windir 'INF'
+    if (-not (Test-Path -LiteralPath $infDir)) { return $set }
+    $matchedOemBases = @{}
+    try {
+        $catFiles = @(Get-ChildItem -LiteralPath $infDir -Filter 'oem*.cat' -ErrorAction SilentlyContinue)
+        foreach ($cat in $catFiles) {
+            try {
+                $sig = Get-AuthenticodeSignature -LiteralPath $cat.FullName -ErrorAction Stop
+                if ($sig -and $sig.SignerCertificate -and
+                    $sig.SignerCertificate.Thumbprint -eq $ExpectedThumbprint) {
+                    $oemBase = [System.IO.Path]::GetFileNameWithoutExtension($cat.Name).ToLowerInvariant()
+                    $matchedOemBases[$oemBase] = $true
+                    $set[$oemBase + '.inf'] = $true
+                    $set[$oemBase + '.cat'] = $true
+                }
+            } catch {} # psa-disable-line PSA3004 -- best-effort; one unreadable catalog must not abort the scan
+        }
+    } catch {} # psa-disable-line PSA3004 -- best-effort; INF dir enumeration failure leaves set unchanged
+
+    if ($matchedOemBases.Count -eq 0) { return $set }
+
+    # ---- Pass 2: pnputil /enum-drivers cross-reference ----
+    # Parse text output rather than relying on pnputil /format:csv,
+    # because /format support varies across WS2016 / 2019 / 2022 / 2025
+    # builds. Label regexes accept both English and Japanese variants;
+    # other locales degrade gracefully (Pass 1 oem<N>.inf entries are
+    # still in the set).
+    $stdout = $null
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = 'pnputil.exe'
+        $psi.Arguments = '/enum-drivers'
+        $psi.UseShellExecute = $false
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError  = $true
+        $psi.CreateNoWindow = $true
+        $proc = [System.Diagnostics.Process]::Start($psi)
+        $stdout = $proc.StandardOutput.ReadToEnd()
+        [void]$proc.StandardError.ReadToEnd()
+        $proc.WaitForExit()
+        $proc.Dispose()
+    } catch {} # psa-disable-line PSA3004 -- pnputil unavailable: degrade gracefully
+
+    if (-not $stdout) { return $set }
+
+    $currentPublished = $null
+    $currentOriginal  = $null
+    $commitRecord = {
+        param($pub, $orig)
+        if ($pub -and $orig) {
+            $pubBase = [System.IO.Path]::GetFileNameWithoutExtension($pub).ToLowerInvariant()
+            if ($matchedOemBases.ContainsKey($pubBase)) {
+                $set[$orig.ToLowerInvariant()] = $true
+            }
+        }
+    }
+    foreach ($line in ($stdout -split "`r?`n")) {
+        $t = $line.Trim()
+        if ([string]::IsNullOrWhiteSpace($t)) {
+            & $commitRecord $currentPublished $currentOriginal
+            $currentPublished = $null
+            $currentOriginal  = $null
+            continue
+        }
+        # Published Name (English) / 公開名 / 発行された名前 (Japanese)
+        if ($t -match '^(?:Published Name|Published name|公開名|発行された名前)\s*[:：]\s*(.+?)\s*$') {
+            $currentPublished = $matches[1]
+        } elseif ($t -match '^(?:Original Name|Original name|元の名前|元のファイル名|元のドライバー名)\s*[:：]\s*(.+?)\s*$') {
+            $currentOriginal = $matches[1]
+        }
+    }
+    # Commit the final record if the stdout did not end with a blank line.
+    & $commitRecord $currentPublished $currentOriginal
+
+    return $set
+}
+
 function Get-DriverSourceCategory {
     # ====================================================================
     # Classify a driver by its source / publisher into one of four
@@ -10055,7 +10167,15 @@ function Get-DriverSourceCategory {
     # drivers from AMD/NVIDIA/etc. would all collapse to [A]).
     #
     # Decision order:
-    #   0. (NEW) Catalog thumbprint matches ExpectedSelfSignThumbprint => [C]
+    #   0a. (NEW) Catalog thumbprint matches ExpectedSelfSignThumbprint => [C]
+    #   0b. (NEW) InfName is listed in a pre-built KnownOurInfSet => [C]
+    #            (covers cases where Win32_PnPSignedDriver.InfName does
+    #            not resolve to a C:\Windows\INF\<oemNN>.cat path, e.g.
+    #            when it returns the original short name instead of the
+    #            OEM-numbered short name on certain WS builds; the set
+    #            is built once per I04 invocation by scanning every
+    #            C:\Windows\INF\oem*.cat for our cert thumbprint and
+    #            mapping back through pnputil /enum-drivers).
     #   1. Signer string matches our self-sign markers => [C]
     #      (fallback for callers that cannot resolve the .cat path)
     #   2. Provider is "Microsoft" / "Microsoft Windows" / "Microsoft Corporation" => [A]
@@ -10069,9 +10189,15 @@ function Get-DriverSourceCategory {
         # primary path). InfName is the OEM-numbered short form (e.g.,
         # 'oem32.inf'); the matching catalog is C:\Windows\INF\oem32.cat.
         [string]$InfName = '',
-        [string]$ExpectedSelfSignThumbprint = ''
+        [string]$ExpectedSelfSignThumbprint = '',
+        # Optional: hashtable whose KEYS are filenames known to be signed
+        # by ExpectedSelfSignThumbprint (e.g. 'oem45.inf', 'u0201039.inf').
+        # Build once per I04 via Get-OurSignedOemInfSet, then pass into
+        # every Get-DriverSourceCategory call to avoid re-signing-check
+        # I/O per device. Lookup is case-insensitive.
+        [hashtable]$KnownOurInfSet = $null
     )
-    # Step 0 (NEW): direct catalog-signer thumbprint match.
+    # Step 0a (NEW): direct catalog-signer thumbprint match.
     # Highest-confidence path. Skipped silently if either parameter is
     # empty or if the .cat file is not readable; falls through to the
     # legacy Signer-string heuristic in that case.
@@ -10089,6 +10215,22 @@ function Get-DriverSourceCategory {
                     }
                 }
             } catch {} # psa-disable-line PSA3004 -- best-effort; fall through to Signer-string match
+        }
+    }
+    # Step 0b (NEW): pre-built KnownOurInfSet lookup.
+    # Authoritative when the caller built the set by walking
+    # C:\Windows\INF\oem*.cat + pnputil /enum-drivers at the start of
+    # I04. Case-insensitive on InfName because pnputil's published-name
+    # column historically uses lower-case (oemNN.inf) but legacy code
+    # paths sometimes mix cases.
+    if ($InfName -and $KnownOurInfSet -and $KnownOurInfSet.Count -gt 0) {
+        $lookupKey = $InfName.ToLowerInvariant()
+        if ($KnownOurInfSet.ContainsKey($lookupKey)) {
+            return @{
+                Code='C'; ShortLabel='[C]'
+                Label='Self-Signed (this script, OEM-name set match)'
+                Color='Magenta'
+            }
         }
     }
     # Step 1 (FALLBACK): Signer string match
@@ -11777,6 +11919,20 @@ function Invoke-InstPhase04_PostInstallVerification {
     }
     Write-Ok ('Snapshot: {0} AMD device(s)' -f $afterHw.Count)
 
+    Set-DebugStep 'build catalog signed-by-this-script index'
+    # ---- Build OEM catalog signed-by-us index ----
+    # Scan C:\Windows\INF\oem*.cat once, identify which entries carry
+    # our cert thumbprint, and cross-reference pnputil /enum-drivers
+    # to alias each match's Original Name as well. The resulting set
+    # is passed to every Get-DriverSourceCategory call below so that
+    # devices whose Win32_PnPSignedDriver.InfName field returns an
+    # OS-reported short name OTHER than the OEM-numbered form still
+    # classify as [C] Self-Signed instead of falling through to [B]
+    # Vendor (Observation A symptom in the post-install log: Graphics
+    # I04 LOADED row showed AFTER: [B] for self-signed-by-us drivers).
+    $ourInfSet = Get-OurSignedOemInfSet -ExpectedThumbprint $Ctx.CertThumbprint
+    Write-Detail ('  Known signed-by-us INF/CAT name(s): {0}' -f $ourInfSet.Count)
+
     # Map device-id to {before, after, matchedInf (TO-BE), pnputilResult}
     $infIndex = Build-PatchedInfHwidIndex -Ctx $Ctx
     $perDevice = @()
@@ -11799,8 +11955,8 @@ function Invoke-InstPhase04_PostInstallVerification {
         # state captures Provider only (not Signer); the AFTER state
         # we re-query from Win32_PnPSignedDriver to get full Signer.
         $afterCur = Get-DeviceCurrentDriver -DeviceID $devId
-        $afterCat  = if ($afterCur)  { Get-DriverSourceCategory -Provider $afterCur.Provider -Signer $afterCur.Signer -InfName $afterCur.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint  } else { @{ Code='?'; ShortLabel='[?]'; Label='No driver'; Color='DarkGray' } }
-        $beforeCat = if ($b -and $b.Provider) { Get-DriverSourceCategory -Provider $b.Provider -Signer $null -InfName $b.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint } else { @{ Code='?'; ShortLabel='[?]'; Label='Unknown'; Color='DarkGray' } }
+        $afterCat  = if ($afterCur)  { Get-DriverSourceCategory -Provider $afterCur.Provider -Signer $afterCur.Signer -InfName $afterCur.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint -KnownOurInfSet $ourInfSet  } else { @{ Code='?'; ShortLabel='[?]'; Label='No driver'; Color='DarkGray' } }
+        $beforeCat = if ($b -and $b.Provider) { Get-DriverSourceCategory -Provider $b.Provider -Signer $null -InfName $b.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint -KnownOurInfSet $ourInfSet } else { @{ Code='?'; ShortLabel='[?]'; Label='Unknown'; Color='DarkGray' } }
 
         # Classify disposition
         # Adds a new disposition KEPT_CURRENT for the case where
@@ -11816,6 +11972,18 @@ function Invoke-InstPhase04_PostInstallVerification {
         } elseif ($pnpResult -and $pnpResult.Status -eq 'failed') {
             $disposition = 'FAILED'
         } elseif ($b -and $a -and $b.DriverVersion -ne $a.DriverVersion) {
+            $disposition = 'LOADED'
+        } elseif ($a -and $a.InfName -and $ourInfSet -and $ourInfSet.ContainsKey($a.InfName.ToLowerInvariant())) {
+            # ---- LOADED via OS-reported binding (Observation C fix) ----
+            # The Windows OS reports the device is currently bound to
+            # one of OUR signed INFs (per oem*.cat thumbprint scan
+            # above). Treat as LOADED even when BEFORE/AFTER DriverVersion
+            # didn't change - the device has already accepted our binding
+            # and re-reporting it as REBOOT_NEEDED would be misleading.
+            # This narrows the conservative-fallback REBOOT_NEEDED bucket
+            # to genuinely stuck devices (driver in store but binding
+            # deferred). Was the I03 vs I04 reboot-count discrepancy
+            # symptom: "I03 reports 0 reboot needed but I04 reports 4".
             $disposition = 'LOADED'
         } elseif ($pnpResult -and $pnpResult.RebootRequired) {
             $disposition = 'REBOOT_NEEDED'
@@ -11889,8 +12057,26 @@ function Invoke-InstPhase04_PostInstallVerification {
     if ($reboot.Count -gt 0) {
         Write-Host '  [REBOOT_NEEDED] - reboot Windows to activate the new driver:' -ForegroundColor Yellow
         foreach ($p in $reboot) {
-            $bv = if ($p.Before) { $p.Before.DriverVersion } else { '(unknown)' }
-            $infName = if ($p.Candidate) { $p.Candidate.InfName } else { '(none)' }
+            # ---- Observation B fix: more informative display ----
+            # $p.Before may exist but DriverVersion can still be empty
+            # for devices whose previous binding was a Microsoft inbox
+            # class driver that leaves the version field blank. Treat
+            # empty string == unknown so we render "(unknown)" rather
+            # than nothing.
+            $bv = if ($p.Before -and $p.Before.DriverVersion) { $p.Before.DriverVersion } else { '(unknown)' }
+            # When $p.Candidate is null (no HWID in our patched set
+            # matched this device's PNPDeviceID via Build-PatchedInfHwidIndex),
+            # fall back to the OS-reported InfName so the operator can
+            # see which driver Windows is currently binding. This avoids
+            # the unhelpful "new INF queued: (none)" line that gave no
+            # actionable information.
+            $infName = if ($p.Candidate) {
+                $p.Candidate.InfName
+            } elseif ($p.After -and $p.After.InfName) {
+                ('(OS-bound: {0})' -f $p.After.InfName)
+            } else {
+                '(none)'
+            }
             Write-Host ('    - {0}' -f $p.DeviceName) -ForegroundColor Yellow
             Write-Host ('        Still on v{0}, new INF queued: {1}' -f $bv, $infName) -ForegroundColor DarkGray
         }

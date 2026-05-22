@@ -2275,6 +2275,135 @@ All six call sites in each of Chipset and Graphics were updated to pass `$Ctx.Ce
 
 **Verification**: After fix, Chipset I00 reports `category=SelfSign` for all script-signed AMD INFs on the second-pass classification (post-WDAC-policy activation), and the priority override in SPEC D.15 correctly selects the SelfSign candidate.
 
+### D.18b Extension — Step 0b OEM-name set lookup + `Get-OurSignedOemInfSet` helper
+
+**Symptom (follow-up observation)**: Even after Step 0 was introduced, the chipset/graphics I04 `[LOADED]` row sometimes showed `AFTER: [B] Vendor` for a device that had just been bound to our self-signed driver. The mismatch was visible on Japanese WS2022 (build 20348) after a successful `pnputil /add-driver u0201039.inf /install`: I03 reported `installed` and the device's `Win32_PnPSignedDriver.InfName` field read `u0201039.inf` (the original short name), but Step 0's path lookup `C:\Windows\INF\u0201039.cat` returned `Test-Path = $false` (the file is named `oem45.cat` there). Step 0 therefore silently fell through to Step 1, Step 1 had no signer string, Step 2 saw `Provider="Advanced Micro Devices, Inc"`, and the device was reported as `[B] Vendor`.
+
+**Root cause**: WMI's `Win32_PnPSignedDriver.InfName` is *not* guaranteed to return the OEM-numbered short form (`oem<N>.inf`) on every Windows build. On some builds (notably Server 2022 ja-JP build 20348) it returns the original short name (the basename of the source `.inf` file at the time of `pnputil /add-driver`). Step 0's `C:\Windows\INF\<InfName>.cat` heuristic depends on the OEM-numbered form because that is how `pnputil` renames the catalog when publishing to the driver store. With the original short name, the path does not exist, the signer check is skipped, and the classification falls through.
+
+**Fix**: A new **Step 0b** is added immediately after Step 0a, and a new helper `Get-OurSignedOemInfSet` builds an authoritative lookup table once per I04 invocation:
+
+```powershell
+function Get-OurSignedOemInfSet {
+    param([Parameter(Mandatory)] [string]$ExpectedThumbprint)
+    $set = @{}
+    if ([string]::IsNullOrWhiteSpace($ExpectedThumbprint)) { return $set }
+
+    # Pass 1: scan C:\Windows\INF\oem*.cat for our cert thumbprint.
+    $infDir = Join-Path $env:windir 'INF'
+    $matchedOemBases = @{}
+    foreach ($cat in (Get-ChildItem -LiteralPath $infDir -Filter 'oem*.cat' -ErrorAction SilentlyContinue)) {
+        try {
+            $sig = Get-AuthenticodeSignature -LiteralPath $cat.FullName -ErrorAction Stop
+            if ($sig.SignerCertificate.Thumbprint -eq $ExpectedThumbprint) {
+                $oemBase = [System.IO.Path]::GetFileNameWithoutExtension($cat.Name).ToLowerInvariant()
+                $matchedOemBases[$oemBase] = $true
+                $set[$oemBase + '.inf'] = $true
+                $set[$oemBase + '.cat'] = $true
+            }
+        } catch {}
+    }
+
+    # Pass 2: pnputil /enum-drivers alias mapping (Published Name -> Original Name).
+    # Label regexes accept both English and Japanese variants:
+    #   Published Name | 公開名 | 発行された名前
+    #   Original Name  | 元の名前 | 元のファイル名 | 元のドライバー名
+    # ... (full implementation in the .ps1 source) ...
+
+    return $set
+}
+
+# Get-DriverSourceCategory param block extension:
+param(
+    ...,
+    [hashtable]$KnownOurInfSet = $null
+)
+# After Step 0a:
+if ($InfName -and $KnownOurInfSet -and $KnownOurInfSet.Count -gt 0) {
+    if ($KnownOurInfSet.ContainsKey($InfName.ToLowerInvariant())) {
+        return @{ Code='C'; ShortLabel='[C]'; Label='Self-Signed (this script, OEM-name set match)'; Color='Magenta' }
+    }
+}
+```
+
+`Invoke-InstPhase04_PostInstallVerification` builds `$ourInfSet` once before iterating devices, then passes `-KnownOurInfSet $ourInfSet` to every `Get-DriverSourceCategory` call. This both fixes the classification accuracy and amortises the catalog signature-verification I/O cost — Step 0a's per-device path lookup is preserved but the per-device `Get-AuthenticodeSignature` call is replaced by an O(1) hashtable lookup after the first device.
+
+**Byte-identical scope**: Both `Get-OurSignedOemInfSet` (new helper) and `Get-DriverSourceCategory` (extended) remain byte-identical across Chipset + Graphics per PSA8001. Only `Invoke-InstPhase04_PostInstallVerification` (which is in the `psa8001_ignore_functions` regex `^Invoke-(Prep|Verify|Inst)Phase\d{2}_`) diverges per script as expected.
+
+**Verification (operator log, post-fix, chipset)**: `Snapshot: 42 AMD device(s)` → `Known signed-by-us INF/CAT name(s): <N>` (where N matches the count of patched INFs that landed in the driver store from this run) → all `[LOADED]` rows report `AFTER: [C]` consistently for self-signed drivers.
+
+---
+
+## D.18c I04 disposition: new `LOADED-via-OS-binding` branch (Chipset / Graphics)
+
+**Symptom**: After installing the chipset/graphics driver, I03 reported one INF as `installed (REBOOT REQUIRED)` and the rest as plain `installed` (no reboot). Yet I04 then classified **five** devices on the chipset script as `REBOOT_NEEDED`, and four on graphics — far more than I03's reboot-required count.
+
+**Investigation**: The disposition decision in `Invoke-InstPhase04_PostInstallVerification` ran the following ladder for each device:
+
+```
+if ($candidates.Count -eq 0)                        -> UNCHANGED
+elif pnpResult.Status -eq 'skipped-current-newer'   -> KEPT_CURRENT
+elif pnpResult.Status -eq 'failed'                  -> FAILED
+elif before.DriverVersion -ne after.DriverVersion   -> LOADED
+elif pnpResult.RebootRequired                       -> REBOOT_NEEDED
+else (conservative fallback)                        -> REBOOT_NEEDED
+```
+
+For devices where pnputil reported `no-op (already present)` (Status non-failure, RebootRequired false) AND the before/after DriverVersion strings were identical (because the driver store already had our package from a prior run), the device landed in the **conservative else fallback** even though the OS was already binding our driver. The fallback's "Treat as REBOOT_NEEDED to be conservative" rationale was originally written to catch cases where Windows had silently deferred a binding, but it over-counted devices that were genuinely already bound.
+
+**Fix**: A new disposition branch is inserted between the `DriverVersion`-change branch and the `RebootRequired` branch:
+
+```powershell
+} elseif ($a -and $a.InfName -and $ourInfSet -and $ourInfSet.ContainsKey($a.InfName.ToLowerInvariant())) {
+    # OS reports the device is currently bound to one of OUR signed INFs (per
+    # the oem*.cat thumbprint scan in $ourInfSet). Treat as LOADED even when
+    # before/after DriverVersion did not change. Narrows the conservative
+    # REBOOT_NEEDED fallback to devices whose binding actually IS deferred.
+    $disposition = 'LOADED'
+}
+```
+
+The branch reuses the `$ourInfSet` built for D.18b (no extra I/O). It is intentionally placed AFTER the `DriverVersion`-change branch so a version-bump still classifies as `LOADED` via the legacy path (preserves the existing log distinction). The branch is BEFORE `RebootRequired` because `RebootRequired` from pnputil is the pre-rebind signal, not a post-binding observation; on cached runs the device may be bound while pnputil still reports `RebootRequired=true` from the cached I03 result.
+
+**Verification (operator log, post-fix, chipset)**: `REBOOT_NEEDED: 5 device(s)` → `REBOOT_NEEDED: 1 device(s)` (matching I03's reboot count). LOADED count rises correspondingly.
+
+---
+
+## D.18d I04 REBOOT_NEEDED display: fallbacks for empty `DriverVersion` and null `Candidate`
+
+**Symptom (cosmetic)**: The `[REBOOT_NEEDED]` section of I04's per-device output sometimes rendered nonsensical lines:
+
+```
+[REBOOT_NEEDED] - reboot Windows to activate the new driver:
+    - AMD GPIO Controller
+        Still on v, new INF queued: (none)
+    - AMD I2C Controller
+        Still on v, new INF queued: (none)
+```
+
+The empty `v` (no version) and `(none)` (no INF) gave no actionable information.
+
+**Investigation**:
+- Empty `v`: `$p.Before.DriverVersion` was the empty string (Microsoft inbox class drivers leave the field blank for ACPI-enumerated devices that have no traditional version). The legacy display code's check `if ($p.Before) { $p.Before.DriverVersion } else { '(unknown)' }` only fell back to `'(unknown)'` for the null-Before case, not the empty-string-Version case.
+- `(none)` INF: `$p.Candidate` was null. This indicates `Build-PatchedInfHwidIndex` did not have a HWID-keyed entry for this device's `PNPDeviceID`. The OS was still binding the device to *some* driver (whose `InfName` we knew via `$a.After.InfName`), but the display code's `if ($p.Candidate) { $p.Candidate.InfName } else { '(none)' }` could not surface that fallback.
+
+**Fix**: Both checks are tightened:
+
+```powershell
+$bv = if ($p.Before -and $p.Before.DriverVersion) { $p.Before.DriverVersion } else { '(unknown)' }
+$infName = if ($p.Candidate) {
+    $p.Candidate.InfName
+} elseif ($p.After -and $p.After.InfName) {
+    ('(OS-bound: {0})' -f $p.After.InfName)
+} else {
+    '(none)'
+}
+```
+
+Post-fix the display now reads e.g. `Still on v(unknown), new INF queued: (OS-bound: oem18.inf)`, which the operator can immediately cross-reference against I03's install log.
+
+**Scope**: Cosmetic-only. No classification counters change. Applied to both Chipset and Graphics; the BthPan I04 has a separate display function (different disposition model) and is unaffected.
+
 ---
 
 ## D.19 BthPan I04 false-negative on detached-shell topology + language-independent matching (MSBthPan)
@@ -2497,6 +2626,54 @@ Three new return fields are added to the result object: `CimBridgeTried`, `CimBr
 - On Japanese WS2025 (build 26100.32860) with the originally-broken bthpan state: D.19 fixes deliver TrueResolution; I05 short-circuits as no-op. ✓
 - On a deliberately-broken WS2025 state (manual driver removal): D.19 detects phantom; I05 Attempt 1 (`Restart-PnpDevice`) recovers; `I04OverallResult` promoted to `'TrueResolution'`; no reboot. ✓
 - WS2019 + WS2016: not yet verified on real hardware. The capability matrix above is derived from Microsoft documentation; field validation is pending. (Tracking in `TESTING.md` §multi-OS validation.)
+
+### D.22b I05 phase-footer status: `'no-op'` → `'skipped'` (ValidateSet compliance)
+
+**Symptom (operator log, Japanese WS2022 Datacenter, build 20348)**: I05 raised a hard PowerShell error on the early-return paths even though the user-facing `Write-Skip` line had logged correctly:
+
+```
+[I05] Skip: I04 result is TrueResolution - no rebind needed. I05 is a no-op.
+Cannot validate argument on parameter 'Status'. The argument "no-op" does not
+belong to the set "done,cached,skipped,failed" specified by the ValidateSet
+attribute. Supply an argument that is in the set and then try the command again.
+    + CategoryInfo          : InvalidData: (:) [Write-PhaseFooter], ParameterBindingValidationException
+    + FullyQualifiedErrorId : ParameterArgumentValidationError,Write-PhaseFooter
+```
+
+**Investigation**: Two early-return paths in `Invoke-InstPhase05_ForceRebind` were calling `Write-PhaseFooter 'I05' 'no-op'`:
+1. `$Ctx.I04OverallResult -in @('TrueResolution', 'NoDevice')` (rebind not needed because the prior phase already detected success)
+2. `Get-MsBthPanDevice` returned an empty array (no `BTH\MS_BTHPAN` device on the host)
+
+But the `Write-PhaseFooter` cmdlet's parameter contract is:
+
+```powershell
+function Write-PhaseFooter {
+    param(
+        [Parameter(Mandatory)] [string]$PhaseId,
+        [Parameter(Mandatory)]
+        [ValidateSet('done','cached','skipped','failed')]
+        [string]$Status,
+        ...
+    )
+    ...
+}
+```
+
+`'no-op'` is not in the allowed set; the ValidateSet attribute throws `ParameterArgumentValidationError` before the function body executes.
+
+**Root cause**: The string `'no-op'` was used as if it were a valid footer status, presumably copied from the user-facing `Write-Skip 'I05 is a no-op'` wording. The two concepts are independent:
+- `Write-Skip` is a Write-Host wrapper that accepts free-form text for operator-facing logging.
+- `Write-PhaseFooter`'s `$Status` is a *machine-readable* status token consumed by the dispatcher (`Invoke-PhaseRunner`), debug-trace JSONL emission, and the cached-marker logic (see SPEC §A.4). It must be one of the four enum values.
+
+**Fix**: Both `'no-op'` literals are replaced with `'skipped'` (the most semantically appropriate enum member: the phase decided not to execute its primary logic, no error occurred). The user-facing `Write-Skip` lines that say "no-op" are preserved verbatim, so the operator's log experience is unchanged for the wording; only the machine-readable footer token is corrected.
+
+The third `Write-PhaseFooter 'I05' 'done'` call on the successful-rebind branch is unaffected (`'done'` was already a valid enum member). The first early-return `Write-PhaseFooter 'I05' 'skipped'` (when `$Ctx.I04OverallResult` is null) was also already correct.
+
+**Scope**: BthPan only (I05 is BthPan-specific per SPEC §A.4 phase registry). The "no-op" wording is preserved in the user-facing `Write-Skip` line for operator-visible continuity; only the footer-status token changes.
+
+**Verification**:
+- Pre-fix: pipeline returns non-zero exit code from I05 even when the user-visible log shows successful no-op handling.
+- Post-fix: pipeline exits cleanly; debug-trace JSONL records `{"phase":"I05","status":"skipped","reason":"TrueResolution|NoDevice|no device"}` and the cached-marker is set as expected.
 
 ---
 

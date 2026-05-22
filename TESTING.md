@@ -1003,11 +1003,12 @@ When validating these fixes on the M75q Tiny Gen 2 or X13 Gen 1 AMD fixtures:
 
 ## 10. Regression scenarios: detection accuracy + Multi-OS
 
-These regression scenarios validate the five enhancements bundled in the
-`detection-accuracy-multi-os` release (root causes in SPEC §D.18 / §D.19
-/ §D.20 / §D.21 / §D.22; release information in [CHANGELOG.md](./CHANGELOG.md)).
-The scenarios are organized by feature; each can be exercised independently
-on the same WS2025 install used for §1 (M75q Tiny Gen 2) without re-imaging.
+These regression scenarios validate the nine enhancements bundled in the
+`detection-accuracy-multi-os` release (root causes in SPEC §D.18 / §D.18b
+/ §D.18c / §D.18d / §D.19 / §D.20 / §D.21 / §D.22 / §D.22b; release information
+in [CHANGELOG.md](./CHANGELOG.md)). The scenarios are organized by feature;
+each can be exercised independently on the same WS2025 install used for §1
+(M75q Tiny Gen 2) without re-imaging.
 
 ### 10.1 `Get-DriverSourceCategory` Step 0 — catalog thumbprint match (SPEC §D.18)
 
@@ -1159,6 +1160,85 @@ This regression requires a WS2019 host (the CIM bridge is only activated when `C
 - The CIM bridge attempt fails silently (`$cimBridgeError` is populated with "class not found" or equivalent).
 - `ActivationMethod='reboot'` is selected.
 - `-UseTestSigning` switch is the supported activation path on WS2016 and produces an explicit reboot request.
+
+### 10.5b BthPan I05 phase-footer ValidateSet compliance (SPEC §D.22b)
+
+**Pre-fix symptom**: I05 raises `ParameterArgumentValidationError` on the two early-return paths (`I04OverallResult` is `TrueResolution` / `NoDevice`, or `Get-MsBthPanDevice` returns empty) because `Write-PhaseFooter 'I05' 'no-op'` is rejected — `'no-op'` is not in the `[ValidateSet('done','cached','skipped','failed')]` allowed values.
+
+**Regression test**: Run on a Japanese WS2022 / WS2025 host where bthpan is in a clean state (no phantom Net adapter to rebind):
+
+```powershell
+.\Deploy-MSBthPanInboxOnWindowsServer.ps1 -Action Install -OnlyPhases I04,I05
+```
+
+| Observation | Pre-fix | Post-fix |
+|---|---|---|
+| I05 ends with footer `Write-PhaseFooter 'I05' 'skipped'` | ✗ throws ParameterArgumentValidationError on `'no-op'` | ✓ accepts `'skipped'` |
+| Pipeline exit code from I05 phase | non-zero (PowerShell error) | 0 (clean exit) |
+| Debug-trace JSONL record | missing `status` field on I05 record | `{"phase":"I05","status":"skipped","reason":"TrueResolution|NoDevice|no device"}` |
+| User-visible `Write-Skip` line | "no-op" wording preserved | "no-op" wording preserved |
+
+**Pass criterion**: 
+- The three early-return paths all emit `Write-PhaseFooter 'I05' 'skipped'`:
+  1. `I04OverallResult` is null (existing — unchanged)
+  2. `I04OverallResult` is `TrueResolution` or `NoDevice` (fixed)
+  3. `Get-MsBthPanDevice` returns empty (fixed)
+- The successful-rebind path still emits `Write-PhaseFooter 'I05' 'done'` (unchanged).
+- No ParameterArgumentValidationError appears in the console log.
+
+**Verification commands**:
+
+```powershell
+# Pattern-match every Write-PhaseFooter 'I05' callsite to confirm valid Status tokens.
+Select-String -Path Deploy-MSBthPanInboxOnWindowsServer.ps1 `
+              -Pattern "Write-PhaseFooter 'I05'" |
+    ForEach-Object {
+        if ($_.Line -match "Write-PhaseFooter 'I05' '(done|cached|skipped|failed)'") {
+            "L$($_.LineNumber): OK ($($matches[1]))"
+        } else {
+            "L$($_.LineNumber): FAIL ($($_.Line.Trim()))"
+        }
+    }
+# Expected: 3 'skipped' + 1 'done' = 4 OK lines, 0 FAIL lines.
+```
+
+### 10.5c Chipset / Graphics I04 classification + disposition robustness (SPEC §D.18b / §D.18c / §D.18d)
+
+**Pre-fix symptoms (operator log, Japanese WS2022 Datacenter, build 20348)**:
+- `[LOADED]` row shows `AFTER: [B]` (Vendor) for a device that was just bound to our self-signed driver (e.g., `AMD Radeon(TM) Graphics`).
+- `[REBOOT_NEEDED]` count exceeds I03's actual "reboot required" count (e.g., I03 = `1 reboot required` but I04 = `5 REBOOT_NEEDED`).
+- `[REBOOT_NEEDED]` rows render uninformative lines like `Still on v, new INF queued: (none)` for devices whose previous binding had an empty version field.
+
+**Regression test (chipset; analogous on graphics)**: Run `-Action Install -OnlyPhases I00,I01,I02,I03,I04` on a Japanese WS2022 / WS2025 host. Then inspect the I04 output:
+
+| Observation | Pre-fix | Post-fix |
+|---|---|---|
+| I04 builds `$ourInfSet` via `Get-OurSignedOemInfSet -ExpectedThumbprint $Ctx.CertThumbprint` | (not built) | `Known signed-by-us INF/CAT name(s): <N>` (N ≥ 1 after I03 installs) |
+| `Get-DriverSourceCategory` called with `-KnownOurInfSet $ourInfSet` for both AS-IS and AFTER classification | (not passed) | Both calls receive the parameter |
+| `[LOADED]` AFTER category for self-signed-by-us drivers | sometimes `[B]` Vendor | always `[C]` Self-Signed |
+| Disposition decision when OS reports our InfName + same DriverVersion | conservative fallback → `REBOOT_NEEDED` | new branch → `LOADED` |
+| `[REBOOT_NEEDED]` device count vs I03's reboot-required count | I04 > I03 (over-counting) | I04 = I03 (matching) |
+| `[REBOOT_NEEDED]` display: empty `Before.DriverVersion` | renders `Still on v,` (no value) | renders `Still on v(unknown),` |
+| `[REBOOT_NEEDED]` display: null `Candidate` | renders `new INF queued: (none)` | renders `new INF queued: (OS-bound: oemNN.inf)` |
+
+**Pass criteria**:
+- All AFTER-categories for self-signed-by-us drivers report `[C]` in the I04 `[LOADED]` block.
+- I04 `REBOOT_NEEDED` device count equals I03's reboot-required INF count (within ±1 for race conditions in pnputil's status reporting).
+- No `[REBOOT_NEEDED]` row contains `Still on v,` (empty version field after `v`) or `(none)` when the OS knows the bound INF.
+
+**PSA8001 invariant check** (must pass on both Chipset and Graphics):
+
+```bash
+# Get-OurSignedOemInfSet must be byte-identical across Chipset + Graphics.
+diff <(sed -n '/^function Get-OurSignedOemInfSet/,/^}$/p' Deploy-AMDChipsetDriverOnWindowsServer.ps1) \
+     <(sed -n '/^function Get-OurSignedOemInfSet/,/^}$/p' Deploy-AMDGraphicsDriverOnWindowsServer.ps1)
+# Expected: no output (zero diff).
+
+# Get-DriverSourceCategory must remain byte-identical after the Step 0b extension.
+diff <(sed -n '/^function Get-DriverSourceCategory/,/^}$/p' Deploy-AMDChipsetDriverOnWindowsServer.ps1) \
+     <(sed -n '/^function Get-DriverSourceCategory/,/^}$/p' Deploy-AMDGraphicsDriverOnWindowsServer.ps1)
+# Expected: no output (zero diff).
+```
 
 ### 10.6 Multi-OS support matrix
 
