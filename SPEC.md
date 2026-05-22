@@ -3076,7 +3076,7 @@ wdac\
   "foreignPolicyBackup": null,        // or { backupPath, backupSha256, backedUpAt, originalDeployPath }
   "deploymentHistory": [ ... ],       // capped at historyMaxEntries (default 50)
   "historyMaxEntries": 50,
-  "externalScriptVersion": "wdac-2026.05.22-r01",
+  "externalScriptVersion": "wdac-2026.05.22-r02",
   "externalScriptCanonicalHash": "e748..."
 }
 ```
@@ -3192,9 +3192,40 @@ The convention permits and encourages further specialisation of `Target` when a 
 
 ### Status
 
-- **r67 pilot validation**: PENDING. The same WS2019 + Renoir + Chipset 8.05.04.516 + Secure Boot ON host that surfaced the r66 abort is the target test bench. Expected post-fix behavior: I02 detects WS2019 (build 17763 < 20348), invokes the orchestrator, deploys SPF policy via WMI, returns within seconds with state=Ours-Healthy, and I03 proceeds.
-- **WS2022 / WS2025**: behaviour unchanged in r67 (Path A still applies, `Test-IsLegacyWindowsServerOs` returns false).
+- **r67/r01 pilot validation result (2026-05-22)**: The first execution of `Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 -Action GetStatus` on the target bench (WS2019 build 17763 + Ryzen 5 PRO 4650U + Secure Boot ON) failed with a Windows PowerShell 5.1 parameter-binding error: `A parameter cannot be found that matches parameter name 'AsUTC'`. Root cause: the `Get-Date -AsUTC` cmdlet parameter was added in PowerShell 7.1 and is not available on Windows PowerShell 5.1 (the default and only PS shipped with WS2019/WS2016). `-ErrorAction SilentlyContinue` does NOT suppress parameter-binding errors — these are terminating at the binding stage, before the cmdlet body runs. **Fix in r02 (WDAC SPF orchestrator)**: replace `Get-Date -AsUTC ...` with `(Get-Date).ToUniversalTime().ToString(...)`. Also preemptively fixed `Set-Content -AsByteStream` (PS 6+ only) in the Uninstall path. Embedded canonical hash in all 4 driver scripts updated from `e7489216...` (r01) to `d13b6a8b...` (r02). This is a generally-applicable lesson: when targeting Windows PowerShell 5.1, **scan for PS 7+-only parameters and operators** (`-AsUTC`, `-AsByteStream`, `??`, `?.`, `-Parallel`, `Test-Json`) before deployment.
+- **r67/r02 pilot validation**: PENDING re-execution after the r02 fix.
+- **WS2022 / WS2025**: behaviour unchanged (Path A still applies, `Test-IsLegacyWindowsServerOs` returns false).
 - **Workstation hosts**: orchestrator refuses with `result=refused, exitCode=3` and a clear OS-guard message.
+
+### Recommendation: PowerShell version compatibility audit
+
+When this repository adds new code that targets the WS2019/WS2016 path, the following pre-deployment audit catches PS 7+-only patterns:
+
+```powershell
+$ps7OnlyPatterns = @(
+    '-AsUTC',           # Get-Date          -- PS 7.1+
+    '-AsByteStream',    # Set-Content       -- PS 6+
+    '-Parallel',        # ForEach-Object    -- PS 7+
+    'Test-Json',        #                   -- PS 6+
+    'Get-Random.*-SetSeed'  # PS 7+ behavior changes
+)
+$nullCoalescing = '\?\?(?!=)'   # ?? operator -- PS 7+
+$nullConditional = '\?\.\w'      # ?. operator -- PS 7+
+
+foreach ($f in (Get-ChildItem *.ps1)) {
+    foreach ($pat in $ps7OnlyPatterns) {
+        Select-String -Path $f -Pattern $pat -SimpleMatch
+    }
+    Select-String -Path $f -Pattern $nullCoalescing
+    Select-String -Path $f -Pattern $nullConditional
+}
+```
+
+Any hit must either be:
+1. Rewritten to PS 5.1-compatible form, or
+2. Guarded by a runtime `$PSVersionTable.PSVersion.Major -ge 7` check.
+
+Note: `-ErrorAction SilentlyContinue` does NOT make a cmdlet's PS 7+-only parameter become "ignored on PS 5.1" — parameter binding fails BEFORE `-ErrorAction` has any effect.
 
 
 ## Appendix: How to seed a new sister script from this SPEC

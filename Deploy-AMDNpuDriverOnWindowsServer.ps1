@@ -6498,7 +6498,7 @@ $Script:WdacOrchestratorFileName = 'Deploy-WdacSinglePolicyFormatOnLegacyWindows
 #   .\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 -Action ComputeOwnCanonicalHash
 # and paste the result here. This constant guards against fetching an
 # unexpected version of the orchestrator script.
-$Script:ExpectedWdacScriptCanonicalSha256 = 'e7489216db0e1dd8fb03e337e802145165305b1327149079b65c70011075f4a2'
+$Script:ExpectedWdacScriptCanonicalSha256 = 'd13b6a8bc436a0d04355a1fe1df3cc5238f5cb3683bd263f196f431d0514b65c'
 
 $Script:WdacOrchestratorMainUrl = ('https://raw.githubusercontent.com/usui-tk/Deploy-Drivers-For-WindowsServer/main/' + $Script:WdacOrchestratorFileName)
 

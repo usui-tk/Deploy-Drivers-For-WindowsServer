@@ -273,8 +273,8 @@ $ProgressPreference    = 'SilentlyContinue'
 #####################################################################
 
 # ScriptVersion: bump on every meaningful edit. Format: wdac-YYYY.MM.DD-rNN
-$Script:ScriptVersion = 'wdac-2026.05.22-r01'
-$Script:ScriptTag     = 'legacy-wdac-single-policy-format-pilot'
+$Script:ScriptVersion = 'wdac-2026.05.22-r02'
+$Script:ScriptTag     = 'legacy-wdac-single-policy-format-ps51-compat-fix'
 
 # Reserved policy GUID for the Deploy-Drivers-For-WindowsServer
 # single-policy-format orchestration. Documented in SPEC A.x as a
@@ -326,11 +326,7 @@ $Script:JsonResult = [pscustomobject]@{
     details         = @{}
     exitCode        = 0
     scriptVersion   = $Script:ScriptVersion
-    timestamp       = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ssZ' -AsUTC -ErrorAction SilentlyContinue)
-}
-if (-not $Script:JsonResult.timestamp) {
-    # PS 5 fallback (no -AsUTC)
-    $Script:JsonResult.timestamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    timestamp       = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
 }
 
 function _IsTextMode { return ($OutputFormat -eq 'Text') }
@@ -1102,11 +1098,12 @@ function Uninstall-SpfPolicy {
     # unavailable - the next reboot will pick up the file deletion.
     try {
         $empty = Join-Path $env:TEMP ('ddws-wdac-empty-{0}.p7b' -f ([guid]::NewGuid()))
-        Set-Content -LiteralPath $empty -Value ([byte[]]@()) -AsByteStream -Force -ErrorAction SilentlyContinue
-        if (-not (Test-Path -LiteralPath $empty)) {
-            # PS 5 (no -AsByteStream) fallback
-            [System.IO.File]::WriteAllBytes($empty, [byte[]]@())
-        }
+        # Write an empty byte array via .NET API - works on both
+        # Windows PowerShell 5.1 and PowerShell 7.x. (Set-Content's
+        # -AsByteStream switch was added in PS 6 and produces a
+        # parameter-binding error on 5.1 even with -ErrorAction
+        # SilentlyContinue, so we avoid it entirely.)
+        [System.IO.File]::WriteAllBytes($empty, [byte[]]@())
         $null = Invoke-CimMethod -Namespace 'root\Microsoft\Windows\CI' -ClassName 'PS_UpdateAndCompareCIPolicy' `
             -MethodName 'Update' -Arguments @{ FilePath = $empty } -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $empty -Force -ErrorAction SilentlyContinue

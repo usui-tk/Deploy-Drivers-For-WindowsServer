@@ -22,7 +22,7 @@ independently.
 
 ## [Unreleased]
 
-## [Chipset r67 / Graphics r33 / NPU r16 / BthPan r15 / WDAC SPF r01] — 2026-05-22
+## [Chipset r67 / Graphics r33 / NPU r16 / BthPan r15 / WDAC SPF r02] — 2026-05-22
 
 ### Added
 
@@ -76,7 +76,7 @@ independently.
   In both cases the orchestrator's canonical SHA256 is verified
   against the constant embedded in each driver script
   (`$Script:ExpectedWdacScriptCanonicalSha256 =
-  'e7489216db0e1dd8fb03e337e802145165305b1327149079b65c70011075f4a2'`).
+  'd13b6a8bc436a0d04355a1fe1df3cc5238f5cb3683bd263f196f431d0514b65c'`).
 
 ### Changed
 
@@ -111,6 +111,27 @@ independently.
   the script is OS-specific. See SPEC §D.25.
 
 ### Fixed
+
+- **WDAC SPF orchestrator r01 → r02 — Windows PowerShell 5.1
+  parameter-binding compatibility fix.** Discovered immediately
+  during r01 pilot validation on WS2019 + Renoir + Secure Boot ON
+  (2026-05-22): `-Action GetStatus` failed at the first line with
+  `パラメーター名 'AsUTC' に一致するパラメーターが見つかりません` /
+  `A parameter cannot be found that matches parameter name 'AsUTC'`.
+  Root cause: the script-level `$Script:JsonResult.timestamp`
+  initializer called `Get-Date -AsUTC` with `-ErrorAction
+  SilentlyContinue`. `-AsUTC` was added in PowerShell 7.1 and does
+  not exist on Windows PowerShell 5.1 (the default and only PS
+  version on WS2019/WS2016). `-ErrorAction SilentlyContinue` does
+  NOT catch parameter-binding errors — those are terminating at the
+  binding stage, before the cmdlet body runs. Fix: replace the call
+  with `(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')`,
+  which works on both PS 5.1 and PS 7.x. The Uninstall path's
+  `Set-Content -AsByteStream` (PS 6+) was also replaced with a
+  direct `[System.IO.File]::WriteAllBytes()` .NET call for the same
+  reason. Embedded canonical hash in all 4 driver scripts updated:
+  - Was (r01): `e7489216db0e1dd8fb03e337e802145165305b1327149079b65c70011075f4a2`
+  - Now (r02): `d13b6a8bc436a0d04355a1fe1df3cc5238f5cb3683bd263f196f431d0514b65c`
 
 - **All four driver scripts on WS2019/WS2016 with Secure Boot ON** —
   prior to r67/r33/r16/r15, I02 aborted on these hosts because:
