@@ -2806,7 +2806,7 @@ The alternative approach of normalizing the INF — removing `[SourceDisksFiles]
 
 **Implementation**:
 
-1. **New helper `Get-InfReferencedFiles`** (chipset script).
+1. **New helper `Get-InfReferencedFile`** (chipset script).
 
    Parses the INF's `[SourceDisksFiles]` and `[SourceDisksFiles.<arch>]` sections, returns a list of `{Name, Section, Present, Path}` objects. Files are searched only in the INF's own directory (flat lookup). `SourceDisksNames` subdir resolution is deliberately not implemented yet because the AMD chipset 8.x package keeps source files alongside the INF; future packages with multi-disk layouts may need extension here. The function returns an empty array when the INF directory does not exist or when the INF has no `[SourceDisksFiles*]` section (modern AMD INFs often omit it entirely and rely on relative paths via `[DestinationDirs]` / `CopyFiles=`; these are eligible by construction because absence of the manifest means no missing-file claim can be made).
 
@@ -2922,7 +2922,7 @@ The two layers together ensure that:
 **Scope (which sister scripts)** — confirmed by 2026-05-22 real-machine validation:
 
 - **Chipset (this script)**: target environment. AMD Chipset Software 8.05.04.516 on Renoir / WS2019 reproduced 5 ineligible INFs (`AmdAppCompat.inf` ×2 paths, `AmdAS4.inf`, `AMDCIR.inf`, `usbfilter.inf`) due to phantom file references. r65 detect-and-skip + r66 orphan cleanup are both required and exercised.
-- **Graphics**: validated on same host with Adrenalin 26.5.2 Vega-Polaris Legacy (623 MB EXE). P04 7-Zip auto-detect succeeded with **0 sub-MSI failures**; P05 found **0 ineligible INFs** (all 19 INFs pass the `Get-InfReferencedFiles` check); P08 reported `Catalog generation: 19 ok / 0 failed`. Adrenalin's single-EXE WIX BURN bootstrapper does not exhibit the layered NSIS → InstallShield SFX → nested-MSI structure that produced the Chipset `SECREPAIR Error: 3` cascade. Port of the r65/r66 phantom-file machinery to the Graphics script remains deferred until such a defect is observed in a real Adrenalin package.
+- **Graphics**: validated on same host with Adrenalin 26.5.2 Vega-Polaris Legacy (623 MB EXE). P04 7-Zip auto-detect succeeded with **0 sub-MSI failures**; P05 found **0 ineligible INFs** (all 19 INFs pass the `Get-InfReferencedFile` check); P08 reported `Catalog generation: 19 ok / 0 failed`. Adrenalin's single-EXE WIX BURN bootstrapper does not exhibit the layered NSIS → InstallShield SFX → nested-MSI structure that produced the Chipset `SECREPAIR Error: 3` cascade. Port of the r65/r66 phantom-file machinery to the Graphics script remains deferred until such a defect is observed in a real Adrenalin package.
 - **NPU**: uses `pnputil` directly against the AMD-published RAI ZIP; no `msiexec /a`, no `inf2cat`-per-directory loop, no cabinet-extraction path. Phantom file references are not a meaningful failure mode here.
 - **BthPan**: validated on same host. P03 located the inbox `bthpan.inf_amd64_df4d6a507db770e7` in the host's DriverStore (single Microsoft inbox INF), P04 copied only `bthpan.inf` + `bthpan.sys` (no `.cat` carried along, so no orphan-`.cat` risk). P08 used the documented `inf2cat` → `makecat` fallback path because of redistribution rule 22.9.8. The `Get-IneligibleInfLookup` machinery has no surface to operate on. Port is not applicable.
 

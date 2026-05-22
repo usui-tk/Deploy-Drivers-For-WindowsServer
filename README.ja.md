@@ -968,7 +968,7 @@ CPU core (`cpu.inf`)、PCI Express ルートポート (`pci.inf`)、ホスト CP
 
 **Chipset r66 以降の mainline では自動的に処理されます。** AMD Chipset Software パッケージは、ごく稀に `[SourceDisksFiles]` で参照しているファイルが sub-MSI の cabinet に同梱されていない INF を出荷することがあります。最も再現性の高いケースは Chipset 8.05.04.516 + Renoir + WS2019 における `AmdAppCompat.inf`、`AmdAS4.inf`、`AMDCIR.inf`、`usbfilter.inf` で、いずれも `[SourceDisksFiles]` で宣言されたファイルが sub-MSI cabinet に同梱されていません。このため `inf2cat.exe` が error 22.9.1 ("driver package is missing some files") を出して P08 で失敗していました。上流の原因は sub-MSI の `msiexec /a` ログに見える `SECREPAIR Error: 3` cascade です。
 
-r65 では本欠陥を P05 で検出する仕組みを導入しました (新規ヘルパー `Get-InfReferencedFiles` が、すべての patched INF の `[SourceDisksFiles]` を P04 で実際に展開されたファイルと突き合わせます)。結果は `inf_inventory.csv` の新規列 `EligibleForCatalog` に記録され、P06 / P08 / V03 / V04 / V05 / V06 / I03 へ skip 状態が伝播されます。期待される P08 のサマリーは tri-state 形式 (`N ok / 0 failed / K skipped`) となります。
+r65 では本欠陥を P05 で検出する仕組みを導入しました (新規ヘルパー `Get-InfReferencedFile` が、すべての patched INF の `[SourceDisksFiles]` を P04 で実際に展開されたファイルと突き合わせます)。結果は `inf_inventory.csv` の新規列 `EligibleForCatalog` に記録され、P06 / P08 / V03 / V04 / V05 / V06 / I03 へ skip 状態が伝播されます。期待される P08 のサマリーは tri-state 形式 (`N ok / 0 failed / K skipped`) となります。
 
 r66 では r65 で残っていた後続の不具合を解消しました。すなわち、P06 が ineligible INF のディレクトリを丸ごとコピーする際に AMD オリジナルの `.cat` ファイルも持ち込んでしまい、P09 がそれを自己署名で再署名していた問題です。r66 では二層の防御を追加しています — P08 が skip 対象ディレクトリの orphan `.cat` を削除し、P09 がさらに ineligible ディレクトリ配下の `.cat` を filter します。結果として V01 の `Catalog files: N` 表示が P08 の `N ok` とぴったり一致し、orphan catalog が `patched/` に残らず、`-OnlyPhases P09` で workspace を再利用しても安全です。
 

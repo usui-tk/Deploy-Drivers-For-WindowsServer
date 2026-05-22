@@ -6508,7 +6508,7 @@ function Get-InfMetadata {
     }
 }
 
-function Get-InfReferencedFiles {
+function Get-InfReferencedFile {
     # Enumerate filenames declared in an INF's [SourceDisksFiles] (and
     # [SourceDisksFiles.<arch>]) sections and check whether each file
     # physically exists in the INF's directory. Returns an array of
@@ -7694,7 +7694,7 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
         # downstream pipeline (P06 copy / P08 inf2cat / P09 sign /
         # V03..V06 / I03) reads EligibleForCatalog to skip cleanly.
         $infDir = Split-Path $inf.FullName -Parent
-        $refFiles = Get-InfReferencedFiles -Content $infData.Content -InfDirectory $infDir
+        $refFiles = Get-InfReferencedFile -Content $infData.Content -InfDirectory $infDir
         $missingRefs = @($refFiles | Where-Object { -not $_.Present })
         $missingRefsList = ($missingRefs | ForEach-Object { $_.Name }) -join ';'
         $eligibleForCatalog = ($missingRefs.Count -eq 0)

@@ -37,20 +37,38 @@ independently.
   port of the r65 phantom-file machinery to Graphics is deferred
   until the same defect is observed in a real Adrenalin package.
   This change removes the pre-existing PSA8001 cross-file drift
-  warning, bringing the CI baseline to 0 errors / 0 warnings across
-  the orchestrator, AMDGraphics, AMDNpu, and MSBthPan scripts.
-  The AMDChipset script retains a single pre-existing PSA6003
-  warning (`InfReferencedFiles` function-noun plural form) that is
-  out of scope for this change.
+  warning.
 - **`SPEC.md` §A.11.5b**: Added a "Documented per-driver-family
   exceptions to byte-identity" paragraph cross-referencing §D.24 and
   explaining the rationale for the `Build-PatchedInfHwidIndex`
   exception in `psa8001_ignore_functions`.
+- **`Deploy-AMDChipsetDriverOnWindowsServer.ps1`**: Renamed the
+  private helper function `Get-InfReferencedFiles` → `Get-InfReferencedFile`
+  to comply with the PowerShell singular-noun naming convention
+  (PSA6003: function-noun plural form). The function is Chipset-only
+  (single call site at the SECREPAIR Error: 3 detection P05 phase,
+  see SPEC §D.24) and carries no module-export surface; the rename
+  is a pure internal refactoring with no behavioural change. The
+  Chipset script's own canonical SHA256 changes as a result, but no
+  other file embeds that value (driver scripts only embed the
+  orchestrator's canonical SHA256), so no cascade update is needed.
+- **Documentation forward-references updated**: `README.md`,
+  `README.ja.md`, and `SPEC.md` §D.24 each had one or two backticked
+  references to `Get-InfReferencedFiles` that are now updated to
+  `Get-InfReferencedFile`. Historical CHANGELOG entries for r65
+  (which describe what the function was named at release time) are
+  preserved verbatim per Keep a Changelog 1.1.0 conventions.
 
-No PowerShell scripts are modified by this change. The orchestrator
-canonical SHA256 (`0df3c8889fe80769ade52e8fa7f5518af184df6413f1bfd9c7596e0a185c82ff`)
+CI baseline after these changes: **all five scripts report 0
+errors / 0 warnings / 0 info** under `psa.py --config
+.psa.config.json` — the first revision since project inception
+where the entire codebase is fully clean across the canonical
+analyzer baseline. The orchestrator canonical SHA256
+(`0df3c8889fe80769ade52e8fa7f5518af184df6413f1bfd9c7596e0a185c82ff`)
 and all `$Script:ExpectedWdacScriptCanonicalSha256` embedded
-constants in the four driver scripts remain unchanged.
+constants in the four driver scripts remain unchanged (the rename
+only affects the Chipset script's own canonical hash, which is not
+embedded anywhere).
 
 ## [Chipset r67 / Graphics r33 / NPU r16 / BthPan r15 / WDAC SPF r03] — 2026-05-23
 
