@@ -2884,18 +2884,53 @@ The alternative approach of normalizing the INF — removing `[SourceDisksFiles]
    | V06 (`HardwareImpactAnalysis`) | Inside `Build-PatchedInfHwidIndex` plus a notice at the top of V06's output | Ineligible INFs are excluded from the HWID-to-INF index, so V06's AS-IS / TO-BE comparison does not propose them as TO-BE candidates for any matched device. V06 also surfaces the count up front via a `[~]` notice. |
    | I03 (`InstallDrivers`) | Right after the initial INF enumeration, before the resume-check | Splits enumerated INFs into `$infsToInstall` and `$infsToSkip`. The skipped INFs are listed with the explanation "no .cat exists; would have failed pnputil signature check". When the filter leaves zero INFs (wholly broken AMD package), I03 reports a success no-op rather than throwing. |
 
-**Cross-phase invariants enforced by r65**:
+**Cross-phase invariants enforced by r65** (extended in r66 for `.cat` artifact hygiene):
 
 - Every phase that walks `patched/` for INFs (P06 / P08 / V03 / V04 / V05 / V06 / I03) uses the same source-of-truth predicate (`EligibleForCatalog` via the shared lookup helpers).
 - An INF that P05 marked ineligible never gets a `.cat`, never has its `[Manufacturer]` decoration verified, never appears in the dry-run install plan, never appears as a TO-BE candidate in V06's hardware impact, and never gets passed to `pnputil`. It does remain physically present in `patched/` for diagnostic traceability — operators can grep its INF / inspect it / re-inspect P05's CSV row at any time.
+- **r66 extension**: any `.cat` file that P06 transitively copied alongside an ineligible INF (the original AMD-shipped catalog) is **deleted at P08's skip step** and additionally **filtered at P09's enumeration**. The directory ends up `.cat`-free, V01's `Catalog files: N` count matches P08/P09's `N ok`, and no orphan catalog gets re-signed with the self-signed cert. See "r66 orphan .cat cleanup" below.
 - `submsi-failures-diag.txt` correctly classifies the original P04 sub-MSI failures (12 x SECREPAIR pattern) rather than reporting them as `unknown`.
 
-**Scope (which sister scripts)**: Chipset only. Graphics, NPU, and BthPan use different installer architectures and do not exhibit phantom file reference patterns in the same form. The phantom file detection logic could be ported to Graphics if a similar defect surfaces in a future AMD Adrenalin package.
+**r66 orphan .cat cleanup (added 2026-05-22 after r65 real-machine validation)**:
 
-**Verification status (as of r65)**:
+The r65 implementation correctly skipped `inf2cat` at P08 for ineligible directories but left the original AMD-shipped `.cat` files in place (P06 had copied them as part of its wholesale directory copy for traceability). The downstream P09 then enumerated `Get-ChildItem -Recurse -Filter *.cat` and re-signed those orphans with the self-signed cert. Observable consequences on the 2026-05-22 Renoir run:
 
-- WS2019 + Renoir (Ryzen 5 PRO 4650U) with Chipset 8.05.04.516: target environment for r65; verification pending against the same workspace that originally reported the CIR failure. Expected post-fix output: `Catalog generation: 59 ok / 0 failed / 1 skipped` at P08, plus tri-state V04 summary, plus dedicated V05 / V06 / I03 skip blocks all referencing AMDCIR.inf.
-- WS2022 / WS2025: not yet verified. Functional behavior should be unchanged on hosts where no INF has phantom file references (all new code paths are guarded by `Lookup.Count -gt 0`).
+| Phase | r65 (defect) | r66 (fixed) |
+|---|---|---|
+| P08 summary | `55 ok / 0 failed / 5 skipped` | `55 ok / 0 failed / 5 skipped` |
+| P08 console | (no cleanup line) | `Cleaned N orphan .cat file(s) from skipped directories` (when N > 0) |
+| P09 signing count | **60** ok (5 orphans re-signed silently) | **55** ok (orphans filtered out; `+ 5 skipped` displayed when present) |
+| V01 catalog count | **60** .cat files | **55** .cat files |
+| V03 verification | 60 catalogs verified (5 of them orphans) | 55 catalogs verified |
+| V03 notice text | `"no .cat exists"` (technically incorrect: .cat existed) | accurate (no .cat exists in skipped dirs) |
+| I03 install | unaffected (filter is per-INF, not per-cat) | unaffected (same) |
+
+Two cooperating defense layers (B + C):
+
+- **Layer B — P08 cleanup**: inside the existing `if ($ineligibleDirs.Count -gt 0)` block, after reporting the skip, the script enumerates `.cat` files in each ineligible directory and deletes them. A summary line `Cleaned N orphan .cat file(s) ...` surfaces the operation. Failure to delete (e.g., file locked) emits a `[warn]` and continues — cleanup is best-effort and Layer C catches any survivor.
+- **Layer C — P09 filter**: a sister helper `Get-IneligibleDirSet -Ctx $Ctx` returns a hashtable of patched-root-relative directories that contain ineligible INFs (keyed by `RelativeDir`, lowercased). Right after `Get-ChildItem -Recurse -Filter *.cat`, P09 partitions the result into `$catsKeep` (signed) and `$catsToSkip` (logged and excluded). A `[~]  Excluding N orphan .cat file(s) ...` block surfaces the operation. When the filter leaves zero `.cat` files (entirely defective AMD package), P09 reports a success no-op rather than throwing. The P09 phase marker gains a `Skipped` field for symmetry with P08.
+
+The two layers together ensure that:
+
+1. **Normal run (Prep* + Verify* in one invocation)**: P08 deletes orphans, P09 sees zero, no filter line printed (`catsToSkip.Count = 0`).
+2. **Standalone P09 (`-OnlyPhases P09`)**: P08 didn't run in this session, P09's filter catches the orphans that P06 left behind.
+3. **Recovered r65 workspace**: orphans inherited from a prior r65 run, P09's filter catches them.
+4. **Future code-path regression**: even if some future P06/P07/P08 change re-creates orphans, P09's filter is a backstop.
+
+**Scope (which sister scripts)** — confirmed by 2026-05-22 real-machine validation:
+
+- **Chipset (this script)**: target environment. AMD Chipset Software 8.05.04.516 on Renoir / WS2019 reproduced 5 ineligible INFs (`AmdAppCompat.inf` ×2 paths, `AmdAS4.inf`, `AMDCIR.inf`, `usbfilter.inf`) due to phantom file references. r65 detect-and-skip + r66 orphan cleanup are both required and exercised.
+- **Graphics**: validated on same host with Adrenalin 26.5.2 Vega-Polaris Legacy (623 MB EXE). P04 7-Zip auto-detect succeeded with **0 sub-MSI failures**; P05 found **0 ineligible INFs** (all 19 INFs pass the `Get-InfReferencedFiles` check); P08 reported `Catalog generation: 19 ok / 0 failed`. Adrenalin's single-EXE WIX BURN bootstrapper does not exhibit the layered NSIS → InstallShield SFX → nested-MSI structure that produced the Chipset `SECREPAIR Error: 3` cascade. Port of the r65/r66 phantom-file machinery to the Graphics script remains deferred until such a defect is observed in a real Adrenalin package.
+- **NPU**: uses `pnputil` directly against the AMD-published RAI ZIP; no `msiexec /a`, no `inf2cat`-per-directory loop, no cabinet-extraction path. Phantom file references are not a meaningful failure mode here.
+- **BthPan**: validated on same host. P03 located the inbox `bthpan.inf_amd64_df4d6a507db770e7` in the host's DriverStore (single Microsoft inbox INF), P04 copied only `bthpan.inf` + `bthpan.sys` (no `.cat` carried along, so no orphan-`.cat` risk). P08 used the documented `inf2cat` → `makecat` fallback path because of redistribution rule 22.9.8. The `Get-IneligibleInfLookup` machinery has no surface to operate on. Port is not applicable.
+
+The Chipset r66 design accommodates this asymmetry cleanly: all new code paths are guarded by `Lookup.Count -gt 0` / `ineligibleDirSet.Count -gt 0` / `catsToSkip.Count -gt 0`, so workspaces without phantom file references produce byte-identical output to r64.
+
+**Verification status (as of r66)**:
+
+- **WS2019 + Renoir (Ryzen 5 PRO 4650U) with Chipset 8.05.04.516**: r65 verification completed 2026-05-22 — P08 reported `55 ok / 0 failed / 5 skipped` against 5 detected ineligible INFs, but P09 was found to be re-signing the 5 orphan `.cat` files left in skipped directories (V01 reported `Catalog files: 60`, not 55). r66 closes that gap: post-fix expectations are P08 `55 ok / 0 failed / 5 skipped` + P08 cleanup line `Cleaned 5 orphan .cat file(s) ...`, P09 `Signing: 55 ok / 0 failed` (no `+ skipped` because P08 already cleaned), V01 `Catalog files: 55 .cat file(s)`. Re-verification with r66 against the same workspace is pending.
+- **WS2022 / WS2025**: not yet verified for r65/r66. Functional behavior should be unchanged on hosts where no INF has phantom file references (all new code paths are guarded by `Lookup.Count -gt 0`).
+- **Graphics / NPU / BthPan**: as documented under "Scope" above — r65/r66 machinery is intentionally Chipset-only.
 
 ---
 

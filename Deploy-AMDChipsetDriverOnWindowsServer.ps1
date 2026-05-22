@@ -627,8 +627,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.05.22-r65'
-$Script:ScriptTag     = 'phantom-file-reference-skip'
+$Script:ScriptVersion = 'chipset-2026.05.22-r66'
+$Script:ScriptTag     = 'phantom-file-reference-skip-cleanup'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -8234,6 +8234,42 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
             Write-Detail ("  - {0}  missing: {1}" -f $relPath, $missing) -Color DarkGray
         }
         Write-Host ''
+
+        # Orphan catalog cleanup (r66 / SPEC D.24): the original
+        # AMD-shipped .cat files that P06 copied alongside the INF
+        # remain in patched/ even though P08 is about to skip
+        # inf2cat for these directories. If we leave them, P09 will
+        # later enumerate every .cat under patched/ and re-sign
+        # them with our self-signed cert, producing "orphan"
+        # catalogs that:
+        #   - reference hashes for files that don't exist on disk
+        #     (the missing source files that flagged P05),
+        #   - are never installed by I03 (the INF is ineligible),
+        #   - inflate V01's "Catalog files: N" count and confuse
+        #     the operator (N would be 60, not 55, on the Renoir
+        #     reproducer).
+        # Deleting them here keeps the patched/ tree honest:
+        # ineligible directory => no .cat artifact at all.
+        # P09 still applies its own ineligible-filter (defense in
+        # depth), but most workspaces never see that path because
+        # the .cat is already gone before P09 runs.
+        Set-DebugStep 'P08: clean orphan .cat in ineligible directories (r66)'
+        $orphansCleaned = 0
+        foreach ($s in $ineligibleDirs) {
+            $orphans = @(Get-ChildItem -LiteralPath $s.Dir.FullName -Filter *.cat -File -ErrorAction SilentlyContinue)
+            foreach ($cat in $orphans) {
+                try {
+                    Remove-Item -LiteralPath $cat.FullName -Force -ErrorAction Stop
+                    $orphansCleaned++
+                } catch {
+                    Write-Warn2 ("    [warn] could not delete orphan .cat '{0}': {1}" -f $cat.FullName, $_.Exception.Message)
+                }
+            }
+        }
+        if ($orphansCleaned -gt 0) {
+            Write-Detail ("  Cleaned {0} orphan .cat file(s) from skipped directories (would otherwise be picked up by P09)." -f $orphansCleaned) -Color DarkGray
+            Write-Host ''
+        }
     }
 
     Write-Step "Generating catalogs for $($infDirsToProcess.Count) INF folder(s) using /os:$chosenOs"
@@ -8449,6 +8485,48 @@ function Invoke-PrepPhase09_SignCatalogs { # psa-disable-line PSA6003 -- compoun
     if ($cats.Count -eq 0) {
         throw 'P09: no .cat files found - run P08 (GenerateCatalogs) first.'
     }
+
+    # Ineligible-directory filter (r66, SPEC D.24): exclude any
+    # .cat file whose parent directory was flagged ineligible by
+    # P05 (phantom file references). Normally these directories
+    # are .cat-free because P08's skip block deleted any orphans
+    # before P09 runs (defense layer B). This P09-side filter
+    # (defense layer C) handles edge cases where P08's cleanup
+    # was bypassed: standalone P09 execution (-OnlyPhases P09),
+    # workspace recovered from an r65 run, or a future code path
+    # that resurrects the orphan .cat. Filtering here ensures
+    # the signing loop never re-signs an orphan even if one
+    # somehow reappears in patched/.
+    Set-DebugStep 'P09: filter .cat files in ineligible directories (r66)'
+    $ineligibleDirSet = Get-IneligibleDirSet -Ctx $Ctx
+    $catsToSkip = @()
+    if ($ineligibleDirSet.Count -gt 0) {
+        $catsKeep = @()
+        foreach ($cat in $cats) {
+            $catRelDir = $cat.Directory.FullName.Substring($Ctx.Paths.Patched.Length).TrimStart('\','/').ToLowerInvariant()
+            if ($ineligibleDirSet.ContainsKey($catRelDir)) {
+                $catsToSkip += $cat
+            } else {
+                $catsKeep += $cat
+            }
+        }
+        if ($catsToSkip.Count -gt 0) {
+            Write-Skip ("Excluding {0} orphan .cat file(s) from signing (located in ineligible INF folders; SPEC D.24):" -f $catsToSkip.Count)
+            foreach ($oc in $catsToSkip) {
+                $rel = $oc.FullName.Substring($Ctx.Paths.Patched.Length).TrimStart('\','/')
+                Write-Detail ("  - {0}" -f $rel) -Color DarkGray
+            }
+            Write-Host ''
+        }
+        $cats = $catsKeep
+    }
+    if ($cats.Count -eq 0) {
+        Write-Warn2 'P09: no eligible .cat files remain after phantom-file filter - nothing to sign.'
+        Set-PhaseMarker -Ctx $Ctx -PhaseId 'P09' -Metadata @{ Ok=0; Failed=0; Skipped=$catsToSkip.Count }
+        Write-PhaseFooter 'P09' 'done'
+        return
+    }
+
     Write-Step "Signing $($cats.Count) catalog(s) with cert and timestamp ($($Ctx.TimestampUrl))"
     Write-Detail "Method        : ProcessStartInfo + manual quoting (v2: spaces-in-path safe)" -Color DarkCyan
     Write-Detail "Signtool      : $($Ctx.Signtool)" -Color DarkGray
@@ -8592,8 +8670,14 @@ function Invoke-PrepPhase09_SignCatalogs { # psa-disable-line PSA6003 -- compoun
         }
     }
 
-    Set-PhaseMarker -Ctx $Ctx -PhaseId 'P09' -Metadata @{ Ok=$okCount; Failed=$failCount }
-    Write-Ok "Signing: $okCount ok / $failCount failed"
+    # Phase marker + summary (r66 tri-state: Skipped surfaces the
+    # number of orphan .cat files filtered out at the top of P09).
+    Set-PhaseMarker -Ctx $Ctx -PhaseId 'P09' -Metadata @{ Ok=$okCount; Failed=$failCount; Skipped=$catsToSkip.Count }
+    if ($catsToSkip.Count -gt 0) {
+        Write-Ok "Signing: $okCount ok / $failCount failed / $($catsToSkip.Count) skipped"
+    } else {
+        Write-Ok "Signing: $okCount ok / $failCount failed"
+    }
     Write-PhaseFooter 'P09' 'done'
 }
 
@@ -9083,6 +9167,49 @@ function Test-InfIsIneligible {
     if (-not $InfFullName.StartsWith($Ctx.Paths.Patched, [StringComparison]::OrdinalIgnoreCase)) { return $false }
     $rel = $InfFullName.Substring($Ctx.Paths.Patched.Length).TrimStart('\','/')
     return $Lookup.ContainsKey($rel.ToLowerInvariant())
+}
+
+function Get-IneligibleDirSet {
+    # Sister helper to Get-IneligibleInfLookup, but keyed by directory
+    # rather than by INF filename. Used by P09 to filter out orphan
+    # .cat files left in skipped directories.
+    #
+    # WHY A SEPARATE HELPER (r66, SPEC D.24):
+    # - Get-IneligibleInfLookup is keyed by RelativePath (the INF's
+    #   full relative path including filename).
+    # - P09 enumerates .cat files, not .inf files. A .cat's parent
+    #   directory matches the INF's RelativeDir, not its RelativePath.
+    # - Rather than complicate the existing lookup with a dual key
+    #   scheme, we expose a small additional helper.
+    #
+    # KEY: lowercased patched-root-relative directory path
+    # VALUE: $true (presence indicates the directory is ineligible)
+    #
+    # FALLBACK: same as Get-IneligibleInfLookup - if $Ctx.InfInventory
+    # is unset, tries to load inf_inventory.csv from the workspace
+    # root for standalone P09 execution.
+    param([Parameter(Mandatory)] $Ctx)
+
+    $dirSet = @{}
+    if (-not $Ctx.InfInventory) {
+        $csv = Join-Path $Ctx.Paths.Root 'inf_inventory.csv'
+        if (Test-Path -LiteralPath $csv) {
+            try { $Ctx.InfInventory = Import-Csv -LiteralPath $csv } catch {} # psa-disable-line PSA3004 -- best-effort load
+        }
+    }
+    if (-not $Ctx.InfInventory) { return $dirSet }
+
+    foreach ($row in $Ctx.InfInventory) {
+        $hasEligibilityColumn = ($null -ne $row.PSObject.Properties['EligibleForCatalog'])
+        if (-not $hasEligibilityColumn) { continue }
+        $isEligible = ($row.EligibleForCatalog -eq $true -or $row.EligibleForCatalog -eq 'True')
+        $isVariantSelected = ($row.VariantSelected -eq $true -or $row.VariantSelected -eq 'True')
+        if ($isVariantSelected -and (-not $isEligible) -and $row.RelativeDir) {
+            $key = ([string]$row.RelativeDir).ToLowerInvariant()
+            $dirSet[$key] = $true
+        }
+    }
+    return $dirSet
 }
 
 function Invoke-VerifyPhase04_VerifyInfs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers

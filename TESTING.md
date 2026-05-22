@@ -1309,15 +1309,70 @@ $diag | Select-String 'Failure pattern frequency' -Context 0,4
 | P05 inventory CSV new columns | present, all rows have `EligibleForCatalog=True` and empty `MissingReferencedFiles` |
 | P06 phantom file notification | absent |
 | P08 skip block | absent |
+| P08 orphan-cleanup line (r66) | absent (no skip block to clean from) |
 | P08 summary line | reverts to legacy two-state form `Catalog generation: N ok / 0 failed (using /os:...)` |
 | P08 phase marker | includes `Skipped=0` |
+| P09 orphan-filter block (r66) | absent (no ineligible dirs to filter) |
+| P09 summary line | reverts to legacy two-state form `Signing: N ok / 0 failed` |
+| P09 phase marker (r66) | includes `Skipped=0` |
+| V01 catalog count | matches P08/P09 N (no orphan delta) |
 | V03 skip notice | absent |
 | V04 summary line | reverts to legacy two-state form `INF verification: N ok / 0 missing decoration` |
 | V05 dry-run skip block | absent |
 | V06 ineligible notice | absent |
 | I03 ineligible-INF skip block | absent |
 
-**Pass criterion (no-op test)**: pipeline behavior is identical to r64 on this platform; no spurious skip messages or count changes. All r65 code paths are guarded by `Lookup.Count -gt 0` (V03/V04/V05/V06/I03) or `$copyOnlyIneligible.Count -gt 0` (P06) or `$ineligibleDirs.Count -gt 0` (P08), so on a clean package the modifications are byte-identical-to-r64 silent.
+**Pass criterion (no-op test)**: pipeline behavior is identical to r64 on this platform; no spurious skip messages or count changes. All r65/r66 code paths are guarded by `Lookup.Count -gt 0` (V03/V04/V05/V06/I03) / `$copyOnlyIneligible.Count -gt 0` (P06) / `$ineligibleDirs.Count -gt 0` (P08) / `$ineligibleDirSet.Count -gt 0` (P09), so on a clean package the modifications are byte-identical-to-r64 silent.
+
+#### 10.5d.r66 P09 orphan .cat cleanup (added 2026-05-22, gap surfaced by r65 real-machine run)
+
+The r65 real-machine verification (2026-05-22, WS2019 + Renoir + Chipset 8.05.04.516) confirmed that P05/P06/P08/V03/V04/V05/V06/I03 all correctly skip ineligible INFs, but also surfaced a residual issue: P09 was enumerating `Get-ChildItem -Recurse -Filter *.cat` under `patched/` and picking up 5 original AMD-shipped `.cat` files that P06 had transitively copied alongside the ineligible INFs. P09 re-signed them with the self-signed cert, so V01 reported `Catalog files: 60` instead of 55, V03 verified 60 catalogs (5 of them orphans), and `patched/` ended up with 5 unused but signed `.cat` artifacts.
+
+r66 closes this gap with two cooperating defense layers (case alpha B+C). Test against the same 2026-05-22 reproducer workspace (or a fresh `-CleanWorkRoot` run):
+
+| Observation | r65 actual (defect) | r66 expected (fixed) |
+|---|---|---|
+| P05 ineligible block | 5 INFs flagged | 5 INFs flagged (unchanged) |
+| P06 copy-only notification | 5 INFs listed | 5 INFs listed (unchanged) |
+| P08 skip block | 5 directories listed | 5 directories listed (unchanged) |
+| P08 orphan-cleanup line | absent | `Cleaned 5 orphan .cat file(s) from skipped directories (would otherwise be picked up by P09).` |
+| P08 summary | `55 ok / 0 failed / 5 skipped` | `55 ok / 0 failed / 5 skipped` (unchanged) |
+| P09 enumeration count | 60 .cat enumerated | 55 .cat enumerated (orphans deleted at P08) |
+| P09 filter block | absent | absent (Layer B left nothing for Layer C to filter) |
+| P09 summary | `Signing: 60 ok / 0 failed` | `Signing: 55 ok / 0 failed` |
+| P09 phase marker | `Ok=60, Failed=0` | `Ok=55, Failed=0, Skipped=0` |
+| V01 catalog count | `Catalog files: 60` | `Catalog files: 55` |
+| V03 verifying count | 60 catalogs | 55 catalogs |
+| V03 notice text | "no .cat exists" (inaccurate) | "no .cat exists" (now accurate) |
+
+**Pass criterion (r66 fix)**:
+
+- P09 enumeration finds exactly `(eligible variant-selected INFs) - (decoration patches that consolidate identical files)` `.cat` files; matches P08's `N ok` count.
+- V01 `Catalog files: N` equals P08's `N ok`.
+- After re-running on the workspace, no orphan `.cat` remains in any directory listed in the P08 skip block. Verify with:
+
+```powershell
+# Verify no orphan .cat survived in skipped directories.
+$csv = Import-Csv 'C:\Temp\Workspace_AMD-Chipset\inf_inventory.csv'
+$ineligibleDirs = $csv | Where-Object {
+    $_.EligibleForCatalog -eq 'False' -and $_.VariantSelected -eq 'True'
+} | Select-Object -ExpandProperty RelativeDir
+foreach ($d in $ineligibleDirs) {
+    $full = Join-Path 'C:\Temp\Workspace_AMD-Chipset\patched' $d
+    $orphans = @(Get-ChildItem -LiteralPath $full -Filter *.cat -File -ErrorAction SilentlyContinue)
+    Write-Host ('{0,-5} {1}' -f $orphans.Count, $d)
+}
+# Expected: all rows show 0 orphan .cat files.
+```
+
+**Standalone P09 test (Layer C exercise)**:
+
+To confirm Layer C alone is sufficient when P08's cleanup is bypassed:
+
+1. Run a fresh `-Action PrepareVerify -CleanWorkRoot` to populate `patched/` with the r66 expected state (55 catalogs).
+2. Manually copy any 5 stray `.cat` files into the 5 ineligible directories (simulating an r65 workspace).
+3. Run `-Action Prepare -OnlyPhases P09 -Force`.
+4. Expected: P09 prints `[~]  Excluding 5 orphan .cat file(s) from signing ...` block, signs 55, reports `Signing: 55 ok / 0 failed / 5 skipped`. The orphans remain on disk (Layer C does not delete, only filters) but are never re-signed.
 
 ### 10.6 Multi-OS support matrix
 
