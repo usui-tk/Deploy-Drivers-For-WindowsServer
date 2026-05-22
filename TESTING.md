@@ -1425,7 +1425,7 @@ foreach ($f in @(
 
 ---
 
-## 11. Validation Scenario 11: WS2019 Legacy WDAC SPF integration (r67)
+## 11. Validation Scenario 11: WS2019 Legacy WDAC SPF integration (r67 / WDAC SPF r03 → r04)
 
 ### Scope
 
@@ -1434,6 +1434,16 @@ Validate that all four driver scripts correctly delegate to
 Server 2019 (build 17763) and Windows Server 2016 (build 14393),
 producing a working SPF policy with Secure Boot ON and without
 requiring a reboot.
+
+**Validation history at a glance** (full per-revision detail in
+[`SPEC.md`](./SPEC.md) §D.25 Status):
+
+| Revision | Date       | Outcome on WS2019 + Renoir target bench |
+|---------:|------------|-----------------------------------------|
+| r01      | 2026-05-22 | Failed (`Get-Date -AsUTC` PS 5.1 incompat) |
+| r02      | 2026-05-22 | Superseded by r03 rebuild before bench run |
+| r03      | 2026-05-23 | Failed (`Add-HistoryEntry` param scope-qualifier silently declares colon-named parameter; `-CertThumbprint` binding error after WMI activation, leaving the host in a "stuck Foreign" state) |
+| **r04**  | **2026-05-23** | **✅ Pass — TC11.1..TC11.4 all green on the primary bench; `State : None -> Ours-Healthy` transition completes in 3.57 s without reboot; I03 then installs 55 INFs (1 reboot-required, 2 no-op) and I04 enumerates 42 AMD devices with 5 REBOOT_NEEDED / 37 UNCHANGED / 0 FAILED.** |
 
 ### Target hardware
 
@@ -1473,7 +1483,7 @@ Test-Path .\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1   # expected:
 ```
 
 **Pass criteria**:
-- Banner shows version `wdac-2026.05.23-r03`.
+- Banner shows version `wdac-2026.05.23-r04`.
 - Header line "Path: ... legacy SPF" or "STATE" displayed.
 - State output is one of: `None`, `Ours-Healthy`, `Foreign`,
   `Ours-Stale`, `Ours-Tampered`, `Inconsistent`.
@@ -1493,7 +1503,7 @@ $json.action; $json.state; $json.exitCode
 - `$json.action -eq 'GetStatus'`
 - `$json.exitCode -eq 0`
 - `$json.state` is a recognized state name.
-- `$json.scriptVersion -eq 'wdac-2026.05.23-r03'`.
+- `$json.scriptVersion -eq 'wdac-2026.05.23-r04'`.
 
 #### TC11.3 — Canonical hash self-check (dev helper)
 
@@ -1504,7 +1514,7 @@ $json.action; $json.state; $json.exitCode
 
 **Pass criteria**:
 - `$result.details.canonicalSha256 -eq
-  '0df3c8889fe80769ade52e8fa7f5518af184df6413f1bfd9c7596e0a185c82ff'`
+  'f779bf50c41201a6564bf968d040cf39348433951cb83accd856245bebef7ced'`
   (the value embedded in all 4 driver scripts as
   `$Script:ExpectedWdacScriptCanonicalSha256`).
 
@@ -1525,7 +1535,7 @@ $json.action; $json.state; $json.exitCode
 - `Orchestrator src  : local` (when orchestrator is co-located)
   or `Orchestrator src  : github-fetch` (when not).
 - `Orchestrator hash :
-  0df3c8889fe80769ade52e8fa7f5518af184df6413f1bfd9c7596e0a185c82ff`.
+  f779bf50c41201a6564bf968d040cf39348433951cb83accd856245bebef7ced`.
 - `State transition: None -> Ours-Healthy` (or `Ours-Healthy ->
   Ours-Healthy` for idempotent re-runs).
 - `Activation method: WMI-PS_UpdateAndCompareCIPolicy`.
@@ -1693,10 +1703,27 @@ Add-Content .\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 '# tampered
 .\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -OnlyPhases I02
 ```
 
-**Pass criteria** (on legacy WS2019 host):
-- Driver script throws with message containing `canonical hash ...
-  does not match the expected ...`.
-- I02 does NOT proceed.
+**Pass criteria** (on legacy WS2019 host, matching the
+non-blocking warn-and-continue behavior described in SPEC.md §D.25
+Decision 2):
+
+- Driver script emits a `[!]` warning of the form
+  `Orchestrator canonical hash does NOT match the value this driver
+  script was built against.` followed by `Expected: ...` / `Actual:
+  ...` lines and `Continuing because the orchestrator may have been
+  independently updated; verify the new hash matches an approved
+  release.`
+- I02 **continues** (does NOT throw on mismatch alone) and the
+  underlying `AddCert` action proceeds normally; the warning is
+  advisory and is captured in the run transcript so the operator
+  can correlate any later runtime surprise with the orchestrator
+  version that was actually used.
+- The natural way to observe this without literally tampering is to
+  pair a `wdac-2026.05.23-rNN` orchestrator with driver scripts
+  whose `$Script:ExpectedWdacScriptCanonicalSha256` was last
+  refreshed against a different `rMM`; the warning lists both
+  hashes verbatim so the operator can decide whether the version
+  pair is approved.
 
 ---
 

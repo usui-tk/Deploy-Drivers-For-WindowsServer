@@ -64,11 +64,172 @@ errors / 0 warnings / 0 info** under `psa.py --config
 .psa.config.json` — the first revision since project inception
 where the entire codebase is fully clean across the canonical
 analyzer baseline. The orchestrator canonical SHA256
-(`0df3c8889fe80769ade52e8fa7f5518af184df6413f1bfd9c7596e0a185c82ff`)
+(`f779bf50c41201a6564bf968d040cf39348433951cb83accd856245bebef7ced`,
+i.e. the post-r04 value)
 and all `$Script:ExpectedWdacScriptCanonicalSha256` embedded
 constants in the four driver scripts remain unchanged (the rename
 only affects the Chipset script's own canonical hash, which is not
 embedded anywhere).
+
+## [Chipset r67 / Graphics r33 / NPU r16 / BthPan r15 / WDAC SPF r04] — 2026-05-23
+
+### Fixed
+
+- **WDAC SPF orchestrator r03 → r04 — `Add-HistoryEntry` parameter
+  scope-qualifier defect (PowerShell `param()` parse-time silent
+  acceptance).** First-time pilot validation of the r03 orchestrator
+  on the target bench (WS2019 build 17763 + Ryzen 5 PRO 4650U
+  (Renoir) + Secure Boot ON, ConfigCI module present, AllowAll
+  template present) **failed** at the chipset script's I02 phase
+  with `Path C orchestrator returned exitCode=1. message=see
+  orchestrator stderr` — emitted by `Invoke-WdacOrchestrator` after
+  the orchestrator process had thrown. Running the orchestrator
+  directly with `-Action AddCert -Verbose` surfaced the real error:
+
+  ```
+  [*] Deploying SiPolicy.p7b and activating via WMI CIM bridge...
+  詳細: 操作 'CimMethod の呼び出し' が完了しました。
+  [X] FAILED: パラメーター名 'CertThumbprint' に一致するパラメーターが
+              見つかりません。
+  ```
+
+  The trace shows the failure point is **after** WMI activation
+  (`PS_UpdateAndCompareCIPolicy.Update()` had already returned
+  success and `SiPolicy.p7b` had already been deployed) but
+  **before** `manifest.json` was written. Each subsequent run
+  therefore found a deployed `SiPolicy.p7b` with no matching
+  manifest and classified the state as `Foreign`, refusing
+  `AddCert` without `-ForceOverrideForeign`. Even with the
+  override, the same `Add-HistoryEntry` failure recurred, leaving
+  the host in a stuck "Foreign loop". The directly-observed
+  orchestrator JSON envelope showed
+  `"result":"refused", "state":"Foreign", "exitCode": 0` (a
+  separate cosmetic bug in `Set-JsonResult` that does not affect
+  the OS process exit code; deferred for a future cleanup pass).
+
+  **Root cause**: the `Add-HistoryEntry` helper's `param()` block
+  declared `[string]$Script:CertThumbprint = ''`. Windows
+  PowerShell's `param()` parser does **not** reject the
+  scope-qualified form at parse time; instead it silently declares
+  a literally-named parameter `Script:CertThumbprint` (colon
+  included). All four call sites in the orchestrator pass
+  `-CertThumbprint $thumb`, which then fails at the binding stage
+  with `A parameter cannot be found that matches parameter name
+  'CertThumbprint'`. Compounding the symptom: the function body
+  referenced `$Script:CertThumbprint` (the script-scope variable,
+  which on the `AddCert` path is always empty), so even if the
+  binding had succeeded the recorded thumbprint would have been
+  blank in `manifest.deploymentHistory[]`.
+
+  **Why static analysis didn't catch this**: PSScriptAnalyzer's
+  stock rule set does not flag `$Script:`-qualified parameter
+  declarations, and `psa.py` did not yet have an equivalent
+  repository-scoped rule, which is why `psa.py --config
+  .psa.config.json` reported the r03 orchestrator as `0 errors /
+  0 warnings / 0 info` despite the bug. A `PSAP0005`-class rule
+  ("`param()` block must not contain scope-qualified parameter
+  declarations") is now on the backlog — see SPEC §D.25 "Recommendation:
+  scope-qualified parameter declarations in `param()` blocks".
+
+  **Fix in r04** (`Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1`,
+  ~lines 2830-2853):
+
+  - param block: `[string]$Script:CertThumbprint = ''` →
+    `[string]$CertThumbprint = ''`.
+  - function body: `certThumbprint = $Script:CertThumbprint` →
+    `certThumbprint = $CertThumbprint` (use the parameter local,
+    not the empty script-scope variable).
+  - Prepend an in-file block comment to the function explaining
+    the parse-time-silent-acceptance gotcha and cross-referencing
+    SPEC §D.25 Status r04, to prevent regression in future
+    sister-script refactors.
+
+  Embedded canonical hash in all 4 driver scripts updated:
+  - Was (r03):
+    `0df3c8889fe80769ade52e8fa7f5518af184df6413f1bfd9c7596e0a185c82ff`
+  - Now (r04):
+    `f779bf50c41201a6564bf968d040cf39348433951cb83accd856245bebef7ced`
+
+  No other code in the orchestrator or in the four driver scripts
+  was touched. The 34 PSA8001-tracked shared helpers and the
+  Test-WdacToolsAvailable / Install-AmdWdacPolicy /
+  Uninstall-AmdWdacPolicy triplet are byte-identical to r03.
+
+  **Files touched (r04)**:
+
+  - `Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1` — the
+    two-line bug fix + comment block; `$Script:ScriptVersion`
+    bumped `wdac-2026.05.23-r03` → `wdac-2026.05.23-r04`.
+  - `Deploy-AMDChipsetDriverOnWindowsServer.ps1` — embedded hash
+    constant only (no behavioural change).
+  - `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` — embedded hash
+    constant only (no behavioural change).
+  - `Deploy-AMDNpuDriverOnWindowsServer.ps1` — embedded hash
+    constant only (no behavioural change).
+  - `Deploy-MSBthPanInboxOnWindowsServer.ps1` — embedded hash
+    constant only (no behavioural change).
+  - `SPEC.md` — §D.25 "Status" gets a new r04 entry, the r03
+    PENDING entry is upgraded to FAILED with full root-cause
+    detail, and a new "Recommendation: scope-qualified parameter
+    declarations in `param()` blocks" subsection is added next to
+    the existing PS-version-compatibility audit; the manifest
+    example reference is bumped `wdac-2026.05.23-r03` →
+    `wdac-2026.05.23-r04`; the Appendix entry on "How to seed a new
+    sister script" now lists both r02 (`-AsUTC`) and r04
+    (`$Script:` param) as concrete cases of silently-accepted
+    broken PowerShell constructs in scripts targeting PS 5.1.
+  - `TESTING.md` — §11 header is retitled to "r67 / WDAC SPF
+    r03 → r04" and gets a validation-history-at-a-glance table;
+    TC11.1 banner / TC11.2 scriptVersion / TC11.3 canonical hash /
+    TC11.4 orchestrator hash are all rebased to the r04 value;
+    TC11.N4 is rewritten to match the actual non-blocking
+    warn-and-continue behaviour described in SPEC §D.25 Decision 2
+    (the previous "throws / I02 does NOT proceed" text was
+    documentation-implementation drift).
+  - `README.md` / `README.ja.md` — "What's in the box" orchestrator
+    row and "Operating systems in scope" WS2019/WS2016 rows updated
+    to reflect r04 pilot-validated status; the "pilot validation
+    pending" caveat is removed.
+  - `CHANGELOG.md` — this entry.
+
+### Validated
+
+- **r04 pilot validation result (2026-05-23, WS2019 + Renoir +
+  Secure Boot ON)**: ✅ Pass. End-to-end run with the chipset
+  driver script:
+  - I02 (AuthorizeDriverSigning): `Path C` taken (legacy WDAC SPF);
+    `State : None -> Ours-Healthy`; `Activation method: WMI-
+    PS_UpdateAndCompareCIPolicy`; phase done in 3.57 s; **no
+    reboot required**; `SiPolicy.p7b` deployed at
+    `C:\Windows\System32\CodeIntegrity\`; `manifest.json` written
+    cleanly under `C:\ProgramData\Deploy-Drivers-For-WindowsServer\
+    wdac\`.
+  - I03 (InstallDrivers): 55 INFs installed (1 reboot-required for
+    the AMD PSP driver, 2 no-op when the driver store was already
+    up to date, 0 failed); 5 ineligible INFs correctly excluded
+    per SPEC §D.24.
+  - I04 (PostInstallVerification): 42 AMD devices enumerated → 0
+    LOADED / 5 REBOOT_NEEDED / 0 KEPT_CURRENT / 37 UNCHANGED / 0
+    FAILED. Self-signed driver loading is currently BLOCKED
+    (Secure Boot ON, no testsigning) — the operator must reboot
+    to activate the new drivers; the I04 banner correctly warns
+    about this and re-references the I00 instructions.
+- Total elapsed: 3 min 19 s for the I02+I03+I04 phase set.
+
+### Status
+
+- **WS2022 / WS2025**: behaviour unchanged. Path A is still the
+  active path; `Test-IsLegacyWindowsServerOs` returns false; the
+  orchestrator is never invoked.
+- **WS2016 (build 14393)**: pilot validation pending on physical
+  hardware; structurally the same Path C as WS2019.
+- **Workstation hosts**: orchestrator OS-guard refuses with
+  `result=refused, exitCode=3`. Driver-script `Install` phases
+  remain blocked on Workstation by default; pass
+  `-AllowWorkstationInstall` to override (discouraged, see
+  README.md "What's new").
+
+---
 
 ## [Chipset r67 / Graphics r33 / NPU r16 / BthPan r15 / WDAC SPF r03] — 2026-05-23
 
@@ -1500,6 +1661,58 @@ Graphics-specific revisions (cross-script entries above also apply):
   (`BTH\MS_BTHPAN`). Distinguishes Phantom OK (bth.inf proxy match)
   from true resolution (Class=Net, Service=BthPan) on Windows Server.
 
+### Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1
+
+#### r04 — `Add-HistoryEntry` scope-qualified parameter fix
+- **Fixed**: `param()` block declared `[string]$Script:CertThumbprint = ''`,
+  which PowerShell silently accepts and turns into a literally-named
+  parameter `Script:CertThumbprint` (colon included), so callers
+  passing `-CertThumbprint` fail at the binding stage immediately
+  after WMI activation and just before `manifest.json` write.
+  Removed the `$Script:` scope qualifier from the parameter and
+  updated the function body to use the parameter-local
+  `$CertThumbprint`. Embedded canonical hash in all 4 driver scripts
+  refreshed accordingly:
+  `0df3c8889fe80769ade52e8fa7f5518af184df6413f1bfd9c7596e0a185c82ff`
+  →
+  `f779bf50c41201a6564bf968d040cf39348433951cb83accd856245bebef7ced`.
+  See SPEC §D.25 Status r04 for full root cause / fix detail.
+
+#### r03 — Full rebuild from Chipset r66 baseline
+- **Changed**: r01/r02 were ground-up rewrites and silently violated
+  the sister-script discipline. r03 seeds the orchestrator by
+  copying `Deploy-AMDChipsetDriverOnWindowsServer.ps1` (r66 baseline)
+  verbatim, removes phase functions and AMD-specific helpers, keeps
+  the 34 shared helpers byte-for-byte, and adds orchestrator-specific
+  sections (SPF policy build, manifest schema, state model, 9 action
+  handlers). PSA8001 cross-file drift = 0 across all 5 scripts.
+  Embedded canonical hash in all 4 driver scripts updated from
+  `d13b6a8b...` (r02) to
+  `0df3c8889fe80769ade52e8fa7f5518af184df6413f1bfd9c7596e0a185c82ff`
+  (r03).
+
+#### r02 — Windows PowerShell 5.1 parameter-binding compatibility fix
+- **Fixed**: r01 used `Get-Date -AsUTC` (PS 7.1+ only) and
+  `Set-Content -AsByteStream` (PS 6+ only); both caused parameter
+  binding errors on the PS 5.1 that ships with WS2019/WS2016.
+  Replaced with `(Get-Date).ToUniversalTime().ToString(...)` and
+  byte-array `[System.IO.File]::WriteAllBytes(...)` respectively.
+  Embedded canonical hash in all 4 driver scripts updated from
+  `e7489216...` (r01) to `d13b6a8b...` (r02).
+
+#### r01 — Initial WDAC SPF orchestrator
+- **Added**: External orchestrator for WS2019 / WS2016 WDAC Single
+  Policy Format (SPF) policy build / deploy / manage. Eight Actions
+  (`GetStatus` / `AddCert` / `RemoveCert` / `Verify` / `Uninstall` /
+  `Repair` / `ComputeCanonicalHash` / `ComputeOwnCanonicalHash`)
+  plus `Help`. JSON output envelope, granular exit codes (0/1/2/3/4),
+  project-reserved Policy GUID
+  `{DDF8C2DA-A1B2-4D52-B551-446570577053}`, per-host state under
+  `%ProgramData%\Deploy-Drivers-For-WindowsServer\wdac\`, atomic
+  manifest writes via temp + `Move-Item`, six-state model
+  (`None` / `Ours-Healthy` / `Ours-Stale` / `Ours-Tampered` /
+  `Foreign` / `Inconsistent`), foreign-policy backup and restore.
+
 ---
 
 ## Cross-script consistency releases
@@ -1532,6 +1745,7 @@ ThinkCentre M75q Tiny Gen 2 (WS2025) and ThinkPad X13 Gen 1 AMD
 
 | Discovery environment | Found-in | Fixed-in | Summary |
 |---|---|---|---|
+| ThinkPad X13 Gen 1 (WS2019 + Renoir + Secure Boot ON, 2026-05-23) | WDAC SPF orchestrator r03 | WDAC SPF orchestrator r04 | `Add-HistoryEntry` `param()` block declared `[string]$Script:CertThumbprint = ''` — a scope-qualified parameter name that PowerShell's parser silently accepts as a literally-named parameter `Script:CertThumbprint` (colon included). All callers passing `-CertThumbprint $thumb` fail at the binding stage with "A parameter cannot be found that matches parameter name 'CertThumbprint'". The failure occurs **after** `SiPolicy.p7b` deployment and **after** the WMI `PS_UpdateAndCompareCIPolicy.Update()` activation, but **before** `manifest.json` is written, so each subsequent invocation finds the host in a "stuck Foreign" state. PSScriptAnalyzer's stock rules do not flag this construct. See SPEC §D.25 Status r04 and the new "Recommendation: scope-qualified parameter declarations in `param()` blocks" subsection. |
 | ThinkPad X13 Gen 1 (Win11 24H2) | Chipset r45 | r46 | Timezone bug in `Compare-InfDriverVer` (UTC midnight `DriverDate` converted to local 09:00, causing same-version to report as "current newer than patched"). See SPEC §D.1. |
 | ThinkPad X13 Gen 1 (Win11 24H2) | Chipset r45 / Graphics r14 | r46 / r15 | P05 / P00 displayed `Host OS: Windows Server 2025` even on Workstation hosts. Now shows actual `Caption` plus mapped profile side by side. |
 | ThinkPad X13 Gen 1 (Win11 24H2) | Graphics r14 | r16 / r47 | V05 "would upgrade 1067/1067 matched device(s)" inflation. Fixed by deduplication on physical DeviceID. |

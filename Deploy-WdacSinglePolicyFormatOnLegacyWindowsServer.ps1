@@ -265,7 +265,7 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'wdac-2026.05.23-r03'
+$Script:ScriptVersion = 'wdac-2026.05.23-r04'
 $Script:ScriptTag     = 'sister-script-seeded-from-chipset-r66'
 $Script:ScriptHash    = '(unknown)'
 try {
@@ -2828,10 +2828,20 @@ function Save-Manifest {
 }
 
 function Add-HistoryEntry {
+    # NOTE (r04): the $CertThumbprint parameter MUST NOT be declared with a
+    # scope qualifier (e.g. $Script:CertThumbprint) in this param() block.
+    # PowerShell's param() parser does NOT reject the scope-prefixed form
+    # at parse time; instead it silently declares a literally-named
+    # parameter "Script:CertThumbprint" (colon included), with the side
+    # effect that callers passing -CertThumbprint $thumb fail at the
+    # parameter binding stage with "A parameter cannot be found that
+    # matches parameter name 'CertThumbprint'". See SPEC.md §D.25 Status
+    # r04 for the WS2019 + Renoir validation that surfaced this and the
+    # generally-applicable lesson on PSScriptAnalyzer / psa.py gaps.
     param(
         [Parameter(Mandatory=$true)]$Manifest,
         [Parameter(Mandatory=$true)][string]$ActionName,
-        [string]$Script:CertThumbprint   = '',
+        [string]$CertThumbprint   = '',
         [string]$Caller           = '',
         [string]$CallerVersion    = '',
         [string]$StateBefore      = '',
@@ -2841,7 +2851,7 @@ function Add-HistoryEntry {
     $entry = [pscustomobject]@{
         timestamp             = (New-IsoTimestamp)
         action                = $ActionName
-        certThumbprint        = $Script:CertThumbprint
+        certThumbprint        = $CertThumbprint
         callerScript          = $Caller
         callerScriptVersion   = $CallerVersion
         stateBefore           = $StateBefore
