@@ -165,7 +165,7 @@ independently.
      2. `Disable-PnpDevice` + `Enable-PnpDevice` (WS2019+)
      3. `pnputil /remove-device` + `/scan-devices` (all WS)
      4. `Stop-Service BthPan` + `Start-Service BthPan` (all WS)
-   - Capability detection (`Get-RebindCapabilities`) selects available
+   - Capability detection (`Get-RebindCapability`) selects available
      attempts; missing cmdlets are gracefully skipped on WS2016.
    - On success, promotes `I04OverallResult` to `TrueResolution` and
      clears the pending-reboot marker via `Clear-PendingRebootMarker`.

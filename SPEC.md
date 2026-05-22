@@ -2433,7 +2433,7 @@ The phase activates **only** when `$Ctx.I04OverallResult -eq 'PartialOrPhantom'`
 | 3 | `pnputil.exe /remove-device <id>` → `pnputil.exe /scan-devices` | WS2016+ |
 | 4 | `Stop-Service BthPan` → `Start-Service BthPan` | All WS |
 
-Capability detection is centralized in `Get-RebindCapabilities`, which probes `Get-Command` for each cmdlet and returns a `[pscustomobject]` flag bag. Missing cmdlets on WS2016 cause the corresponding attempts to be skipped (not error out).
+Capability detection is centralized in `Get-RebindCapability`, which probes `Get-Command` for each cmdlet and returns a `[pscustomobject]` flag bag. Missing cmdlets on WS2016 cause the corresponding attempts to be skipped (not error out).
 
 On success: `$Ctx.I04OverallResult` is **promoted** to `'TrueResolution'`, `$Ctx.I05OverallResult = 'Recovered'`, and `Clear-PendingRebootMarker` is called to suppress the spurious reboot request. On exhaustion: `$Ctx.I05OverallResult = 'StillFailing'` and the reboot request stands.
 

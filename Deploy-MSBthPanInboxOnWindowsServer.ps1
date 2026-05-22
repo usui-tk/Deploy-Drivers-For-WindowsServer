@@ -4978,7 +4978,7 @@ function Test-BthPanRuntimeArtifacts { # psa-disable-line PSA6003 -- compound no
     }
 }
 
-function Get-RebindCapabilities {
+function Get-RebindCapability {
     <#
     .SYNOPSIS
         Probe the host for available rebind cmdlets (Multi-OS support).
@@ -9371,7 +9371,7 @@ function Invoke-InstPhase05_ForceRebind {
           Attempt 3: pnputil /remove-device + /scan-devices  (all WS)
           Attempt 4: Stop + Start BthPan service             (all WS)
 
-        Capability detection (Get-RebindCapabilities) selects available
+        Capability detection (Get-RebindCapability) selects available
         attempts; missing cmdlets are gracefully skipped to support
         WS2016 where Restart-PnpDevice may be absent.
 
@@ -9399,7 +9399,7 @@ function Invoke-InstPhase05_ForceRebind {
 
     Set-DebugStep 'I05 Section 1: detect available rebind capabilities'
     Write-SubHeader 'I05 Section 1: Rebind capability detection (Multi-OS)'
-    $caps = Get-RebindCapabilities
+    $caps = Get-RebindCapability
     Write-Detail ('  Restart-PnpDevice (WS2019+)          : {0}' -f $caps.RestartPnp)
     Write-Detail ('  Disable+Enable-PnpDevice (WS2019+)   : {0}' -f $caps.DisableEnable)
     Write-Detail ('  pnputil.exe (all WS versions)        : {0}' -f $caps.Pnputil)
