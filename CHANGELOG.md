@@ -22,6 +22,142 @@ independently.
 
 ## [Unreleased]
 
+### Added
+- **Chipset r65 — `phantom-file-reference-skip`.** Add detect-and-skip
+  pipeline support for AMD INFs that declare files in
+  `[SourceDisksFiles]` which are not physically packaged in the AMD
+  MSI cabinet. Observed on `AMDCIR.inf` in Chipset Software
+  `8.05.04.516`: the dual-arch INF declares both `AMDCIR.sys` (32-bit)
+  and `AMDCIR64.sys` (64-bit) in `[SourceDisksFiles]`, but the MSI
+  cabinet only ships the 64-bit binary. `msiexec /a` fails with exit
+  `1603` (SECREPAIR `Error: 3`) and `inf2cat` subsequently fails with
+  error `22.9.1` ("amdcir.sys is missing or cannot be decompressed").
+
+  **What was added:**
+  - **New `Get-InfReferencedFiles` helper function** (chipset script):
+    parses an INF's `[SourceDisksFiles*]` sections and returns a list
+    of declared filenames with a `Present` flag indicating whether
+    each file physically exists in the INF's directory. Scope is
+    deliberately narrow (no `[CopyFiles]` walk, no `SourceDisksNames`
+    subdir resolution); the AMD chipset package's flat layout makes
+    these unnecessary for now and the function can be extended later
+    if needed.
+  - **P05 (AnalyzeInfs) extension**: three new columns added to
+    `inf_inventory.csv` and `$Ctx.InfInventoryDetail`:
+    `ReferencedFilesCount` (count from `[SourceDisksFiles*]`),
+    `MissingReferencedFiles` (`;`-joined list of names not on disk;
+    empty when all present), and `EligibleForCatalog` (boolean). The
+    existing `NeedsPatch` column now ANDs in `EligibleForCatalog` so
+    an ineligible INF is never decorated unnecessarily.
+  - **P05 console output**: when one or more SELECTED-variant INFs
+    are ineligible, P05 emits a warning summary block listing each
+    ineligible INF and its missing files, plus a one-line statement
+    of which downstream phases will skip the INF.
+  - **P05 phase marker**: `Ineligible=$N` metadata field added
+    alongside the existing `Total` / `Selected` fields.
+  - **P06 (PatchInfs) notification**: ineligible INFs still flow
+    through the `copyOnly` path (preserving traceability per case
+    alpha), but P06 now emits an informational log line listing them
+    so operators understand which INFs in `patched/` are not
+    candidates for catalog generation.
+  - **P08 (GenerateCatalogs) skip filter**: the inf2cat loop now
+    iterates `$infDirsToProcess` (= `$infDirs` minus the directories
+    whose INFs are ineligible). The skip count is reported in the
+    new tri-state summary line `Catalog generation: N ok / M failed /
+    K skipped (using /os:...)` (the legacy two-state form is
+    preserved when `K = 0`). The "EVERYTHING failed" throw now
+    checks the post-filter count so a workspace where all INFs are
+    ineligible reports `0/0/N` rather than throwing.
+  - **P08 phase marker**: `Skipped=$K` metadata field added.
+  - **V03 (`VerifyCatalogs`) informational notice**: when ineligible
+    INFs exist, V03 emits a one-time `[~]` notice listing them; the
+    enumeration of `.cat` files itself naturally excludes them (no
+    `.cat` was produced by P08), so V03's per-catalog loop is
+    unchanged.
+  - **V04 (`VerifyInfs`) skip filter**: the ProductType=3 decoration
+    check now iterates only eligible INFs. The summary line is
+    extended to a tri-state form `INF verification: N ok / M missing
+    decoration / K skipped` (the legacy two-state form is preserved
+    when `K = 0`). Ineligible INFs are listed in a dedicated `[~]`
+    block under the loop.
+  - **V05 (`DryRunInstall`) skip filter**: the I03 dry-run
+    sub-section excludes ineligible INFs from the install plan with
+    a `[~]  Excluding N INF(s) from dry-run plan ...` block, so the
+    dry-run output reflects exactly what I03 will actually do.
+  - **V06 (`HardwareImpactAnalysis`) skip filter**: the
+    `Build-PatchedInfHwidIndex` helper now excludes ineligible INFs
+    from the HWID-to-INF lookup. V06's AS-IS / TO-BE comparison
+    therefore does not propose ineligible INFs as TO-BE candidates
+    for any matched device. V06 also emits a `[~]` notice at the
+    top of its output so the operator understands the exclusion.
+  - **I03 (`InstallDrivers`) skip filter**: ineligible INFs are
+    filtered out at the enumeration stage, before pnputil is
+    invoked. A `[~]  Excluding N ineligible INF(s) from install ...`
+    block lists them with the explanation "no .cat exists; would
+    have failed pnputil signature check". When the filter leaves
+    zero INFs (e.g. wholly broken AMD package), I03 reports
+    success-no-op rather than throwing.
+  - **Two new top-level helper functions**: `Get-IneligibleInfLookup
+    -Ctx $Ctx` builds a path-keyed hashtable of ineligible INFs
+    from the inventory (with CSV fallback for standalone phase
+    execution); `Test-InfIsIneligible -Ctx $Ctx -InfFullName $path
+    -Lookup $lookup` is the per-INF skip-decision helper. Both are
+    consumed by V03 / V04 / V05 / V06 / I03 to ensure a single
+    source of truth for the skip predicate.
+
+  **Behavior on the observed Renoir + WS2019 case**:
+  - Before: `Catalog generation: 59 ok / 1 failed (using /os:ServerRS5_X64)` + V04 verifies all 60 INFs + V05/V06 list AMDCIR.inf in dry-run output + I03 attempts CIR install
+  - After:  `Catalog generation: 59 ok / 0 failed / 1 skipped` + V04 verifies 59 INFs (1 skipped) + V05/V06 exclude AMDCIR.inf from dry-run / TO-BE + I03 excludes AMDCIR.inf from install loop
+
+  **Backwards compatibility**:
+  - Pre-r65 `inf_inventory.csv` files (loaded via P06's CSV fallback
+    or P08's / V03's / V04's / V05's / V06's / I03's standalone-
+    execution fallback) lack the `EligibleForCatalog` column. The
+    filter treats this absence as "eligible" (legacy behavior
+    preserved); the lookup is empty, and all per-phase loops execute
+    exactly as in r64.
+  - The `NeedsPatch=true && EligibleForCatalog=false` combination is
+    impossible by construction; existing consumers that filter on
+    `NeedsPatch` alone are unaffected.
+  - All new code paths are guarded by `Lookup.Count -gt 0` so
+    workspaces with no phantom-file-reference INFs produce
+    byte-identical pipeline output to r64.
+
+  **Also extends to a new P04 sub-MSI 1603 pattern classification**
+  entry: `SEC(URE)?REPAIR:\s+.*Error:\s*3` → `1603: SECREPAIR
+  missing source files (AMD MSI packaging defect; sub-MSI declares
+  files in File table that are not packaged in its cabinet)`.
+  Before this revision, the same 12 sub-MSI failures observed in
+  Chipset 8.05.04.516 were all classified as `unknown` in
+  `submsi-failures-diag.txt`'s pattern-frequency summary.
+
+  **Files touched**:
+  - `Deploy-AMDChipsetDriverOnWindowsServer.ps1` (+482 / -16 lines):
+    `$Script:ScriptVersion` → `chipset-2026.05.22-r65`,
+    `$Script:ScriptTag` → `phantom-file-reference-skip`,
+    three new top-level helper functions (`Get-InfReferencedFiles`,
+    `Get-IneligibleInfLookup`, `Test-InfIsIneligible`), one new
+    elseif in the P04 sub-MSI pattern classifier, the P05 phantom
+    file detection / display / phase-marker changes, P06 copy-only
+    notification, P08 filter + tri-state summary, V03 informational
+    notice, V04 / V05 / I03 skip filters with dedicated reporting,
+    V06 inventory-aware index exclusion plus pre-section notice.
+  - `SPEC.md`: new §D.24 (Phantom file reference detection +
+    pipeline-wide skip), §D.21 pattern table extended with the
+    SECREPAIR row.
+  - `TESTING.md`: new §10.5d (Chipset phantom file reference
+    detection + P08 skip) with both reproduction-on-defective-
+    package and no-op-on-clean-package test plans.
+  - `CHANGELOG.md`: this entry.
+
+  **Verification status**:
+  - WS2019 + Renoir (Ryzen 5 PRO 4650U) with AMD Chipset Software
+    8.05.04.516: target environment for r65; verification pending
+    against the same workspace that originally reported the CIR
+    failure.
+  - WS2022 / WS2025: not yet verified; functional behavior should
+    be unchanged on hosts where no INF has phantom file references.
+
 ### Documentation
 - **SPEC.md A.2 expansion + new D.23 lessons-learned entry — `encoding-and-line-endings-comprehensive`.**
   Documentation-only revision (no `.ps1` content change; revision counters

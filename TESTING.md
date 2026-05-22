@@ -1240,6 +1240,85 @@ diff <(sed -n '/^function Get-DriverSourceCategory/,/^}$/p' Deploy-AMDChipsetDri
 # Expected: no output (zero diff).
 ```
 
+### 10.5d Chipset phantom file reference detection + P08 skip (SPEC §D.24)
+
+**Pre-fix symptom** (r64): P08 reports `Catalog generation: 59 ok / 1 failed (using /os:ServerRS5_X64)` on AMD Chipset Software 8.05.04.516 against Renoir + WS2019. The single failure is `Chipset_Software_CIR_Driver_WTx64` with inf2cat error `22.9.1: amdcir.sys ... is missing or cannot be decompressed`. P04's `submsi-failures-diag.txt` classifies all 12 sub-MSI failures as `unknown`.
+
+**Regression test (r65)** — natural reproduction on the same environment:
+
+1. WS2019 host (build 17763), AMD Ryzen 5 PRO 4650U (Renoir) or any AMD platform that does **not** include a Consumer Infrared device.
+2. Run `.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot`.
+
+| Observation | Pre-fix (r64) | Post-fix (r65) |
+|---|---|---|
+| P04 `submsi-failures-diag.txt` `Failure pattern frequency` | `12 x unknown` | `12 x 1603: SECREPAIR missing source files (AMD MSI packaging defect; ...)` |
+| P05 console output for the CIR Driver | (not surfaced) | `[!] INFs ineligible for catalog generation (phantom file references): 1` block listing `AMDCIR.inf` with `missing: AMDCIR.sys` |
+| P05 `inf_inventory.csv` new columns | absent | `ReferencedFilesCount`, `MissingReferencedFiles`, `EligibleForCatalog` |
+| P05 phase marker metadata | `{Total, Selected, CsvPath, ReportPath, Variants}` | adds `Ineligible` |
+| P06 console output | (not surfaced) | `Note: 1 INF(s) will be copied for traceability but skipped at P08 ...` listing `AMDCIR.inf` |
+| P08 console output | `Generating catalogs for 60 INF folder(s)` then `inf2cat: [WTx64] Chipset_Software_CIR_Driver_WTx64` `[!] FAILED (exit=-2)` | `[~]  Skipping 1 INF folder(s) due to phantom file references (SPEC D.24):` block listing the CIR Driver, then `Generating catalogs for 59 INF folder(s)` |
+| P08 summary line | `Catalog generation: 59 ok / 1 failed (using /os:ServerRS5_X64)` | `Catalog generation: 59 ok / 0 failed / 1 skipped (using /os:ServerRS5_X64)` |
+| P08 phase marker metadata | `{Ok, Failed, OsArg}` | adds `Skipped` |
+| P09 signing count | `59 ok / 0 failed` | unchanged (`59 ok / 0 failed`) — P09 enumerates `.cat` files; the CIR Driver folder has no `.cat` so P09 has nothing to act on for it |
+| V03 console output | (no notice) | `[~]  Not verifying 1 INF folder(s) - no .cat exists (skipped at P08; phantom file references, SPEC D.24)` block listing `Chipset_Software\CIR Driver\WTx64\AMDCIR.inf`. The 59-catalog `Verifying ...` loop is unchanged. |
+| V04 summary line | `INF verification: 60 ok / 0 missing decoration` | `INF verification: 59 ok / 0 missing decoration / 1 skipped` plus a `[~]` block listing `AMDCIR.inf` |
+| V05 I03 dry-run output | `60 INF(s) would be processed by 'pnputil /add-driver /install'` (with `AMDCIR.inf` appearing in Group B "no matching device") | `[~]  Excluding 1 INF(s) from dry-run plan ...` block listing `Chipset_Software\CIR Driver\WTx64\AMDCIR.inf`, then `59 INF(s) would be processed by 'pnputil /add-driver /install'` |
+| V06 output | `AMDCIR.inf` is listed under section 2 "Devices with NO matching patched INF" (as a fallback bucket entry) | `[~]  Excluding 1 ineligible INF(s) from TO-BE candidates (phantom file references, SPEC D.24):` block at the top of V06 listing `AMDCIR.inf`. Section 2's enumeration is unchanged for all other INFs. |
+| I03 console output (when `-Action Install` is run) | `pnputil` would attempt to install `AMDCIR.inf`; without a `.cat` it fails with `0x80004005` "the third-party INF does not contain digital signature information" | `[~]  Excluding 1 ineligible INF(s) from install ...` block listing `AMDCIR.inf` (with explanation "no .cat exists; would have failed pnputil signature check"). I03 then iterates only 59 INFs. |
+
+**Pass criterion**:
+
+- P05's `inf_inventory.csv` row for `AMDCIR.inf` has `EligibleForCatalog=False` and `MissingReferencedFiles=AMDCIR.sys`.
+- P08's tri-state summary line ends with `... / 1 skipped (using /os:ServerRS5_X64)`.
+- V04's tri-state summary line ends with `... / 1 skipped`.
+- V05's dry-run install plan reports 59 INFs (not 60).
+- V06's section 2 ("Devices with NO matching patched INF") no longer lists `AMDCIR.inf` as part of any device's TO-BE candidates.
+- I03's pnputil loop iterates 59 INFs and successfully completes without the `0x80004005` signature failure on the CIR Driver.
+- Zero pipeline failures end-to-end (the original P08 `1 failed` is eliminated).
+- `patched\Chipset_Software\CIR Driver\WTx64\` still contains `AMDCIR.inf` and `AMDCIR64.sys` (copied by P06 for traceability) but no newly-generated `amdcir.cat` (AMD's original 2015 `amdcir.cat` from the extracted tree is also not present in `patched/` because P06 only copies the source tree, and the script idempotently cleans existing `.cat` from each catalog target directory before inf2cat would have run; for the skipped directory, the cleanup step is itself skipped).
+
+**Verification commands**:
+
+```powershell
+# Verify the CSV column addition and ineligibility flagging.
+$csv = Import-Csv 'C:\Temp\Workspace_AMD-Chipset\inf_inventory.csv'
+$csv | Where-Object Inf -eq 'AMDCIR.inf' |
+    Select-Object Inf, SourceVariant, EligibleForCatalog, MissingReferencedFiles, ReferencedFilesCount
+
+# Expected (Renoir + WS2019 + Chipset 8.05.04.516):
+# Inf          : AMDCIR.inf
+# SourceVariant: WTx64
+# EligibleForCatalog    : False
+# MissingReferencedFiles: AMDCIR.sys
+# ReferencedFilesCount  : 2
+
+# Verify the sub-MSI pattern classifier picks up the SECREPAIR pattern.
+$diag = Get-Content 'C:\Temp\Workspace_AMD-Chipset\logs\submsi-failures-diag.txt'
+$diag | Select-String 'Failure pattern frequency' -Context 0,4
+
+# Expected (post-fix):
+# Failure pattern frequency:
+#     12 x 1603: SECREPAIR missing source files (AMD MSI packaging defect; ...)
+```
+
+**No-op test on a platform without the defect** (e.g. WS2025 + Phoenix Point with a newer Chipset Software version that doesn't include the dual-arch CIR Driver):
+
+| Observation | Expected |
+|---|---|
+| P05 `[!] INFs ineligible ...` block | absent (no INFs flagged) |
+| P05 inventory CSV new columns | present, all rows have `EligibleForCatalog=True` and empty `MissingReferencedFiles` |
+| P06 phantom file notification | absent |
+| P08 skip block | absent |
+| P08 summary line | reverts to legacy two-state form `Catalog generation: N ok / 0 failed (using /os:...)` |
+| P08 phase marker | includes `Skipped=0` |
+| V03 skip notice | absent |
+| V04 summary line | reverts to legacy two-state form `INF verification: N ok / 0 missing decoration` |
+| V05 dry-run skip block | absent |
+| V06 ineligible notice | absent |
+| I03 ineligible-INF skip block | absent |
+
+**Pass criterion (no-op test)**: pipeline behavior is identical to r64 on this platform; no spurious skip messages or count changes. All r65 code paths are guarded by `Lookup.Count -gt 0` (V03/V04/V05/V06/I03) or `$copyOnlyIneligible.Count -gt 0` (P06) or `$ineligibleDirs.Count -gt 0` (P08), so on a clean package the modifications are byte-identical-to-r64 silent.
+
 ### 10.6 Multi-OS support matrix
 
 Cross-script Multi-OS capability matrix to validate when expanding from the current WS2025-only validation to WS2022 / WS2019 / WS2016:

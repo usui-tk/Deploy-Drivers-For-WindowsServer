@@ -938,6 +938,14 @@ CPU core (`cpu.inf`)、PCI Express ルートポート (`pci.inf`)、ホスト CP
 - 実際の NPU 推論ワークロードには Windows 11 24H2 を使用する。
 - Server 2025 への install は kernel driver bring-up のみと位置付ける (lab / 研究)。
 
+### Chipset スクリプト "P08 で CIR Driver フォルダ (もしくは他の INF フォルダ) が '1 failed' と報告される"
+
+**Chipset r65 以降の mainline では自動的に処理されます。** AMD Chipset Software パッケージは、ごく稀に `[SourceDisksFiles]` で参照しているファイルが sub-MSI の cabinet に同梱されていない INF を出荷することがあります。最も再現性の高いケースは Chipset 8.05.04.516 + Renoir + WS2019 での `AMDCIR.inf` です。当該 INF は `[SourceDisksFiles]` で 32-bit `AMDCIR.sys` と 64-bit `AMDCIR64.sys` の両方を宣言していますが、sub-MSI の cabinet には 64-bit バイナリしか同梱されていません。このため `inf2cat.exe` が error 22.9.1 ("driver package is missing some files") を出して P08 で失敗していました。上流の原因は sub-MSI の `msiexec /a` ログに見える `SECREPAIR Error: 3` cascade です。
+
+r65 では本欠陥を P05 で検出します (新規ヘルパー `Get-InfReferencedFiles` が、すべての patched INF の `[SourceDisksFiles]` を P04 で実際に展開されたファイルと突き合わせます)。結果は `inf_inventory.csv` の新規列 `EligibleForCatalog` に記録され、P06 / P08 / V03 / V04 / V05 / V06 / I03 へ skip 状態が伝播されます。期待される P08 のサマリーは tri-state 形式 (`N ok / 0 failed / K skipped`) となり、本来 failure として扱う必要のなかった件数は skipped として正しく分類されます。詳細な根本原因解析と各フェーズの挙動は [SPEC §D.24](./SPEC.md)、実装ノートは [CHANGELOG.md](./CHANGELOG.md) の r65 エントリを参照してください。`submsi-failures-diag.txt` のパターン頻度集計でも、当該 1603 群は `SECREPAIR missing source files` として正しく分類されます (SPEC §D.21)。
+
+r65 以降でなお P08 が fail する場合は、影響を受けている INF が別の failure mode を示している可能性があります。INF 名と `[P08]` コンソールブロック全文を添えて Issue を起票してください。
+
 ---
 
 ## 開発ツール

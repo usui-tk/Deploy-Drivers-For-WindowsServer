@@ -627,8 +627,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.05.22-r64'
-$Script:ScriptTag     = 'detection-accuracy-multi-os'
+$Script:ScriptVersion = 'chipset-2026.05.22-r65'
+$Script:ScriptTag     = 'phantom-file-reference-skip'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -5855,6 +5855,7 @@ function Expand-AmdInstaller_ViaInstallShield {
                     if     ($joined -match 'Error 1304') { $pattern = '1304: target file in use / locked' }
                     elseif ($joined -match 'Error 1335') { $pattern = '1335: source cabinet corrupt' }
                     elseif ($joined -match 'Error 1612') { $pattern = '1612: source unavailable' }
+                    elseif ($joined -match 'SEC(URE)?REPAIR:\s+.*Error:\s*3') { $pattern = '1603: SECREPAIR missing source files (AMD MSI packaging defect; sub-MSI declares files in File table that are not packaged in its cabinet)' }
                     elseif ($joined -match 'Error 1925') { $pattern = '1925: per-machine requires elevation' }
                     elseif ($joined -match 'Action ended.*Failed') { $pattern = 'custom action failure' }
                     elseif ($joined -match 'Out of disk space') { $pattern = 'disk full' }
@@ -6299,6 +6300,111 @@ function Get-InfMetadata {
         ManufacturerEntries   = $mfgSectionNames.Count   # number of distinct mfg sections (>1 = multi-mfg INF)
         ModelsSectionsScanned = $modelsSectionsScanned   # number of [Mfg.NT...] sections that were scanned
     }
+}
+
+function Get-InfReferencedFiles {
+    # Enumerate filenames declared in an INF's [SourceDisksFiles] (and
+    # [SourceDisksFiles.<arch>]) sections and check whether each file
+    # physically exists in the INF's directory. Returns an array of
+    # [pscustomobject] with the following shape:
+    #
+    #   Name     : filename as it appears in the INF (case preserved)
+    #   Section  : the [SourceDisksFiles*] section it came from
+    #   Present  : $true if a matching file is on disk
+    #   Path     : full path of the matching file ($null if missing)
+    #
+    # WHY THIS FUNCTION EXISTS:
+    # Some legacy AMD INFs (notably AMDCIR.inf in Chipset Software
+    # 8.05.04.516) are dual-arch INFs that declare both a 32-bit
+    # binary (e.g. AMDCIR.sys) and a 64-bit binary (e.g. AMDCIR64.sys)
+    # in [SourceDisksFiles]. The AMD MSI's File table references files
+    # for multiple OS variants (W7x64 / W7x86 / WTx64 / WTx86), but
+    # the MSI cabinet only ships a subset (WTx64 in the CIR case).
+    # When msiexec /a fails with 1603 during SECREPAIR, the WTx64
+    # files are extracted but the 32-bit binary is never produced.
+    # Subsequent inf2cat invocation then fails with error 22.9.1
+    # ("amdcir.sys is missing or cannot be decompressed").
+    #
+    # Detecting this situation up-front (in P05) lets P06 / P08 / P09
+    # / V03..V06 / I03 skip the affected INF cleanly instead of
+    # producing a confusing FAILED status downstream.
+    #
+    # SCOPE:
+    # This function ONLY checks files declared in [SourceDisksFiles*]
+    # sections. It does NOT walk [DestinationDirs] or [CopyFiles]
+    # references separately, because [SourceDisksFiles*] is the
+    # canonical source-file manifest per INF spec section 4.1.10. A
+    # missing file at this layer is sufficient to fail inf2cat.
+    #
+    # Files are searched only in the INF's own directory (no recursion).
+    # Subdir resolution via SourceDisksNames is deliberately NOT
+    # implemented yet; the AMD chipset package keeps source files
+    # alongside the INF, so a flat lookup suffices for the supported
+    # universe. Future packages with multi-disk layouts may need
+    # extension here.
+    param(
+        [Parameter(Mandatory)] [string]$Content,
+        [Parameter(Mandatory)] [string]$InfDirectory
+    )
+
+    $result = New-Object System.Collections.Generic.List[pscustomobject]
+    if (-not (Test-Path -LiteralPath $InfDirectory)) {
+        return @($result.ToArray())
+    }
+
+    # Inline section parser. Keep this self-contained so the function
+    # has no dependency on Get-InfMetadata's nested helpers.
+    $sections = [ordered]@{}
+    $current = $null
+    $buf = New-Object System.Collections.Generic.List[string]
+    foreach ($line in ($Content -split "`r?`n")) {
+        $trim = $line.Trim()
+        if ($trim -match '^\s*\[([^\]]+)\]\s*$') {
+            if ($current) { $sections[$current] = $buf.ToArray() }
+            $current = $matches[1].Trim()
+            $buf = New-Object System.Collections.Generic.List[string]
+            continue
+        }
+        if ($current) { [void]$buf.Add($line) }
+    }
+    if ($current) { $sections[$current] = $buf.ToArray() }
+
+    # Pre-compute the case-insensitive set of filenames physically
+    # present in $InfDirectory. Get-ChildItem on Windows is
+    # case-insensitive by default but PSA static analysis prefers
+    # explicit invariant comparison.
+    $physicalNames = @{}
+    Get-ChildItem -LiteralPath $InfDirectory -File -ErrorAction SilentlyContinue | ForEach-Object {
+        $physicalNames[$_.Name.ToLowerInvariant()] = $_.FullName
+    }
+
+    # Scan [SourceDisksFiles] and [SourceDisksFiles.<arch>] sections.
+    # Each entry has form:  filename = diskid[,subdir[,size]]
+    # We only care about the filename (LHS of '=').
+    $seenLower = @{}
+    foreach ($secName in $sections.Keys) {
+        if ($secName -notmatch '^SourceDisksFiles($|\.)') { continue }
+        foreach ($ln in $sections[$secName]) {
+            $t = $ln.Trim().TrimEnd("`r")
+            if (-not $t -or $t.StartsWith(';')) { continue }
+            if ($t -notmatch '^\s*([^=\s;][^=]*?)\s*=') { continue }
+            $fname = $matches[1].Trim()
+            $lower = $fname.ToLowerInvariant()
+            # Deduplicate: the same filename can appear in both
+            # [SourceDisksFiles] and [SourceDisksFiles.amd64]; we
+            # only need to report it once.
+            if ($seenLower.ContainsKey($lower)) { continue }
+            $seenLower[$lower] = $true
+            $present = $physicalNames.ContainsKey($lower)
+            [void]$result.Add([pscustomobject]@{
+                Name    = $fname
+                Section = $secName
+                Present = $present
+                Path    = if ($present) { $physicalNames[$lower] } else { $null }
+            })
+        }
+    }
+    return @($result.ToArray())
 }
 
 function Write-InfFile {
@@ -7374,6 +7480,19 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
         $meta = Get-InfMetadata -Content $infData.Content
         $relDir = if ($rel.Contains('\')) { Split-Path $rel -Parent } else { '' }
 
+        # Phantom file reference detection (r65, SPEC D.24): inspect
+        # the INF's [SourceDisksFiles*] declarations and check whether
+        # each referenced file physically exists in the INF's own
+        # directory. If any are missing, the INF is ineligible for
+        # catalog generation regardless of decoration state. The
+        # downstream pipeline (P06 copy / P08 inf2cat / P09 sign /
+        # V03..V06 / I03) reads EligibleForCatalog to skip cleanly.
+        $infDir = Split-Path $inf.FullName -Parent
+        $refFiles = Get-InfReferencedFiles -Content $infData.Content -InfDirectory $infDir
+        $missingRefs = @($refFiles | Where-Object { -not $_.Present })
+        $missingRefsList = ($missingRefs | ForEach-Object { $_.Name }) -join ';'
+        $eligibleForCatalog = ($missingRefs.Count -eq 0)
+
         [pscustomobject]@{
             Inf             = $inf.Name
             RelativePath    = $rel
@@ -7386,7 +7505,8 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
             NeedsPatch      = (
                 ($infData.Content -match '\[Manufacturer\]') -and
                 -not (Test-InfHasServerDecoration -Content $infData.Content) -and
-                ($preferredVariants -contains $variant)
+                ($preferredVariants -contains $variant) -and
+                $eligibleForCatalog
             )
             Provider        = $meta.Provider
             Class           = $meta.Class
@@ -7399,6 +7519,10 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
             # Diagnostic fields (used by P05 display to detect parser/INF format mismatches):
             ManufacturerEntries   = $meta.ManufacturerEntries
             ModelsSectionsScanned = $meta.ModelsSectionsScanned
+            # Phantom file reference fields (r65, SPEC D.24):
+            ReferencedFilesCount    = $refFiles.Count
+            MissingReferencedFiles  = $missingRefsList   # ';'-joined; empty when none missing
+            EligibleForCatalog      = $eligibleForCatalog
         }
     }
     # Stash the rich detail (with Devices array) on the context so
@@ -7429,6 +7553,13 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
             CatalogFile     = $_.CatalogFile
             Manufacturer    = $_.Manufacturer
             DeviceCount     = $_.DeviceCount
+            # Phantom file reference columns (r65, SPEC D.24). Position
+            # before DeviceList so the typical CSV viewer column order
+            # surfaces the new diagnostic data near the existing
+            # eligibility-like columns (NeedsPatch / HasMfg).
+            ReferencedFilesCount    = $_.ReferencedFilesCount
+            MissingReferencedFiles  = $_.MissingReferencedFiles
+            EligibleForCatalog      = $_.EligibleForCatalog
             DeviceList      = $deviceList
         }
     }
@@ -7452,6 +7583,28 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     # ---- Per-variant detailed listing (human-readable) ----
     Write-InfInventorySummary -Detail $detailReport -PreferredVariants $preferredVariants
 
+    # ---- Phantom file reference summary (r65, SPEC D.24) ----
+    # Surface any INFs from the SELECTED variant that have missing
+    # source files. These will be skipped by P06 copy / P08 inf2cat /
+    # P09 sign / V03..V06 / I03. INFs from non-selected variants are
+    # already excluded by the variant filter, so they're not relevant
+    # here even if they also have phantom references.
+    $ineligible = @($detailReport | Where-Object {
+        $_.VariantSelected -and (-not $_.EligibleForCatalog)
+    })
+    if ($ineligible.Count -gt 0) {
+        Write-Host ''
+        Write-Warn2 "INFs ineligible for catalog generation (phantom file references): $($ineligible.Count)"
+        Write-Detail "  Cause   : AMD MSI packaging defect (declared source files not packaged in cabinet)" -Color DarkGray
+        Write-Detail "  Action  : P06 will skip-copy / P08 will skip inf2cat / P09 will skip sign / V03..V06 + I03 will skip" -Color DarkGray
+        Write-Detail "  Tracked : MissingReferencedFiles column in inf_inventory.csv" -Color DarkGray
+        Write-Host ''
+        foreach ($e in $ineligible) {
+            Write-Detail ("  - {0,-30}  variant={1,-6}  missing: {2}" -f $e.Inf, $e.SourceVariant, $e.MissingReferencedFiles) -Color Yellow
+        }
+        Write-Host ''
+    }
+
     # Write a more detailed flat report alongside the CSV, suitable
     # for pasting into change-management documents.
     Set-DebugStep 'export inventory text report'
@@ -7467,9 +7620,10 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
 
     $totalSelected = @($report | Where-Object NeedsPatch).Count
     $totalAll = $report.Count
+    $totalIneligible = $ineligible.Count
     Write-Ok "Inventory: $csvPath ($totalAll total / $totalSelected selected for patching from $($preferredVariants -join '+'))"
     Write-Ok "Detail   : $reportTxtPath"
-    Set-PhaseMarker -Ctx $Ctx -PhaseId 'P05' -Metadata @{ Total=$totalAll; Selected=$totalSelected; CsvPath=$csvPath; ReportPath=$reportTxtPath; Variants=($preferredVariants -join ',') }
+    Set-PhaseMarker -Ctx $Ctx -PhaseId 'P05' -Metadata @{ Total=$totalAll; Selected=$totalSelected; Ineligible=$totalIneligible; CsvPath=$csvPath; ReportPath=$reportTxtPath; Variants=($preferredVariants -join ',') }
     Write-PhaseFooter 'P05' 'done'
 }
 
@@ -7534,6 +7688,17 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
         -not ($_.NeedsPatch -eq $true -or $_.NeedsPatch -eq 'True')
     })
 
+    # Phantom file reference notification (r65, SPEC D.24): identify
+    # which of the copy-only INFs are ineligible for catalog generation.
+    # These INFs are still physically copied to patched/ for diagnostic
+    # traceability (per case alpha) and so that V04 / V06 can still
+    # inspect them, but downstream P08 will skip inf2cat for the
+    # directories containing them, and V03/V05/I03 will skip their
+    # would-be .cat artifacts.
+    $copyOnlyIneligible = @($copyOnly | Where-Object {
+        -not ($_.EligibleForCatalog -eq $true -or $_.EligibleForCatalog -eq 'True')
+    })
+
     # Show variant distribution of what will be patched (echoes what
     # P05 already showed, but useful here when running P06 standalone).
     $skippedAll = @($Ctx.InfInventory | Where-Object {
@@ -7548,6 +7713,13 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
     if ($skippedByVariant) {
         $skipSummary = ($skippedByVariant | ForEach-Object { "$($_.Name)=$($_.Count)" }) -join ', '
         Write-Detail "Skipping $($skippedAll.Count) INF(s) not in scope for host OS: $skipSummary" -Color DarkGray
+    }
+    if ($copyOnlyIneligible.Count -gt 0) {
+        Write-Detail ("Note: {0} INF(s) will be copied for traceability but skipped at P08 (phantom file references):" -f $copyOnlyIneligible.Count) -Color DarkGray
+        foreach ($e in $copyOnlyIneligible) {
+            $missing = if ($e.MissingReferencedFiles) { $e.MissingReferencedFiles } else { '(unknown)' }
+            Write-Detail ("  - {0,-30}  missing: {1}" -f $e.Inf, $missing) -Color DarkGray
+        }
     }
     Write-Step "Patching $($needsPatch.Count) INF file(s)..."
 
@@ -7986,13 +8158,92 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
     Write-Detail "catalog's target OS (= host), not the INF's source folder." -Color DarkGray
     Write-Host ''
 
-    Write-Step "Generating catalogs for $($infDirs.Count) INF folder(s) using /os:$chosenOs"
+    # ============================================================
+    # PHANTOM FILE REFERENCE FILTER (r65, SPEC D.24)
+    # ============================================================
+    # Some legacy AMD INFs (notably AMDCIR.inf in Chipset Software
+    # 8.05.04.516) declare files in [SourceDisksFiles] that are not
+    # physically packaged in the AMD MSI cabinet. inf2cat would fail
+    # with error 22.9.1 for these directories. P05 detects this
+    # condition and records it in $Ctx.InfInventory under the columns
+    # MissingReferencedFiles + EligibleForCatalog. Here we honor that
+    # decision by excluding the affected directories from the
+    # inf2cat loop.
+    #
+    # Fallback: if -OnlyPhases P08 was used without re-running P05
+    # in the same session, $Ctx.InfInventory may be unset; we then
+    # try to read inf_inventory.csv from the workspace root. If the
+    # CSV is also absent (e.g. very old workspace prior to r65),
+    # this filter degrades to a no-op and the legacy behavior is
+    # preserved.
+    Set-DebugStep 'P08: load inventory for phantom file reference filtering'
+    if (-not $Ctx.InfInventory) {
+        $csv = Join-Path $Ctx.Paths.Root 'inf_inventory.csv'
+        if (Test-Path -LiteralPath $csv) {
+            try { $Ctx.InfInventory = Import-Csv -LiteralPath $csv } catch {} # psa-disable-line PSA3004 -- best-effort load; missing CSV is handled below
+        }
+    }
+
+    $ineligibleDirs = @()
+    $infDirsToProcess = @($infDirs)
+    if ($Ctx.InfInventory) {
+        # Build a lookup keyed by RelativeDir (lowercased). We only
+        # treat VariantSelected=true && EligibleForCatalog=false rows
+        # as ineligible: non-selected variants were never copied to
+        # patched/ by P06 in the first place, so they would not
+        # appear in $infDirs anyway.
+        $ineligibleRelDirs = @{}
+        foreach ($row in $Ctx.InfInventory) {
+            $isVariantSelected = ($row.VariantSelected -eq $true -or $row.VariantSelected -eq 'True')
+            # Pre-r65 CSVs lack EligibleForCatalog. Absence is treated
+            # as "eligible" (preserves legacy behavior).
+            $hasEligibilityColumn = ($null -ne $row.PSObject.Properties['EligibleForCatalog'])
+            $isEligible = if ($hasEligibilityColumn) {
+                ($row.EligibleForCatalog -eq $true -or $row.EligibleForCatalog -eq 'True')
+            } else { $true }
+            if ($isVariantSelected -and (-not $isEligible)) {
+                if ($row.RelativeDir) {
+                    $key = ([string]$row.RelativeDir).ToLowerInvariant()
+                    $ineligibleRelDirs[$key] = $row
+                }
+            }
+        }
+
+        if ($ineligibleRelDirs.Count -gt 0) {
+            $infDirsToProcess = @()
+            foreach ($dir in $infDirs) {
+                $relDir = $dir.FullName.Substring($Ctx.Paths.Patched.Length).TrimStart('\','/')
+                $key = $relDir.ToLowerInvariant()
+                if ($ineligibleRelDirs.ContainsKey($key)) {
+                    $ineligibleDirs += [pscustomobject]@{
+                        Dir = $dir
+                        Row = $ineligibleRelDirs[$key]
+                    }
+                } else {
+                    $infDirsToProcess += $dir
+                }
+            }
+        }
+    }
+
+    if ($ineligibleDirs.Count -gt 0) {
+        Write-Skip ("Skipping {0} INF folder(s) due to phantom file references (SPEC D.24):" -f $ineligibleDirs.Count)
+        foreach ($s in $ineligibleDirs) {
+            $missing = if ($s.Row.MissingReferencedFiles) { $s.Row.MissingReferencedFiles } else { '(unknown)' }
+            $relPath = if ($s.Row.RelativePath) { $s.Row.RelativePath } else { $s.Dir.FullName }
+            Write-Detail ("  - {0}  missing: {1}" -f $relPath, $missing) -Color DarkGray
+        }
+        Write-Host ''
+    }
+
+    Write-Step "Generating catalogs for $($infDirsToProcess.Count) INF folder(s) using /os:$chosenOs"
 
     $okCount = 0; $failCount = 0
+    $skipCount = $ineligibleDirs.Count
     $failureSamples = @()  # collect first few failures' log content for summary
 
     Set-DebugStep 'run inf2cat per INF directory (multi-folder loop)'
-    foreach ($dir in $infDirs) {
+    foreach ($dir in $infDirsToProcess) {
         # Idempotency: clean any prior.cat
         Get-ChildItem -LiteralPath $dir.FullName -Filter *.cat -ErrorAction SilentlyContinue | Remove-Item -Force
 
@@ -8152,14 +8403,24 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
         }
     }
 
-    # If EVERYTHING failed, fail the phase loudly so user sees it
-    # rather than silently proceeding to P09.
-    if ($okCount -eq 0 -and $infDirs.Count -gt 0) {
-        throw "P08: inf2cat failed for all $($infDirs.Count) INF folder(s) using /os:$chosenOs. See per-folder logs under $($Ctx.Paths.Logs). Check that patched INFs reference real files and that decorations are well-formed."
+    # If EVERYTHING that we attempted failed, fail the phase loudly
+    # so user sees it rather than silently proceeding to P09. Note we
+    # check $infDirsToProcess (post-filter), not $infDirs (pre-filter),
+    # so that a workspace where ALL INFs are ineligible (e.g. wholly
+    # corrupted AMD package) doesn't trigger this throw - the early
+    # $infDirs check above handles the empty-input case separately,
+    # and a workspace with 0 eligible + N ineligible should report
+    # "0 ok / 0 failed / N skipped" rather than throw.
+    if ($okCount -eq 0 -and $infDirsToProcess.Count -gt 0) {
+        throw "P08: inf2cat failed for all $($infDirsToProcess.Count) INF folder(s) using /os:$chosenOs. See per-folder logs under $($Ctx.Paths.Logs). Check that patched INFs reference real files and that decorations are well-formed."
     }
 
-    Set-PhaseMarker -Ctx $Ctx -PhaseId 'P08' -Metadata @{ Ok=$okCount; Failed=$failCount; OsArg=$chosenOs }
-    Write-Ok "Catalog generation: $okCount ok / $failCount failed (using /os:$chosenOs)"
+    Set-PhaseMarker -Ctx $Ctx -PhaseId 'P08' -Metadata @{ Ok=$okCount; Failed=$failCount; Skipped=$skipCount; OsArg=$chosenOs }
+    if ($skipCount -gt 0) {
+        Write-Ok "Catalog generation: $okCount ok / $failCount failed / $skipCount skipped (using /os:$chosenOs)"
+    } else {
+        Write-Ok "Catalog generation: $okCount ok / $failCount failed (using /os:$chosenOs)"
+    }
     Write-PhaseFooter 'P08' 'done'
 }
 
@@ -8479,6 +8740,25 @@ function Invoke-VerifyPhase03_VerifyCatalogs { # psa-disable-line PSA6003 -- com
         return
     }
 
+    # Phantom file reference notification (r65, SPEC D.24): if P05
+    # flagged any INFs as ineligible for catalog generation, P08
+    # would not have produced a .cat for them. V03 enumerates .cat
+    # files (not INFs), so those skipped INFs naturally don't appear
+    # in $cats. We surface the count here as an informational note so
+    # the operator can reconcile "why are there only 59 catalogs but
+    # 60 INFs in patched/?" without consulting P05's output.
+    Set-DebugStep 'V03: load ineligible-INF lookup for skip reporting'
+    $ineligibleLookup = Get-IneligibleInfLookup -Ctx $Ctx
+    if ($ineligibleLookup.Count -gt 0) {
+        Write-Skip ("Not verifying {0} INF folder(s) - no .cat exists (skipped at P08; phantom file references, SPEC D.24):" -f $ineligibleLookup.Count)
+        foreach ($key in $ineligibleLookup.Keys) {
+            $row = $ineligibleLookup[$key]
+            $missing = if ($row.MissingReferencedFiles) { $row.MissingReferencedFiles } else { '(unknown)' }
+            Write-Detail ("  - {0}  missing: {1}" -f $row.RelativePath, $missing) -Color DarkGray
+        }
+        Write-Host ''
+    }
+
     # ---- Pre-flight: is the signing certificate actually trusted? ----
     # signtool verify /pa requires the cert chain to terminate at a
     # trusted root. Self-signed test certs are NOT trusted until I01
@@ -8739,6 +9019,72 @@ function Test-InfHasServerDecoration {
     return $false
 }
 
+function Get-IneligibleInfLookup {
+    # Build a lookup hashtable of INFs flagged as ineligible for catalog
+    # generation by P05 (phantom file references; SPEC D.24). The key is
+    # the patched-root-relative path of the INF (lowercased), and the
+    # value is the inventory row for that INF. Returns an empty hashtable
+    # when no inventory is available, when the inventory predates r65
+    # (no EligibleForCatalog column), or when no INFs are ineligible.
+    #
+    # WHY KEY BY RELATIVE PATH:
+    # Multiple AMD INFs share the same filename (e.g. amdpmf.inf exists
+    # in 7 distinct directories, amd3dvcache.inf in 2). Keying by name
+    # alone would conflate them; keying by relative path correctly
+    # distinguishes them.
+    #
+    # CONSUMERS: V03 / V04 / V05 / V06 / I03 (each phase calls this
+    # once at the top of its loop and tests `Lookup.ContainsKey($key)`
+    # to decide whether to skip an INF).
+    #
+    # FALLBACK BEHAVIOR:
+    # - If $Ctx.InfInventory is unset, attempt to load
+    #   inf_inventory.csv from the workspace root (handles
+    #   -OnlyPhases V0n / I03 execution where P05 was not re-run in
+    #   the same session).
+    # - If the CSV is also missing or predates r65 (no
+    #   EligibleForCatalog column), the lookup is empty and all INFs
+    #   are treated as eligible (legacy behavior preserved).
+    param([Parameter(Mandatory)] $Ctx)
+
+    $lookup = @{}
+    if (-not $Ctx.InfInventory) {
+        $csv = Join-Path $Ctx.Paths.Root 'inf_inventory.csv'
+        if (Test-Path -LiteralPath $csv) {
+            try { $Ctx.InfInventory = Import-Csv -LiteralPath $csv } catch {} # psa-disable-line PSA3004 -- best-effort load; absence handled below
+        }
+    }
+    if (-not $Ctx.InfInventory) { return $lookup }
+
+    foreach ($row in $Ctx.InfInventory) {
+        $hasEligibilityColumn = ($null -ne $row.PSObject.Properties['EligibleForCatalog'])
+        if (-not $hasEligibilityColumn) { continue }
+        $isEligible = ($row.EligibleForCatalog -eq $true -or $row.EligibleForCatalog -eq 'True')
+        $isVariantSelected = ($row.VariantSelected -eq $true -or $row.VariantSelected -eq 'True')
+        if ($isVariantSelected -and (-not $isEligible) -and $row.RelativePath) {
+            $key = ([string]$row.RelativePath).ToLowerInvariant()
+            $lookup[$key] = $row
+        }
+    }
+    return $lookup
+}
+
+function Test-InfIsIneligible {
+    # Helper for per-INF filtering inside V03/V04/V05/V06/I03 loops.
+    # Returns $true when the given INF file (full filesystem path under
+    # $Ctx.Paths.Patched) is in the ineligible lookup, $false otherwise.
+    # Returns $false when the lookup is empty (legacy / no-data case).
+    param(
+        [Parameter(Mandatory)] $Ctx,
+        [Parameter(Mandatory)] [string]$InfFullName,
+        [Parameter(Mandatory)] [hashtable]$Lookup
+    )
+    if ($Lookup.Count -eq 0) { return $false }
+    if (-not $InfFullName.StartsWith($Ctx.Paths.Patched, [StringComparison]::OrdinalIgnoreCase)) { return $false }
+    $rel = $InfFullName.Substring($Ctx.Paths.Patched.Length).TrimStart('\','/')
+    return $Lookup.ContainsKey($rel.ToLowerInvariant())
+}
+
 function Invoke-VerifyPhase04_VerifyInfs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     param($Ctx)
     Write-PhaseHeader 'V04' 'VerifyInfs' 'Verify'
@@ -8752,11 +9098,30 @@ function Invoke-VerifyPhase04_VerifyInfs { # psa-disable-line PSA6003 -- compoun
         throw 'V04: no patched INFs to verify - run P06 (PatchInfs) first.'
     }
 
-    Set-DebugStep 'inspect ProductType=3 decoration on each INF'
-    Write-Step "Inspecting $($infs.Count) patched INF file(s) for ProductType=3 decoration..."
-    $okCount = 0; $failCount = 0
-    $details = @()
+    # Phantom file reference filter (r65, SPEC D.24): exclude INFs that
+    # P05 flagged as ineligible. They are physically present in patched/
+    # (P06 copies them for traceability) but should not be subjected to
+    # the ProductType=3 decoration check because they were never on the
+    # catalog-generation path. They get a dedicated "skipped" entry in
+    # the V04 summary.
+    Set-DebugStep 'V04: filter ineligible INFs from verification loop'
+    $ineligibleLookup = Get-IneligibleInfLookup -Ctx $Ctx
+    $infsToVerify = @()
+    $skippedInfs = @()
     foreach ($inf in $infs) {
+        if (Test-InfIsIneligible -Ctx $Ctx -InfFullName $inf.FullName -Lookup $ineligibleLookup) {
+            $skippedInfs += $inf
+        } else {
+            $infsToVerify += $inf
+        }
+    }
+
+    Set-DebugStep 'inspect ProductType=3 decoration on each INF'
+    Write-Step "Inspecting $($infsToVerify.Count) patched INF file(s) for ProductType=3 decoration..."
+    $okCount = 0; $failCount = 0
+    $skipCount = $skippedInfs.Count
+    $details = @()
+    foreach ($inf in $infsToVerify) {
         $infData = Read-InfFile -Path $inf.FullName
         $hasMfg        = $infData.Content -match '\[Manufacturer\]'
         # Use the proper parser that walks [Manufacturer] entries and
@@ -8802,7 +9167,17 @@ function Invoke-VerifyPhase04_VerifyInfs { # psa-disable-line PSA6003 -- compoun
             }
         }
     }
-    Write-Ok "INF verification: $okCount ok / $failCount missing decoration"
+    if ($skipCount -gt 0) {
+        Write-Skip ("Not verifying {0} ineligible INF(s) (phantom file references, SPEC D.24):" -f $skipCount)
+        foreach ($s in $skippedInfs) {
+            Write-Detail ("  - {0}" -f $s.Name) -Color DarkGray
+        }
+    }
+    if ($skipCount -gt 0) {
+        Write-Ok "INF verification: $okCount ok / $failCount missing decoration / $skipCount skipped"
+    } else {
+        Write-Ok "INF verification: $okCount ok / $failCount missing decoration"
+    }
     if ($failCount -gt 0) {
         throw "V04: $failCount INF(s) lack ProductType=3 decoration"
     }
@@ -8882,6 +9257,34 @@ function Invoke-VerifyPhase05_DryRunInstall {
     if (Test-Path $Ctx.Paths.Patched) {
         $infs = Get-ChildItem -Path $Ctx.Paths.Patched -Recurse -Filter *.inf -ErrorAction SilentlyContinue
     }
+
+    # Phantom file reference filter (r65, SPEC D.24): exclude
+    # ineligible INFs from the dry-run install plan. These INFs have
+    # no associated .cat (P08 skipped) and would fail pnputil at
+    # install time. Filtering them out of the dry-run keeps its
+    # output consistent with the actual I03 behavior.
+    Set-DebugStep 'V05: filter ineligible INFs from I03 dry-run'
+    $ineligibleLookupV05 = Get-IneligibleInfLookup -Ctx $Ctx
+    $infsToPlan = @()
+    $infsToSkip = @()
+    foreach ($inf in $infs) {
+        if (Test-InfIsIneligible -Ctx $Ctx -InfFullName $inf.FullName -Lookup $ineligibleLookupV05) {
+            $infsToSkip += $inf
+        } else {
+            $infsToPlan += $inf
+        }
+    }
+    if ($infsToSkip.Count -gt 0) {
+        Write-Host ''
+        Write-Skip ("  Excluding {0} INF(s) from dry-run plan (phantom file references, SPEC D.24):" -f $infsToSkip.Count)
+        foreach ($s in $infsToSkip) {
+            $rel = $s.FullName.Substring($Ctx.Paths.Patched.Length).TrimStart('\','/')
+            Write-Detail ("    - {0}" -f $rel) -Color DarkGray
+        }
+        Write-Host ''
+    }
+    $infs = $infsToPlan
+
     if ($infs.Count -eq 0) {
         Write-Warn2 '  No INFs to install - I03 would do nothing'
     } else {
@@ -9547,11 +9950,24 @@ function Build-PatchedInfHwidIndex {
     # mapping match-key (e.g. PCI\VEN_1022&DEV_1134) to the INF that
     # claims that hardware ID. The same key may map to multiple INFs
     # (rare, but possible in AMD's package - e.g. variants per SKU).
+    #
+    # PHANTOM FILE REFERENCE FILTER (r65, SPEC D.24): INFs flagged by
+    # P05 as ineligible are excluded from this index so the V06
+    # AS-IS / TO-BE comparison does not propose them as TO-BE
+    # candidates for any matched device. The INFs remain physically
+    # present in patched/ for traceability but are invisible to V06.
     param([Parameter(Mandatory)] $Ctx)
     $index = @{}
     if (-not (Test-Path $Ctx.Paths.Patched)) { return $index }
     $infs = @(Get-ChildItem -Path $Ctx.Paths.Patched -Recurse -Filter *.inf -ErrorAction SilentlyContinue)
+    $ineligibleLookup = Get-IneligibleInfLookup -Ctx $Ctx
     foreach ($inf in $infs) {
+        if (Test-InfIsIneligible -Ctx $Ctx -InfFullName $inf.FullName -Lookup $ineligibleLookup) {
+            # Skip - this INF has no .cat (P08 skipped) and would not
+            # be installed by I03 either. Excluding it here prevents
+            # V06 from listing it as a TO-BE replacement candidate.
+            continue
+        }
         $data = $null
         try {
             $data = Read-InfFile -Path $inf.FullName
@@ -10160,6 +10576,23 @@ function Resolve-PerInfInstallDecision {
 function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     param($Ctx)
     Write-PhaseHeader 'V06' 'HardwareImpactAnalysis' 'Verify'
+
+    # Phantom file reference notification (r65, SPEC D.24): if P05
+    # flagged any INFs as ineligible, surface the count here so the
+    # operator understands why the AS-IS / TO-BE comparison below
+    # does not list those INFs as candidates for any device. The
+    # actual exclusion happens inside Build-PatchedInfHwidIndex.
+    Set-DebugStep 'V06: surface ineligible-INF skip notice (SPEC D.24)'
+    $ineligibleLookupV06 = Get-IneligibleInfLookup -Ctx $Ctx
+    if ($ineligibleLookupV06.Count -gt 0) {
+        Write-Skip ("Excluding {0} ineligible INF(s) from TO-BE candidates (phantom file references, SPEC D.24):" -f $ineligibleLookupV06.Count)
+        foreach ($key in $ineligibleLookupV06.Keys) {
+            $row = $ineligibleLookupV06[$key]
+            $missing = if ($row.MissingReferencedFiles) { $row.MissingReferencedFiles } else { '(unknown)' }
+            Write-Detail ("  - {0}  missing: {1}" -f $row.RelativePath, $missing) -Color DarkGray
+        }
+        Write-Host ''
+    }
 
     Set-DebugStep 'Section 1: AMD hardware inventory (driver-source category)'
     # ====================================================================
@@ -11221,6 +11654,39 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
     $infs = Get-ChildItem -Path $Ctx.Paths.Patched -Recurse -Filter *.inf
     if ($infs.Count -eq 0) {
         throw 'I03: no patched INFs to install - run P06 (PatchInfs) first.'
+    }
+
+    # Phantom file reference filter (r65, SPEC D.24): exclude INFs
+    # that P05 flagged as ineligible. P08 produced no .cat for these,
+    # so pnputil /add-driver would fail with a signature error. Skip
+    # them at the enumeration stage so the entire install loop sees
+    # only INFs that will actually succeed.
+    Set-DebugStep 'I03: filter ineligible INFs from install loop'
+    $ineligibleLookupI03 = Get-IneligibleInfLookup -Ctx $Ctx
+    $infsAll = @($infs)
+    $infsToSkip = @()
+    $infsToInstall = @()
+    foreach ($inf in $infsAll) {
+        if (Test-InfIsIneligible -Ctx $Ctx -InfFullName $inf.FullName -Lookup $ineligibleLookupI03) {
+            $infsToSkip += $inf
+        } else {
+            $infsToInstall += $inf
+        }
+    }
+    if ($infsToSkip.Count -gt 0) {
+        Write-Skip ("Excluding {0} ineligible INF(s) from install (phantom file references, SPEC D.24):" -f $infsToSkip.Count)
+        foreach ($s in $infsToSkip) {
+            $rel = $s.FullName.Substring($Ctx.Paths.Patched.Length).TrimStart('\','/')
+            Write-Detail ("  - {0}  (no .cat exists; would have failed pnputil signature check)" -f $rel) -Color DarkGray
+        }
+        Write-Host ''
+    }
+    $infs = $infsToInstall
+    if ($infs.Count -eq 0) {
+        Write-Warn2 'I03: no eligible INFs remain after phantom-file filter - nothing to install.'
+        Set-PhaseMarker -Ctx $Ctx -PhaseId 'I03' -Metadata @{ Ok=0; Failed=0; Skipped=$infsToSkip.Count }
+        Write-PhaseFooter 'I03' 'done'
+        return
     }
 
     Set-DebugStep 'resume check: drivers already in store?'

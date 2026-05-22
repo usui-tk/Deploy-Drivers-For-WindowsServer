@@ -960,6 +960,14 @@ This is the expected outcome on Windows Server 2025. The kernel-mode driver load
 - Use Windows 11 24H2 for actual NPU inference workloads.
 - Treat the Server 2025 install as kernel driver bring-up only (lab / research).
 
+### Chipset script "P08 reports '1 failed' for the CIR Driver folder" (or any other INF folder)
+
+**This is now handled automatically in mainline (Chipset r65+).** The AMD Chipset Software package occasionally ships an INF whose `[SourceDisksFiles]` references files that AMD did not actually package in the sub-MSI's cabinet. The most reproducible case is `AMDCIR.inf` in Chipset 8.05.04.516 on Renoir / WS2019: the INF declares both 32-bit `AMDCIR.sys` and 64-bit `AMDCIR64.sys` in `[SourceDisksFiles]`, but the sub-MSI cabinet only ships the 64-bit binary. `inf2cat.exe` therefore fails at P08 with error 22.9.1 ("driver package is missing some files"). The upstream cause is a `SECREPAIR Error: 3` cascade visible in the sub-MSI's `msiexec /a` log.
+
+In r65 the script detects this at P05 (new `Get-InfReferencedFiles` helper cross-checks every patched INF's `[SourceDisksFiles]` against the files actually extracted by P04), records the result in `inf_inventory.csv` via the new `EligibleForCatalog` column, and propagates the skip through P06 / P08 / V03 / V04 / V05 / V06 / I03. The expected P08 summary becomes tri-state (`N ok / 0 failed / K skipped`) rather than reporting a real failure. See [SPEC §D.24](./SPEC.md) for the full root-cause analysis and per-phase behavior, and [CHANGELOG.md](./CHANGELOG.md) r65 entry for the implementation notes. The submsi-failures-diag.txt pattern frequency now correctly classifies these 1603s as `SECREPAIR missing source files` (SPEC §D.21).
+
+If you are still seeing P08 fail on r65, the affected INF is exhibiting a different failure mode — open an issue with the INF name and the full `[P08]` console block.
+
 ---
 
 ## Development tools

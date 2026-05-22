@@ -2523,6 +2523,7 @@ The Risk Summary `[MEDIUM]` counter incremented inside the same nested loop, so 
    | `Error 1304` | source media unreadable |
    | `Error 1335` | corrupt cabinet |
    | `Error 1612` | source not available |
+   | `SEC(URE)?REPAIR:\s+.*Error:\s*3` | **1603 SECREPAIR missing source files (AMD MSI packaging defect; sub-MSI declares files in File table that are not packaged in its cabinet)** — added in r65, see §D.24 for the full investigation. |
    | `Error 1925` | elevation required |
    | `Error 1310` | file collision |
    | `CustomAction \w+ returned actual error code 1603` | CA crash |
@@ -2744,6 +2745,157 @@ Steps 4–7 are independent — passing one does not imply passing the others. T
 - A.2.2 — Tooling rules (the corrective patterns).
 - A.2.3 — Verification commands.
 - A.2.4 — Why `.gitattributes` is a safety net, not a contract.
+
+---
+
+## D.24 Phantom file reference detection + pipeline-wide skip (Chipset)
+
+**Symptom**: On a clean-installed Windows Server 2019 host (build 17763) running `-Action PrepareVerify` against AMD Chipset Software `8.05.04.516`, P08 (`GenerateCatalogs`) reported `59 ok / 1 failed` with the following per-folder log entry for `Chipset_Software\CIR Driver\WTx64`:
+
+```
+22.9.1: amdcir.sys in [amdcir.files] of WTx64\amdcir.inf is missing
+or cannot be decompressed from source media. Please verify all path
+values specified in SourceDisksNames, SourceDisksFiles, and CopyFiles
+sections resolve to the actual location of the file, and are
+expressed in terms relative to the location of the inf.
+```
+
+P04 had separately reported `25 succeeded, 12 failed` at the `msiexec /a` sub-MSI stage, with all 12 failures classified as `unknown` in the resulting `submsi-failures-diag.txt`. The Nested-loop recovery subsequently reported all 37 sub-MSIs as `exit=0`, masking the original failure.
+
+The script's r64 behaviour was to flag P08 as `1 failed` (correct) but to provide no actionable path forward: there was no diagnostic linking the catalog failure to the upstream sub-MSI failure, and no mechanism for the downstream pipeline (P09 sign / V03 verify / V05 dry-run / V06 hardware-impact / I03 install) to handle the affected INF cleanly.
+
+**Investigation**:
+
+The `CIR Driver\WTx64` directory contained only four files after P04 completed:
+
+```
+amdcir.cat        (10396 bytes, 2015-05-11 — AMD's original WHQL-signed catalog)
+AMDCIR.inf        (2896 bytes,  2015-05-11)
+AMDCIR64.sys      (81424 bytes, 2015-05-11 — 64-bit driver binary)
+ReadMe.rtf
+Release_Notes.txt
+```
+
+Inspection of `AMDCIR.inf` revealed a **dual-arch INF** that declares both a 32-bit binary (`AMDCIR.sys`) and a 64-bit binary (`AMDCIR64.sys`) in its `[SourceDisksFiles]` section. inf2cat scans **all** `CopyFiles` sections (`[AMDCIR.Files]` and `[AMDCIR64.Files]`) and requires every referenced file to exist on disk regardless of the host architecture. The 32-bit binary `AMDCIR.sys` was never produced because:
+
+1. The AMD MSI `AMD-Consumer_Infrared-Driver.msi` declares a File table that references files across four OS variants (`W7x64`, `W7x86`, `WTx64`, `WTx86`).
+2. The MSI cabinet, however, only physically packages the `WTx64` subset.
+3. `msiexec /a` (administrative install with ACTION=ADMIN) reaches the `InstallAdminPackage` action, partially extracts the `WTx64` files, then fails when SECREPAIR attempts to hash the missing files for `W7x64` / `W7x86` / `WTx86`:
+
+```
+SECREPAIR: Failed to open the file:...\CIR Driver\W7x64\AMDCIR.cat ... Error:3
+SECREPAIR: Failed to open the file:...\CIR Driver\W7x86\AMDCIR.cat ... Error:3
+SECREPAIR: Failed to open the file:...\CIR Driver\WTx86\amdcir.cat ... Error:3
+SECREPAIR: Failed to open the file:...\CIR Driver\W7x64\AMDCIR64.sys ... Error:3
+...
+```
+
+`Error: 3` is `ERROR_PATH_NOT_FOUND`. The sub-MSI returns 1603 (`MainEngineThread is returning 1603`), but the WTx64 files that had been partially extracted remain on disk. Subsequent inf2cat invocation therefore sees `AMDCIR.inf` + `AMDCIR64.sys` present but `AMDCIR.sys` (the 32-bit binary referenced by the same INF) absent.
+
+**Root cause**: An AMD MSI packaging defect specific to `AMD-Consumer_Infrared-Driver.msi` in Chipset Software `8.05.04.516` (the CIR Driver is from 2015 and targets very old AMD APUs with infrared remote receivers; the 32-bit binary was likely retired from the cabinet at some point but the File table entries were left intact). This is not a defect in the script's extraction, patching, or catalog-generation logic.
+
+**Hardware impact on the observed environment**: The reporting host was a Lenovo X13 Gen 1 with Ryzen 5 PRO 4650U (Renoir, Zen 2 Mobile, 2020). CIR devices (HWID `*AMDC001` / `*AMDC002` / `*AMDC003`) are absent from this platform — V06's hardware-impact analysis listed 42 AMD entities, zero of them CIR. The catalog failure therefore had no install-time effect; it was a noise-in-the-pipeline issue rather than a functional regression.
+
+**Fix scope (r65)**:
+
+The fix takes a **detect-and-skip** approach. INF content is never rewritten beyond the existing ProductType=3 decoration scope (which is the script's stated mandate; see §A.6). An INF that declares files in `[SourceDisksFiles*]` that are not physically present on disk is **flagged as ineligible for catalog generation** and skipped at each downstream phase, while remaining physically present in `patched/` for diagnostic traceability.
+
+The alternative approach of normalizing the INF — removing `[SourceDisksFiles]` entries for absent files, plus the related `[*.Files]` sections — was explicitly rejected. Stripping a 32-bit code path from a dual-arch INF to satisfy inf2cat would expand the script's responsibility from "decorate INFs for Server SKUs" to "selectively repair AMD packaging defects". The latter is out of scope and risks unanticipated side effects on INFs that may be more nuanced than CIR (e.g. INFs whose `[CopyFiles]` references differ from their `[SourceDisksFiles]` declarations, or INFs that intentionally co-package 32-bit and 64-bit binaries for cross-arch driver-store use).
+
+**Implementation**:
+
+1. **New helper `Get-InfReferencedFiles`** (chipset script).
+
+   Parses the INF's `[SourceDisksFiles]` and `[SourceDisksFiles.<arch>]` sections, returns a list of `{Name, Section, Present, Path}` objects. Files are searched only in the INF's own directory (flat lookup). `SourceDisksNames` subdir resolution is deliberately not implemented yet because the AMD chipset 8.x package keeps source files alongside the INF; future packages with multi-disk layouts may need extension here. The function returns an empty array when the INF directory does not exist or when the INF has no `[SourceDisksFiles*]` section (modern AMD INFs often omit it entirely and rely on relative paths via `[DestinationDirs]` / `CopyFiles=`; these are eligible by construction because absence of the manifest means no missing-file claim can be made).
+
+2. **P05 (`AnalyzeInfs`) extension**.
+
+   Three new columns are added to `inf_inventory.csv` and `$Ctx.InfInventoryDetail`:
+
+   | Column | Type | Description |
+   |---|---|---|
+   | `ReferencedFilesCount` | int | Number of distinct files declared in `[SourceDisksFiles*]`. |
+   | `MissingReferencedFiles` | string | `;`-joined list of filenames whose physical file is absent from the INF directory. Empty when all referenced files are present. |
+   | `EligibleForCatalog` | bool | `true` when `MissingReferencedFiles` is empty, `false` otherwise. |
+
+   The existing `NeedsPatch` column gains an additional conjunct: `… -and $eligibleForCatalog`. An ineligible INF is therefore never patched (decoration is not applied because the resulting catalog would be skipped anyway).
+
+   When at least one SELECTED-variant INF is ineligible, P05 emits a console summary block:
+
+   ```
+   [!] INFs ineligible for catalog generation (phantom file references): N
+     Cause   : AMD MSI packaging defect (declared source files not packaged in cabinet)
+     Action  : P06 will skip-copy / P08 will skip inf2cat / P09 will skip sign / V03..V06 + I03 will skip
+     Tracked : MissingReferencedFiles column in inf_inventory.csv
+
+     - AMDCIR.inf                     variant=WTx64   missing: AMDCIR.sys
+   ```
+
+   The P05 phase marker gains a new `Ineligible=$N` metadata field.
+
+3. **P06 (`PatchInfs`) notification**.
+
+   Ineligible INFs naturally flow into the `copyOnly` bucket (because `NeedsPatch` is false) and are physically copied to `patched/`. P06 emits an informational log line listing each ineligible INF so operators understand that some INFs in `patched/` exist for traceability only and will be skipped downstream:
+
+   ```
+   Note: 1 INF(s) will be copied for traceability but skipped at P08 (phantom file references):
+     - AMDCIR.inf                     missing: AMDCIR.sys
+   ```
+
+   No behavior change beyond the log line — the existing copy loop continues to copy as before.
+
+4. **P08 (`GenerateCatalogs`) skip filter**.
+
+   The inf2cat loop is rewritten to iterate `$infDirsToProcess` (= `$infDirs` minus directories whose INFs are ineligible). The summary line is extended to a tri-state form:
+
+   ```
+   [+] Catalog generation: 59 ok / 0 failed / 1 skipped (using /os:ServerRS5_X64)
+   ```
+
+   The legacy two-state form is preserved when `skipped = 0`. The "EVERYTHING failed" `throw` is updated to check `$infDirsToProcess.Count` (post-filter) rather than `$infDirs.Count` (pre-filter), so a workspace where all INFs are ineligible reports `0/0/N` rather than throwing. The P08 phase marker gains a `Skipped=$K` metadata field.
+
+   **Fallback for standalone `-OnlyPhases P08` execution**: when `$Ctx.InfInventory` is unset (because P05 was not invoked in the same session), P08 attempts to load `inf_inventory.csv` from the workspace root. If the CSV is also absent (e.g. very old workspaces predating r65), the filter degrades to a no-op and the legacy "no filter" behavior is preserved.
+
+   **Backwards compatibility with pre-r65 CSV files**: rows from a pre-r65 CSV lack the `EligibleForCatalog` column. The filter treats absence as "eligible" (preserving legacy behavior).
+
+5. **P09 (`SignCatalogs`)**.
+
+   No code change. P09 enumerates `.cat` files under `patched/`; since P08 produces no `.cat` for skipped directories, P09 naturally has nothing to sign for those INFs. The signing count therefore correctly excludes skipped INFs without any explicit branching in P09 itself.
+
+6. **P04 sub-MSI pattern classifier extension** (§D.21 table).
+
+   A new `elseif` branch is added to the regex-based pattern classifier in P04's per-failure diagnostic capture loop: `SEC(URE)?REPAIR:\s+.*Error:\s*3` → `1603: SECREPAIR missing source files (AMD MSI packaging defect; sub-MSI declares files in File table that are not packaged in its cabinet)`. This causes `submsi-failures-diag.txt`'s pattern-frequency summary to surface "12 x 1603: SECREPAIR ..." rather than "12 x unknown" on packages exhibiting the CIR-class defect, providing immediate forensic context for any future occurrence.
+
+7. **Downstream verify + install phases (V03 / V04 / V05 / V06 / I03)** — pipeline-wide skip via shared helpers.
+
+   Two new top-level helper functions consolidate the skip predicate so every downstream phase uses identical logic:
+
+   - **`Get-IneligibleInfLookup -Ctx $Ctx`** returns a hashtable keyed by the patched-root-relative path of each ineligible INF (lowercased), with the inventory row as the value. Uses `$Ctx.InfInventory` when available; falls back to `Import-Csv` on `inf_inventory.csv` when running phases in isolation (`-OnlyPhases V0n` / `-OnlyPhases I03`). Returns an empty hashtable when the inventory is unavailable or predates r65 (no `EligibleForCatalog` column), preserving legacy behaviour.
+
+   - **`Test-InfIsIneligible -Ctx $Ctx -InfFullName $path -Lookup $lookup`** performs the per-INF skip check by computing the patched-root-relative path and testing membership in `$Lookup`. Returns `$false` when the lookup is empty, which is how the no-data path degrades to legacy behaviour.
+
+   Each phase's integration:
+
+   | Phase | Integration point | What changes |
+   |---|---|---|
+   | V03 (`VerifyCatalogs`) | After enumerating `.cat` files | Adds a one-time `[~]` notice listing ineligible INFs. The `.cat` enumeration naturally excludes them (no `.cat` was produced at P08), so V03's per-catalog loop is unchanged. |
+   | V04 (`VerifyInfs`) | Before the ProductType=3 decoration loop | Splits the enumerated INFs into `$infsToVerify` and `$skippedInfs`. The summary line becomes tri-state: `INF verification: N ok / M missing decoration / K skipped`. |
+   | V05 (`DryRunInstall`) | Inside the I03 dry-run sub-section | Splits the enumerated INFs into `$infsToPlan` and `$infsToSkip`. The dry-run install plan iterates only `$infsToPlan`, with a dedicated `[~]  Excluding N INF(s) from dry-run plan ...` block listing the skipped INFs. |
+   | V06 (`HardwareImpactAnalysis`) | Inside `Build-PatchedInfHwidIndex` plus a notice at the top of V06's output | Ineligible INFs are excluded from the HWID-to-INF index, so V06's AS-IS / TO-BE comparison does not propose them as TO-BE candidates for any matched device. V06 also surfaces the count up front via a `[~]` notice. |
+   | I03 (`InstallDrivers`) | Right after the initial INF enumeration, before the resume-check | Splits enumerated INFs into `$infsToInstall` and `$infsToSkip`. The skipped INFs are listed with the explanation "no .cat exists; would have failed pnputil signature check". When the filter leaves zero INFs (wholly broken AMD package), I03 reports a success no-op rather than throwing. |
+
+**Cross-phase invariants enforced by r65**:
+
+- Every phase that walks `patched/` for INFs (P06 / P08 / V03 / V04 / V05 / V06 / I03) uses the same source-of-truth predicate (`EligibleForCatalog` via the shared lookup helpers).
+- An INF that P05 marked ineligible never gets a `.cat`, never has its `[Manufacturer]` decoration verified, never appears in the dry-run install plan, never appears as a TO-BE candidate in V06's hardware impact, and never gets passed to `pnputil`. It does remain physically present in `patched/` for diagnostic traceability — operators can grep its INF / inspect it / re-inspect P05's CSV row at any time.
+- `submsi-failures-diag.txt` correctly classifies the original P04 sub-MSI failures (12 x SECREPAIR pattern) rather than reporting them as `unknown`.
+
+**Scope (which sister scripts)**: Chipset only. Graphics, NPU, and BthPan use different installer architectures and do not exhibit phantom file reference patterns in the same form. The phantom file detection logic could be ported to Graphics if a similar defect surfaces in a future AMD Adrenalin package.
+
+**Verification status (as of r65)**:
+
+- WS2019 + Renoir (Ryzen 5 PRO 4650U) with Chipset 8.05.04.516: target environment for r65; verification pending against the same workspace that originally reported the CIR failure. Expected post-fix output: `Catalog generation: 59 ok / 0 failed / 1 skipped` at P08, plus tri-state V04 summary, plus dedicated V05 / V06 / I03 skip blocks all referencing AMDCIR.inf.
+- WS2022 / WS2025: not yet verified. Functional behavior should be unchanged on hosts where no INF has phantom file references (all new code paths are guarded by `Lookup.Count -gt 0`).
 
 ---
 
