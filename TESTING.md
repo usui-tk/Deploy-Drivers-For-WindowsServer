@@ -1422,3 +1422,281 @@ foreach ($f in @(
 ```
 
 **Pass criterion**: Zero hits. Any hit must be auditable (e.g., explicit comment noting that the matched string is hard-coded in English and not subject to localization on this code path, such as the inbox `Microsoft` provider strings used in V01 Secure Boot baseline classification).
+
+---
+
+## 11. Validation Scenario 11: WS2019 Legacy WDAC SPF integration (r67)
+
+### Scope
+
+Validate that all four driver scripts correctly delegate to
+`Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1` on Windows
+Server 2019 (build 17763) and Windows Server 2016 (build 14393),
+producing a working SPF policy with Secure Boot ON and without
+requiring a reboot.
+
+### Target hardware
+
+- **Primary**: ThinkPad X13 Gen 1 AMD (2020) running Windows Server
+  2019 build 17763, Ryzen 5 PRO 4650U (Renoir), Secure Boot ON,
+  TPM 2.0 enabled. Same hardware that surfaced the r66 I02 abort.
+- **Coverage**: representative of WS2019 hosts with both CiTool.exe
+  absent AND ConfigCI module status varies (test both with and
+  without the optional ConfigCI feature installed).
+
+### Prerequisites
+
+```powershell
+# Verify OS detection
+$os = Get-CimInstance Win32_OperatingSystem
+$os.Caption        # expected: ... Server 2019 ...
+$os.BuildNumber    # expected: 17763 (between 14393 and 20347 inclusive)
+$os.ProductType    # expected: 2 or 3 (Server)
+
+# Verify ConfigCI module presence (orchestrator needs it for XML compile)
+Get-Module -ListAvailable -Name ConfigCI
+
+# Verify Secure Boot is ON (the point of this test)
+Confirm-SecureBootUEFI    # expected: True
+
+# Verify orchestrator script is in place
+Test-Path .\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1   # expected: True
+```
+
+### Test cases
+
+#### TC11.1 — Stand-alone orchestrator dry-run (read-only)
+
+```powershell
+# Verify the orchestrator's OS guard accepts the host
+.\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 -Action GetStatus
+```
+
+**Pass criteria**:
+- Banner shows version `wdac-2026.05.22-r01`.
+- Header line "Path: ... legacy SPF" or "STATE" displayed.
+- State output is one of: `None`, `Ours-Healthy`, `Foreign`,
+  `Ours-Stale`, `Ours-Tampered`, `Inconsistent`.
+- For a fresh host: `State: None`, `Manifest exists: False`,
+  `Deployed exists: False`.
+- Exit code 0.
+
+#### TC11.2 — Orchestrator JSON-mode parse (machine usage)
+
+```powershell
+$json = .\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 `
+    -Action GetStatus -OutputFormat Json | ConvertFrom-Json
+$json.action; $json.state; $json.exitCode
+```
+
+**Pass criteria**:
+- `$json.action -eq 'GetStatus'`
+- `$json.exitCode -eq 0`
+- `$json.state` is a recognized state name.
+- `$json.scriptVersion -eq 'wdac-2026.05.22-r01'`.
+
+#### TC11.3 — Canonical hash self-check (dev helper)
+
+```powershell
+.\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 `
+    -Action ComputeOwnCanonicalHash -OutputFormat Json | ConvertFrom-Json
+```
+
+**Pass criteria**:
+- `$result.details.canonicalSha256 -eq
+  'e7489216db0e1dd8fb03e337e802145165305b1327149079b65c70011075f4a2'`
+  (the value embedded in all 4 driver scripts as
+  `$Script:ExpectedWdacScriptCanonicalSha256`).
+
+#### TC11.4 — Chipset I02 Path C (full path: orchestrator delegation)
+
+```powershell
+# Bring a Chipset workspace through P00..P09, V01..V05 first, then run I02
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action All
+
+# OR specifically:
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -OnlyPhases I02
+```
+
+**Pass criteria** (verbatim console output text):
+- `Path: WDAC Single Policy Format via external orchestrator
+  (legacy WS2019/2016).`
+- `(CiTool / MPF supplemental policies are not available on this OS.)`
+- `Orchestrator src  : local` (when orchestrator is co-located)
+  or `Orchestrator src  : github-fetch` (when not).
+- `Orchestrator hash :
+  e7489216db0e1dd8fb03e337e802145165305b1327149079b65c70011075f4a2`.
+- `State transition: None -> Ours-Healthy` (or `Ours-Healthy ->
+  Ours-Healthy` for idempotent re-runs).
+- `Activation method: WMI-PS_UpdateAndCompareCIPolicy`.
+- `Legacy WDAC SPF policy is active. No reboot required ...`.
+- I02 completes with `done` (not `cached` for first run).
+- Secure Boot remains ON; `bcdedit /enum {current}` shows no
+  `testsigning Yes`.
+- File `C:\Windows\System32\CodeIntegrity\SiPolicy.p7b` exists with
+  non-zero size.
+- `Get-CimInstance -Namespace root\Microsoft\Windows\CI -ClassName
+  PS_UpdateAndCompareCIPolicy` succeeds (WMI class present).
+
+#### TC11.5 — Idempotent re-run
+
+```powershell
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -OnlyPhases I02 -Force
+```
+
+**Pass criteria**:
+- `Cert was already authorized in the existing SPF policy. State
+  unchanged.`
+- No state transition.
+- Exit code 0.
+
+#### TC11.6 — Repository-cross-cert scenario (Graphics adds, Chipset already present)
+
+```powershell
+# After TC11.4, run Graphics I02 with its own cert
+.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action Install -OnlyPhases I02
+```
+
+**Pass criteria**:
+- State transition: `Ours-Healthy -> Ours-Healthy` (the Chipset cert
+  is preserved; the Graphics cert is appended).
+- `.\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 -Action
+  GetStatus` reports 2 authorized certs (Chipset + Graphics).
+
+#### TC11.7 — Foreign policy detection (hard error with 3-option guidance)
+
+```powershell
+# Setup: place an unmanaged WDAC SPF policy
+Copy-Item C:\Windows\schemas\CodeIntegrity\ExamplePolicies\AllowAll.xml `
+    C:\Temp\foreign.xml
+ConvertFrom-CIPolicy -XmlFilePath C:\Temp\foreign.xml `
+    -BinaryFilePath C:\Windows\System32\CodeIntegrity\SiPolicy.p7b
+Invoke-CimMethod -Namespace root\Microsoft\Windows\CI `
+    -ClassName PS_UpdateAndCompareCIPolicy `
+    -MethodName Update -Arguments @{ FilePath = `
+    'C:\Windows\System32\CodeIntegrity\SiPolicy.p7b' }
+
+# Also remove our manifest if present
+Remove-Item C:\ProgramData\Deploy-Drivers-For-WindowsServer\wdac\manifest.json `
+    -ErrorAction SilentlyContinue
+
+# Now run any driver script I02
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -OnlyPhases I02
+```
+
+**Pass criteria**:
+- I02 aborts with `*** I02 ABORTED: A foreign WDAC SPF policy is
+  currently deployed. ***`.
+- Three options are printed (Option 1 recommended manual merge,
+  Option 2 `-ForceOverrideForeign`, Option 3 `-UseTestSigning`).
+- Exit code non-zero.
+- `SiPolicy.p7b` is unchanged.
+
+#### TC11.8 — Foreign override with backup
+
+```powershell
+# Continuing from TC11.7
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -OnlyPhases I02 `
+    -ForceOverrideForeign
+```
+
+**Pass criteria**:
+- `Backing up the foreign policy before replacement...` shown.
+- `Foreign policy backed up to
+  C:\ProgramData\Deploy-Drivers-For-WindowsServer\wdac\backups\
+  YYYY-MM-DDTHH-mm-ssZ-foreign-policy.p7b.bak`.
+- State transition: `Foreign -> Ours-Healthy`.
+- Backup file exists with correct SHA256.
+
+#### TC11.9 — Foreign backup restore
+
+```powershell
+.\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 `
+    -Action Uninstall -RestoreForeignBackup
+```
+
+**Pass criteria**:
+- Our policy removed.
+- Foreign backup restored to `SiPolicy.p7b`.
+- WMI refresh of the restored policy reported.
+
+#### TC11.10 — Audit-mode toggle
+
+```powershell
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -OnlyPhases I02 -Force -AuditMode
+.\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 -Action GetStatus `
+    -OutputFormat Json | ConvertFrom-Json | Select-Object `
+    @{N='auditMode';E={$_.details.authorizedCerts.Count}}
+# Manifest manually: $m = Get-Content C:\ProgramData\...\manifest.json | ConvertFrom-Json
+# $m.policy.auditMode  -> True
+```
+
+**Pass criteria**:
+- `manifest.policy.auditMode -eq $true`.
+- Event log shows policy violations as audit events (not blocked).
+
+#### TC11.11 — Full uninstall
+
+```powershell
+.\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 -Action Uninstall
+```
+
+**Pass criteria**:
+- `SiPolicy.p7b` removed.
+- Manifest removed.
+- State: `None`.
+- Secure Boot still ON (unchanged).
+
+### Negative tests
+
+#### TC11.N1 — Orchestrator OS guard refuses WS2022+
+
+```powershell
+# Run on WS2022 or WS2025
+.\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 -Action GetStatus
+```
+
+**Pass criteria**:
+- Refused with `result=refused, exitCode=3`.
+- Message: `Build ... is WS2022+ (MPF-capable); use the driver
+  scripts' built-in WDAC supplemental policy path instead of this
+  script.`
+
+#### TC11.N2 — Orchestrator OS guard refuses Workstation
+
+```powershell
+# Run on Windows 10 / Windows 11 client
+.\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 -Action GetStatus
+```
+
+**Pass criteria**:
+- Refused with `exitCode=3`.
+- Message contains `ProductType=1 is a Workstation`.
+
+#### TC11.N3 — Driver script does NOT take Path C on WS2022+
+
+```powershell
+# Run on WS2022 or WS2025
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -OnlyPhases I02
+```
+
+**Pass criteria**:
+- `Path: WDAC supplemental policy (default, keeps Secure Boot ON).`
+  (Path A — the existing MPF path).
+- NOT `Path: WDAC Single Policy Format via external orchestrator`.
+
+#### TC11.N4 — Canonical hash mismatch on tampered orchestrator
+
+```powershell
+# Modify the orchestrator's content (e.g., add a comment) and re-run I02
+Add-Content .\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 '# tampered'
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -OnlyPhases I02
+```
+
+**Pass criteria** (on legacy WS2019 host):
+- Driver script throws with message containing `canonical hash ...
+  does not match the expected ...`.
+- I02 does NOT proceed.
+
+---
+

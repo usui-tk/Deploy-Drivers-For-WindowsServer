@@ -2934,6 +2934,269 @@ The Chipset r66 design accommodates this asymmetry cleanly: all new code paths a
 
 ---
 
+---
+
+## D.25 Legacy Windows Server (WS2019/WS2016) I02 abort on hosts with Secure Boot ON and CiTool absent (`r66 -> r67`)
+
+### Symptom
+
+Real-machine validation of r66 on **WS2019 build 17763 + Ryzen 5 PRO 4650U (Renoir) + Chipset 8.05.04.516** with Secure Boot ON produced this failure in I02:
+
+```
+[*] I02 AuthorizeDriverSigning ----------------------
+--- AS-IS: current boot-signing state ---
+    WDAC tools available  : False    (ConfigCI module + CiTool.exe + AllowAll tmpl)
+    SecureBootEnabled     : True
+    TestSigningEnabled    : False
+    HVCI / Memory Integrity: NotRunning
+
+Path: legacy testsigning (WDAC tools not available on this system).
+
+*** I02 ABORTED: -UseTestSigning was selected but Secure Boot is ON ***
+bcdedit /set testsigning on is silently dropped at next boot when Secure Boot is on.
+```
+
+The operator had **not** specified `-UseTestSigning`. The script reached the testsigning ABORT path because:
+
+1. `Test-WdacToolsAvailable` returned `AnyUsable=$false` (the ConfigCI optional component is not installed by default on WS2019 — and even when present, the script's existing `Test-AmdWdacPolicyDeployed` and `Install-AmdWdacPolicy` helpers depend on `CiTool.exe`, which **does not exist** on WS2019/WS2016).
+2. The Path A/B decision `$useWdac = (-not $Ctx.UseTestSigning) -and $bootEnvBefore.WdacToolsAvailable` therefore evaluated to `$false`, falling through to Path B (testsigning).
+3. The Secure Boot pre-check inside Path B threw because Secure Boot is ON.
+
+The operator is left with two equally bad options: disable Secure Boot in firmware (security regression that also forces BitLocker recovery on systems with BitLocker), or skip the install entirely.
+
+### Root cause
+
+The driver scripts assumed that WDAC = Multiple Policy Format (MPF) = CiTool + supplemental policy. This is **only true on WS2022 / Windows 11 22H2+**.
+
+WDAC has **two on-disk policy formats**, governed by the OS build:
+
+| Format | Deploy path | Supported OS | Tooling |
+|---|---|---|---|
+| **Single Policy Format (SPF)** | `%WINDIR%\System32\CodeIntegrity\SiPolicy.p7b` | Windows 10 1607+ / **WS2016+** | WMI `PS_UpdateAndCompareCIPolicy.Update()`; no `CiTool.exe` |
+| **Multiple Policy Format (MPF)** | `%WINDIR%\System32\CodeIntegrity\CiPolicies\Active\{GUID}.cip` | Windows 10 1903+ / **WS2022+** | `CiTool.exe` + supplemental policies extending a base policy |
+
+MPF was added in Windows 10 1903 / WS2022 and was **never backported** to WS2019 or WS2016 — it is a kernel-level loader change, not a userspace tool change. **WS2019 and WS2016 can only use SPF.**
+
+The r66 codebase had no SPF code path: `Test-WdacToolsAvailable` returns false on WS2019/WS2016, and the only WDAC code (`Install-AmdWdacPolicy`, `Test-AmdWdacPolicyDeployed`, `New-AmdDriverWdacSupplementalPolicy`) assumed MPF semantics.
+
+### Architectural decisions (r67)
+
+Five top-level decisions, each with documented alternatives considered:
+
+#### Decision 1: Asymmetric path split (Approach α)
+
+WS2022/WS2025 retain the existing in-script MPF supplemental-policy path. WS2019/WS2016 use a **new external orchestrator script** `Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1`.
+
+Alternatives considered:
+- **β**: rewrite the WDAC code in all four driver scripts to handle both formats inline. Rejected: ~2,000 lines of WDAC code duplicated 4 times, with subtle SPF/MPF divergences in deploy semantics, state detection, and reconciliation. Maintenance burden is too high.
+- **γ**: inline SPF only (no external script), but in each driver script. Rejected for the same duplication reason.
+- **δ**: SPF for all OS versions (drop MPF). Rejected: MPF on WS2022+ is the Microsoft-recommended modern path, supports supplemental policies that ride on top of the system base policy without disturbing other software's policies, and avoids the "single global SiPolicy.p7b is contested" risk that motivates careful Foreign-state handling on WS2019.
+
+#### Decision 2: External script + canonical-hash-pinned version coupling
+
+The external orchestrator lives next to the driver scripts in the repository root. Each driver script:
+
+1. Hard-codes the **expected canonical SHA256** of the orchestrator (`$Script:ExpectedWdacScriptCanonicalSha256`).
+2. At I02 runtime on a legacy host, looks for the orchestrator **locally** first (same directory as `$PSCommandPath`). If absent, fetches it from `raw.githubusercontent.com/usui-tk/Deploy-Drivers-For-WindowsServer/main/` (no cache — every-time fetch).
+3. Computes the canonical hash of whichever copy was resolved and refuses to run if it does not match the embedded expected value.
+
+This gives a **version-coupling guard**: bumping the orchestrator without bumping each driver script's expected-hash constant is a deploy-time error, not a runtime mystery. The operator sees a clear "the orchestrator on disk does not match what this driver expects" message.
+
+The "canonical hash" is a SHA256 of the file content with:
+- UTF-8 BOM stripped (if present)
+- All `\r\n` and stray `\r` normalized to `\n`
+
+This makes the hash **invariant to the line-ending convention difference between the Windows working tree (CRLF + BOM, per `.gitattributes`) and the GitHub raw-content endpoint (LF, BOM-preserved)**. The same `.ps1` file produces the same canonical hash regardless of which transport delivered it.
+
+#### Decision 3: WDAC policy structure
+
+The SPF policy is built from the Microsoft-shipped `AllowAll.xml` template (`%WINDIR%\schemas\CodeIntegrity\ExamplePolicies\AllowAll.xml`), with one `Add-SignerRule -Kernel` per authorized certificate, and the following Rule Options:
+
+| Option | State | Rationale |
+|---|---|---|
+| 6 | **Enabled** (Unsigned System Integrity Policy) | Lets us deploy without signing the policy itself; trade-off acceptable for lab/self-managed hosts |
+| 10 | **Enabled** (Boot Audit on Failure) | Records boot-time policy violations to the event log even if enforcement is on |
+| 16 | **Enabled** (Update Policy No Reboot) | **Critical** — this is what makes WMI refresh effective without a reboot |
+| 3 | Conditional (Audit Mode) | Set only when `-AuditMode` is passed; default is Enforced |
+| 0 | Deleted (UMCI) | This is a kernel-mode-only policy; user-mode code integrity is out of scope |
+| 2 | Deleted (WHQL) | Not required for self-signed driver scenario |
+| 4 | Deleted (Flight Signing) | Lab certs are not flight-signed |
+| 8 | Deleted (Require EV Signers) | Self-signed certs are not EV |
+| 11 | Deleted (Script Enforcement) | Out of scope (UMCI subset) |
+
+PolicyID and BasePolicyID are forced to the **project-reserved GUID** `{DDF8C2DA-A1B2-4D52-B551-446570577053}`. SPF treats the policy as a base policy, so PolicyID = BasePolicyID. This GUID is reserved for this repository's use and documented in §A.x.
+
+#### Decision 4: Manifest schema and storage
+
+Per-host state lives under `%ProgramData%\Deploy-Drivers-For-WindowsServer\wdac\`:
+
+```
+wdac\
+├── manifest.json                    -- v1.0 schema, atomically updated
+├── active-policy.xml                -- source XML for the deployed policy
+├── active-policy.p7b                -- source .p7b (authoritative state reference)
+├── certs\
+│   └── {THUMBPRINT}.cer             -- per-thumbprint cert copies
+└── backups\
+    └── {ISO-TS}-foreign-policy.p7b.bak  -- foreign policies that we overrode
+```
+
+`manifest.json` schema (v1.0, schemaId `deploy-drivers-for-windowsserver/wdac-manifest/v1`):
+
+```jsonc
+{
+  "schemaVersion": "1.0",
+  "schemaId": "deploy-drivers-for-windowsserver/wdac-manifest/v1",
+  "createdAt": "...",
+  "lastUpdatedAt": "...",
+  "policy": {
+    "policyId": "{DDF8C2DA-...}",
+    "deployPath": "C:\\Windows\\System32\\CodeIntegrity\\SiPolicy.p7b",
+    "deployedSha256": "...",
+    "sourceXmlPath": "...",
+    "sourceP7bPath": "...",
+    "sourceP7bSha256": "...",
+    "versionEx": "10.0.0.N",
+    "auditMode": false
+  },
+  "authorizedCerts": [
+    {
+      "thumbprint": "...",            // upper-case hex
+      "subject": "...",
+      "tbsHash": "...",
+      "cerFilePath": "...\\certs\\{THUMB}.cer",
+      "cerFileOrigin": "C:\\Temp\\Workspace_AMD-Chipset\\cert\\AMD-...cer",
+      "validFrom": "...",
+      "validTo": "...",
+      "addedBy": "Deploy-AMDChipsetDriverOnWindowsServer.ps1",
+      "addedByVersion": "chipset-2026.05.22-r67",
+      "addedAt": "..."
+    }
+  ],
+  "foreignPolicyBackup": null,        // or { backupPath, backupSha256, backedUpAt, originalDeployPath }
+  "deploymentHistory": [ ... ],       // capped at historyMaxEntries (default 50)
+  "historyMaxEntries": 50,
+  "externalScriptVersion": "wdac-2026.05.22-r01",
+  "externalScriptCanonicalHash": "e748..."
+}
+```
+
+Atomic updates: write `manifest.json.tmp`, then `Move-Item` over `manifest.json`. NTFS rename is atomic at the file level. The `.cer` file copy (with file naming = `{THUMBPRINT}.cer`) makes the cert reusable for Repair operations after the driver-script workspace is purged.
+
+#### Decision 5: State model
+
+The host's WDAC SPF state is classified into one of six values:
+
+| State | Definition | Recovery |
+|---|---|---|
+| **None** | No `SiPolicy.p7b` deployed AND no manifest | Trivial: `AddCert` deploys fresh |
+| **Ours-Healthy** | Manifest + deployed `.p7b` exist; deployed SHA256 matches source SHA256 (or manifest record) | Steady state; idempotent `AddCert` is no-op |
+| **Ours-Stale** | Manifest exists but deployed `.p7b` is missing (operator deleted it manually) | `AddCert` or `Repair` redeploys from source |
+| **Ours-Tampered** | Manifest + deployed `.p7b` exist, but deployed SHA256 doesn't match source SHA256 | `AddCert -Force` overwrites; `Uninstall -Force` removes |
+| **Foreign** | Deployed `.p7b` exists but no matching manifest | Refuse without `-ForceOverrideForeign`; with the flag, backup and replace |
+| **Inconsistent** | Manifest is corrupt or unreadable | `Repair` rebuilds from `certs\*.cer` |
+
+The complete **State × Action matrix** is:
+
+| Action ↓ / State → | None | Ours-Healthy | Ours-Stale | Ours-Tampered | Foreign | Inconsistent |
+|---|---|---|---|---|---|---|
+| **GetStatus** | report | report | report | report | report | report |
+| **AddCert** | fresh deploy | idempotent no-op if same thumb, else append+redeploy | redeploy from source | refuse w/o -Force; redeploy w/ -Force | refuse w/o -ForceOverrideForeign; backup+replace w/ flag | refuse — run Repair first |
+| **RemoveCert** | no-op | remove + redeploy (or full Uninstall if last) | as Healthy | refuse w/o -Force | refuse w/o -Force | refuse w/o -Force |
+| **Verify** | exit 1 | exit 0 if present, 1 else | as Healthy | exit 1 (untrusted state) | exit 1 | exit 1 |
+| **Uninstall** | no-op | remove all | remove all | refuse w/o -Force | refuse w/o -ForceOverrideForeign; backup before delete | refuse w/o -Force |
+| **Repair** | no-op | no-op | redeploy | refuse — manual decision | refuse — manual decision | rebuild from certs\* |
+
+Three operator decisions are codified as hard P-rules:
+
+- **P1**: Foreign or Tampered overwrite **always** backs up the prior `.p7b` to `backups\{ISO-TS}-foreign-policy.p7b.bak`. `Uninstall -RestoreForeignBackup` restores the most recent backup.
+- **P2**: Removing the **last** authorized cert triggers a full Uninstall (deletes `SiPolicy.p7b`, wipes `manifest.policy`, preserves `deploymentHistory`).
+- **P3**: Foreign detection from a driver-script-side I02 surfaces a **hard error with 3-option guidance**:
+  - **Option 1 (recommended)**: manually merge our cert into the existing foreign policy via `Add-SignerRule` against the foreign XML.
+  - **Option 2 (destructive)**: re-run the driver script with `-ForceOverrideForeign`. Backup is taken before replacement.
+  - **Option 3 (last resort)**: `-UseTestSigning` fallback. Requires Secure Boot OFF in firmware.
+
+#### Decision 6: Action API surface
+
+The orchestrator exposes **eight Actions** plus a `Help` Action:
+
+| Action | Purpose | Required args |
+|---|---|---|
+| `GetStatus` | Report current state (read-only) | — |
+| `AddCert` | Add a cert and (re)deploy | `-CertFile`, `-CallerScript`, `-CallerScriptVersion` |
+| `RemoveCert` | Remove a cert (last cert → full Uninstall per P2) | `-CertThumbprint` |
+| `Verify` | Check if a thumbprint is authorized; exit 0/1 | `-CertThumbprint` |
+| `Uninstall` | Remove policy + manifest | — (or `-RestoreForeignBackup`) |
+| `Repair` | Recover Inconsistent / Ours-Stale | — |
+| `ComputeCanonicalHash` | Dev: hash any file | `-File` |
+| `ComputeOwnCanonicalHash` | Dev: hash this script (for embedding in driver scripts) | — |
+| `Help` | Show usage | — |
+
+Conventions:
+
+- **Action names**: PascalCase, hyphenless (`AddCert` not `Add-Cert`) — avoids parameter-binding ambiguity in `-Action <name>` and clearly distinguishes the parameter value from PowerShell cmdlet conventions.
+- **Output format**: `-OutputFormat Text|Json`, default Text. Driver scripts use Json mode and parse the result via `ConvertFrom-Json`. JSON output schema: `{action, result, state, stateBefore, stateAfter, noOp, message, details, exitCode, scriptVersion, timestamp}`.
+- **Exit codes**: granular — `0`=success, `1`=generic failure, `2`=state mismatch (refused due to Foreign/Tampered without override), `3`=invalid arguments, `4`=system error (WMI, file I/O, parse).
+- **Failure model**: `throw` + non-zero exit code. PowerShell-native `try/catch` works in callers.
+
+### Edge cases (catalogued)
+
+| Code | Scenario | Handling |
+|---|---|---|
+| **EC-1** | Cert deleted from `LocalMachine\Trusted Root` after AddCert | Driver script I04 warning only; the WDAC policy itself remains valid as long as the cert *bytes* exist in the policy. The Trusted Root entry is independent and is the driver script's I01 responsibility. |
+| **EC-2** | Cert about to expire (validTo within 90 days) | `GetStatus.expiringCerts[]` lists the cert with `daysToExpiry`; no auto-removal (operator decides whether to rotate). |
+| **EC-3** | Source `.p7b` SHA256 doesn't match `manifest.policy.sourceP7bSha256` (source file diverged from what manifest recorded) | Treated as Ours-Healthy if deployed matches manifest record; `Repair` recommended in `recommendations[]`. |
+| **EC-4** | Same thumbprint added twice via two `AddCert` calls | Second call is an idempotent no-op (logged but no XML/policy change). |
+| **EC-5** | Same `callerScript`, different thumbprint (driver re-run with `-CleanWorkRoot` + new cert) | Default: append (both certs are authorized). `-ReplaceExistingFromCaller`: replace 1:1 (remove prior cert from same caller, then append new). |
+| **EC-6** | Operator manually deleted `SiPolicy.p7b` | State = Ours-Stale; `AddCert` or `Repair` auto-redeploys. |
+| **EC-7** | Operator manually replaced `SiPolicy.p7b` with a different file | State = Ours-Tampered; refuse without `-Force`. |
+
+### Files changed in r67
+
+| File | Change |
+|---|---|
+| `Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1` | **NEW** — 1,898 lines. The external orchestrator. |
+| `Deploy-AMDChipsetDriverOnWindowsServer.ps1` | Param block: +`-ForceOverrideForeign`, +`-AuditMode`. Version: r66 → r67. Inserts integration block (~300 lines) before `Invoke-InstPhase02_AuthorizeDriverSigning`. I02: adds Path C branch (delegate to orchestrator) before existing Path A/B decision. |
+| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | Same pattern as Chipset. Version: r32 → r33. |
+| `Deploy-AMDNpuDriverOnWindowsServer.ps1` | Same pattern as Chipset, adapted to NPU's `$Script:`-mirrored parameter style. Version: r15 → r16. |
+| `Deploy-MSBthPanInboxOnWindowsServer.ps1` | Same pattern as Chipset. Version: r14 → r15. |
+| `SPEC.md` | This section (D.25). |
+| `CHANGELOG.md` | r67 entry. |
+| `TESTING.md` | WS2019/WS2016 SPF test cases. |
+| `README.md` / `README.ja.md` | Legacy-host quickstart notes. |
+
+### Convention: 5-copy canonical hash function
+
+The function `Get-CanonicalScriptHash` is **maintained identically in five locations**:
+1. `Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1`
+2. `Deploy-AMDChipsetDriverOnWindowsServer.ps1`
+3. `Deploy-AMDGraphicsDriverOnWindowsServer.ps1`
+4. `Deploy-AMDNpuDriverOnWindowsServer.ps1`
+5. `Deploy-MSBthPanInboxOnWindowsServer.ps1`
+
+When the implementation of canonical hashing changes, **all five copies must be updated together**. The orchestrator's `ComputeOwnCanonicalHash` Action is the authoritative dev helper for re-computing the expected hash to embed in the driver scripts after any orchestrator change.
+
+### Convention: file-name pattern
+
+The new script follows the existing `Deploy-{Subject}On{Target}.ps1` convention but refines `Target` from the generic `WindowsServer` to the more precise `LegacyWindowsServer`, signalling the OS-specific scope:
+
+| Script | Subject | Target |
+|---|---|---|
+| `Deploy-AMDChipsetDriverOnWindowsServer.ps1` | `AMDChipsetDriver` | `WindowsServer` |
+| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | `AMDGraphicsDriver` | `WindowsServer` |
+| `Deploy-AMDNpuDriverOnWindowsServer.ps1` | `AMDNpuDriver` | `WindowsServer` |
+| `Deploy-MSBthPanInboxOnWindowsServer.ps1` | `MSBthPanInbox` | `WindowsServer` |
+| `Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1` | `WdacSinglePolicyFormat` | `LegacyWindowsServer` |
+
+The convention permits and encourages further specialisation of `Target` when a script's applicability is materially narrower than "any supported Windows Server".
+
+### Status
+
+- **r67 pilot validation**: PENDING. The same WS2019 + Renoir + Chipset 8.05.04.516 + Secure Boot ON host that surfaced the r66 abort is the target test bench. Expected post-fix behavior: I02 detects WS2019 (build 17763 < 20348), invokes the orchestrator, deploys SPF policy via WMI, returns within seconds with state=Ours-Healthy, and I03 proceeds.
+- **WS2022 / WS2025**: behaviour unchanged in r67 (Path A still applies, `Test-IsLegacyWindowsServerOs` returns false).
+- **Workstation hosts**: orchestrator refuses with `result=refused, exitCode=3` and a clear OS-guard message.
+
+
 ## Appendix: How to seed a new sister script from this SPEC
 
 If you are creating a 5th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1`):

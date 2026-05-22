@@ -22,6 +22,139 @@ independently.
 
 ## [Unreleased]
 
+## [Chipset r67 / Graphics r33 / NPU r16 / BthPan r15 / WDAC SPF r01] — 2026-05-22
+
+### Added
+
+- **NEW SCRIPT: `Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1`**
+  (1,898 lines). An external orchestrator that builds, deploys, and
+  manages WDAC Single Policy Format (SPF) policies on **Windows Server
+  2019 (build 17763) and Windows Server 2016 (build 14393)**, where
+  the Multiple Policy Format (MPF) supplemental-policy infrastructure
+  (CiTool.exe, `%WINDIR%\System32\CodeIntegrity\CiPolicies\Active\*.cip`)
+  that WS2022+ uses is not available. Deploys to
+  `%WINDIR%\System32\CodeIntegrity\SiPolicy.p7b` and activates via WMI
+  `PS_UpdateAndCompareCIPolicy.Update()` (no reboot required when WDAC
+  Rule Option 16 — "Update Policy No Reboot" — is set).
+  - Eight Actions: `GetStatus`, `AddCert`, `RemoveCert`, `Verify`,
+    `Uninstall`, `Repair`, `ComputeCanonicalHash`,
+    `ComputeOwnCanonicalHash`, plus `Help`.
+  - `-OutputFormat Text|Json` (default Text); driver-script callers
+    use Json mode.
+  - Granular exit codes: `0`=success, `1`=generic, `2`=state mismatch,
+    `3`=invalid args, `4`=system error.
+  - Project-reserved Policy GUID `{DDF8C2DA-A1B2-4D52-B551-446570577053}`.
+  - Manifest at `%ProgramData%\Deploy-Drivers-For-WindowsServer\wdac\`
+    (schema v1.0, schemaId `deploy-drivers-for-windowsserver/wdac-manifest/v1`),
+    with atomic writes (temp + Move-Item rename), `deploymentHistory[]`
+    capped at 50 entries, and per-thumbprint `.cer` file copies under
+    `certs\{THUMBPRINT}.cer`.
+  - Foreign-policy override (`-ForceOverrideForeign`) backs up the
+    existing policy to `backups\{ISO-TS}-foreign-policy.p7b.bak`
+    before replacement; restorable via `-Action Uninstall
+    -RestoreForeignBackup`.
+  - Six-state model: `None`, `Ours-Healthy`, `Ours-Stale`,
+    `Ours-Tampered`, `Foreign`, `Inconsistent`. Full State × Action
+    matrix and edge cases EC-1 through EC-7 documented in SPEC §D.25.
+  - OS guard refuses execution on WS2022+ (build ≥ 20348) and on
+    Workstation SKUs (ProductType=1) with `exitCode=3`.
+
+- **All four driver scripts**: new parameters
+  - `-ForceOverrideForeign` (no-op on WS2022+ and when
+    `-UseTestSigning` in effect; required when WS2019/WS2016 legacy
+    host has a Foreign WDAC SPF policy already deployed).
+  - `-AuditMode` (no-op except on WS2019/WS2016 SPF path; deploys the
+    SPF policy in audit mode via WDAC Rule Option 3).
+
+- **All four driver scripts**: I02 Path C (legacy WS2019/2016 WDAC SPF).
+  Before the existing Path A / Path B decision, I02 now detects the
+  legacy OS via `Test-IsLegacyWindowsServerOs` and, when on a legacy
+  host without `-UseTestSigning`, delegates authorization to the
+  external orchestrator (Path C). The orchestrator is located either
+  locally (next to the driver script) or fetched from the GitHub
+  `main` branch (`raw.githubusercontent.com/usui-tk/Deploy-Drivers-For-WindowsServer/main/`).
+  In both cases the orchestrator's canonical SHA256 is verified
+  against the constant embedded in each driver script
+  (`$Script:ExpectedWdacScriptCanonicalSha256 =
+  'e7489216db0e1dd8fb03e337e802145165305b1327149079b65c70011075f4a2'`).
+
+### Changed
+
+- **Chipset r66 → r67** — version tag changes from
+  `phantom-file-reference-skip-cleanup` to
+  `legacy-ws2019-wdac-spf-integration`. Integration block added (~300
+  lines) before `Invoke-InstPhase02_AuthorizeDriverSigning`, providing
+  helper functions `Get-CanonicalScriptHash`,
+  `Test-IsLegacyWindowsServerOs`, `Resolve-WdacOrchestratorScript`,
+  `Invoke-WdacOrchestrator`, `Invoke-LegacyWdacAuthorization`. I02
+  modified to early-branch into Path C when running on WS2019/WS2016.
+- **Graphics r32 → r33** — same pattern as Chipset, adapted to
+  Graphics-specific `.cer` file naming (`AMD-Graphics-Driver-CodeSign.cer`).
+- **NPU r15 → r16** — same pattern as Chipset, adapted to NPU's
+  `$Script:`-mirrored parameter style. New parameters mirrored as
+  `$Script:ForceOverrideForeign` and `$Script:AuditMode`.
+- **BthPan r14 → r15** — same pattern as Chipset, adapted to
+  BthPan-specific `.cer` file naming (`MS-BthPan-Driver-CodeSign.cer`).
+
+### Conventions
+
+- **Canonical hash function (5-copy invariant)** — the
+  `Get-CanonicalScriptHash` function (SHA256 of file with UTF-8 BOM
+  stripped and CRLF/LF normalized to `\n`) is now maintained in
+  **five identical copies**: the four driver scripts and the new
+  WDAC orchestrator. When changing the function, all five copies must
+  be updated together. The orchestrator's `ComputeOwnCanonicalHash`
+  Action is the authoritative dev helper to re-compute the value for
+  embedding. See SPEC §D.25.
+- **File-name pattern refinement** — `Deploy-{Subject}On{Target}.ps1`,
+  with `Target` permitted to specialize as `LegacyWindowsServer` when
+  the script is OS-specific. See SPEC §D.25.
+
+### Fixed
+
+- **All four driver scripts on WS2019/WS2016 with Secure Boot ON** —
+  prior to r67/r33/r16/r15, I02 aborted on these hosts because:
+  1. `Test-WdacToolsAvailable` returned false (CiTool.exe absent;
+     ConfigCI optional component frequently absent),
+  2. Path B (testsigning) was selected as fallback,
+  3. The Secure Boot pre-check correctly refused testsigning.
+  The operator was left with no viable path. The r67 fix adds Path C
+  (legacy WDAC SPF via external orchestrator) which keeps Secure Boot
+  ON and does not require CiTool. Discovered during r66 real-machine
+  validation on WS2019 + Ryzen 5 PRO 4650U (Renoir) + Chipset
+  8.05.04.516 (2026-05-22). See SPEC §D.25 for the full design.
+
+### Compatibility / Migration
+
+- **No breaking changes**. WS2022 and WS2025 behaviour is unchanged
+  (Path A still applies; `Test-IsLegacyWindowsServerOs` returns false
+  on these hosts).
+- **Operators upgrading from r66**: no action needed. On WS2022/2025
+  the new code path is dormant. On WS2019/2016, simply re-running
+  `-Action Install` triggers Path C automatically; no manual
+  intervention required unless a foreign WDAC policy is already
+  present (in which case the script prints a 3-option guidance
+  message and exits with non-zero).
+- **For self-managed deployments without internet access**, place
+  `Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1` next to the
+  driver script(s) in the same directory before running. The local
+  copy is preferred over the GitHub fetch.
+
+### Status
+
+- **r67 pilot validation**: PENDING. Target test bench: WS2019 build
+  17763 + Ryzen 5 PRO 4650U (Renoir) + Chipset Software 8.05.04.516 +
+  Secure Boot ON (same host that surfaced the r66 abort).
+- **WS2022 / WS2025**: r67 behavior is functionally unchanged from
+  r66. No re-verification required.
+- **Workstation hosts (preview/PrepareVerify scenarios)**: the
+  orchestrator's OS guard returns `result=refused, exitCode=3` with a
+  clear "Server-only" message. Workstation `-Action PrepareVerify`
+  does not reach I02 so Path C is never invoked.
+
+---
+
+
 ### Fixed
 - **Chipset r66 — `phantom-file-reference-skip-cleanup`.** Close a gap
   in r65's detect-and-skip pipeline: orphan `.cat` files left in

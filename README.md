@@ -92,6 +92,7 @@ For the full at-your-own-risk acknowledgements (BitLocker, anti-cheat software, 
 | `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | Graphics driver pipeline (Display, HD Audio, Audio CoProcessor, ACP, USB-C UCSI, etc.). Source: AMD Adrenalin Edition ~600 MB EXE, ~19 INFs (Vega-Polaris Legacy branch) or ~67 INFs (Main Adrenalin branch for Phoenix+). | **Stable** — same validation hosts as chipset. |
 | **`Deploy-AMDNpuDriverOnWindowsServer.ps1`** | **NPU (Ryzen AI XDNA) driver pipeline (PHX/HPT/STX/KRK).** Source: AMD Ryzen AI Software ZIP, ~250 MB, EULA-gated download (no public direct URL). Kernel-mode driver only — does NOT install Ryzen AI Software user-mode stack. | **🆘 Experimental / research-grade — NOT production-ready.** No physical-NPU validation runs have been performed. AMD account auto-download is best-effort and may break with AMD form changes. Ryzen AI Software is officially unsupported on Windows Server 2025. |
 | `Deploy-MSBthPanInboxOnWindowsServer.ps1` | **Microsoft inbox Bluetooth PAN driver (`bthpan.inf` / `bthpan.sys`) enablement pipeline.** Source: the host's own `C:\Windows\System32\DriverStore\FileRepository\bthpan.inf_amd64_*` directory — **no remote download required.** Single INF, single HWID (`BTH\MS_BTHPAN`). Distinguishes Phantom OK (bth.inf proxy match) from true resolution (Class=Net, Service=BthPan) on Windows Server. | **New** — initial release. Logic shares the same Phase / Secure Boot / WDAC framework as the AMD scripts; INF patch surface is much smaller (1 INF, 1 HWID). Physical validation on ThinkPad + Intel AX210 + WS2025 build 26100.32860 is the planned first test target. |
+| **`Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1`** | **External WDAC orchestrator for Windows Server 2019 / 2016.** Builds, deploys, and tracks WDAC Single Policy Format (SPF) policies — the only WDAC format available on these legacy server OSes (the Multiple Policy Format used on WS2022+ requires `CiTool.exe` which is not present on WS2019/2016). Called automatically by the four driver scripts' I02 phase when running on WS2019/2016 (build < 20348). Eight Actions: `GetStatus`, `AddCert`, `RemoveCert`, `Verify`, `Uninstall`, `Repair`, `ComputeCanonicalHash`, `ComputeOwnCanonicalHash`. | **New (r01)** — added in r67. Pilot validation pending on WS2019 build 17763 + Ryzen 5 PRO 4650U (Renoir). See SPEC §D.25 for design rationale and TESTING §11 for test cases. |
 | `README.md` | This document (English; the master). |  |
 | `README.ja.md` | Japanese translation of `README.md`, kept in sync. |  |
 | `SPEC.md` | Developer specification (per-script details, INF parsing strategy, WDAC policy structure). **English only.** |  |
@@ -158,6 +159,29 @@ If after reading the above you still want to run the NPU script: see [NPU-specif
   - **Prerequisite**: a Bluetooth host controller driver is bound and showing Status=OK in Device Manager. If the host controller itself is unknown-device, install its vendor driver first; this script does NOT cover host controllers.
   - **Symptom this script solves**: on Windows Server SKU, `BTH\MS_BTHPAN` shows as Unknown Device (code 28), or shows Status=OK but with `DriverInfPath=bth.inf` and `Class=Bluetooth` (Phantom OK; `bthpan.sys` is NOT loaded and `BthPan` service is NOT running).
   - **Verified true-resolution criteria**: `DriverInfPath=oem*.inf`, `Class=Net`, `Service=BthPan`, `C:\Windows\System32\drivers\bthpan.sys` present, `BthPan` service registered, a Bluetooth PAN NetAdapter visible to `Get-NetAdapter`.
+
+### Operating systems in scope
+
+The driver scripts (Chipset, Graphics, NPU, BthPan) support both
+**modern Windows Server** (2022 build 20348, 2025 build 26100) and
+**legacy Windows Server** (2019 build 17763, 2016 build 14393):
+
+| OS | Build | I02 path | Notes |
+|---|---|---|---|
+| Windows Server 2025 | 26100 | Path A (MPF supplemental) | Primary validation target. |
+| Windows Server 2022 | 20348 | Path A (MPF supplemental) | Validated. |
+| Windows Server 2019 | 17763 | **Path C (legacy WDAC SPF via external orchestrator)** | r67+ new path. Pilot validation pending. |
+| Windows Server 2016 | 14393 | **Path C (legacy WDAC SPF via external orchestrator)** | Path C also covers this build. |
+| Windows 10 / 11 (Workstation) | any | PrepareVerify only | Install phases auto-blocked. |
+
+Legacy server hosts (WS2019 / WS2016) automatically delegate I02 to
+`Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1` because the
+`CiTool.exe` + Multiple Policy Format infrastructure used on WS2022+
+is not available on the older Windows kernel. Keep this orchestrator
+co-located with the driver scripts (it is part of this repository),
+or ensure outbound access to `raw.githubusercontent.com` so the
+driver scripts can fetch it. See [SPEC §D.25](./SPEC.md) for the full
+design rationale.
 
 ### Hardware **out of scope**
 
