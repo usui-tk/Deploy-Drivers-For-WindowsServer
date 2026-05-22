@@ -1504,7 +1504,7 @@ $json.action; $json.state; $json.exitCode
 
 **Pass criteria**:
 - `$result.details.canonicalSha256 -eq
-  '4958bbaaa2aa7b6fa0bfcb493b92fd938e25e7e8bee42495ec0dab19da7471b8'`
+  '0df3c8889fe80769ade52e8fa7f5518af184df6413f1bfd9c7596e0a185c82ff'`
   (the value embedded in all 4 driver scripts as
   `$Script:ExpectedWdacScriptCanonicalSha256`).
 
@@ -1525,7 +1525,7 @@ $json.action; $json.state; $json.exitCode
 - `Orchestrator src  : local` (when orchestrator is co-located)
   or `Orchestrator src  : github-fetch` (when not).
 - `Orchestrator hash :
-  4958bbaaa2aa7b6fa0bfcb493b92fd938e25e7e8bee42495ec0dab19da7471b8`.
+  0df3c8889fe80769ade52e8fa7f5518af184df6413f1bfd9c7596e0a185c82ff`.
 - `State transition: None -> Ours-Healthy` (or `Ours-Healthy ->
   Ours-Healthy` for idempotent re-runs).
 - `Activation method: WMI-PS_UpdateAndCompareCIPolicy`.

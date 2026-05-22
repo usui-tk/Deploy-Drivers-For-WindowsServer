@@ -124,7 +124,7 @@
 
 .PARAMETER CallerScriptVersion
     Optional for Action=AddCert. Version string of the calling driver
-    script (e.g., 'chipset-2026.05.22-r67').
+    script (e.g., 'chipset-2026.05.23-r67').
 
 .PARAMETER File
     Required for Action=ComputeCanonicalHash. Path to the file whose
@@ -171,7 +171,7 @@
         -Action AddCert `
         -CertFile 'C:\Temp\Workspace_AMD-Chipset\cert\AMD-Chipset-Driver-CodeSign.cer' `
         -CallerScript 'Deploy-AMDChipsetDriverOnWindowsServer.ps1' `
-        -CallerScriptVersion 'chipset-2026.05.22-r67' `
+        -CallerScriptVersion 'chipset-2026.05.23-r67' `
         -OutputFormat Json
 
 .EXAMPLE

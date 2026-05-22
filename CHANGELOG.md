@@ -85,7 +85,7 @@ independently.
   canonical SHA256 is verified against the constant embedded in each
   driver script
   (`$Script:ExpectedWdacScriptCanonicalSha256 =
-  '4958bbaaa2aa7b6fa0bfcb493b92fd938e25e7e8bee42495ec0dab19da7471b8'`);
+  '0df3c8889fe80769ade52e8fa7f5518af184df6413f1bfd9c7596e0a185c82ff'`);
   a mismatch produces a clearly logged warning (not a hard refusal),
   letting the operator decide whether to proceed.
 
@@ -152,7 +152,7 @@ independently.
     `RemoveCert`, etc.).
   Embedded canonical hash in all 4 driver scripts updated:
   - Was (r02): `d13b6a8bc436a0d04355a1fe1df3cc5238f5cb3683bd263f196f431d0514b65c`
-  - Now (r03): `4958bbaaa2aa7b6fa0bfcb493b92fd938e25e7e8bee42495ec0dab19da7471b8`
+  - Now (r03): `0df3c8889fe80769ade52e8fa7f5518af184df6413f1bfd9c7596e0a185c82ff`
   The PS 5.1 parameter-binding fix from r02 (`Get-Date -AsUTC`,
   `Set-Content -AsByteStream`) is preserved in r03 because the
   Chipset r66 idioms it inherits never used those PS 7+ patterns

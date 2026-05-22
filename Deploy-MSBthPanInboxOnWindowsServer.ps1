@@ -4233,7 +4233,7 @@ function Resolve-PhaseSelection {
 # has 2+ peers to compare).
 
 $Script:WdacOrchestratorFileName            = 'Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1'
-$Script:ExpectedWdacScriptCanonicalSha256   = '4958bbaaa2aa7b6fa0bfcb493b92fd938e25e7e8bee42495ec0dab19da7471b8'
+$Script:ExpectedWdacScriptCanonicalSha256   = '0df3c8889fe80769ade52e8fa7f5518af184df6413f1bfd9c7596e0a185c82ff'
 $Script:WdacOrchestratorRawGithubUrl        = 'https://raw.githubusercontent.com/usui-tk/Deploy-Drivers-For-WindowsServer/main/Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1'
 
 function Get-CanonicalScriptHash {
