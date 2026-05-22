@@ -22,6 +22,36 @@ independently.
 
 ## [Unreleased]
 
+### Changed
+
+- **`.psa.config.json`**: Added `Build-PatchedInfHwidIndex` to
+  `psa8001_ignore_functions` to codify the intentional, SPEC §D.24-
+  documented divergence between the Chipset and Graphics variants of
+  this function. The Chipset variant integrates a phantom-file-
+  reference filter (Chipset r65) that calls the Chipset-only helpers
+  `Get-IneligibleInfLookup` / `Test-InfIsIneligible`; the Graphics
+  variant omits the filter because Adrenalin packaging does not
+  exhibit the SECREPAIR Error: 3 cascade and Graphics P05 has been
+  validated to produce 0 ineligible INFs in practice (Adrenalin
+  26.5.2 Vega-Polaris Legacy on Renoir / WS2019). Per SPEC §D.24 the
+  port of the r65 phantom-file machinery to Graphics is deferred
+  until the same defect is observed in a real Adrenalin package.
+  This change removes the pre-existing PSA8001 cross-file drift
+  warning, bringing the CI baseline to 0 errors / 0 warnings across
+  the orchestrator, AMDGraphics, AMDNpu, and MSBthPan scripts.
+  The AMDChipset script retains a single pre-existing PSA6003
+  warning (`InfReferencedFiles` function-noun plural form) that is
+  out of scope for this change.
+- **`SPEC.md` §A.11.5b**: Added a "Documented per-driver-family
+  exceptions to byte-identity" paragraph cross-referencing §D.24 and
+  explaining the rationale for the `Build-PatchedInfHwidIndex`
+  exception in `psa8001_ignore_functions`.
+
+No PowerShell scripts are modified by this change. The orchestrator
+canonical SHA256 (`0df3c8889fe80769ade52e8fa7f5518af184df6413f1bfd9c7596e0a185c82ff`)
+and all `$Script:ExpectedWdacScriptCanonicalSha256` embedded
+constants in the four driver scripts remain unchanged.
+
 ## [Chipset r67 / Graphics r33 / NPU r16 / BthPan r15 / WDAC SPF r03] — 2026-05-23
 
 ### Added

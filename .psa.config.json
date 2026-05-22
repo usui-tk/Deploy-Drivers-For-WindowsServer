@@ -191,6 +191,24 @@
     "Get-Inf2catSupportedOsValues",
     "Export-InfInventoryReport",
 
+    // ---- Chipset r65 phantom file reference filter ----
+    // Build-PatchedInfHwidIndex appears in both Chipset and Graphics.
+    // The Chipset variant integrates a phantom-file-reference filter
+    // (added in Chipset r65 per SPEC §D.24) that calls the Chipset-
+    // only helpers Get-IneligibleInfLookup / Test-InfIsIneligible to
+    // exclude INFs flagged by P05 as ineligible from the V06 AS-IS /
+    // TO-BE comparison. The Graphics variant intentionally omits this
+    // filter: the Adrenalin packaging (single-EXE WIX BURN bootstrapper)
+    // does NOT exhibit the layered NSIS -> InstallShield SFX -> nested-
+    // MSI structure that produced the Chipset SECREPAIR Error: 3
+    // cascade, and Graphics P05 has been validated to produce 0
+    // ineligible INFs in practice (Adrenalin 26.5.2 Vega-Polaris
+    // Legacy on Renoir / WS2019). Per SPEC §D.24 the port of the r65
+    // phantom-file machinery to Graphics is deferred until the same
+    // defect is observed in a real Adrenalin package. This exception
+    // codifies that decision.
+    "Build-PatchedInfHwidIndex",
+
     // ---- Secure Boot baseline helpers ----
     // The Get-SecureBootBaselineSnapshot signature and certificate
     // inventory schema is shared, but the script-revision header

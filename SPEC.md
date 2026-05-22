@@ -983,6 +983,8 @@ Across all four pipeline scripts, **34 helper functions** are inherited verbatim
 
 When adding a new shared helper that should remain in sync across all four scripts, add it to all four scripts with identical bodies and do NOT add it to `psa8001_ignore_functions`. PSA8001 will then enforce its sync invariant from that point onward.
 
+**Documented per-driver-family exceptions to byte-identity**: One additional helper, `Build-PatchedInfHwidIndex`, appears in both Chipset and Graphics with intentionally divergent bodies and is listed in `psa8001_ignore_functions`. The Chipset variant integrates a phantom-file-reference filter (added in Chipset r65; see [§D.24](#d24-phantom-file-reference-detection--pipeline-wide-skip-chipset)) that calls the Chipset-only helpers `Get-IneligibleInfLookup` / `Test-InfIsIneligible` to exclude INFs flagged by P05 as ineligible from the V06 AS-IS / TO-BE comparison. The Graphics variant omits this filter by design: Adrenalin packaging (single-EXE WIX BURN bootstrapper) does not exhibit the layered NSIS → InstallShield SFX → nested-MSI structure that produced the Chipset `SECREPAIR Error: 3` cascade, and Graphics P05 has been validated (Adrenalin 26.5.2 Vega-Polaris Legacy on Renoir / WS2019) to produce 0 ineligible INFs in practice. Per SPEC §D.24 the port of the r65 phantom-file machinery to Graphics is deferred until the same defect is observed in a real Adrenalin package; until then, the `psa8001_ignore_functions` entry codifies this asymmetry so the CI baseline remains at 0 errors / 0 warnings.
+
 ### A.11.6 Self-quality gates for `psa.py` (consumer-side usage)
 
 Since `psa.py` 3.5.0 the canonical analyzer ships three built-in
