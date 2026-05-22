@@ -22,12 +22,12 @@ independently.
 
 ## [Unreleased]
 
-## [Chipset r67 / Graphics r33 / NPU r16 / BthPan r15 / WDAC SPF r02] — 2026-05-22
+## [Chipset r67 / Graphics r33 / NPU r16 / BthPan r15 / WDAC SPF r03] — 2026-05-23
 
 ### Added
 
 - **NEW SCRIPT: `Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1`**
-  (1,898 lines). An external orchestrator that builds, deploys, and
+  (3,863 lines). An external orchestrator that builds, deploys, and
   manages WDAC Single Policy Format (SPF) policies on **Windows Server
   2019 (build 17763) and Windows Server 2016 (build 14393)**, where
   the Multiple Policy Format (MPF) supplemental-policy infrastructure
@@ -70,20 +70,30 @@ independently.
   Before the existing Path A / Path B decision, I02 now detects the
   legacy OS via `Test-IsLegacyWindowsServerOs` and, when on a legacy
   host without `-UseTestSigning`, delegates authorization to the
-  external orchestrator (Path C). The orchestrator is located either
-  locally (next to the driver script) or fetched from the GitHub
-  `main` branch (`raw.githubusercontent.com/usui-tk/Deploy-Drivers-For-WindowsServer/main/`).
-  In both cases the orchestrator's canonical SHA256 is verified
-  against the constant embedded in each driver script
+  external orchestrator (Path C). The orchestrator is located locally
+  (same directory as the driver script, then the current working
+  directory); when absent from both locations, the driver script
+  throws with a clear `Cannot locate ...` error that includes the
+  canonical raw GitHub URL
+  (`raw.githubusercontent.com/usui-tk/Deploy-Drivers-For-WindowsServer/main/Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1`)
+  so the operator can fetch the matching version manually. Automatic
+  over-the-wire fetch is intentionally NOT implemented because legacy
+  WS2019/WS2016 hosts are commonly in restricted networks where
+  outbound HTTPS to `raw.githubusercontent.com` is blocked, and an
+  explicit "place the orchestrator here" workflow is more predictable
+  for change-controlled environments. The resolved orchestrator's
+  canonical SHA256 is verified against the constant embedded in each
+  driver script
   (`$Script:ExpectedWdacScriptCanonicalSha256 =
-  'd13b6a8bc436a0d04355a1fe1df3cc5238f5cb3683bd263f196f431d0514b65c'`).
+  '4958bbaaa2aa7b6fa0bfcb493b92fd938e25e7e8bee42495ec0dab19da7471b8'`);
+  a mismatch produces a clearly logged warning (not a hard refusal),
+  letting the operator decide whether to proceed.
 
 ### Changed
 
 - **Chipset r66 → r67** — version tag changes from
   `phantom-file-reference-skip-cleanup` to
-  `legacy-ws2019-wdac-spf-integration`. Integration block added (~300
-  lines) before `Invoke-InstPhase02_AuthorizeDriverSigning`, providing
+  `legacy-ws2019-wdac-spf-integration`. Integration block added (192 lines) before `Invoke-InstPhase02_AuthorizeDriverSigning`, providing
   helper functions `Get-CanonicalScriptHash`,
   `Test-IsLegacyWindowsServerOs`, `Resolve-WdacOrchestratorScript`,
   `Invoke-WdacOrchestrator`, `Invoke-LegacyWdacAuthorization`. I02
@@ -111,6 +121,42 @@ independently.
   the script is OS-specific. See SPEC §D.25.
 
 ### Fixed
+
+- **WDAC SPF orchestrator r02 → r03 — full rebuild from Chipset r66
+  verbatim per sister-script discipline (SPEC §A.13 "Reuse before
+  invention").** The r01/r02 implementations were ground-up
+  rewrites that diverged from the established 4-script discipline
+  in two specific ways: (a) the 34 shared helper
+  functions (logging primitives, Debug Trace framework,
+  environment/preflight, Secure Boot baseline diagnostics) had
+  subtle byte-level differences from the sister scripts, and
+  (b) several helpers (`New-IsoTimestamp`, `Get-FileSha256Hex`,
+  `Get-OsContext` equivalents) were independently re-implemented
+  instead of inheriting verbatim from Chipset r66. r03 rebuilds
+  the orchestrator by seeding from the production-validated
+  Chipset r66 file and surgically:
+  - removing all 21 phase functions and AMD-specific URL
+    discovery / INF patching / driver-install logic (8,428 lines),
+  - removing the $Ctx-dependent helpers that the orchestrator
+    does not need (Section 1c boot-signing environment, most of
+    Section 1d Secure Boot baseline, Section 0.25 transcript),
+  - keeping the 34 shared helpers byte-for-byte verbatim
+    from Chipset r66 — of those, PSA8001 actively enforces sync
+    for 30 (the other 4 are Secure Boot baseline diagnostic helpers
+    in `.psa.config.json` `psa8001_ignore_functions`, kept verbatim
+    so any future enforcement uplift sees a consistent baseline).
+    PSA8001 cross-file drift check now confirms zero divergence for
+    the 30 actively-enforced helpers across all 5 scripts,
+  - adding orchestrator-specific sections for the SPF policy build,
+    manifest schema, state model, and action handlers (`AddCert`,
+    `RemoveCert`, etc.).
+  Embedded canonical hash in all 4 driver scripts updated:
+  - Was (r02): `d13b6a8bc436a0d04355a1fe1df3cc5238f5cb3683bd263f196f431d0514b65c`
+  - Now (r03): `4958bbaaa2aa7b6fa0bfcb493b92fd938e25e7e8bee42495ec0dab19da7471b8`
+  The PS 5.1 parameter-binding fix from r02 (`Get-Date -AsUTC`,
+  `Set-Content -AsByteStream`) is preserved in r03 because the
+  Chipset r66 idioms it inherits never used those PS 7+ patterns
+  in the first place.
 
 - **WDAC SPF orchestrator r01 → r02 — Windows PowerShell 5.1
   parameter-binding compatibility fix.** Discovered immediately

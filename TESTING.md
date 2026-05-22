@@ -1473,7 +1473,7 @@ Test-Path .\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1   # expected:
 ```
 
 **Pass criteria**:
-- Banner shows version `wdac-2026.05.22-r02`.
+- Banner shows version `wdac-2026.05.23-r03`.
 - Header line "Path: ... legacy SPF" or "STATE" displayed.
 - State output is one of: `None`, `Ours-Healthy`, `Foreign`,
   `Ours-Stale`, `Ours-Tampered`, `Inconsistent`.
@@ -1493,7 +1493,7 @@ $json.action; $json.state; $json.exitCode
 - `$json.action -eq 'GetStatus'`
 - `$json.exitCode -eq 0`
 - `$json.state` is a recognized state name.
-- `$json.scriptVersion -eq 'wdac-2026.05.22-r02'`.
+- `$json.scriptVersion -eq 'wdac-2026.05.23-r03'`.
 
 #### TC11.3 — Canonical hash self-check (dev helper)
 
@@ -1504,7 +1504,7 @@ $json.action; $json.state; $json.exitCode
 
 **Pass criteria**:
 - `$result.details.canonicalSha256 -eq
-  'd13b6a8bc436a0d04355a1fe1df3cc5238f5cb3683bd263f196f431d0514b65c'`
+  '4958bbaaa2aa7b6fa0bfcb493b92fd938e25e7e8bee42495ec0dab19da7471b8'`
   (the value embedded in all 4 driver scripts as
   `$Script:ExpectedWdacScriptCanonicalSha256`).
 
@@ -1525,7 +1525,7 @@ $json.action; $json.state; $json.exitCode
 - `Orchestrator src  : local` (when orchestrator is co-located)
   or `Orchestrator src  : github-fetch` (when not).
 - `Orchestrator hash :
-  d13b6a8bc436a0d04355a1fe1df3cc5238f5cb3683bd263f196f431d0514b65c`.
+  4958bbaaa2aa7b6fa0bfcb493b92fd938e25e7e8bee42495ec0dab19da7471b8`.
 - `State transition: None -> Ours-Healthy` (or `Ours-Healthy ->
   Ours-Healthy` for idempotent re-runs).
 - `Activation method: WMI-PS_UpdateAndCompareCIPolicy`.

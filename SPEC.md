@@ -2997,10 +2997,10 @@ Alternatives considered:
 The external orchestrator lives next to the driver scripts in the repository root. Each driver script:
 
 1. Hard-codes the **expected canonical SHA256** of the orchestrator (`$Script:ExpectedWdacScriptCanonicalSha256`).
-2. At I02 runtime on a legacy host, looks for the orchestrator **locally** first (same directory as `$PSCommandPath`). If absent, fetches it from `raw.githubusercontent.com/usui-tk/Deploy-Drivers-For-WindowsServer/main/` (no cache — every-time fetch).
-3. Computes the canonical hash of whichever copy was resolved and refuses to run if it does not match the embedded expected value.
+2. At I02 runtime on a legacy host, looks for the orchestrator **locally** (same directory as `$PSCommandPath`, then the current working directory). When the orchestrator is missing from both locations, the script throws with a clear `Cannot locate ...` message that includes the canonical raw GitHub URL (`$Script:WdacOrchestratorRawGithubUrl`) so the operator can fetch the matching version manually with `Invoke-WebRequest` (or `git clone` the repository). **Automatic over-the-wire fetch is intentionally not implemented**: legacy WS2019/WS2016 hosts are commonly in restricted networks where outbound HTTPS to `raw.githubusercontent.com` is blocked, and silently fetching code at I02 would surprise operators who have already audited the local copy; an explicit "place the orchestrator here" workflow is more predictable for change-controlled environments.
+3. Computes the canonical hash of the resolved local copy and warns (not refuses) if it does not match the embedded expected value: the orchestrator may have been independently updated to a newer release that is still backward-compatible, so the driver script continues with a clearly logged hash mismatch rather than blocking the operator.
 
-This gives a **version-coupling guard**: bumping the orchestrator without bumping each driver script's expected-hash constant is a deploy-time error, not a runtime mystery. The operator sees a clear "the orchestrator on disk does not match what this driver expects" message.
+This gives a **version-coupling visibility guard**: bumping the orchestrator without bumping each driver script's expected-hash constant produces a clearly logged warning at I02 runtime, so the operator can correlate any later runtime surprise with the orchestrator version that was actually used. The driver script does not block on mismatch (the orchestrator may have been independently updated to a backward-compatible release), but the warning text states both the embedded expected hash and the observed actual hash so the operator can choose to abort the run.
 
 The "canonical hash" is a SHA256 of the file content with:
 - UTF-8 BOM stripped (if present)
@@ -3056,14 +3056,13 @@ wdac\
     "sourceXmlPath": "...",
     "sourceP7bPath": "...",
     "sourceP7bSha256": "...",
-    "versionEx": "10.0.0.N",
     "auditMode": false
   },
   "authorizedCerts": [
     {
       "thumbprint": "...",            // upper-case hex
       "subject": "...",
-      "tbsHash": "...",
+      "rawDataSha256": "...",         // SHA256 of cert.GetRawCertData() bytes
       "cerFilePath": "...\\certs\\{THUMB}.cer",
       "cerFileOrigin": "C:\\Temp\\Workspace_AMD-Chipset\\cert\\AMD-...cer",
       "validFrom": "...",
@@ -3076,8 +3075,8 @@ wdac\
   "foreignPolicyBackup": null,        // or { backupPath, backupSha256, backedUpAt, originalDeployPath }
   "deploymentHistory": [ ... ],       // capped at historyMaxEntries (default 50)
   "historyMaxEntries": 50,
-  "externalScriptVersion": "wdac-2026.05.22-r02",
-  "externalScriptCanonicalHash": "e748..."
+  "externalScriptVersion": "wdac-2026.05.23-r03",
+  "externalScriptCanonicalHash": "6cf37a33..."
 }
 ```
 
@@ -3139,6 +3138,24 @@ Conventions:
 - **Exit codes**: granular — `0`=success, `1`=generic failure, `2`=state mismatch (refused due to Foreign/Tampered without override), `3`=invalid arguments, `4`=system error (WMI, file I/O, parse).
 - **Failure model**: `throw` + non-zero exit code. PowerShell-native `try/catch` works in callers.
 
+#### Decision 7: WDAC Rule Options applied to the SPF base policy
+
+`New-WdacSpfBasePolicy` explicitly sets and deletes a curated subset of WDAC Rule Options on the generated XML before `ConvertFrom-CIPolicy` compiles it to `.p7b`. The choice and the rationale per option:
+
+| Option | Name | Action | Why |
+|---|---|---|---|
+| 0  | Enabled:UMCI                            | **Delete** | UMCI (User Mode Code Integrity) would extend signing enforcement to user-mode binaries; we only need kernel-mode driver authorization here. |
+| 2  | Required:WHQL                           | **Delete** | We are deploying self-signed drivers; requiring WHQL signing would refuse them. |
+| 3  | Enabled:Audit Mode                      | **Conditional Set** | Set ONLY when the orchestrator's `-AuditMode` switch is present; otherwise Delete. In audit mode, violations are logged to `Microsoft-Windows-CodeIntegrity/Operational` (event 3076 / 3077) but the kernel still loads the driver. |
+| 4  | Disabled:Flight Signing                 | **Delete** | Not needed; default kernel behaviour is sufficient on legacy WS2019/WS2016. |
+| 6  | Enabled:Unsigned System Integrity Policy| **Set**    | Critical. We do not catalog-sign the policy `.p7b` itself; without this option the kernel rejects the policy at boot. |
+| 8  | Required:EV Signers                     | **Delete** | Would refuse anything not signed with an Extended Validation cert. |
+| 10 | Enabled:Boot Audit on Failure           | **Set**    | If a boot-critical driver fails CI enforcement, fall back to audit instead of bricking the host. Defensive against accidental policy errors. |
+| 11 | Disabled:Script Enforcement             | **Delete** | We are not enforcing scripts in this policy; leave it on default kernel behaviour. |
+| 16 | Enabled:Update Policy No Reboot         | **Set**    | Critical for SPF on WS2019. With this option set, the WMI bridge `PS_UpdateAndCompareCIPolicy.Update()` applies the policy immediately; without it, the policy only takes effect after reboot. |
+
+All `Set-RuleOption` calls use `-ErrorAction SilentlyContinue` because some options may already match the desired state in the AllowAll template and `Set-RuleOption` raises a non-terminating warning rather than silently no-op'ing. The compiled policy after this step authorizes ONLY the certs listed in `authorizedCerts[]` as kernel-mode signers; all template defaults (catch-all signers / allowed files) have been stripped in Step 3 of `New-WdacSpfBasePolicy` before the per-cert `Add-SignerRule -Kernel` calls.
+
 ### Edge cases (catalogued)
 
 | Code | Scenario | Handling |
@@ -3155,8 +3172,8 @@ Conventions:
 
 | File | Change |
 |---|---|
-| `Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1` | **NEW** — 1,898 lines. The external orchestrator. |
-| `Deploy-AMDChipsetDriverOnWindowsServer.ps1` | Param block: +`-ForceOverrideForeign`, +`-AuditMode`. Version: r66 → r67. Inserts integration block (~300 lines) before `Invoke-InstPhase02_AuthorizeDriverSigning`. I02: adds Path C branch (delegate to orchestrator) before existing Path A/B decision. |
+| `Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1` | **NEW** — 3,863 lines. The external orchestrator. |
+| `Deploy-AMDChipsetDriverOnWindowsServer.ps1` | Param block: +`-ForceOverrideForeign`, +`-AuditMode`. Version: r66 → r67. Inserts integration block (192 lines) before `Invoke-InstPhase02_AuthorizeDriverSigning`. I02: adds Path C branch (delegate to orchestrator) before existing Path A/B decision. |
 | `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | Same pattern as Chipset. Version: r32 → r33. |
 | `Deploy-AMDNpuDriverOnWindowsServer.ps1` | Same pattern as Chipset, adapted to NPU's `$Script:`-mirrored parameter style. Version: r15 → r16. |
 | `Deploy-MSBthPanInboxOnWindowsServer.ps1` | Same pattern as Chipset. Version: r14 → r15. |
@@ -3192,8 +3209,9 @@ The convention permits and encourages further specialisation of `Target` when a 
 
 ### Status
 
+- **r67/r03 full rebuild from Chipset r66 (2026-05-23)**: The r01/r02 implementations were ground-up rewrites and silently violated the sister-script discipline documented in SPEC §A.13 "Reuse before invention". Specifically, the 34 shared-helper functions (logging primitives, Debug Trace framework, environment / preflight, Secure Boot baseline diagnostics) had subtle byte-level differences from the four driver scripts, and several utility helpers were independently re-implemented instead of inherited verbatim. PSA8001 actively enforces sync for 30 of those 34 helpers; the remaining 4 (Secure Boot baseline diagnostic helpers) are in the `.psa.config.json` `psa8001_ignore_functions` list because their call sites reference `$Ctx`-shaped context indirectly and one variant exists across the four driver scripts, but they are still inherited verbatim in r03 so that any future PSA8001 enforcement uplift on those 4 sees a consistent baseline. **Fix in r03**: seed the orchestrator file by copying `Deploy-AMDChipsetDriverOnWindowsServer.ps1` (r66 baseline) verbatim, then surgically (a) remove all 21 phase functions and AMD-specific URL discovery / INF patching / driver-install logic; (b) remove the `$Ctx`-dependent helpers the orchestrator does not need (Section 1c boot-signing environment, most of Section 1d Secure Boot baseline, Section 0.25 transcript); (c) keep the 34 shared helpers byte-for-byte verbatim (30 PSA8001-enforced, 4 PSA8001-ignored-but-still-verbatim); (d) add orchestrator-specific sections for the SPF policy build, manifest schema, state model, and 9 action handlers. The PS 5.1 parameter-binding fix from r02 is preserved because the Chipset r66 idioms never used `-AsUTC` / `-AsByteStream` in the first place. After the rebuild, `psa.py --config .psa.config.json` reports `0 errors / 0 warnings / 0 info` for the orchestrator and `0 errors` across all 5 scripts; PSA8001 cross-file drift for the 30 actively-enforced shared helpers is `0`. This is a generally-applicable lesson: **the static-analyzer-enforced sister-script discipline (PSA8001) is the integrity guarantee, not a coding-style preference**. New sister scripts MUST be seeded from a production-validated script verbatim; ground-up implementations bypass the byte-identity invariant by construction. Embedded canonical hash in all 4 driver scripts updated from `d13b6a8b...` (r02) to `4958bbaaa2aa7b6fa0bfcb493b92fd938e25e7e8bee42495ec0dab19da7471b8` (r03).
 - **r67/r01 pilot validation result (2026-05-22)**: The first execution of `Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 -Action GetStatus` on the target bench (WS2019 build 17763 + Ryzen 5 PRO 4650U + Secure Boot ON) failed with a Windows PowerShell 5.1 parameter-binding error: `A parameter cannot be found that matches parameter name 'AsUTC'`. Root cause: the `Get-Date -AsUTC` cmdlet parameter was added in PowerShell 7.1 and is not available on Windows PowerShell 5.1 (the default and only PS shipped with WS2019/WS2016). `-ErrorAction SilentlyContinue` does NOT suppress parameter-binding errors — these are terminating at the binding stage, before the cmdlet body runs. **Fix in r02 (WDAC SPF orchestrator)**: replace `Get-Date -AsUTC ...` with `(Get-Date).ToUniversalTime().ToString(...)`. Also preemptively fixed `Set-Content -AsByteStream` (PS 6+ only) in the Uninstall path. Embedded canonical hash in all 4 driver scripts updated from `e7489216...` (r01) to `d13b6a8b...` (r02). This is a generally-applicable lesson: when targeting Windows PowerShell 5.1, **scan for PS 7+-only parameters and operators** (`-AsUTC`, `-AsByteStream`, `??`, `?.`, `-Parallel`, `Test-Json`) before deployment.
-- **r67/r02 pilot validation**: PENDING re-execution after the r02 fix.
+- **r67/r03 pilot validation**: PENDING on the target bench (WS2019 build 17763 + Ryzen 5 PRO 4650U + Secure Boot ON).
 - **WS2022 / WS2025**: behaviour unchanged (Path A still applies, `Test-IsLegacyWindowsServerOs` returns false).
 - **Workstation hosts**: orchestrator refuses with `result=refused, exitCode=3` and a clear OS-guard message.
 
@@ -3232,13 +3250,13 @@ Note: `-ErrorAction SilentlyContinue` does NOT make a cmdlet's PS 7+-only parame
 
 If you are creating a 5th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1`):
 
-1. Copy the most recent existing script (the NPU script is the freshest sister-aligned reference) as your starting template.
+1. **Choose a reference script.** Use one of the **production-validated** scripts: `Deploy-AMDChipsetDriverOnWindowsServer.ps1`, `Deploy-AMDGraphicsDriverOnWindowsServer.ps1`, or `Deploy-MSBthPanInboxOnWindowsServer.ps1`. **Do NOT use the NPU script as a starting template** — the NPU script is classified as "🆘 Experimental / research-grade — NOT production-ready" (see README.md "Risk classification of the four scripts"), has no physical-hardware validation runs, and its idioms have not been verified to be safe to copy. Among the three production-validated scripts, the Chipset script has the largest test surface (Phase coverage, INF patch logic, multi-OS detection) and the MSBthPan script has the cleanest single-INF / single-HWID flow — pick whichever is closer to your new script's domain. Copy that file as your starting template.
 2. Replace `$Script:ScriptName`, `$Script:ScriptVersion`, `$Script:ScriptTag`, `$Script:CertSubjectCn`, `$Script:WdacPolicyName`, `$Script:WdacPolicyGuid`, `$Script:WorkRoot` with values specific to your new script.
-3. Re-implement only the **domain helpers** section (platform detection, installer resolution, INF inventory filter). Reuse all other sections verbatim.
+3. Re-implement only the **domain helpers** section (platform detection, installer resolution, INF inventory filter). Reuse all other sections verbatim — especially the output helpers (`Write-Step`/`Write-Ok`/`Write-Warn2`/`Write-Fail`/`Write-Skip`/`Write-Detail`/`_LogLine`), timestamp idioms (`(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')`), CIM-with-WMI-fallback pattern, and the `Test-WdacToolsAvailable` / `Install-AmdWdacPolicy` / `Uninstall-AmdWdacPolicy` triplet which are PS 5.1-validated and handle multiple edge cases (CiTool absent on WS2019, WS2025 build 26100 schema variant in AllowAll.xml, CIM bridge fallback via PS_UpdateAndCompareCIPolicy). **Ground-up reimplementation of these helpers is strongly discouraged** — they encode validation history that is invisible in the code itself. See D.25 for a concrete case where ground-up reimplementation introduced a PowerShell 7+-only parameter (`Get-Date -AsUTC`) into a script targeting Windows PowerShell 5.1.
 4. Run `python3 psa.py <new-script>.ps1` (see A.11 for setup) until 0 errors.
 5. Add B.5 section to this SPEC.md.
 6. Add the new script to `README.md` "What's in the box" table, "Parameters" section, "Risk classification" table — and sync `README.ja.md`.
 7. Add a physical-hardware validation scenario to `TESTING.md` covering the target AMD consumer devices for your new script.
 8. Add a CHANGELOG.md entry for the new script's initial release.
 
-The goal of the strict sister-script convention is exactly this: a new script should be ~80% boilerplate inheritance and ~20% novel logic.
+The goal of the strict sister-script convention is exactly this: a new script should be ~80% boilerplate inheritance and ~20% novel logic. The 80% inheritance is not just style — it is the accumulated body of PS-5.1-validated, edge-case-handled, SPEC-documented behavior that cannot be reproduced by reading the SPEC alone.
