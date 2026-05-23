@@ -71,6 +71,271 @@ constants in the four driver scripts remain unchanged (the rename
 only affects the Chipset script's own canonical hash, which is not
 embedded anywhere).
 
+## [Chipset r71 / Graphics r37 / NPU r18 / BthPan r19] — 2026-05-23 — WHQL co-sign pre-detection + Path B prerequisite check
+
+### Added
+
+- **All driver scripts: new SECTION r71 block** (~452 lines per script,
+  byte-identical across Chipset / Graphics / BthPan; NPU is excluded
+  per the established Q-X1 refuse policy). The block introduces seven
+  new helpers:
+  - `Test-WhqlCoSignature` — Inspect a `.sys` file's Authenticode
+    certificate chain and report whether it carries a Microsoft
+    Windows Hardware Compatibility co-signature. Uses
+    `Get-AuthenticodeSignature` for the primary signer and shells out
+    to `signtool verify /pa /v` to enumerate nested signers when WDK
+    is installed. Falls back to a conservative `self-only` verdict
+    when signtool is absent (over-reports rather than under-reports).
+  - `Get-InfDriverFileList` — Resolve the `.sys` file paths an INF
+    declares via its `[SourceDisksFiles]` / `[CopyFiles]` sections.
+    Probes both the INF's own directory and common arch subdirs
+    (`amd64`, `x64`, `Win64`).
+  - `New-WhqlCoSignAnalysis` — Build per-INF WHQL co-sign analysis
+    records (InfName / InfPath / DriverFiles / CoSignedFiles /
+    NonCoSignedFiles / IsFullyCoSigned / HasMixedSigning).
+  - `Show-WhqlCoSignAnalysisReport` — Pretty-print the WHQL analysis
+    to the operator console (Fully / Mixed / No co-signature counts
+    plus first-10 enumeration of mixed and non-co-signed INFs).
+  - `Test-SecureBootEnabledFromFirmware` — Thin wrapper around
+    `Confirm-SecureBootUEFI` that returns `$true` / `$false` / `$null`
+    for the firmware-layer Secure Boot state. Distinguished from
+    `$bootEnvBefore.SecureBootEnabled` (OS-layer view) so the two
+    can be inspected independently.
+  - `Invoke-PathBPrerequisiteCheck` — I02 helper that verifies
+    firmware Secure Boot is OFF before any `bcdedit` call. Returns
+    `{Result; Reason; GuidanceLines}` with an `abort` outcome on
+    Secure Boot ON. The guidance block enumerates the verbatim
+    Microsoft Learn error message ("The value is protected by Secure
+    Boot policy and cannot be modified or deleted"), a five-step
+    firmware-change workflow, BitLocker recovery key advisory, and
+    three alternative escape routes (Path A if all-WHQL,
+    `-SkipNonCosignedDrivers` to trim, `-Force` to bypass).
+  - `Get-EligibleInfRecordList` — Apply the `-SkipNonCosignedDrivers`
+    filter to a candidate INF list using `$Ctx.WhqlCoSignAnalysis`.
+    No-op when the switch is absent.
+
+- **All driver scripts: `-SkipNonCosignedDrivers` param switch**
+  (Chipset / Graphics / BthPan). When set, the install plan is
+  trimmed at P06 entry to the WHQL-co-signed subset. Downstream
+  phases (P06 patch, P07 cert, P08 catalog, V03–V06 verify, I03
+  install) all read the trimmed `$Ctx.InfInventory` automatically;
+  no per-phase integration changes were needed. The switch is
+  opt-in by design — defaulting to skip would silently change which
+  devices get drivers on existing deployments. NPU does not carry
+  the switch because NPU refuses Install on legacy Server entirely
+  (Q-X1, see SPEC §D.27); on WS2022+/WS2025 the switch would be a
+  pure no-op and is omitted.
+
+- **All driver scripts: `$Ctx.WhqlCoSignAnalysis` field** populated
+  by P05 (`AnalyzeInfs`). Chipset and Graphics call
+  `New-WhqlCoSignAnalysis` against the `NeedsPatch=true` subset of
+  the inventory; BthPan calls it against the single inbox
+  `bthpan.inf`. The analysis is best-effort: failures fall back to
+  an empty array so I00 C6 and `-SkipNonCosignedDrivers` operate
+  conservatively (C6 may not fire, Skip becomes a no-op).
+
+- **All driver scripts: I02 Path B prerequisite call**
+  (`Invoke-PathBPrerequisiteCheck`) immediately after the "BCD
+  testsigning already ON?" cached-state check. On
+  `Result=abort / Reason=secure-boot-on`, I02 prints the guidance
+  block in red and throws before any `bcdedit` invocation, leaving
+  the host state untouched. `-Force` bypasses the check, matching
+  the convention for the other I02 abort conditions. BthPan's I02
+  has a slightly different `Set-DebugStep` ordering versus
+  Chipset/Graphics (the difference predates r71); the prerequisite
+  call site is inserted at the equivalent semantic position in each.
+
+- **Chipset / Graphics / BthPan: `Get-CriticalRiskItem` C6
+  condition** — WHQL co-sign shortfall on a Secure-Boot-ON host.
+  C6 fires when `$Ctx.WhqlCoSignAnalysis` contains at least one
+  `IsFullyCoSigned=false` entry AND `Test-SecureBootEnabledFromFirmware`
+  returns `$true` AND `$Script:SkipNonCosignedDrivers` is `$false`
+  AND `$Ctx.UseTestSigning` is `$false`. The acknowledgement message
+  enumerates up to 5 non-WHQL INF names and the three escape routes;
+  the prompt text is `I understand non-WHQL drivers will be
+  kernel-CI-rejected at boot and accept this outcome (y/N): `. C6 is
+  bypassable by `-ForceUnsafe` with audit logging.
+
+- **SPEC.md §D.31 (new section, ~162 lines)** — "WHQL co-sign
+  pre-detection + Path B prerequisite check (r71)". Documents the
+  background (why §D.30 stopped at removal), the four mechanisms
+  (WHQL analysis / Path B prereq / C6 / Skip switch), the
+  operator decision matrix, PS-5.1-specific implementation notes,
+  what r71 does NOT change, the validation strategy, and the
+  release version contract.
+
+- **TESTING.md §14 (new section, ~95 lines)** — eight test cases
+  covering r71 mechanisms: TC14.1 (WHQL analysis runs in P05),
+  TC14.2 (Path B prereq ABORT on Secure Boot ON), TC14.3
+  (`-SkipNonCosignedDrivers` trims at P06 entry, C6 does not fire),
+  TC14.4 (C6 fires on Secure-Boot-ON mixed install plan), TC14.5
+  (`secure-boot-unknown` continues with warning), TC14.6 (all-WHQL
+  install plan: WHQL analysis reported but no special branches),
+  TC14.7 (BthPan WHQL on the Microsoft inbox bthpan.inf), TC14.8
+  (signtool-absent fallback is conservative). Plus the
+  `-ForceUnsafe` C6 bypass negative test and the WS2019
+  `-SkipNonCosignedDrivers` Path B follow-on note (a deferred
+  refinement is recorded in SPEC §D.31.9).
+
+### Changed
+
+- **All driver scripts: P05 (`AnalyzeInfs`) phase** — Each
+  `$detailReport` record now carries a `FullPath` field (Chipset /
+  Graphics) so the WHQL analysis can locate the INFs without
+  re-deriving the path. The Set-PhaseMarker P05 boundary now runs
+  `New-WhqlCoSignAnalysis` before stamping the marker and attaches
+  the result to `$Ctx.WhqlCoSignAnalysis`. BthPan's single-INF P05
+  does the equivalent attachment for its inbox `bthpan.inf`. The
+  P05 output gains the WHQL summary block as the last operator-
+  facing section before the phase footer.
+
+- **All driver scripts: I02 (`AuthorizeDriverSigning`) phase, Path B
+  branch** — Immediately after the "BCD testsigning already ON?"
+  cached-state check and before the existing OS-layer Secure Boot
+  guard, I02 now calls `Invoke-PathBPrerequisiteCheck`. The
+  pre-existing OS-layer guard is retained as defense-in-depth.
+
+- **Chipset / Graphics / BthPan: I00 (`PreInstallReview`) C6 emission
+  path** — `Get-CriticalRiskItem` evaluates C6 after C1/C2/C5 and
+  appends to the items array on hit. `Invoke-CriticalAcknowledgementChecklist`
+  is unchanged (the call site iterates whatever items the helper
+  returned).
+
+- **Chipset / Graphics: P06 (`PatchInfs`) phase entry** — A new
+  `-SkipNonCosignedDrivers` filter step runs after the InfInventory
+  load and before the patched-output cleanup. The step calls
+  `Get-EligibleInfRecordList` and replaces `$Ctx.InfInventory` with
+  the WHQL-co-signed subset when the switch is set. A diagnostic
+  message is printed in either case (trim summary OR no-op
+  acknowledgement). When the switch is absent, the step is a
+  zero-cost early-exit.
+
+- **BthPan: P06 phase entry** — Acknowledges the
+  `-SkipNonCosignedDrivers` switch in the run transcript when set
+  but never actually trims (the Microsoft inbox `bthpan.inf` is
+  always WHQL co-signed by Microsoft). The acknowledgement is
+  there so cross-script automation can pass the flag uniformly
+  without per-script branching.
+
+- **SPEC.md §D.27 (NPU refuses)** — Clarified that NPU's Q-X1
+  refuse check is unchanged in r71; r71 does not extend NPU.
+
+- **SPEC.md §D.28 (CRITICAL severity acknowledgement)** — Updated
+  the C3 historical note: C6 is now described as "added in r71"
+  rather than "planned for r71".
+
+- **SPEC.md §D.30 (Path C deprecation)** — Updated forward
+  references throughout §D.30.5 / §D.30.7 / §D.30.8 from "r71 will
+  add" / "r71 (planned)" wording to "added in r71" / "r71 (shipped)"
+  wording. §D.30.8 now cross-references §D.31 as the canonical r71
+  contract.
+
+- **README.md / README.ja.md "Operating systems in scope" table** —
+  The WS2019 row's notes column is updated to describe
+  `-SkipNonCosignedDrivers` as shipped in r71 rather than planned,
+  and cross-references SPEC §D.31.
+
+- **README.md / README.ja.md Parameters table** — The `-ForceUnsafe`
+  row now lists C6 in the bypass scope (C1/C2/C5/C6) and cross-
+  references SPEC §D.31.4. A new `-SkipNonCosignedDrivers` row is
+  added immediately after `-ForceUnsafe`, marked `r71+`.
+
+### Rationale
+
+§D.30 removed the Path C WDAC SPF orchestrator after field evidence
+(F1–F12) demonstrated it added a credible host-brick risk without
+providing a workable alternative for non-WHQL drivers on UEFI
+Secure Boot-enabled hosts. r70 stopped at removal so the deletion
+diff could be reviewed in isolation; r71 lands the operator-
+assistance features the orchestrator was supposed to provide but
+never did.
+
+The key operator-facing insight from §D.30 was that on legacy
+Server hosts (WS2019/WS2016) with Secure Boot ON, the actual
+behaviour of `bcdedit /set TESTSIGNING ON` is to be refused **at
+command execution by the firmware** with an explicit error,
+documented in the Microsoft Learn article "The TESTSIGNING boot
+configuration option". The pre-r71 driver scripts surfaced this
+only as the underlying bcdedit error; r71 catches the condition
+before any host-state modification and presents a guided
+firmware-change workflow plus three alternative escape routes.
+
+The C6 acknowledgement (`Get-CriticalRiskItem` extension) closes
+the same operator-protection gap that C3 used to fill in the
+pre-r70 Path C era, but for the new failure mode: a mixed
+WHQL / non-WHQL install plan running on a Secure-Boot-ON host
+without Skip or TestSigning would silently produce devices that
+fail to load (`ProblemCode=39`, `CM_PROB_DRIVER_FAILED_LOAD`) at
+the next boot. C6 makes the operator acknowledge this outcome with
+full knowledge of the three escape routes before I01 begins.
+
+The `-SkipNonCosignedDrivers` switch is the only mechanism in r71
+that actually changes which drivers get installed; the other three
+(WHQL analysis, Path B prereq, C6) are operator-information surfaces
+that do not alter the install plan unless the operator changes
+their invocation in response. This split was intentional: r71 does
+not silently change deployed behaviour, only the operator-visible
+warnings and the new opt-in trim path.
+
+### Migration
+
+r71 is backward-compatible with all r70 invocations. No removed
+switches, no removed phases, no removed `$Ctx` fields. Existing
+automation that runs r70 invocations against r71 will see the new
+WHQL summary block in P05 output and the new Path B prerequisite
+check in I02; if the host has Secure Boot OFF, both are
+informational and the run proceeds as before.
+
+Operators wishing to keep Secure Boot ON on legacy Server hosts
+should add `-SkipNonCosignedDrivers` to their invocation. This is
+the recommended invocation pattern for r71+ on WS2019/WS2016.
+
+Operators wishing to install non-WHQL drivers on Secure-Boot-ON
+hosts must disable Secure Boot in firmware and add `-UseTestSigning`
+per the guidance text printed by the Path B prerequisite check.
+The BitLocker recovery key advisory in that guidance text is not
+new in r71 — it has been documented in §D.30 since r70 — but r71
+is the first release that surfaces it at the exact decision point
+where it matters.
+
+### Out of scope (deferred)
+
+Two refinements identified during r71 implementation are
+deliberately deferred:
+
+- **I02 should detect "all-WHQL-after-Skip + Secure-Boot-ON +
+  WS2019" and skip Path B entirely.** Today, `-SkipNonCosignedDrivers`
+  trims the install plan to fully-WHQL, but I02 still attempts
+  Path A (WDAC MPF, fails on CiTool absence on WS2019) and then
+  Path B (prerequisite check ABORTs on Secure Boot ON). The
+  operator workaround is to drop `-UseTestSigning` (which is the
+  default) and rely on the trust-store-only path, but this is not
+  obvious from the current messaging. A future release could add
+  a "WS2019 + all-WHQL + Secure Boot ON → use trust-store only"
+  short-circuit in I02. Recorded in SPEC §D.31.9.
+
+- **PS 7+ idiom adoption**. The r71 helpers use only PS 5.1
+  idioms because the driver scripts target PS 5.1 (Windows Server
+  default). A future cross-cutting change could uplift the
+  `(if/else) -ForegroundColor` and `-match` patterns to use the
+  cleaner PS 7+ syntax once the scripts drop PS 5.1 support;
+  documented in SPEC §D.31.7 as PS 5.1 footguns to be aware of.
+
+### Status — psa.py validation
+
+All four driver scripts continue to report **0 errors / 0 warnings
+/ 0 info** under `psa.py --config .psa.config.json` after the r71
+changes. PSA8001 cross-file drift detection does not fire — the
+seven new helpers (`Test-WhqlCoSignature`, `Get-InfDriverFileList`,
+`New-WhqlCoSignAnalysis`, `Show-WhqlCoSignAnalysisReport`,
+`Test-SecureBootEnabledFromFirmware`, `Invoke-PathBPrerequisiteCheck`,
+`Get-EligibleInfRecordList`) are byte-identical across Chipset /
+Graphics / BthPan. The I02 Path B prerequisite call site is
+byte-identical between Chipset and Graphics; BthPan's slight
+structural difference at I02 entry predates r71 and is documented
+in §D.31.10.
+
+
 ## [Chipset r70 / Graphics r36 / NPU r18 / BthPan r18] — 2026-05-23 — Path C deprecation
 
 ### Removed

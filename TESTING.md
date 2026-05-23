@@ -1656,3 +1656,101 @@ Verify: on a host that has not been rebooted in 25+ hours, `(Get-Date - LastBoot
 (Negative test — "orchestrator hash mismatch on disk" — was removed in r70. The driver scripts no longer reference an orchestrator, so the canonical-hash verification logic and the test that exercised it are both retired.)
 
 ---
+
+## 14. Validation Scenario 14: r71 WHQL co-sign pre-detection + Path B prerequisite check + C6 + `-SkipNonCosignedDrivers`
+
+### Status
+
+Code-review validated only. The WS2019 + Renoir bench is queued for OS reinstall as of release time; physical replay is not possible. Test cases below describe what should be observed when the bench becomes available and r71 (`Chipset r71` / `Graphics r37` / `BthPan r19`) is replayed against it.
+
+### Scope
+
+This section covers the four r71 mechanisms documented in SPEC §D.31:
+
+- **WHQL co-sign analysis** in P05 (`Test-WhqlCoSignature`, `New-WhqlCoSignAnalysis`, `Show-WhqlCoSignAnalysisReport`). See §D.31.2.
+- **Path B prerequisite check** in I02 (`Invoke-PathBPrerequisiteCheck`, `Test-SecureBootEnabledFromFirmware`). See §D.31.3.
+- **C6 CRITICAL acknowledgement** in I00 (`Get-CriticalRiskItem` extension). See §D.31.4.
+- **`-SkipNonCosignedDrivers`** switch (`Get-EligibleInfRecordList`, P06 entry trim). See §D.31.5.
+
+### TC14.1 — WHQL analysis runs in P05 on WS2019 PrepareVerify
+
+| Step | Setup | Expected outcome |
+| --- | --- | --- |
+| 1 | WS2019 (build 17763) host with WDK installed (signtool available). Place the AMD Chipset Driver installer zip next to the script. | — |
+| 2 | Run `.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action PrepareVerify` | P05 completes the INF inventory, then prints `--- WHQL co-signature analysis ---` with three counts (Fully co-signed / Mixed / No WHQL co-signature). |
+| 3 | Inspect `$Ctx.WhqlCoSignAnalysis` via the workspace-stored phase marker. | Array of pscustomobject; each entry has InfName, DriverFiles, CoSignedFiles, NonCoSignedFiles, IsFullyCoSigned, HasMixedSigning. |
+| 4 | No I-phases run because PrepareVerify excludes them. C6 does not fire, Path B prerequisite check does not run, `-SkipNonCosignedDrivers` has no effect. | The run completes with the same V01–V06 output as before r71, plus the new WHQL summary block. |
+
+### TC14.2 — Path B prerequisite ABORT on Secure Boot ON
+
+| Step | Setup | Expected outcome |
+| --- | --- | --- |
+| 1 | WS2019 host with UEFI Secure Boot **ENABLED** in firmware. | — |
+| 2 | Run `.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -UseTestSigning` | I00 PreInstallReview completes (assume no C1/C2/C5/C6 fire for this scenario, or all are acknowledged). I01 succeeds. I02 enters the Path B branch. |
+| 3 | I02 calls `Invoke-PathBPrerequisiteCheck`. `Confirm-SecureBootUEFI` returns `$true`. | The helper returns `Result=abort, Reason=secure-boot-on`. I02 prints the multi-line guidance block in red and throws `I02: Path B prerequisite not met (reason=secure-boot-on). Aborting before bcdedit is invoked.` |
+| 4 | The host is unmodified: no `bcdedit /set TESTSIGNING ON` was attempted, no driver-store changes, no cert work. Re-running with `-Force` would bypass the check (intentionally less prominent in the message). | `bcdedit /enum {current}` shows testsigning unchanged. The patched-INF workspace exists (P-phases ran) but the host's boot policy is untouched. |
+
+### TC14.3 — `-SkipNonCosignedDrivers` trims at P06 entry, C6 does not fire
+
+| Step | Setup | Expected outcome |
+| --- | --- | --- |
+| 1 | WS2019 host with Secure Boot ON. AMD Chipset install set contains a mix of WHQL co-signed (e.g. AmdMicroPEP.sys, amdgpio2.sys) and non-WHQL (e.g. amdi2c.sys, amdsfhkmdf.sys) drivers. | — |
+| 2 | Run `.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -SkipNonCosignedDrivers` | P05 completes the WHQL analysis. P06 entry prints `--- r71: -SkipNonCosignedDrivers filter applied ---` with the before/after INF counts. |
+| 3 | I00 PreInstallReview runs. `Get-CriticalRiskItem` evaluates C6. | C6 does NOT fire because `$Script:SkipNonCosignedDrivers` is `$true` (one of the four required AND conditions fails). C1/C2/C5 evaluate independently. |
+| 4 | I02 runs Path A (default WDAC supplemental policy). On WS2019, the WDAC MPF attempt would fail on CiTool absence. The script falls back to the trust-store-only authorisation. | The WHQL-co-signed subset loads on the host with Secure Boot ON. The non-WHQL subset is not present in the patched directory at all (P06 trim removed them before patching). |
+
+### TC14.4 — C6 fires on Secure-Boot-ON host with mixed install plan, no flags
+
+| Step | Setup | Expected outcome |
+| --- | --- | --- |
+| 1 | WS2022 (build 20348) host with UEFI Secure Boot ON. AMD Chipset install set contains both WHQL and non-WHQL drivers. | — |
+| 2 | Run `.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install` (no `-SkipNonCosignedDrivers`, no `-UseTestSigning`) | P05 WHQL analysis populates `$Ctx.WhqlCoSignAnalysis`. I00 evaluates C6. |
+| 3 | C6 fires with `[CRITICAL][C6] WHQL co-sign shortfall on Secure-Boot-ON host (N non-co-signed INF(s))` listing up to 5 sample INFs. | The acknowledgement prompt asks: `I understand non-WHQL drivers will be kernel-CI-rejected at boot and accept this outcome (y/N): ` |
+| 4 | Operator answers `N`. | I00 throws `CRITICAL risk item(s) not acknowledged. Aborting before I01.` No driver-store changes were made. |
+| 5 | Re-run with `-SkipNonCosignedDrivers` OR `-UseTestSigning` (after disabling Secure Boot in firmware first per the C6 guidance text) OR `-ForceUnsafe` (audit-logged bypass). | The chosen escape route proceeds without C6 firing. |
+
+### TC14.5 — Path B prerequisite "secure-boot-unknown" continues with warning
+
+| Step | Setup | Expected outcome |
+| --- | --- | --- |
+| 1 | Constrained VM or legacy BIOS host where `Confirm-SecureBootUEFI` throws. | — |
+| 2 | Run `.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -UseTestSigning` | I02 calls `Invoke-PathBPrerequisiteCheck`. The helper catches the exception, returns `Result=ok, Reason=secure-boot-unknown`. |
+| 3 | I02 prints the warning block as Write-Warn2 messages and continues to the existing legacy Secure Boot guard (which uses the OS-layer `$bootEnvBefore.SecureBootEnabled` view). | If both views agree on "off", Path B proceeds normally. If they diverge, the legacy guard fires. |
+
+### TC14.6 — All-WHQL install plan: WHQL analysis is reported but no special branches fire
+
+| Step | Setup | Expected outcome |
+| --- | --- | --- |
+| 1 | WS2025 (build 26100) host with a Chipset install set whose drivers are all WHQL co-signed (e.g. a release where AMD's INFs use only Microsoft-co-signed catalogs). | — |
+| 2 | Run `.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install` | P05 prints `Fully WHQL co-signed INFs: N / Mixed: 0 / No WHQL: 0`. I00 evaluates C6; the predicate is `$nonCoSignedInfs.Count -gt 0` which is false, so C6 does not fire. |
+| 3 | I02 runs the WDAC MPF Path A normally on WS2025. All drivers load. | Standard pre-r71 behaviour with one additional console block (the WHQL summary) and zero behavioural change. |
+
+### TC14.7 — BthPan: WHQL analysis on the Microsoft inbox bthpan.inf
+
+| Step | Setup | Expected outcome |
+| --- | --- | --- |
+| 1 | Any supported host (WS2022 / WS2025 since BthPan does not refuse on legacy Server as NPU does). | — |
+| 2 | Run `.\Deploy-MSBthPanInboxOnWindowsServer.ps1 -Action PrepareVerify` | P05 builds a single-record WHQL analysis for `bthpan.inf`. The Microsoft inbox driver is WHQL co-signed; the report shows `Fully WHQL co-signed INFs: 1`. |
+| 3 | Pass `-SkipNonCosignedDrivers`. | BthPan P06 entry prints `r71: -SkipNonCosignedDrivers set; bthpan.inf is WHQL co-signed by Microsoft. No trim needed.` and the run continues unchanged. |
+
+### TC14.8 — `signtool absent` fallback: conservative classification
+
+| Step | Setup | Expected outcome |
+| --- | --- | --- |
+| 1 | WS2019 host without the WDK installed; `Find-Signtool` returns `$null`. Install set has a non-WHQL primary signer (typical for AMD's own publisher cert on non-co-signed drivers). | — |
+| 2 | Run `.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action PrepareVerify` | `Test-WhqlCoSignature` falls back to the primary-signer-only check. Non-Microsoft primary signers are classified `Reason=self-only, IsCoSigned=$false`. |
+| 3 | Inspect P05 output. | Conservative classification: the WHQL summary may over-report `No WHQL co-signature` on actually-co-signed drivers because nested signers are not visible. C6 may fire on Secure-Boot-ON hosts where it would not fire with signtool present. Operators with no WDK can either install signtool or accept the conservative outcome. |
+
+### Negative test — `-ForceUnsafe` bypasses C6 with audit log entry
+
+| Step | Setup | Expected outcome |
+| --- | --- | --- |
+| 1 | Any host where C6 would fire (mixed install plan + Secure Boot ON + no Skip / TestSigning). | — |
+| 2 | Run with `-ForceUnsafe` added. | C6 (and any other CRITICAL items) appear in the console summary but the acknowledgement prompt is skipped. `Set-DebugStep` records the bypass with the comma-separated item ID list. |
+| 3 | Inspect the debug trace JSONL stream. | A line containing `CRITICAL bypass via -ForceUnsafe: items=C6` (or with other IDs interleaved) is present. The audit anchor is preserved. |
+
+### Negative test — TC14.3 follow-on: WS2019 with `-SkipNonCosignedDrivers` and the Path A fallback
+
+When `-SkipNonCosignedDrivers` is set on WS2019, the WDAC MPF Path A attempt still fails on CiTool absence (legacy Server does not have CiTool.exe). After the deprecation of Path C in r70, I02 falls through to Path B. Even though the install plan is fully WHQL co-signed (because Skip trimmed it), Path B's prerequisite check still ABORTs on Secure Boot ON because the firmware state has not changed. The right operator workaround is to drop `-UseTestSigning` and accept that the WHQL-co-signed subset can be trust-store-authorised on WS2019 without any WDAC MPF or testsigning at all. SPEC §D.31.9 records this as a deferred follow-on refinement: I02 could detect "all-WHQL-after-Skip + Secure Boot ON + WS2019" and skip Path B entirely, but the current implementation does not.
+
+---

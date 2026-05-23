@@ -603,7 +603,18 @@ param(
     # logged via Set-DebugStep in the run transcript so an audit can
     # reconstruct whether C1/C2/C5 were ever surfaced. NEVER use
     # in production without out-of-band review. See SPEC SS D.28.
-    [switch]$ForceUnsafe
+    [switch]$ForceUnsafe,
+
+    # Skip the non-WHQL-co-signed subset of the install plan.
+    # When this switch is set, P05's WHQL co-sign analysis is used to
+    # trim P06 / P07 / P08 / I03 to only the INFs whose .sys files all
+    # carry a Microsoft Windows Hardware Compatibility co-signature.
+    # Use this when the host must keep UEFI Secure Boot ENABLED in
+    # firmware and Path B (testsigning) is not acceptable. The non-
+    # WHQL subset is reported but not installed; operators who need
+    # those devices must accept Path B or leave the device unbound.
+    # See SPEC SS D.31 for the design rationale.
+    [switch]$SkipNonCosignedDrivers
 )
 
 $ErrorActionPreference = 'Stop'
@@ -612,6 +623,7 @@ $ProgressPreference    = 'SilentlyContinue'
 # Cache the param() values into $Script: scope so phase functions can read them
 # without re-binding param() variables across function-call boundaries.
 $Script:ForceUnsafe = [bool]$ForceUnsafe.IsPresent
+$Script:SkipNonCosignedDrivers = [bool]$SkipNonCosignedDrivers.IsPresent
 
 #####################################################################
 # SECTION 0: Script-level timing state
@@ -4552,6 +4564,56 @@ function Get-CriticalRiskItem {
         }
     } catch { } # psa-disable-line PSA3004 -- CIM unavailable means we cannot compute hours-since-boot; non-fatal
 
+    # --- C6: WHQL co-sign shortfall on Secure-Boot-ON host ---
+    # Fires when ALL of the following hold:
+    #   (a) the install plan contains at least one non-WHQL-co-signed INF
+    #   (b) the host is currently running with UEFI Secure Boot ENABLED
+    #   (c) the operator did NOT pass -SkipNonCosignedDrivers
+    #   (d) the operator did NOT pass -UseTestSigning (Path B path)
+    # In that combination, the non-WHQL drivers will be rejected by
+    # kernel CI at boot time regardless of WDAC trust-store state (see
+    # SPEC SS D.30 F6, F7). The operator should know this before I03
+    # starts modifying the driver store. Recovery from a partial-load
+    # state typically requires manual pnputil intervention from WinRE.
+    try {
+        $analysisField = $Ctx.WhqlCoSignAnalysis
+        $hasAnalysis = ($null -ne $analysisField -and $analysisField.Count -gt 0)
+        if ($hasAnalysis -and -not $Script:SkipNonCosignedDrivers -and -not $Ctx.UseTestSigning) {
+            $sbOn = Test-SecureBootEnabledFromFirmware
+            $nonCoSignedInfs = @($analysisField | Where-Object { -not $_.IsFullyCoSigned })
+            if ($sbOn -eq $true -and $nonCoSignedInfs.Count -gt 0) {
+                $sample = @($nonCoSignedInfs | Select-Object -First 5 | ForEach-Object { '    - ' + $_.InfName })
+                $more = $nonCoSignedInfs.Count - $sample.Count
+                $moreLine = if ($more -gt 0) { ('    ... and {0} more' -f $more) } else { '' }
+                $detailLines = New-Object System.Collections.Generic.List[string]
+                [void]$detailLines.Add('  UEFI Secure Boot is ENABLED in firmware on this host.')
+                [void]$detailLines.Add(('  The install plan contains {0} INF(s) whose .sys files are NOT' -f $nonCoSignedInfs.Count))
+                [void]$detailLines.Add('  WHQL co-signed by Microsoft. On a Secure-Boot-ON Windows Server')
+                [void]$detailLines.Add('  host, kernel CI will REJECT these drivers at boot time even after')
+                [void]$detailLines.Add('  trust-store import of the self-signing certificate (Path A).')
+                [void]$detailLines.Add('  Trust-store authorisation does not bypass the WHQL co-signature')
+                [void]$detailLines.Add('  requirement enforced by the boot loader.')
+                [void]$detailLines.Add('  Non-WHQL INFs that will be rejected:')
+                foreach ($s in $sample) { [void]$detailLines.Add($s) }
+                if ($moreLine) { [void]$detailLines.Add($moreLine) }
+                [void]$detailLines.Add('  To avoid this CRITICAL condition, choose ONE of:')
+                [void]$detailLines.Add('    a) Re-run with -SkipNonCosignedDrivers to install only the')
+                [void]$detailLines.Add('       WHQL-co-signed subset (keeps Secure Boot ON).')
+                [void]$detailLines.Add('    b) Disable UEFI Secure Boot in firmware setup, save BitLocker')
+                [void]$detailLines.Add('       recovery key, reboot, and re-run with -UseTestSigning (Path B).')
+                [void]$detailLines.Add('    c) Accept the install as-is. The WHQL-co-signed subset will load;')
+                [void]$detailLines.Add('       the non-WHQL subset will appear in Device Manager with')
+                [void]$detailLines.Add('       Status=Error, ProblemCode=39 (CM_PROB_DRIVER_FAILED_LOAD).')
+                $items.Add([pscustomobject]@{
+                    Id = 'C6'
+                    Title = ('WHQL co-sign shortfall on Secure-Boot-ON host ({0} non-co-signed INF(s))' -f $nonCoSignedInfs.Count)
+                    Detail = ($detailLines -join "`n")
+                    AckQuestion = 'I understand non-WHQL drivers will be kernel-CI-rejected at boot and accept this outcome (y/N): '
+                })
+            }
+        }
+    } catch { } # psa-disable-line PSA3004 -- C6 enrichment is best-effort; the install can still proceed without it
+
     return ,@($items.ToArray())
 }
 
@@ -4594,6 +4656,460 @@ function Invoke-CriticalAcknowledgementChecklist {
         Write-Host ('  [+] CRITICAL[{0}] acknowledged.' -f $it.Id) -ForegroundColor Green
     }
     return $allAcked
+}
+
+
+#####################################################################
+# SECTION r71: WHQL co-sign pre-detection + Path B prerequisite check
+#####################################################################
+# r71 adds two operator-protection mechanisms that the now-removed Path C
+# orchestrator was supposed to provide but did not:
+#
+#   1) Test-WhqlCoSignature: classify each candidate INF's accompanying
+#      .sys file(s) as WHQL co-signed or not. Surfaced by P05 into
+#      $Ctx.WhqlCoSignAnalysis so I00 PreInstallReview and the new C6
+#      CRITICAL condition can act on it. WHQL co-signed drivers load on
+#      Secure-Boot-ON hosts via trust-store-only authorisation (Path A);
+#      non-WHQL drivers require Path B (testsigning + Secure Boot
+#      Disabled in firmware) or rejection.
+#
+#   2) Invoke-PathBPrerequisiteCheck: called from I02 when Path B
+#      (testsigning) is the active branch. Verifies bcdedit will accept
+#      the TESTSIGNING flag (i.e. Secure Boot is OFF in firmware) before
+#      any driver-store modification. The check is documented by
+#      Microsoft Learn ("The TESTSIGNING boot configuration option") to
+#      fail at command execution under Secure Boot ON with the error
+#      "The value is protected by Secure Boot policy and cannot be
+#      modified or deleted." See SPEC SS D.30.4 / F9.
+#
+# Operator-facing switch: -SkipNonCosignedDrivers (param block). When
+# set, P06/P07/P08 skip non-WHQL drivers entirely; the install plan is
+# trimmed to the WHQL co-signed subset and the operator can remain on
+# Path A with Secure Boot ON. The flag is the safer alternative to
+# Path B for hosts where firmware-level Secure Boot disablement is not
+# acceptable.
+#
+# Byte-identical across Chipset / Graphics / BthPan (PSA8001).
+# NPU is excluded via psa8001_ignore_functions: NPU refuses Install on
+# legacy Server (Q-X1), so Path B prerequisite checking has no call
+# site there.
+#
+# See SPEC SS D.31 for the full r71 design contract.
+
+function Test-WhqlCoSignature { # psa-disable-line PSA6003 -- "Signature" is a singular noun; the function returns a single classification result per file
+    # Inspect a .sys file's Authenticode certificate chain and report
+    # whether it carries a Microsoft Windows Hardware Compatibility
+    # co-signature (i.e. WHQL). WHQL co-signed drivers load on
+    # Secure-Boot-ON Windows Server hosts via trust-store-only
+    # authorisation (Path A); non-WHQL drivers require Path B.
+    #
+    # OUTPUT: pscustomobject with:
+    #   - Path             ([string])     full path to the inspected file
+    #   - IsCoSigned       ([bool])       true if WHQL co-signature is present
+    #   - SignerCount      ([int])        number of signers in the chain
+    #   - SignerSubjects   ([string[]])   subject CNs of each signer
+    #   - WhqlMarker       ([string])     the matched marker text if found, else ''
+    #   - Reason           ([string])     short diagnostic ('cosigned', 'self-only', 'unsigned', 'inspect-failed')
+    #
+    # NOTES:
+    #   - Get-AuthenticodeSignature returns only the primary signer on
+    #     PS 5.1. To enumerate co-signers we shell out to
+    #     [System.Security.Cryptography.X509Certificates.X509Certificate2]
+    #     via the signtool-style nested-signature parsing path. When
+    #     signtool.exe is available we prefer its output because it
+    #     emits a fully populated "Number of signatures" table; when it
+    #     is absent we fall back to a best-effort parse.
+    #   - WHQL co-signers historically carry CN markers including
+    #     'Microsoft Windows Hardware Compatibility', 'Microsoft Windows
+    #     Hardware Compatibility Publisher', and the older 'Microsoft
+    #     Windows Hardware Compatibility Authority'. The matcher uses a
+    #     case-insensitive regex to cover all three.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)][string]$Path)
+    $result = [pscustomobject]@{
+        Path           = $Path
+        IsCoSigned     = $false
+        SignerCount    = 0
+        SignerSubjects = @()
+        WhqlMarker     = ''
+        Reason         = 'inspect-failed'
+    }
+    if (-not (Test-Path -LiteralPath $Path)) {
+        $result.Reason = 'file-not-found'
+        return $result
+    }
+    $whqlPattern = '(?i)Microsoft Windows Hardware Compatibility'
+    # Step 1: primary signer via Get-AuthenticodeSignature. If the
+    # primary already matches WHQL we're done.
+    try {
+        $sig = Get-AuthenticodeSignature -LiteralPath $Path -ErrorAction Stop
+        if ($sig -and $sig.SignerCertificate) {
+            $primarySubject = [string]$sig.SignerCertificate.Subject
+            $result.SignerSubjects = @($primarySubject)
+            $result.SignerCount = 1
+            $whqlMatch = [regex]::Match($primarySubject, $whqlPattern)
+            if ($whqlMatch.Success) {
+                $result.IsCoSigned = $true
+                $result.WhqlMarker = $whqlMatch.Value
+                $result.Reason = 'cosigned'
+                return $result
+            }
+        } elseif ($sig -and $sig.Status -eq 'NotSigned') {
+            $result.Reason = 'unsigned'
+            return $result
+        }
+    } catch {
+        # Fall through to signtool probe; the file may still have a
+        # parseable nested-signature even when Get-AuthenticodeSignature
+        # rejects the surface.
+        Set-DebugStep ('Test-WhqlCoSignature: Get-AuthenticodeSignature failed for {0}: {1}' -f $Path, $_.Exception.Message)
+    }
+    # Step 2: try signtool to enumerate co-signers. Find-Signtool is the
+    # cross-script helper used elsewhere; it returns $null if WDK is
+    # not installed, in which case we cannot reach nested signatures
+    # from PS 5.1.
+    $signtool = $null
+    try {
+        $signtool = Find-Signtool
+    } catch {
+        Set-DebugStep ('Test-WhqlCoSignature: Find-Signtool threw: {0}' -f $_.Exception.Message)
+    }
+    if (-not $signtool) {
+        # Without signtool we cannot enumerate co-signers on PS 5.1.
+        # Conservative classification: if the primary signer was a non-
+        # WHQL Microsoft cert (e.g. AMD's own publisher), we cannot
+        # confirm a WHQL co-signature; report 'self-only' which the
+        # caller will treat as non-cosigned for Path B purposes.
+        if ($result.SignerCount -gt 0) {
+            $result.Reason = 'self-only'
+        }
+        return $result
+    }
+    # signtool verify /pa /v <file> exits 0 when at least one signature
+    # is valid for kernel-mode use. We parse stdout for the per-
+    # signature certificate chain block. The output is stable across
+    # signtool versions 6.0..10.0.x.
+    $stdOut = ''
+    try {
+        $stdOut = & $signtool verify /pa /v $Path 2>&1 | Out-String
+    } catch {
+        Set-DebugStep ('Test-WhqlCoSignature: signtool invocation failed for {0}: {1}' -f $Path, $_.Exception.Message)
+        return $result
+    }
+    # Parse signer subjects from "Issued to:" lines. Each "Number of
+    # signatures successfully Verified: N" block precedes one or more
+    # certificate chains; each chain ends with the leaf "Issued to:".
+    $subjects = New-Object System.Collections.Generic.List[string]
+    foreach ($line in ($stdOut -split "`r?`n")) {
+        $trim = $line.Trim()
+        if ($trim -match '^Issued to:\s*(.+)$') {
+            [void]$subjects.Add($Matches[1].Trim())
+        }
+    }
+    if ($subjects.Count -gt 0) {
+        $result.SignerSubjects = $subjects.ToArray()
+        $result.SignerCount = $subjects.Count
+        foreach ($subj in $subjects) {
+            $whqlMatch = [regex]::Match($subj, $whqlPattern)
+            if ($whqlMatch.Success) {
+                $result.IsCoSigned = $true
+                $result.WhqlMarker = $whqlMatch.Value
+                $result.Reason = 'cosigned'
+                return $result
+            }
+        }
+        $result.Reason = 'self-only'
+    }
+    return $result
+}
+
+function Get-InfDriverFileList { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
+    # Resolve the list of .sys files that an INF declares via its
+    # [SourceDisksFiles] / [CopyFiles] sections. Returns absolute paths
+    # under the INF's containing directory. The .sys list is what
+    # kernel CI evaluates at boot time; .dll/.exe siblings load in
+    # user-mode and are out of scope.
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)][string]$InfPath)
+    if (-not (Test-Path -LiteralPath $InfPath)) {
+        return @()
+    }
+    $infDir = Split-Path -LiteralPath $InfPath -Parent
+    $result = New-Object System.Collections.Generic.List[string]
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    # Pass 1: extract referenced .sys filenames from the INF text body.
+    $text = ''
+    try {
+        $text = Get-Content -LiteralPath $InfPath -Raw -ErrorAction Stop
+    } catch {
+        Set-DebugStep ('Get-InfDriverFileList: cannot read {0}: {1}' -f $InfPath, $_.Exception.Message)
+        return @()
+    }
+    foreach ($m in [regex]::Matches($text, '(?im)([A-Za-z0-9_.\-]+\.sys)')) {
+        $sys = $m.Groups[1].Value
+        if ($seen.Add($sys)) {
+            $candidate = Join-Path -Path $infDir -ChildPath $sys
+            if (Test-Path -LiteralPath $candidate) {
+                $result.Add($candidate)
+            } else {
+                # Some AMD packages stage .sys files in a sibling arch
+                # subdirectory (e.g. .md64oo.sys). Probe one level
+                # down for any arch directories.
+                foreach ($sub in @('amd64', 'x64', 'Win64')) {
+                    $subCandidate = Join-Path -Path (Join-Path -Path $infDir -ChildPath $sub) -ChildPath $sys
+                    if (Test-Path -LiteralPath $subCandidate) {
+                        $result.Add($subCandidate)
+                        break
+                    }
+                }
+            }
+        }
+    }
+    return ,@($result.ToArray())
+}
+
+function New-WhqlCoSignAnalysis { # psa-disable-line PSA6003 -- "Analysis" is the singular form of "Analyses"; this returns one analysis record
+    # Build the per-INF WHQL co-sign analysis attached to $Ctx by P05.
+    # Each entry in the returned array has:
+    #   - InfName        ([string])   INF base name
+    #   - InfPath        ([string])   absolute path to the INF
+    #   - DriverFiles    ([string[]]) absolute paths to .sys files
+    #   - CoSignedFiles  ([string[]]) subset of DriverFiles that are WHQL co-signed
+    #   - NonCoSignedFiles ([string[]]) the rest
+    #   - IsFullyCoSigned ([bool])    true iff DriverFiles.Count -gt 0 AND CoSignedFiles.Count -eq DriverFiles.Count
+    #   - HasMixedSigning ([bool])    true iff both lists are non-empty (partial coverage; rare)
+    [CmdletBinding()]
+    [OutputType([pscustomobject[]])]
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$InfRecords)
+    $analyses = New-Object System.Collections.Generic.List[pscustomobject]
+    foreach ($rec in $InfRecords) {
+        $infName = if ($rec.InfName) { [string]$rec.InfName } else { Split-Path -Leaf $rec.InfPath }
+        $infPath = if ($rec.InfPath) { [string]$rec.InfPath } elseif ($rec.FullName) { [string]$rec.FullName } else { '' }
+        if ([string]::IsNullOrEmpty($infPath)) {
+            continue
+        }
+        $sysFiles = Get-InfDriverFileList -InfPath $infPath
+        $coSigned = New-Object System.Collections.Generic.List[string]
+        $nonCoSigned = New-Object System.Collections.Generic.List[string]
+        foreach ($sys in $sysFiles) {
+            $verdict = Test-WhqlCoSignature -Path $sys
+            if ($verdict.IsCoSigned) {
+                $coSigned.Add($sys)
+            } else {
+                $nonCoSigned.Add($sys)
+            }
+        }
+        $totalCount = $sysFiles.Count
+        $coCount = $coSigned.Count
+        $analyses.Add([pscustomobject]@{
+            InfName          = $infName
+            InfPath          = $infPath
+            DriverFiles      = $sysFiles
+            CoSignedFiles    = $coSigned.ToArray()
+            NonCoSignedFiles = $nonCoSigned.ToArray()
+            IsFullyCoSigned  = ($totalCount -gt 0 -and $coCount -eq $totalCount)
+            HasMixedSigning  = ($coCount -gt 0 -and $coCount -lt $totalCount)
+        })
+    }
+    return ,@($analyses.ToArray())
+}
+
+function Show-WhqlCoSignAnalysisReport {
+    # Pretty-print the WHQL co-sign analysis to the operator console.
+    # Called from P05 after New-WhqlCoSignAnalysis completes.
+    [CmdletBinding()]
+    param([Parameter(Mandatory)][AllowEmptyCollection()][object[]]$Analyses)
+    if ($Analyses.Count -eq 0) {
+        Write-Detail '  (no INFs analysed; WHQL co-sign analysis is empty)'
+        return
+    }
+    $fully = @($Analyses | Where-Object IsFullyCoSigned)
+    $mixed = @($Analyses | Where-Object HasMixedSigning)
+    $none  = @($Analyses | Where-Object { -not $_.IsFullyCoSigned -and -not $_.HasMixedSigning })
+    Write-Host '--- WHQL co-signature analysis ---' -ForegroundColor Cyan
+    Write-Host ('  Fully WHQL co-signed INFs   : {0}' -f $fully.Count) -ForegroundColor Green
+    Write-Host ('  Mixed-signing INFs (partial): {0}' -f $mixed.Count) -ForegroundColor Yellow
+    $noneColor = if ($none.Count -gt 0) { 'Yellow' } else { 'Green' }
+    Write-Host ('  No WHQL co-signature        : {0}' -f $none.Count) -ForegroundColor $noneColor
+    if ($mixed.Count -gt 0) {
+        Write-Host '  Mixed-signing detail:' -ForegroundColor DarkYellow
+        foreach ($a in $mixed) {
+            Write-Host ('    - {0}: {1} co-signed, {2} not co-signed' -f $a.InfName, $a.CoSignedFiles.Count, $a.NonCoSignedFiles.Count) -ForegroundColor DarkYellow
+        }
+    }
+    if ($none.Count -gt 0) {
+        Write-Host '  Non-co-signed detail (first 10):' -ForegroundColor DarkYellow
+        $sample = $none | Select-Object -First 10
+        foreach ($a in $sample) {
+            Write-Host ('    - {0} ({1} .sys file(s))' -f $a.InfName, $a.DriverFiles.Count) -ForegroundColor DarkYellow
+        }
+        if ($none.Count -gt $sample.Count) {
+            Write-Host ('    ... and {0} more' -f ($none.Count - $sample.Count)) -ForegroundColor DarkYellow
+        }
+    }
+}
+
+function Test-SecureBootEnabledFromFirmware { # psa-disable-line PSA6003 -- "Firmware" is a mass noun; the function returns a single boolean state
+    # Returns $true if UEFI Secure Boot is currently ENABLED in
+    # firmware, $false if disabled, $null if undetermined (legacy BIOS
+    # or constrained host without Confirm-SecureBootUEFI permission).
+    # This is the firmware-layer check that Path B prerequisite logic
+    # cares about: bcdedit /set TESTSIGNING ON is refused by the
+    # firmware when Secure Boot is ON, regardless of OS-layer state.
+    [CmdletBinding()]
+    [OutputType([System.Nullable[bool]])]
+    param()
+    try {
+        $state = Confirm-SecureBootUEFI
+        return [bool]$state
+    } catch {
+        # Common reasons: not running as admin, legacy BIOS (no UEFI),
+        # or running inside a constrained VM without firmware
+        # passthrough. The caller's branch logic treats $null as a
+        # request for explicit operator guidance rather than auto-
+        # proceeding.
+        Set-DebugStep ('Test-SecureBootEnabledFromFirmware: Confirm-SecureBootUEFI threw: {0}' -f $_.Exception.Message)
+        return $null
+    }
+}
+
+function Invoke-PathBPrerequisiteCheck {
+    # Verify the firmware prerequisites for Path B (testsigning) before
+    # I02 commits the bcdedit change. Microsoft Learn documents
+    # ("The TESTSIGNING boot configuration option") that
+    # `bcdedit /set TESTSIGNING ON` is REFUSED AT COMMAND EXECUTION
+    # with the error "The value is protected by Secure Boot policy and
+    # cannot be modified or deleted." when Secure Boot is ON. Detect
+    # that condition here and ABORT with explicit firmware-change
+    # instructions rather than letting bcdedit fail mid-phase.
+    #
+    # Returns a pscustomobject with:
+    #   - Result        ([string]) 'ok' | 'abort'
+    #   - Reason        ([string]) short diagnostic key
+    #   - GuidanceLines ([string[]]) operator-facing instruction block
+    #
+    # The caller is expected to throw on Result='abort' so I02 stops
+    # before any host-state modification.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)] $Ctx)
+    $result = [pscustomobject]@{
+        Result        = 'ok'
+        Reason        = ''
+        GuidanceLines = @()
+    }
+    $sbState = Test-SecureBootEnabledFromFirmware
+    if ($sbState -eq $true) {
+        $lines = @(
+            '',
+            '========================================================================',
+            ' PATH B PREREQUISITE NOT MET: UEFI Secure Boot is ENABLED in firmware.',
+            '========================================================================',
+            '',
+            '  bcdedit /set TESTSIGNING ON is REFUSED by the firmware when Secure',
+            '  Boot is ON. Microsoft documents this rejection in the article',
+            '  "The TESTSIGNING boot configuration option" with the verbatim',
+            '  error message:',
+            '',
+            '      The value is protected by Secure Boot policy and',
+            '      cannot be modified or deleted.',
+            '',
+            '  To proceed on Path B, perform these steps in order:',
+            '',
+            '    1. Save your BitLocker recovery key. Disabling Secure Boot may',
+            '       force a recovery prompt on the next boot. Without the key,',
+            '       the drive contents become inaccessible.',
+            '',
+            '    2. Reboot into firmware setup (vendor-specific; typically F1 / F2',
+            '       / F10 / F12 / Delete during POST).',
+            '',
+            '    3. Navigate to Security or Boot menu and set Secure Boot = Disabled.',
+            '       Save and exit firmware setup.',
+            '',
+            '    4. Boot normally into Windows. If prompted, enter your BitLocker',
+            '       recovery key.',
+            '',
+            '    5. Re-run this script with -UseTestSigning. I02 will then accept',
+            '       Path B and apply the TESTSIGNING flag.',
+            '',
+            '  Alternative: if all candidate INFs are WHQL co-signed (see the',
+            '  P05 WHQL co-sign analysis output earlier in this run), you can',
+            '  drop -UseTestSigning and re-run on Path A (trust-store only,',
+            '  Secure Boot may remain ON).',
+            '',
+            '  Alternative: if you want to keep Secure Boot ON and accept that',
+            '  non-WHQL drivers will not load, pass -SkipNonCosignedDrivers to',
+            '  remove the non-WHQL subset from the install plan and stay on',
+            '  Path A.',
+            '',
+            '  See SPEC SS D.30.4 (Microsoft Learn cross-reference F9) and',
+            '  SPEC SS D.31 for the full r71 design rationale.',
+            ''
+        )
+        $result.Result = 'abort'
+        $result.Reason = 'secure-boot-on'
+        $result.GuidanceLines = $lines
+        return $result
+    }
+    if ($null -eq $sbState) {
+        $lines = @(
+            '',
+            '  WARNING: Could not determine UEFI Secure Boot state from this host.',
+            '  Confirm-SecureBootUEFI failed (likely: legacy BIOS host, constrained',
+            '  VM, or insufficient privilege). Path B will be attempted; if bcdedit',
+            '  refuses with the "protected by Secure Boot policy" error, return to',
+            '  firmware setup and verify Secure Boot is Disabled before retrying.',
+            ''
+        )
+        $result.Result = 'ok'
+        $result.Reason = 'secure-boot-unknown'
+        $result.GuidanceLines = $lines
+        return $result
+    }
+    # Secure Boot is OFF in firmware. Path B will succeed.
+    $result.Result = 'ok'
+    $result.Reason = 'secure-boot-off'
+    return $result
+}
+
+function Get-EligibleInfRecordList { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
+    # Apply the -SkipNonCosignedDrivers filter (when set) to a candidate
+    # INF list, using the WHQL co-sign analysis captured by P05.
+    # Returns the subset eligible for Path A install. When the switch is
+    # off, returns the input unchanged.
+    [CmdletBinding()]
+    [OutputType([pscustomobject[]])]
+    param(
+        [Parameter(Mandatory)] $Ctx,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]]$InfRecords,
+        [switch]$SkipNonCosignedDrivers
+    )
+    if (-not $SkipNonCosignedDrivers) {
+        return ,@($InfRecords)
+    }
+    if (-not $Ctx.WhqlCoSignAnalysis) {
+        # No analysis on Ctx (P05 was skipped or did not populate the
+        # field). Conservative behaviour: do not filter; let the
+        # operator see the un-trimmed plan and trace the issue.
+        Set-DebugStep 'Get-EligibleInfRecordList: -SkipNonCosignedDrivers set but $Ctx.WhqlCoSignAnalysis is empty; pass-through'
+        return ,@($InfRecords)
+    }
+    $coSignedLookup = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($a in $Ctx.WhqlCoSignAnalysis) {
+        if ($a.IsFullyCoSigned) {
+            [void]$coSignedLookup.Add($a.InfName)
+        }
+    }
+    $eligible = New-Object System.Collections.Generic.List[pscustomobject]
+    foreach ($rec in $InfRecords) {
+        $name = if ($rec.InfName) { [string]$rec.InfName } else { Split-Path -Leaf $rec.InfPath }
+        if ($coSignedLookup.Contains($name)) {
+            $eligible.Add($rec)
+        }
+    }
+    return ,@($eligible.ToArray())
 }
 
 
@@ -7800,6 +8316,7 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
 
         [pscustomobject]@{
             Inf             = $inf.Name
+            FullPath        = $inf.FullName
             RelativePath    = $rel
             RelativeDir     = $relDir
             SourceVariant   = $variant
@@ -7928,6 +8445,28 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     $totalIneligible = $ineligible.Count
     Write-Ok "Inventory: $csvPath ($totalAll total / $totalSelected selected for patching from $($preferredVariants -join '+'))"
     Write-Ok "Detail   : $reportTxtPath"
+
+    # Build the WHQL co-sign analysis (added with the r71 release) from the patch-eligible subset
+    # and attach to $Ctx so I00 / C6 / I03 (and -SkipNonCosignedDrivers
+    # filtering) can read it. The analysis is best-effort: when signtool
+    # is not present the per-INF classification falls back to a
+    # conservative 'self-only' verdict on non-Microsoft primary signers,
+    # which means C6 may over-report on signtool-absent hosts but never
+    # under-report. See SPEC SS D.31.
+    Set-DebugStep 'r71: build WHQL co-sign analysis from patch-eligible INFs'
+    $whqlInfRecords = @($detailReport | Where-Object {
+        $_.NeedsPatch -eq $true -or $_.NeedsPatch -eq 'True'
+    } | ForEach-Object {
+        [pscustomobject]@{ InfName = $_.Inf; InfPath = $_.FullPath }
+    })
+    try {
+        $Ctx.WhqlCoSignAnalysis = New-WhqlCoSignAnalysis -InfRecords $whqlInfRecords
+        Show-WhqlCoSignAnalysisReport -Analyses $Ctx.WhqlCoSignAnalysis
+    } catch {
+        Write-Warn2 ('  r71: WHQL co-sign analysis failed: {0}' -f $_.Exception.Message)
+        Write-Warn2 '  r71: I00 C6 condition and -SkipNonCosignedDrivers will operate on an empty analysis.'
+        $Ctx.WhqlCoSignAnalysis = @()
+    }
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'P05' -Metadata @{ Total=$totalAll; Selected=$totalSelected; Ineligible=$totalIneligible; CsvPath=$csvPath; ReportPath=$reportTxtPath; Variants=($preferredVariants -join ',') }
     Write-PhaseFooter 'P05' 'done'
 }
@@ -7948,6 +8487,26 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
         $csv = Join-Path $Ctx.Paths.Root 'inf_inventory.csv'
         if (-not (Test-Path $csv)) { throw 'INF inventory missing - run Phase P05 first.' }
         $Ctx.InfInventory = Import-Csv $csv
+    }
+
+    # Apply the -SkipNonCosignedDrivers filter at P06 entry (added in the r71 release). Trimming
+    # $Ctx.InfInventory here propagates to every downstream phase
+    # (P06 patch, P07 cert, P08 catalog, V03/V04/V05/V06, I03 install)
+    # without any additional integration sites. The filter is a no-op
+    # when -SkipNonCosignedDrivers is absent. See SPEC SS D.31.
+    if ($Script:SkipNonCosignedDrivers) {
+        $beforeCount = @($Ctx.InfInventory).Count
+        $Ctx.InfInventory = Get-EligibleInfRecordList -Ctx $Ctx -InfRecords $Ctx.InfInventory -SkipNonCosignedDrivers
+        $afterCount = @($Ctx.InfInventory).Count
+        $skipped = $beforeCount - $afterCount
+        if ($skipped -gt 0) {
+            Write-Host '--- r71: -SkipNonCosignedDrivers filter applied ---' -ForegroundColor Cyan
+            Write-Host ('  Inventory trimmed: {0} INF(s) eligible / {1} non-WHQL-co-signed INF(s) skipped (kept Secure Boot ON safe).' -f $afterCount, $skipped) -ForegroundColor Yellow
+            Write-Host '  Skipped INFs will not be patched, cataloged, signed, or installed by this run.' -ForegroundColor DarkYellow
+            Set-DebugStep ('r71 SkipNonCosignedDrivers: trimmed {0} -> {1} INF(s)' -f $beforeCount, $afterCount)
+        } else {
+            Write-Detail '  r71: -SkipNonCosignedDrivers set but inventory is already fully WHQL co-signed (no trim).'
+        }
     }
 
     Set-DebugStep 'idempotency: clean prior patched output'
@@ -12010,7 +12569,30 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
         return
     }
 
-    # Pre-check: Secure Boot
+    # r71 Pre-check: Path B prerequisite check (Secure Boot firmware state)
+    # Microsoft Learn documents that bcdedit /set TESTSIGNING ON is REFUSED
+    # AT COMMAND EXECUTION when UEFI Secure Boot is ON in firmware (it does
+    # NOT silently drop at boot as the older comment implied). Catch this
+    # condition with a richer operator-facing guidance block BEFORE any
+    # bcdedit call is attempted. See SPEC SS D.30.4 / F9 and SPEC SS D.31.
+    Set-DebugStep 'Path B prerequisite check (r71)'
+    $pathBCheck = Invoke-PathBPrerequisiteCheck -Ctx $Ctx
+    if ($pathBCheck.Result -eq 'abort' -and -not $Ctx.Force) {
+        foreach ($ln in $pathBCheck.GuidanceLines) {
+            Write-Host $ln -ForegroundColor Red
+        }
+        throw ('I02: Path B prerequisite not met (reason={0}). Aborting before bcdedit is invoked.' -f $pathBCheck.Reason)
+    }
+    if ($pathBCheck.Reason -eq 'secure-boot-unknown') {
+        foreach ($ln in $pathBCheck.GuidanceLines) {
+            Write-Warn2 $ln
+        }
+    }
+
+    # Pre-check: Secure Boot (legacy guard, retained as defense-in-depth in
+    # case Invoke-PathBPrerequisiteCheck reported 'secure-boot-unknown' but
+    # the OS-layer view says SB is on; both should agree, but if they
+    # diverge we err on the safe side).
     if ($bootEnvBefore.SecureBootEnabled -eq $true -and -not $Ctx.Force) {
         Write-Host ''
         Write-Host '*** I02 ABORTED: -UseTestSigning was selected but Secure Boot is ON ***' -ForegroundColor Red
