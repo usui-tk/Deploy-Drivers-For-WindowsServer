@@ -1657,20 +1657,21 @@ Verify: on a host that has not been rebooted in 25+ hours, `(Get-Date - LastBoot
 
 ---
 
-## 14. Validation Scenario 14: r71 WHQL co-sign pre-detection + Path B prerequisite check + C6 + `-SkipNonCosignedDrivers`
+## 14. Validation Scenario 14: r71 WHQL co-sign pre-detection + Path B prerequisite check + C6 + `-SkipNonCosignedDrivers` + r72 I02 short-circuit
 
 ### Status
 
-Code-review validated only. The WS2019 + Renoir bench is queued for OS reinstall as of release time; physical replay is not possible. Test cases below describe what should be observed when the bench becomes available and r71 (`Chipset r71` / `Graphics r37` / `BthPan r19`) is replayed against it.
+Code-review validated only. The WS2019 + Renoir bench is queued for OS reinstall as of release time; physical replay is not possible. Test cases below describe what should be observed when the bench becomes available and r72 (`Chipset r72` / `Graphics r38` / `BthPan r20` / `NPU r18`) is replayed against it.
 
 ### Scope
 
-This section covers the four r71 mechanisms documented in SPEC §D.31:
+This section covers the four r71 mechanisms documented in SPEC §D.31 and the one r72 follow-on documented in §D.31.11:
 
 - **WHQL co-sign analysis** in P05 (`Test-WhqlCoSignature`, `New-WhqlCoSignAnalysis`, `Show-WhqlCoSignAnalysisReport`). See §D.31.2.
 - **Path B prerequisite check** in I02 (`Invoke-PathBPrerequisiteCheck`, `Test-SecureBootEnabledFromFirmware`). See §D.31.3.
 - **C6 CRITICAL acknowledgement** in I00 (`Get-CriticalRiskItem` extension). See §D.31.4.
 - **`-SkipNonCosignedDrivers`** switch (`Get-EligibleInfRecordList`, P06 entry trim). See §D.31.5.
+- **r72 I02 short-circuit** for all-WHQL trimmed plans. See §D.31.11. Covered by TC14.3, TC14.9, TC14.10, TC14.11.
 
 ### TC14.1 — WHQL analysis runs in P05 on WS2019 PrepareVerify
 
@@ -1690,14 +1691,15 @@ This section covers the four r71 mechanisms documented in SPEC §D.31:
 | 3 | I02 calls `Invoke-PathBPrerequisiteCheck`. `Confirm-SecureBootUEFI` returns `$true`. | The helper returns `Result=abort, Reason=secure-boot-on`. I02 prints the multi-line guidance block in red and throws `I02: Path B prerequisite not met (reason=secure-boot-on). Aborting before bcdedit is invoked.` |
 | 4 | The host is unmodified: no `bcdedit /set TESTSIGNING ON` was attempted, no driver-store changes, no cert work. Re-running with `-Force` would bypass the check (intentionally less prominent in the message). | `bcdedit /enum {current}` shows testsigning unchanged. The patched-INF workspace exists (P-phases ran) but the host's boot policy is untouched. |
 
-### TC14.3 — `-SkipNonCosignedDrivers` trims at P06 entry, C6 does not fire
+### TC14.3 — `-SkipNonCosignedDrivers` trims at P06 entry, C6 does not fire, r72 short-circuit fires at I02
 
 | Step | Setup | Expected outcome |
 | --- | --- | --- |
 | 1 | WS2019 host with Secure Boot ON. AMD Chipset install set contains a mix of WHQL co-signed (e.g. AmdMicroPEP.sys, amdgpio2.sys) and non-WHQL (e.g. amdi2c.sys, amdsfhkmdf.sys) drivers. | — |
-| 2 | Run `.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -SkipNonCosignedDrivers` | P05 completes the WHQL analysis. P06 entry prints `--- r71: -SkipNonCosignedDrivers filter applied ---` with the before/after INF counts. |
+| 2 | Run `.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -SkipNonCosignedDrivers` | P05 completes the WHQL analysis. P06 entry prints `--- r71: -SkipNonCosignedDrivers filter applied ---` with the before/after INF counts. After the trim, `$Ctx.WhqlCoSignAnalysis` retains only WHQL-co-signed INFs. |
 | 3 | I00 PreInstallReview runs. `Get-CriticalRiskItem` evaluates C6. | C6 does NOT fire because `$Script:SkipNonCosignedDrivers` is `$true` (one of the four required AND conditions fails). C1/C2/C5 evaluate independently. |
-| 4 | I02 runs Path A (default WDAC supplemental policy). On WS2019, the WDAC MPF attempt would fail on CiTool absence. The script falls back to the trust-store-only authorisation. | The WHQL-co-signed subset loads on the host with Secure Boot ON. The non-WHQL subset is not present in the patched directory at all (P06 trim removed them before patching). |
+| 4 | I02 entry: `Test-InstallPhaseAlreadyDone` returns `$false` (host has neither WDAC policy nor testsigning ON). The r72 short-circuit predicate evaluates: `-not $Ctx.UseTestSigning` (true) AND `$Script:SkipNonCosignedDrivers` (true) AND `$Ctx.WhqlCoSignAnalysis` populated (true) AND `$nonCoSignedAfterTrim.Count -eq 0` (true). | I02 prints `--- I02 short-circuit (r72): install plan is fully WHQL co-signed ---` and the rationale block. It writes the I02 phase marker with `Metadata=@{ ShortCircuit=$true; Reason='all-whql-skip'; AnalysedInfCount=<N> }` and emits `Write-PhaseFooter 'I02' 'short-circuit'`. The Path B prerequisite check is NOT invoked; no firmware ABORT occurs. |
+| 5 | I03 runs normally. pnputil accepts the script-re-signed catalogs because the script's self-signing cert is in Trusted Publisher (from I01). | The WHQL-co-signed subset loads on the host with Secure Boot ON via the drivers' embedded Microsoft signatures. The non-WHQL subset was never patched (P06 trim removed it before P07/P08/P09). No WDAC supplemental policy file exists on disk; `bcdedit /enum {current}` shows testsigning unchanged. |
 
 ### TC14.4 — C6 fires on Secure-Boot-ON host with mixed install plan, no flags
 
@@ -1751,6 +1753,35 @@ This section covers the four r71 mechanisms documented in SPEC §D.31:
 
 ### Negative test — TC14.3 follow-on: WS2019 with `-SkipNonCosignedDrivers` and the Path A fallback
 
-When `-SkipNonCosignedDrivers` is set on WS2019, the WDAC MPF Path A attempt still fails on CiTool absence (legacy Server does not have CiTool.exe). After the deprecation of Path C in r70, I02 falls through to Path B. Even though the install plan is fully WHQL co-signed (because Skip trimmed it), Path B's prerequisite check still ABORTs on Secure Boot ON because the firmware state has not changed. The right operator workaround is to drop `-UseTestSigning` and accept that the WHQL-co-signed subset can be trust-store-authorised on WS2019 without any WDAC MPF or testsigning at all. SPEC §D.31.9 records this as a deferred follow-on refinement: I02 could detect "all-WHQL-after-Skip + Secure Boot ON + WS2019" and skip Path B entirely, but the current implementation does not.
+**Historical note (pre-r72):** When `-SkipNonCosignedDrivers` was set on WS2019, the WDAC MPF Path A path could not run (legacy Server does not have CiTool.exe) and after the deprecation of Path C in r70, I02 fell through to Path B. Even though the install plan was fully WHQL co-signed (because Skip trimmed it), Path B's prerequisite check ABORTed on Secure Boot ON because the firmware state had not changed. SPEC §D.31.9 recorded this as a deferred follow-on refinement. The r72 release closes the gap with the I02 short-circuit documented in §D.31.11 and validated by TC14.3, TC14.9, TC14.10, and TC14.11 below.
+
+### TC14.9 — r72 I02 short-circuit fires on WS2019 + Secure Boot ON + all-WHQL trimmed plan
+
+| Step | Setup | Expected outcome |
+| --- | --- | --- |
+| 1 | WS2019 host with Secure Boot ON in firmware. AMD Chipset install set has at least one WHQL co-signed INF and at least one non-WHQL INF. | — |
+| 2 | Run `.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -SkipNonCosignedDrivers` | P05 emits the WHQL analysis. P06 entry trims `$Ctx.InfInventory` to the WHQL subset. I00 evaluates C6 — does not fire. I01 imports the script's self-signing cert into LocalMachine\Root + LocalMachine\TrustedPublisher. |
+| 3 | I02 enters. `Test-InstallPhaseAlreadyDone -PhaseId 'I02'` returns false. `Set-DebugStep 'r72 short-circuit evaluation'` is recorded. The four-clause predicate evaluates as: `-not $Ctx.UseTestSigning=true` AND `$Script:SkipNonCosignedDrivers=true` AND `$Ctx.WhqlCoSignAnalysis.Count > 0` AND `$nonCoSignedAfterTrim.Count==0`. | The short-circuit fires. Console shows `--- I02 short-circuit (r72): install plan is fully WHQL co-signed ---` in green, then the rationale block. `Set-PhaseMarker -PhaseId 'I02' -Metadata @{ ShortCircuit=$true; Reason='all-whql-skip'; AnalysedInfCount=<N> }` is invoked. `Write-PhaseFooter 'I02' 'short-circuit'` closes the phase. |
+| 4 | I03 runs unchanged. pnputil validates the script-re-signed catalogs against the cert chain (cert is in Trusted Publisher from I01). | All WHQL-co-signed drivers are installed and load via their embedded Microsoft signatures. No WDAC supplemental policy is written to `%SystemRoot%\System32\CodeIntegrity\CiPolicies\Active`. `bcdedit /enum {current}` shows testsigning unchanged. |
+| 5 | After install completes, run `.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Verify` | V-phases confirm drivers are installed and in Started state. Device Manager shows the WHQL-co-signed devices as `Status=OK`. |
+
+### TC14.10 — r72 short-circuit fires uniformly on WS2022+ (OS-version-agnostic)
+
+| Step | Setup | Expected outcome |
+| --- | --- | --- |
+| 1 | WS2022 (build 20348) or WS2025 (build 26100) host with Secure Boot ON. AMD Graphics install set contains a mix of WHQL and non-WHQL INFs. | — |
+| 2 | Run `.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action Install -SkipNonCosignedDrivers` | P05 / P06 / I00 / I01 behave as on WS2019 (P06 trim, no C6, cert import). |
+| 3 | I02 entry. On WS2022+ the host has CiTool available, so a non-short-circuit run would have taken Path A and deployed a WDAC supplemental policy. With the r72 short-circuit, the four-clause predicate still holds and the short-circuit fires. | The console output is identical to TC14.9 step 3. No WDAC supplemental policy file is created on disk — even though the WS2022+ Path A would otherwise have created one. This is the intentional OS-version-uniform behaviour documented in SPEC §D.31.11.6. |
+| 4 | Inspect `Get-CIPolicy -Online` or `%SystemRoot%\System32\CodeIntegrity\CiPolicies\Active`. | No script-deployed `.cip` file appears. (Existing OS-default policies are untouched; the short-circuit does not remove anything.) Drivers load via WHQL embedded signatures. |
+
+### TC14.11 — Resume-after-reboot: short-circuit marker does NOT trap subsequent runs that drop `-SkipNonCosignedDrivers`
+
+| Step | Setup | Expected outcome |
+| --- | --- | --- |
+| 1 | Any supported host. Workspace already contains a successful run from TC14.9 or TC14.10 (I02 phase marker has `Metadata.ShortCircuit=$true`). Driver state on host: WHQL drivers installed; no WDAC supplemental policy; no testsigning. | — |
+| 2 | Re-run the script WITHOUT `-SkipNonCosignedDrivers`: `.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install` | P05 re-runs the WHQL analysis on the (now broader) install plan. P06 does NOT trim (Skip flag absent). I00 evaluates C6 with the un-trimmed analysis. |
+| 3 | I02 entry. `Test-InstallPhaseAlreadyDone -PhaseId 'I02'` inspects HOST STATE (`Test-AmdWdacPolicyDeployed` and the BCD testsigning value), not the phase marker. Neither host-state predicate holds, so it returns `$false`. The phase enters its main body. | The r72 short-circuit predicate's clause 2 (`$Script:SkipNonCosignedDrivers`) is now `$false`, so the short-circuit does NOT fire. I02 proceeds with the standard Path A / Path B evaluation. The fact that a prior run wrote a short-circuit marker does not trap this new run. |
+| 4 | On WS2022+, Path A deploys the WDAC supplemental policy normally. On WS2019, Path B prerequisite check runs (and ABORTs if Secure Boot ON, or proceeds to set testsigning if OFF). | The re-run is exactly equivalent to a first-time run on a host that happens to already have I01 trust-store import done — no surprise trapping behaviour. |
+| 5 | Inspect the workspace's `phase-markers.json` (or equivalent). | The new I02 marker (Path A or Path B success) replaces the prior `ShortCircuit=$true` marker. The diagnostic history is not lost — operators inspecting the previous run's transcript still see the short-circuit invocation; only the current workspace state reflects the most recent outcome. |
 
 ---

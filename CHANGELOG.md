@@ -71,6 +71,72 @@ constants in the four driver scripts remain unchanged (the rename
 only affects the Chipset script's own canonical hash, which is not
 embedded anywhere).
 
+## [Chipset r72 / Graphics r38 / NPU r18 / BthPan r20] — 2026-05-23 — I02 short-circuit for all-WHQL trimmed install plans
+
+### Added
+
+- **I02 short-circuit logic in Chipset / Graphics / BthPan** (~25 lines per script, byte-identical between Chipset and Graphics; BthPan inherits the pre-existing `Test-MsBthPanWdacPolicyDeployed` naming divergence from r71). The block runs immediately after the `Test-InstallPhaseAlreadyDone -PhaseId 'I02'` cache-check and before the AS-IS state capture. When the four-clause predicate `-not $Ctx.UseTestSigning` AND `$Script:SkipNonCosignedDrivers` AND `$Ctx.WhqlCoSignAnalysis` populated AND `$nonCoSignedAfterTrim.Count -eq 0` all hold, I02 emits a green "I02 short-circuit (r72): install plan is fully WHQL co-signed" banner and returns without deploying any WDAC supplemental policy or setting any `bcdedit` testsigning flag.
+- **Phase-marker `Metadata` extension**: when the short-circuit fires, `Set-PhaseMarker -PhaseId 'I02'` is invoked with `-Metadata @{ ShortCircuit=$true; Reason='all-whql-skip'; AnalysedInfCount=<N> }`. The metadata is informational only and does not participate in resume-after-reboot decisions (see SPEC §D.31.11.4).
+- **New `Write-PhaseFooter` completion label**: `'short-circuit'` joins the existing `'done'` and `'cached'` labels for I02.
+- **`Set-DebugStep` audit anchors**: new debug-step strings `r72 short-circuit evaluation` and `I02 short-circuit: SkipNonCosignedDrivers={0} UseTestSigning={1} AnalysedInfCount={2} NonCoSignedAfterTrim={3}` appear in run transcripts when the short-circuit fires.
+- **SPEC.md §D.31.11** (eight subsections D.31.11.1 – D.31.11.8) documenting the short-circuit's motivation, firing conditions, observable host effects, resume-after-reboot semantics, interaction with the other r71 mechanisms (P05 / Path B prereq / C6 / `-SkipNonCosignedDrivers` trim / `-Force` / NPU), OS-version uniformity rationale, what r72 does NOT change, and implementation notes.
+- **TESTING.md §14 TC14.9, TC14.10, TC14.11**: positive fire on WS2019 + Secure Boot ON + all-WHQL trimmed plan; OS-version-agnostic fire on WS2022+; resume-after-reboot semantics verifying the short-circuit marker does NOT trap subsequent runs that drop `-SkipNonCosignedDrivers`.
+- **`SECTION r71` header forward-reference** in Chipset / Graphics / BthPan: the closing line now reads "See SPEC §D.31 for the full r71 design contract; SPEC §D.31.11 documents the r72 follow-on I02 short-circuit that consumes the WHQL analysis produced here when `-SkipNonCosignedDrivers` is set."
+
+### Changed
+
+- **SPEC.md §D.31.9 TC14.3** description updated from "deferred follow-on refinement" to "implemented in r72" with a parenthetical noting the pre-r72 ABORT behaviour for historical context.
+- **SPEC.md §D.31.10** extended to record the r72 version-bump targets and the byte-identity convention for the new short-circuit block.
+- **TESTING.md §14 title and Scope** updated to include the r72 mechanism (the section is now titled "r71 WHQL co-sign pre-detection + Path B prerequisite check + C6 + `-SkipNonCosignedDrivers` + r72 I02 short-circuit").
+- **TESTING.md §14 TC14.3** rewritten to describe the r72 short-circuit fire as the expected outcome of the canonical `-Action Install -SkipNonCosignedDrivers` invocation on WS2019 + Secure Boot ON (replacing the previous "Path A fallback" wording which described an unreachable code path).
+- **TESTING.md §14 "Negative test — TC14.3 follow-on"** rewritten as a historical note pointing at the r72 closing of the gap.
+- **README.md / README.ja.md** updated to reflect that `-SkipNonCosignedDrivers` now produces an end-to-end successful install on legacy Server + Secure Boot ON, with no firmware change required.
+- **`$Script:ScriptVersion` bumped** across all four scripts:
+  - Chipset: `chipset-2026.05.23-r69` → `chipset-2026.05.23-r72`
+  - Graphics: `graphics-2026.05.23-r35` → `graphics-2026.05.23-r38`
+  - NPU: `npu-2026.05.23-r17` → `npu-2026.05.23-r18`
+  - BthPan: `msbthpan-2026.05.23-r17` → `msbthpan-2026.05.23-r20`
+
+  Note: the multi-step bumps in Chipset / Graphics / BthPan catch up version strings that were not actually bumped during the r70 Path C deprecation or the r71 WHQL pre-detection releases. The SPEC §D.31.10 release contract has documented these target values since r71, so r72 is the first release whose actual `$Script:ScriptVersion` strings reflect SPEC's claim. The NPU single-step bump (r17 → r18) is the SPEC-documented release-tag synchronisation; NPU has no r70 / r71 / r72 functional code changes.
+
+### Rationale
+
+Pre-r72, the natural `-SkipNonCosignedDrivers + Secure Boot ON` workflow on legacy Server failed at I02 — the script gave the operator a flag to opt into WHQL-only installs, then refused to complete the install on a Secure-Boot-ON host because I02 fell into Path B (no CiTool on legacy Server) and the r71 Path B prerequisite check correctly ABORTed on Secure Boot ON. r72 closes that gap.
+
+The short-circuit is technically sound:
+
+- WHQL co-signed drivers carry embedded Microsoft Windows Hardware Compatibility signatures that kernel CI accepts on Secure Boot ON without any custom WDAC policy or testsigning. F5 of the 2026-05-23 bench observations confirms this empirically on WS2019 + Renoir.
+- The script's self-signing certificate in `LocalMachine\Root + LocalMachine\TrustedPublisher` (installed by I01) is sufficient for `pnputil /add-driver` to accept the script-re-signed catalogs at I03.
+- I02's normal job — authorising the self-signing cert as a kernel-mode signer via either Path A (WDAC supplemental policy) or Path B (testsigning) — is purely unnecessary for an all-WHQL install plan because the kernel-CI path for WHQL drivers uses the embedded signature, not the catalog signature.
+
+Opt-in via `-SkipNonCosignedDrivers` (rather than auto-detecting an all-WHQL plan on a flag-less run) preserves predictability: admins inspecting their host with `Get-CIPolicy -Online` for the script-deployed WDAC policy file will still find it on flag-less runs.
+
+OS-version uniformity (the short-circuit fires on any supported host when the conditions hold, not only on WS2019 / WS2016) keeps the behavioural contract uniform across the script family. Operators who want the WDAC supplemental policy file deployed on WS2022+ as documentation can simply not pass `-SkipNonCosignedDrivers`.
+
+### Migration
+
+- **No new switches.** `-SkipNonCosignedDrivers` continues to work as in r71; the only difference is that I02 no longer ABORTs at the Path B prerequisite check on Secure Boot ON when the flag is set and the install plan is fully WHQL co-signed.
+- **Existing automation** that ran `-SkipNonCosignedDrivers` + Secure Boot ON on WS2019 against r71 (and hit the ABORT) will now complete successfully against r72. No automation changes are required.
+- **Hosts that ran r71** with `-SkipNonCosignedDrivers` and have the I01 trust-store cert already imported can safely re-run r72 with the same flags; the short-circuit will fire and I03 will install the WHQL subset.
+- **Phase-marker `Metadata` format extension** (`ShortCircuit` / `Reason` / `AnalysedInfCount`) is additive — no existing marker-reading code paths inspect these fields, so backward compatibility is preserved.
+- **Resume-after-reboot semantics** are documented in §D.31.11.4 and verified by TC14.11: a short-circuited I02 does NOT trap subsequent runs that drop `-SkipNonCosignedDrivers`. The marker's `ShortCircuit=$true` metadata is informational only; `Test-InstallPhaseAlreadyDone` inspects HOST STATE (`Test-AmdWdacPolicyDeployed` and the BCD testsigning value) not the marker.
+
+### Out of scope
+
+- **The Path B prerequisite check** itself is unchanged. When the short-circuit does not fire (e.g. `-UseTestSigning` is explicitly passed, or some non-WHQL INF survived the P06 trim), the standard Path B prerequisite logic still runs.
+- **The WHQL analysis (P05)** is unchanged. `Test-WhqlCoSignature`, `New-WhqlCoSignAnalysis`, and `Show-WhqlCoSignAnalysisReport` are byte-identical to r71.
+- **The C6 CRITICAL acknowledgement** is unchanged.
+- **The P06 `-SkipNonCosignedDrivers` trim** is unchanged.
+- **NPU** is structurally excluded from this change. NPU does not carry `-SkipNonCosignedDrivers` (the trim mechanism is Chipset/Graphics/BthPan only), and Q-X1 refuses Install on legacy Server entirely. The short-circuit's firing conditions can never be met by NPU. NPU's version bump to r18 is a release-tag synchronisation only.
+- **Cross-script consistency releases**: r72 does not introduce a new "consistency release" tier. The four scripts continue to be versioned independently with `$Script:ScriptVersion` reflecting their own revision history.
+
+### Status
+
+- **psa.py**: 0 errors / 0 warnings / 0 info across all 4 scripts under `python3 psa.py --config .psa.config.json Deploy-*.ps1`.
+- **Sister-script PSA8001 byte-identity** preserved: the I02 short-circuit block is byte-identical between Chipset and Graphics; BthPan inherits the pre-existing `Test-MsBthPanWdacPolicyDeployed` naming divergence already documented in r71 (`psa8001_ignore_functions` covers the helper).
+- **Encoding contract** honoured: `.ps1` files are UTF-8 BOM + CRLF; `.md` files are UTF-8 no BOM + LF. Verified by `file(1)` after all edits.
+- **Field validation pending**: WS2019 + Renoir bench is queued for OS reinstall as of release time. TC14.9 / TC14.10 / TC14.11 in TESTING.md describe the replay procedure.
+
 ## [Chipset r71 / Graphics r37 / NPU r18 / BthPan r19] — 2026-05-23 — WHQL co-sign pre-detection + Path B prerequisite check
 
 ### Added

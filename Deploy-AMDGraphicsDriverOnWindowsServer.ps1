@@ -786,7 +786,7 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'graphics-2026.05.23-r35'
+$Script:ScriptVersion = 'graphics-2026.05.23-r38'
 $Script:ScriptTag     = 'legacy-ws2019-wdac-spf-integration'
 $Script:ScriptHash    = '(unknown)'
 try {
@@ -4830,7 +4830,9 @@ function Invoke-CriticalAcknowledgementChecklist {
 # legacy Server (Q-X1), so Path B prerequisite checking has no call
 # site there.
 #
-# See SPEC SS D.31 for the full r71 design contract.
+# See SPEC SS D.31 for the full r71 design contract; SPEC SS D.31.11
+# documents the r72 follow-on I02 short-circuit that consumes the
+# WHQL analysis produced here when -SkipNonCosignedDrivers is set.
 
 function Test-WhqlCoSignature { # psa-disable-line PSA6003 -- "Signature" is a singular noun; the function returns a single classification result per file
     # Inspect a .sys file's Authenticode certificate chain and report
@@ -12162,6 +12164,36 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
         Set-PhaseMarker -Ctx $Ctx -PhaseId 'I02'
         Write-PhaseFooter 'I02' 'cached'
         return
+    }
+
+    # I02 short-circuit (added with the r72 release) for all-WHQL trimmed install plans.
+    # When the operator passed -SkipNonCosignedDrivers and the post-P06
+    # inventory is fully WHQL co-signed, no kernel-mode signer
+    # authorization (WDAC supplemental policy or testsigning) is needed.
+    # The WHQL embedded signatures authorize the drivers at kernel CI
+    # directly; the trust-store import done in I01 is sufficient for
+    # pnputil to accept the script-re-signed catalogs at I03. Skipping
+    # the full Path A / Path B logic here is what makes the
+    # -SkipNonCosignedDrivers + Secure Boot ON workflow actually
+    # complete end-to-end (without this short-circuit, I02 falls
+    # through to Path B which would abort on the Path B prerequisite
+    # check). See SPEC SS D.31.11 for the design contract, including
+    # the firing conditions and resume-after-reboot semantics.
+    Set-DebugStep 'r72 short-circuit evaluation'
+    if (-not $Ctx.UseTestSigning -and $Script:SkipNonCosignedDrivers -and $Ctx.WhqlCoSignAnalysis) {
+        $nonCoSignedAfterTrim = @($Ctx.WhqlCoSignAnalysis | Where-Object { -not $_.IsFullyCoSigned })
+        if ($nonCoSignedAfterTrim.Count -eq 0 -and $Ctx.WhqlCoSignAnalysis.Count -gt 0) {
+            Write-Host '--- I02 short-circuit (r72): install plan is fully WHQL co-signed ---' -ForegroundColor Green
+            Write-Ok ('  All {0} INF(s) in the trimmed install plan carry Microsoft Windows Hardware Compatibility co-signatures.' -f $Ctx.WhqlCoSignAnalysis.Count)
+            Write-Detail '  No kernel-mode signer authorization is required:'
+            Write-Detail '    - WHQL embedded signatures will authorize these drivers at kernel CI (Secure Boot can stay ON).'
+            Write-Detail '    - Trust-store import (I01) is sufficient for pnputil to accept the re-signed catalogs at I03.'
+            Write-Detail '  No WDAC supplemental policy will be deployed; no bcdedit testsigning flag will be set.'
+            Set-PhaseMarker -Ctx $Ctx -PhaseId 'I02' -Metadata @{ ShortCircuit = $true; Reason = 'all-whql-skip'; AnalysedInfCount = $Ctx.WhqlCoSignAnalysis.Count }
+            Set-DebugStep ('I02 short-circuit: SkipNonCosignedDrivers={0} UseTestSigning={1} AnalysedInfCount={2} NonCoSignedAfterTrim={3}' -f $Script:SkipNonCosignedDrivers, [bool]$Ctx.UseTestSigning, $Ctx.WhqlCoSignAnalysis.Count, $nonCoSignedAfterTrim.Count)
+            Write-PhaseFooter 'I02' 'short-circuit'
+            return
+        }
     }
 
     Set-DebugStep 'capture AS-IS boot-signing environment'
