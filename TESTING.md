@@ -1425,308 +1425,6 @@ foreach ($f in @(
 
 ---
 
-## 11. Validation Scenario 11: WS2019 Legacy WDAC SPF integration (r67 / WDAC SPF r03 → r04)
-
-### Scope
-
-Validate that all four driver scripts correctly delegate to
-`Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1` on Windows
-Server 2019 (build 17763) and Windows Server 2016 (build 14393),
-producing a working SPF policy with Secure Boot ON and without
-requiring a reboot.
-
-**Validation history at a glance** (full per-revision detail in
-[`SPEC.md`](./SPEC.md) §D.25 Status):
-
-| Revision | Date       | Outcome on WS2019 + Renoir target bench |
-|---------:|------------|-----------------------------------------|
-| r01      | 2026-05-22 | Failed (`Get-Date -AsUTC` PS 5.1 incompat) |
-| r02      | 2026-05-22 | Superseded by r03 rebuild before bench run |
-| r03      | 2026-05-23 | Failed (`Add-HistoryEntry` param scope-qualifier silently declares colon-named parameter; `-CertThumbprint` binding error after WMI activation, leaving the host in a "stuck Foreign" state) |
-| **r04**  | **2026-05-23** | **✅ Pass — TC11.1..TC11.4 all green on the primary bench; `State : None -> Ours-Healthy` transition completes in 3.57 s without reboot; I03 then installs 55 INFs (1 reboot-required, 2 no-op) and I04 enumerates 42 AMD devices with 5 REBOOT_NEEDED / 37 UNCHANGED / 0 FAILED.** |
-
-### Target hardware
-
-- **Primary**: ThinkPad X13 Gen 1 AMD (2020) running Windows Server
-  2019 build 17763, Ryzen 5 PRO 4650U (Renoir), Secure Boot ON,
-  TPM 2.0 enabled. Same hardware that surfaced the r66 I02 abort.
-- **Coverage**: representative of WS2019 hosts with both CiTool.exe
-  absent AND ConfigCI module status varies (test both with and
-  without the optional ConfigCI feature installed).
-
-### Prerequisites
-
-```powershell
-# Verify OS detection
-$os = Get-CimInstance Win32_OperatingSystem
-$os.Caption        # expected: ... Server 2019 ...
-$os.BuildNumber    # expected: 17763 (between 14393 and 20347 inclusive)
-$os.ProductType    # expected: 2 or 3 (Server)
-
-# Verify ConfigCI module presence (orchestrator needs it for XML compile)
-Get-Module -ListAvailable -Name ConfigCI
-
-# Verify Secure Boot is ON (the point of this test)
-Confirm-SecureBootUEFI    # expected: True
-
-# Verify orchestrator script is in place
-Test-Path .\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1   # expected: True
-```
-
-### Test cases
-
-#### TC11.1 — Stand-alone orchestrator dry-run (read-only)
-
-```powershell
-# Verify the orchestrator's OS guard accepts the host
-.\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 -Action GetStatus
-```
-
-**Pass criteria**:
-- Banner shows version `wdac-2026.05.23-r04`.
-- Header line "Path: ... legacy SPF" or "STATE" displayed.
-- State output is one of: `None`, `Ours-Healthy`, `Foreign`,
-  `Ours-Stale`, `Ours-Tampered`, `Inconsistent`.
-- For a fresh host: `State: None`, `Manifest exists: False`,
-  `Deployed exists: False`.
-- Exit code 0.
-
-#### TC11.2 — Orchestrator JSON-mode parse (machine usage)
-
-```powershell
-$json = .\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 `
-    -Action GetStatus -OutputFormat Json | ConvertFrom-Json
-$json.action; $json.state; $json.exitCode
-```
-
-**Pass criteria**:
-- `$json.action -eq 'GetStatus'`
-- `$json.exitCode -eq 0`
-- `$json.state` is a recognized state name.
-- `$json.scriptVersion -eq 'wdac-2026.05.23-r04'`.
-
-#### TC11.3 — Canonical hash self-check (dev helper)
-
-```powershell
-.\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 `
-    -Action ComputeOwnCanonicalHash -OutputFormat Json | ConvertFrom-Json
-```
-
-**Pass criteria**:
-- `$result.details.canonicalSha256 -eq
-  'f779bf50c41201a6564bf968d040cf39348433951cb83accd856245bebef7ced'`
-  (the value embedded in all 4 driver scripts as
-  `$Script:ExpectedWdacScriptCanonicalSha256`).
-
-#### TC11.4 — Chipset I02 Path C (full path: orchestrator delegation)
-
-```powershell
-# Bring a Chipset workspace through P00..P09, V01..V05 first, then run I02
-.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action All
-
-# OR specifically:
-.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -OnlyPhases I02
-```
-
-**Pass criteria** (verbatim console output text):
-- `Path: WDAC Single Policy Format via external orchestrator
-  (legacy WS2019/2016).`
-- `(CiTool / MPF supplemental policies are not available on this OS.)`
-- `Orchestrator src  : local` (when orchestrator is co-located)
-  or `Orchestrator src  : github-fetch` (when not).
-- `Orchestrator hash :
-  f779bf50c41201a6564bf968d040cf39348433951cb83accd856245bebef7ced`.
-- `State transition: None -> Ours-Healthy` (or `Ours-Healthy ->
-  Ours-Healthy` for idempotent re-runs).
-- `Activation method: WMI-PS_UpdateAndCompareCIPolicy`.
-- `Legacy WDAC SPF policy is active. No reboot required ...`.
-- I02 completes with `done` (not `cached` for first run).
-- Secure Boot remains ON; `bcdedit /enum {current}` shows no
-  `testsigning Yes`.
-- File `C:\Windows\System32\CodeIntegrity\SiPolicy.p7b` exists with
-  non-zero size.
-- `Get-CimInstance -Namespace root\Microsoft\Windows\CI -ClassName
-  PS_UpdateAndCompareCIPolicy` succeeds (WMI class present).
-
-#### TC11.5 — Idempotent re-run
-
-```powershell
-.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -OnlyPhases I02 -Force
-```
-
-**Pass criteria**:
-- `Cert was already authorized in the existing SPF policy. State
-  unchanged.`
-- No state transition.
-- Exit code 0.
-
-#### TC11.6 — Repository-cross-cert scenario (Graphics adds, Chipset already present)
-
-```powershell
-# After TC11.4, run Graphics I02 with its own cert
-.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action Install -OnlyPhases I02
-```
-
-**Pass criteria**:
-- State transition: `Ours-Healthy -> Ours-Healthy` (the Chipset cert
-  is preserved; the Graphics cert is appended).
-- `.\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 -Action
-  GetStatus` reports 2 authorized certs (Chipset + Graphics).
-
-#### TC11.7 — Foreign policy detection (hard error with 3-option guidance)
-
-```powershell
-# Setup: place an unmanaged WDAC SPF policy
-Copy-Item C:\Windows\schemas\CodeIntegrity\ExamplePolicies\AllowAll.xml `
-    C:\Temp\foreign.xml
-ConvertFrom-CIPolicy -XmlFilePath C:\Temp\foreign.xml `
-    -BinaryFilePath C:\Windows\System32\CodeIntegrity\SiPolicy.p7b
-Invoke-CimMethod -Namespace root\Microsoft\Windows\CI `
-    -ClassName PS_UpdateAndCompareCIPolicy `
-    -MethodName Update -Arguments @{ FilePath = `
-    'C:\Windows\System32\CodeIntegrity\SiPolicy.p7b' }
-
-# Also remove our manifest if present
-Remove-Item C:\ProgramData\Deploy-Drivers-For-WindowsServer\wdac\manifest.json `
-    -ErrorAction SilentlyContinue
-
-# Now run any driver script I02
-.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -OnlyPhases I02
-```
-
-**Pass criteria**:
-- I02 aborts with `*** I02 ABORTED: A foreign WDAC SPF policy is
-  currently deployed. ***`.
-- Three options are printed (Option 1 recommended manual merge,
-  Option 2 `-ForceOverrideForeign`, Option 3 `-UseTestSigning`).
-- Exit code non-zero.
-- `SiPolicy.p7b` is unchanged.
-
-#### TC11.8 — Foreign override with backup
-
-```powershell
-# Continuing from TC11.7
-.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -OnlyPhases I02 `
-    -ForceOverrideForeign
-```
-
-**Pass criteria**:
-- `Backing up the foreign policy before replacement...` shown.
-- `Foreign policy backed up to
-  C:\ProgramData\Deploy-Drivers-For-WindowsServer\wdac\backups\
-  YYYY-MM-DDTHH-mm-ssZ-foreign-policy.p7b.bak`.
-- State transition: `Foreign -> Ours-Healthy`.
-- Backup file exists with correct SHA256.
-
-#### TC11.9 — Foreign backup restore
-
-```powershell
-.\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 `
-    -Action Uninstall -RestoreForeignBackup
-```
-
-**Pass criteria**:
-- Our policy removed.
-- Foreign backup restored to `SiPolicy.p7b`.
-- WMI refresh of the restored policy reported.
-
-#### TC11.10 — Audit-mode toggle
-
-```powershell
-.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -OnlyPhases I02 -Force -AuditMode
-.\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 -Action GetStatus `
-    -OutputFormat Json | ConvertFrom-Json | Select-Object `
-    @{N='auditMode';E={$_.details.authorizedCerts.Count}}
-# Manifest manually: $m = Get-Content C:\ProgramData\...\manifest.json | ConvertFrom-Json
-# $m.policy.auditMode  -> True
-```
-
-**Pass criteria**:
-- `manifest.policy.auditMode -eq $true`.
-- Event log shows policy violations as audit events (not blocked).
-
-#### TC11.11 — Full uninstall
-
-```powershell
-.\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 -Action Uninstall
-```
-
-**Pass criteria**:
-- `SiPolicy.p7b` removed.
-- Manifest removed.
-- State: `None`.
-- Secure Boot still ON (unchanged).
-
-### Negative tests
-
-#### TC11.N1 — Orchestrator OS guard refuses WS2022+
-
-```powershell
-# Run on WS2022 or WS2025
-.\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 -Action GetStatus
-```
-
-**Pass criteria**:
-- Refused with `result=refused, exitCode=3`.
-- Message: `Build ... is WS2022+ (MPF-capable); use the driver
-  scripts' built-in WDAC supplemental policy path instead of this
-  script.`
-
-#### TC11.N2 — Orchestrator OS guard refuses Workstation
-
-```powershell
-# Run on Windows 10 / Windows 11 client
-.\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 -Action GetStatus
-```
-
-**Pass criteria**:
-- Refused with `exitCode=3`.
-- Message contains `ProductType=1 is a Workstation`.
-
-#### TC11.N3 — Driver script does NOT take Path C on WS2022+
-
-```powershell
-# Run on WS2022 or WS2025
-.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -OnlyPhases I02
-```
-
-**Pass criteria**:
-- `Path: WDAC supplemental policy (default, keeps Secure Boot ON).`
-  (Path A — the existing MPF path).
-- NOT `Path: WDAC Single Policy Format via external orchestrator`.
-
-#### TC11.N4 — Canonical hash mismatch on tampered orchestrator
-
-```powershell
-# Modify the orchestrator's content (e.g., add a comment) and re-run I02
-Add-Content .\Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1 '# tampered'
-.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -OnlyPhases I02
-```
-
-**Pass criteria** (on legacy WS2019 host, matching the
-non-blocking warn-and-continue behavior described in SPEC.md §D.25
-Decision 2):
-
-- Driver script emits a `[!]` warning of the form
-  `Orchestrator canonical hash does NOT match the value this driver
-  script was built against.` followed by `Expected: ...` / `Actual:
-  ...` lines and `Continuing because the orchestrator may have been
-  independently updated; verify the new hash matches an approved
-  release.`
-- I02 **continues** (does NOT throw on mismatch alone) and the
-  underlying `AddCert` action proceeds normally; the warning is
-  advisory and is captured in the run transcript so the operator
-  can correlate any later runtime surprise with the orchestrator
-  version that was actually used.
-- The natural way to observe this without literally tampering is to
-  pair a `wdac-2026.05.23-rNN` orchestrator with driver scripts
-  whose `$Script:ExpectedWdacScriptCanonicalSha256` was last
-  refreshed against a different `rMM`; the warning lists both
-  hashes verbatim so the operator can decide whether the version
-  pair is approved.
-
----
-
 ## 12. Validation Scenario 12: Catastrophic field failure incident (2026-05-23)
 
 ### Status
@@ -1839,22 +1537,37 @@ The orchestrator currently activates the SPF policy via the WMI `PS_UpdateAndCom
 
 This does NOT guarantee boot-time acceptance (the boot loader has its own enforcement decisions that runtime tools cannot fully predict), but it eliminates the failure modes where the deployed policy is structurally invalid.
 
+### 2026-05-23 second incident — Chipset alone is enough to brick the host (drives r70)
+
+The October 2026 narrative above assumed the brick mechanism required a 3-script cumulative install (Chipset → Graphics → MSBthPan) on the same host without reboots. A second WS2019 + Renoir bench run on **2026-05-23** disproved that assumption: a fresh-install WS2019 host running **only `Chipset r69 -Action Install`** (Path C, Secure Boot ON) was left unable to complete the next boot, including Safe Mode. Graphics and MSBthPan were never run on this bench.
+
+Recovery required booting WinRE from USB and `del C:\Windows\System32\CodeIntegrity\SiPolicy.p7b`. After the deletion, the host booted normally — and notably, the WHQL co-signed AMD drivers (`AmdMicroPEP.sys`, `amdgpio2.sys`, `amdpsp10.sys`) that had already been installed in I03 loaded with `Status=OK` without any WDAC policy in place. Conversely, the non-WHQL drivers in the same package (`amdi2c.sys`, `amdsfhkmdf.sys`) remained `Status=Error / ProblemCode=39 (CM_PROB_DRIVER_FAILED_LOAD)` after WDAC removal, demonstrating that the SPF policy was never the reason WHQL drivers loaded and never sufficient to make non-WHQL drivers load.
+
+**Conclusion (drives r70):** the brick is caused by the WDAC SPF policy itself, not by any cumulative-stacking dynamic. A single Install execution can produce it. The two bench observations (2025 cumulative, 2026-05-23 single-script) are both expressions of the same underlying defect: the boot loader's re-evaluation of `SiPolicy.p7b` against the newly-installed boot-critical driver set is an enforcement layer that the WMI CIM bridge `Update()` success signal cannot speak to. That same boot loader layer also rejects non-WHQL drivers regardless of the policy's contents (see SPEC §D.30 F6, F7).
+
+The full investigation summary, including Microsoft Learn cross-references on `bcdedit /set TESTSIGNING ON` behaviour under Secure Boot (the rejection happens at command execution, not silently in the boot loader) and on the silently-ignored `NOINTEGRITYCHECKS` / `DISABLE_INTEGRITY_CHECKS` flags on WS2008+ x64, is documented in **SPEC §D.30**. The decision to delete Path C entirely in r70 — rather than continue trying to harden it — flows directly from F1–F12 in that section.
+
+**What r70 retires:** the Path C orchestrator, all driver-script delegation helpers (SECTION 1g, SECTION QI-10, `Invoke-LegacyWdacAuthorization`, the I02 Path C branch, the post-I02 BootLoadableCheck dispatcher hook, the manifest.json-based C3 CRITICAL check), and the `-ForceOverrideForeign` / `-AuditMode` / `-StrictBootValidation` switches. The "Boot-time policy validation (planned for r69/r35/r17)" paragraph above is preserved as historical context; its actual landing in `r69 / r35 / r17` (the `BootLoadableCheck` action and its driver-side helper) is also removed in r70 because the policy it was meant to validate is itself removed.
+
+**What r70 does NOT retire:** the lesson that "kernel-mode signing-state changes on a fresh-install Server SKU are an inherently high-risk operation that has no fast rollback on a physical machine." The README's BRICK-LEVEL RISK disclaimer is rewritten to integrate the 2026-05-23 single-script observation alongside the original 3-script-cumulative observation. The Path B (testsigning + Secure Boot Disabled in firmware) path remains supported but requires an explicit `-UseTestSigning` invocation; r71 is planned to surface this as an early-abort prerequisite check.
+
 ---
 
-## 13. Validation Scenario 13: QI-6 / QI-9 / QI-10 / Q-X1 (r69/r35/r17/r17/r05)
+## 13. Validation Scenario 13: QI-6 / QI-9 / Q-X1 (r69/r35/r17/r17)
 
 ### Status
 
-Code-review validated only. The only WS2019 + Renoir bench is queued for OS reinstall as of release time; physical replay is not possible. Test cases below describe what should be observed when a bench becomes available and the r69/r35/r17/r17/r05 release is replayed against it.
+Code-review validated only. The only WS2019 + Renoir bench is queued for OS reinstall as of release time; physical replay is not possible. Test cases below describe what should be observed when a bench becomes available and the r69/r35/r17/r17 release is replayed against it. (Note: the QI-10 / `r05` test cases previously documented in this section were removed in r70 along with the Path C orchestrator and the `Invoke-BootLoadableCheck` helper; see SPEC §D.30.)
 
 ### Scope
 
-This section covers the four post-r04 improvements that landed in r69/r35/r17/r17/r05:
+This section covers the three post-r04 improvements that remain in scope after the r70 Path C deprecation:
 
 - **QI-6**: CRITICAL severity acknowledgement checklist in I00 (Chipset/Graphics/BthPan). See SPEC §D.28.
-- **QI-9**: System Restore status warning in P01 (Chipset/Graphics/BthPan). See SPEC §D.26.2.D.
-- **QI-10**: BootLoadableCheck post-I02 (Chipset/Graphics/BthPan + WDAC SPF orchestrator r05). See SPEC §D.29.
+- **QI-9**: System Restore status warning in P01 (Chipset/Graphics/BthPan). See SPEC §D.26.2.D (now retained as historical context within the §D.30 deprecation narrative).
 - **Q-X1**: NPU refuses Install / All on legacy Windows Server. See SPEC §D.27.
+
+(QI-10 — `BootLoadableCheck` post-I02 — is intentionally absent from this list: the orchestrator and its `BootLoadableCheck` action were removed in r70, and the driver-side `Invoke-BootLoadableCheck` helper and post-I02 dispatcher hook were removed with them. See SPEC §D.30 for the rationale.)
 
 ### TC13.1 — Q-X1: NPU `-Action Install` on WS2019 must refuse before any destructive work
 
@@ -1911,7 +1624,7 @@ Per Q9-A=b, the script should not create restore points automatically. Verify: a
 | Step | Setup | Expected outcome |
 | --- | --- | --- |
 | 1 | Graphics script on a single-display host (laptop with only built-in panel). | — |
-| 2 | Run `.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action Install`. | I00 builds `$matched[]`, then `Get-CriticalRiskItems` finds C1 matches (display.inf candidate + single display). |
+| 2 | Run `.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action Install`. | I00 builds `$matched[]`, then `Get-CriticalRiskItem` finds C1 matches (display.inf candidate + single display). |
 | 3 | I00 prints `[CRITICAL][C1] Display driver replacement on single-display host` with the C1 detail block. | The y/N prompt is presented: `I understand display loss is possible and have an alternative display path or remote access ready (y/N): ` |
 | 4 | Operator types `N` and presses Enter. | I00 throws `CRITICAL risk item(s) not acknowledged. Aborting before I01.` |
 | 5 | Re-run with `-ForceUnsafe`. | I00 prints the CRITICAL block but bypasses the prompt; `Set-DebugStep` records `CRITICAL bypass via -ForceUnsafe: items=C1`. |
@@ -1924,57 +1637,22 @@ Per Q9-A=b, the script should not create restore points automatically. Verify: a
 | 2 | Run `.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install`. | I00 emits `[CRITICAL][C2] BitLocker ON + AMD PSP driver replacement` with the KeyProtector enumeration in the ack prompt. |
 | 3 | Operator answers `y`. | I00 records the acknowledgement and proceeds to next item (or to I01 if C2 was the only item). |
 
-### TC13.10 — QI-6 C3: CRITICAL fires for same-session WDAC SPF cert stacking
-
-| Step | Setup | Expected outcome |
-| --- | --- | --- |
-| 1 | WS2019 host. Run `Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install` to completion. Do NOT reboot. | After Chipset install, `manifest.json` contains 1 authorizedCerts entry (the Chipset cert). |
-| 2 | Run `.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action Install`. | I00's C3 check reads manifest.json. `$Ctx.CertThumbprint` is the Graphics cert; the existing entry's thumbprint is the Chipset cert (different). C3 fires. |
-| 3 | I00 emits `[CRITICAL][C3] Same-session WDAC SPF deploy stacking (1 other cert(s) already authorized)` with the chipset cert thumbprint and subject listed in the detail. | The ack prompt asks: `I have rebooted since the previous Install AND verified the host is healthy (y/N): ` |
-| 4 | Operator answers `N` (because no reboot was performed). | I00 throws. The 2026-05-23 incident pathway is closed. |
-
 ### TC13.11 — QI-6 C5: CRITICAL fires after 24+ hour uptime
 
 Verify: on a host that has not been rebooted in 25+ hours, `(Get-Date - LastBootUpTime).TotalHours -gt 24` is true and C5 is added to the items list with the uptime hours displayed.
 
-### TC13.12 — QI-6 BthPan: only C3 and C5 evaluated (no C1/C2 because $matched is empty)
+### TC13.12 — QI-6 BthPan: only C5 evaluated (no C1/C2 because $matched is empty)
 
 | Step | Setup | Expected outcome |
 | --- | --- | --- |
-| 1 | WS2019 host that has already run Chipset Install (manifest.json has 1 authorizedCerts entry, NOT the BthPan cert). | — |
-| 2 | Run `.\Deploy-MSBthPanInboxOnWindowsServer.ps1 -Action Install`. | I00 passes `@()` to `Get-CriticalRiskItems`. C1 and C2 yield no items (empty $Matched). C3 fires on the chipset cert presence. C5 may or may not fire depending on uptime. |
-| 3 | The CRITICAL block contains C3 (and optionally C5) but no C1/C2. | — |
+| 1 | Any host (WS2022+ or legacy). | — |
+| 2 | Run `.\Deploy-MSBthPanInboxOnWindowsServer.ps1 -Action Install`. | I00 passes `@()` to `Get-CriticalRiskItem`. C1 and C2 yield no items (empty $Matched). C5 may or may not fire depending on uptime. |
+| 3 | The CRITICAL block contains C5 only (when applicable), no C1/C2. | — |
 
-### TC13.13 — QI-10: BootLoadableCheck `pass` after a successful I02 on WS2019
+(TC13.10 — the original "QI-6 C3: same-session WDAC SPF cert stacking" test — was removed in r70. C3 inspected the orchestrator's `manifest.json` for cross-script cert deployment evidence, but the orchestrator and its manifest are gone after r70. See SPEC §D.28.1 for the historical rationale and SPEC §D.30 for the deprecation context. The r71 planned `C6` condition — "WHQL co-sign shortfall on a Secure-Boot-ON host" — will be tested in TESTING.md §14 once r71 ships.)
 
-| Step | Setup | Expected outcome |
-| --- | --- | --- |
-| 1 | WS2019 host with the WDK installed (signtool available). Run a clean Chipset Install. | — |
-| 2 | After I02 succeeds, the phase dispatcher invokes `Invoke-BootLoadableCheck`. | Orchestrator returns `result=pass`, `details.siPolicyExists=true`, `details.signtoolVerify.exitCode=0`, `details.manifestParseable=true`, `details.authorizedCertCount=1`. |
-| 3 | Driver-side helper prints `[+] SPF policy is structurally valid and signed.` and I03 proceeds. | — |
+(TC13.13 – TC13.16 — the four "QI-10: BootLoadableCheck" tests — were also removed in r70. The driver-side `Invoke-BootLoadableCheck` helper, the post-I02 dispatcher hook, and the orchestrator's `BootLoadableCheck` action that those tests exercised were all deleted along with Path C. See SPEC §D.30.)
 
-### TC13.14 — QI-10: BootLoadableCheck `warn` for ManifestMissing without `-Strict`
-
-| Step | Setup | Expected outcome |
-| --- | --- | --- |
-| 1 | Fresh WS2019 host. Delete `%ProgramData%\Deploy-Drivers-For-WindowsServer\wdac\manifest.json` if it exists. Run Chipset Install. | I02 deploys SiPolicy.p7b but the manifest gets created during AddCert. |
-| 2 | Manually delete manifest.json BETWEEN I02 and the dispatcher hook. Hard to do interactively; use a post-I02 breakpoint or a separate test invocation pointing to a host with no prior manifest. | Orchestrator returns `result=warn`, `errorCategory=ManifestMissing`, `exitCode=5`. |
-| 3 | Driver-side helper prints `[!] BootLoadableCheck WARNING: Orchestrator manifest is missing. ...` and continues to I03. | I03 still runs. |
-
-### TC13.15 — QI-10: BootLoadableCheck `fail` for ManifestMissing with `-StrictBootValidation`
-
-Same as TC13.14 but invoke with `-StrictBootValidation`. Expected: orchestrator returns `result=fail`, `exitCode=6`. Driver-side helper prints `[X] BootLoadableCheck FAILED: ...` and the dispatcher hook throws `BootLoadableCheck failed and -StrictBootValidation is set. Aborting before I03 to prevent boot regression.` I03 does not run.
-
-### TC13.16 — QI-10: BootLoadableCheck skipped (signtool absent) is `pass`, not `fail`
-
-| Step | Setup | Expected outcome |
-| --- | --- | --- |
-| 1 | Stock WS2022 host without the Windows SDK installed. Run Chipset Install with -Strict-BootValidation. | `Find-Signtool` returns `$null` — no signtool found anywhere. |
-| 2 | `Invoke-ActionBootLoadableCheck` proceeds with all checks except signtool: SiPolicy.p7b exists, manifest is parseable. | Orchestrator returns `result=pass`, with `details.signtoolVerify.output` noting "signtool.exe not found... signature check skipped". |
-| 3 | Driver-side helper prints `[+] SPF policy is structurally valid and signed.` (the message is somewhat optimistic given signtool was skipped; the detail field disambiguates). | I03 proceeds. |
-
-### Negative test — orchestrator hash mismatch on disk
-
-If an operator updates the orchestrator independently to a version whose canonical SHA256 does not match the value the driver script was built against (`$Script:ExpectedWdacScriptCanonicalSha256`), the driver script's existing pre-AddCert hash verification (introduced before r69) prints a yellow warning but does NOT abort. r69 does not regress this behaviour — the BootLoadableCheck delegation reuses the same `Resolve-WdacOrchestratorScript` + `Get-CanonicalScriptHash` infrastructure. Verify: on a host where the orchestrator has been swapped, BootLoadableCheck still runs and reports whatever the swapped orchestrator returns.
+(Negative test — "orchestrator hash mismatch on disk" — was removed in r70. The driver scripts no longer reference an orchestrator, so the canonical-hash verification logic and the test that exercised it are both retired.)
 
 ---

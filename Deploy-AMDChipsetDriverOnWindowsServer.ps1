@@ -597,27 +597,11 @@ param(
     # bug report, even when nothing actually failed.
     [switch]$ExportTraceOnExit,
 
-    # Path C: legacy WS2019/WS2016 WDAC SPF orchestrator overrides
-    # (these forward to Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1
-    # when running on WS2019/WS2016; ignored on WS2022+)
-    [switch]$ForceOverrideForeign,
-
-    # Audit-mode WDAC policy: violations logged but not enforced.
-    [switch]$AuditMode,
-
-    # r69 (QI-10): enforce structural validation of the SPF policy
-    # right after I02 succeeds. Default is opt-in (false) so that
-    # benign warnings (e.g. manifest missing on a fresh install)
-    # do not block I03; pass -StrictBootValidation to escalate
-    # those structural warnings to a hard abort before I03. See
-    # SPEC SS D.26.3 (QI-10) and SS D.29 (errorCategory taxonomy).
-    [switch]$StrictBootValidation,
-
     # r69 (QI-6): bypass the CRITICAL acknowledgement checklist in
     # I00. Intended for CI/CD or controlled-lab automation where an
     # interactive Read-Host prompt is not possible. The bypass is
     # logged via Set-DebugStep in the run transcript so an audit can
-    # reconstruct whether C1/C2/C3/C5 were ever surfaced. NEVER use
+    # reconstruct whether C1/C2/C5 were ever surfaced. NEVER use
     # in production without out-of-band review. See SPEC SS D.28.
     [switch]$ForceUnsafe
 )
@@ -625,12 +609,9 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
-# Cache Path-C overrides into $Script: scope so the I02 Path-C branch can read them
+# Cache the param() values into $Script: scope so phase functions can read them
 # without re-binding param() variables across function-call boundaries.
-$Script:ForceOverrideForeign = [bool]$ForceOverrideForeign.IsPresent
-$Script:AuditMode            = [bool]$AuditMode.IsPresent
-$Script:StrictBootValidation = [bool]$StrictBootValidation.IsPresent
-$Script:ForceUnsafe          = [bool]$ForceUnsafe.IsPresent
+$Script:ForceUnsafe = [bool]$ForceUnsafe.IsPresent
 
 #####################################################################
 # SECTION 0: Script-level timing state
@@ -3403,17 +3384,6 @@ function Update-BootSigningEnvironmentForCtx {
     # workspace marker file. Use this from any phase that has a $Ctx
     # in scope. The plain Get-BootSigningEnvironment is safe to call
     # at startup before $Ctx is populated.
-    #
-    # r68 (SPEC §D.26): on WS2019/WS2016 hosts where Path C deployed
-    # an SPF policy via the external orchestrator, the MPF-focused
-    # Test-AmdWdacPolicyDeployed cannot see it (no CiTool, no
-    # CiPolicies\Active\*.cip). Without an SPF-aware fallback, every
-    # post-I02 invocation falsely reports "Self-signed driver:
-    # BLOCKED / No WDAC supplemental policy authorizes the AMD
-    # self-signing certificate" even though the policy IS active and
-    # the cert IS authorized. This was directly observable in the
-    # WS2019 + Renoir pilot run that surfaced the chain of post-r04
-    # findings — see SPEC.md §D.26.
     param([Parameter(Mandatory)] $Ctx)
     $env = Get-BootSigningEnvironment
     $deployed = Test-AmdWdacPolicyDeployed -Ctx $Ctx
@@ -3429,23 +3399,6 @@ function Update-BootSigningEnvironmentForCtx {
                      (-not $env.HvciRunning)
         $env.EffectiveCanLoadSelfSigned = ($true -or $path2Open)  # path1 is open
         return $env
-    }
-    # Fallback: legacy WS2019/WS2016 SPF path. Only consult if the
-    # MPF probe returned nothing AND we have a cert thumbprint to
-    # check against. Test-LegacyWdacSpfAuthorizedForCert is cheap
-    # (parses one JSON file), so we always try it when MPF was empty.
-    $thumb = $null
-    if ($Ctx -and $Ctx.CertThumbprint) { $thumb = [string]$Ctx.CertThumbprint }
-    if ($thumb -and (Test-LegacyWdacSpfAuthorizedForCert -Thumbprint $thumb)) {
-        $env.AmdSuppPolicyActive = $true
-        $env.AmdSuppPolicyId     = '(SPF: see %ProgramData%\Deploy-Drivers-For-WindowsServer\wdac\manifest.json)'
-        $env.BlockReasons = @($env.BlockReasons | Where-Object {
-            $_ -ne 'No WDAC supplemental policy authorizes the AMD self-signing certificate'
-        })
-        $path2Open = ($env.SecureBootEnabled -ne $true) -and `
-                     ($env.TestSigningEnabled -eq $true) -and `
-                     (-not $env.HvciRunning)
-        $env.EffectiveCanLoadSelfSigned = ($true -or $path2Open)  # SPF path is open
     }
     return $env
 }
@@ -3784,55 +3737,6 @@ function Test-AmdWdacPolicyDeployed {
     if (-not $policyId) { return $null }
     $hit = $active | Where-Object { $_.PolicyId -eq $policyId } | Select-Object -First 1
     return $hit
-}
-
-function Test-LegacyWdacSpfAuthorizedForCert {
-    # WS2019/WS2016 cannot host the MPF supplemental policies that
-    # Test-AmdWdacPolicyDeployed inspects (no CiTool, no Active dir).
-    # On those hosts the WDAC SPF orchestrator deploys a single
-    # base policy at C:\Windows\System32\CodeIntegrity\SiPolicy.p7b
-    # and records the authorized cert thumbprints in a manifest at
-    # %ProgramData%\Deploy-Drivers-For-WindowsServer\wdac\manifest.json
-    # (schemaVersion 1.0, schemaId deploy-drivers-for-windowsserver/
-    # wdac-manifest/v1).
-    #
-    # This helper returns $true ONLY when ALL of the following hold:
-    #   1. The orchestrator's manifest.json exists and parses.
-    #   2. The deployed SiPolicy.p7b exists on disk.
-    #   3. The manifest's authorizedCerts[] array contains a row whose
-    #      thumbprint (case-insensitive, hex) matches $Thumbprint.
-    #
-    # Returns $false on any negative or unparseable condition. The
-    # caller is responsible for combining this with Secure Boot /
-    # testsigning / HVCI checks; this only asserts "the SPF policy
-    # has the cert listed", NOT "the kernel will load self-signed
-    # drivers right now". See SPEC.md §D.26 for the I02-I04 cross-path
-    # accuracy fix.
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param(
-        [Parameter(Mandatory=$true)][string]$Thumbprint
-    )
-    if ([string]::IsNullOrWhiteSpace($Thumbprint)) { return $false }
-    $deployed = Join-Path $env:windir 'System32\CodeIntegrity\SiPolicy.p7b'
-    if (-not (Test-Path -LiteralPath $deployed -PathType Leaf)) { return $false }
-    $manifest = Join-Path $env:ProgramData 'Deploy-Drivers-For-WindowsServer\wdac\manifest.json'
-    if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { return $false }
-    try {
-        $raw = Get-Content -LiteralPath $manifest -Raw -Encoding UTF8 -ErrorAction Stop
-        if ([string]::IsNullOrWhiteSpace($raw)) { return $false }
-        $obj = $raw | ConvertFrom-Json -ErrorAction Stop
-    } catch {
-        return $false
-    }
-    if (-not $obj -or -not $obj.authorizedCerts) { return $false }
-    $target = $Thumbprint.ToUpper()
-    foreach ($c in $obj.authorizedCerts) {
-        if ($c -and $c.thumbprint -and ($c.thumbprint.ToUpper() -eq $target)) {
-            return $true
-        }
-    }
-    return $false
 }
 
 function New-AmdDriverWdacSupplementalPolicy {
@@ -4519,361 +4423,10 @@ function Resolve-PhaseSelection {
 
 
 #####################################################################
-# SECTION 1g: WDAC SPF orchestrator delegation (legacy WS2019/2016)
-#####################################################################
-# On Windows Server 2019 (build 17763) and Windows Server 2016 (build
-# 14393), the WDAC Multiple Policy Format (MPF) used by I02 Path A is
-# unavailable (no CiTool.exe; Active\{GUID}.cip is not enumerated by
-# the kernel). The I02 phase therefore delegates to a separate
-# orchestrator script that implements Single Policy Format (SPF).
-#
-# The 5 helper functions in this section coordinate that delegation:
-#   - canonical hash computation (BOM-strip + LF-normalize) so script
-#     identity is stable across CRLF/LF storage variants
-#   - resolving the orchestrator script path (co-located vs not)
-#   - invoking the orchestrator in JSON-output mode and parsing the
-#     envelope back into a [pscustomobject]
-#   - top-level Invoke-LegacyWdacAuthorization entry point called from
-#     I02 when Test-IsLegacyWindowsServerOs returns $true
-#
-# These functions are intentionally byte-for-byte identical across all
-# four driver scripts AND the orchestrator. Future maintenance must
-# update all five copies in lockstep (PSA8001 will flag drift once it
-# has 2+ peers to compare).
-
-$Script:WdacOrchestratorFileName            = 'Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1'
-$Script:ExpectedWdacScriptCanonicalSha256   = '7d61cf15ca0c3e244334d521c35f4dbf74333eaee823bc32fd8a5ba636b21dfb'
-$Script:WdacOrchestratorRawGithubUrl        = 'https://raw.githubusercontent.com/usui-tk/Deploy-Drivers-For-WindowsServer/main/Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1'
-
-function Get-CanonicalScriptHash {
-    # Computes SHA256 of file content after BOM-strip and CRLF->LF normalize.
-    # Invariant across UTF-8-BOM-CRLF (working tree) and UTF-8-LF (GitHub raw).
-    [CmdletBinding()]
-    [OutputType([string])]
-    param(
-        [Parameter(Mandatory=$true)]
-        [ValidateScript({Test-Path -LiteralPath $_ -PathType Leaf})]
-        [string]$Path
-    )
-    $bytes = [System.IO.File]::ReadAllBytes($Path)
-    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
-        $bytes = $bytes[3..($bytes.Length - 1)]
-    }
-    $text = [System.Text.Encoding]::UTF8.GetString($bytes)
-    $text = $text -replace "`r`n", "`n"
-    $text = $text -replace "`r",    "`n"
-    $canonicalBytes = [System.Text.Encoding]::UTF8.GetBytes($text)
-    $sha = [System.Security.Cryptography.SHA256]::Create()
-    try {
-        $hash = $sha.ComputeHash($canonicalBytes)
-        return ([System.BitConverter]::ToString($hash) -replace '-', '').ToLower()
-    } finally {
-        $sha.Dispose()
-    }
-}
-
-function Test-IsLegacyWindowsServerOs { # psa-disable-line PSA6003 -- "Os" is singular; analyzer false positive on -os ending. The function name is a boolean predicate.
-    # Returns $true on WS2019 (build 17763) and WS2016 (build 14393).
-    # Returns $false on WS2022+, Windows client, and unknown builds.
-    [OutputType([bool])]
-    param()
-    try {
-        $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
-    } catch {
-        return $false
-    }
-    if ($os.ProductType -ne 2 -and $os.ProductType -ne 3) { return $false }
-    $build = [int]([System.Environment]::OSVersion.Version.Build)
-    return ($build -ge 14393 -and $build -lt 20348)
-}
-
-function Resolve-WdacOrchestratorScript {
-    # Returns @{ Path = '...'; Source = 'local' | 'not-found' } or throws.
-    # Locates the orchestrator script. The expected layout is co-located:
-    # the orchestrator lives next to the driver script in the same dir.
-    [OutputType([pscustomobject])]
-    param()
-    $candidates = @()
-    if ($Script:ScriptPath) {
-        $dir = Split-Path -Parent -Path $Script:ScriptPath
-        if (-not [string]::IsNullOrEmpty($dir)) {
-            $candidates += (Join-Path $dir $Script:WdacOrchestratorFileName)
-        }
-    }
-    $candidates += (Join-Path (Get-Location).Path $Script:WdacOrchestratorFileName)
-    foreach ($p in $candidates) {
-        if (Test-Path -LiteralPath $p -PathType Leaf) {
-            return [pscustomobject]@{ Path = $p; Source = 'local' }
-        }
-    }
-    return [pscustomobject]@{ Path = $null; Source = 'not-found' }
-}
-
-function Invoke-WdacOrchestrator {
-    # Invokes the orchestrator script with the given arguments in JSON
-    # output mode, captures stdout, parses the envelope, returns the
-    # parsed object plus the orchestrator exit code.
-    [OutputType([pscustomobject])]
-    param(
-        [Parameter(Mandatory=$true)][string]$ScriptPath,
-        [Parameter(Mandatory=$true)][string]$Action,
-        [hashtable]$Arguments = @{}
-    )
-    $argv = @('-NoProfile','-ExecutionPolicy','Bypass','-File',$ScriptPath,'-Action',$Action,'-OutputFormat','Json')
-    foreach ($k in $Arguments.Keys) {
-        $v = $Arguments[$k]
-        if ($v -is [switch] -or $v -is [bool]) {
-            if ($v) { $argv += ('-{0}' -f $k) }
-        } else {
-            $argv += ('-{0}' -f $k)
-            $argv += ('{0}' -f $v)
-        }
-    }
-    $outFile = [System.IO.Path]::GetTempFileName()
-    $errFile = [System.IO.Path]::GetTempFileName()
-    try {
-        $psExe = if ($PSVersionTable.PSEdition -eq 'Core') { 'pwsh' } else { 'powershell' }
-        $proc = Start-Process -FilePath $psExe -ArgumentList $argv -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outFile -RedirectStandardError $errFile # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
-        $stdout = ''
-        if (Test-Path -LiteralPath $outFile) {
-            $stdout = [System.IO.File]::ReadAllText($outFile, [System.Text.UTF8Encoding]::new($false))
-        }
-        $stderr = ''
-        if (Test-Path -LiteralPath $errFile) {
-            $stderr = [System.IO.File]::ReadAllText($errFile, [System.Text.UTF8Encoding]::new($false))
-        }
-        $parsed = $null
-        if (-not [string]::IsNullOrWhiteSpace($stdout)) {
-            try {
-                $parsed = $stdout | ConvertFrom-Json -ErrorAction Stop
-            } catch {
-                $parsed = $null
-            }
-        }
-        return [pscustomobject]@{
-            ExitCode = [int]$proc.ExitCode
-            Stdout   = $stdout
-            Stderr   = $stderr
-            Result   = $parsed
-        }
-    } finally {
-        if (Test-Path -LiteralPath $outFile) { Remove-Item -LiteralPath $outFile -Force -ErrorAction SilentlyContinue }
-        if (Test-Path -LiteralPath $errFile) { Remove-Item -LiteralPath $errFile -Force -ErrorAction SilentlyContinue }
-    }
-}
-
-function Invoke-LegacyWdacAuthorization {
-    # Top-level entry point used by the I02 phase Path C branch.
-    # Resolves the orchestrator, verifies its canonical hash matches
-    # what this driver script was built against, and delegates the
-    # AddCert action with appropriate parameters.
-    [OutputType([pscustomobject])]
-    param(
-        [Parameter(Mandatory=$true)][string]$CerPath,
-        [switch]$ForceOverrideForeign,
-        [switch]$AuditMode,
-        [switch]$ReplaceExistingFromCaller
-    )
-    $resolved = Resolve-WdacOrchestratorScript
-    if ($resolved.Source -eq 'not-found') {
-        throw ('Cannot locate {0}. Place it next to this driver script, or fetch from {1}.' -f `
-            $Script:WdacOrchestratorFileName, $Script:WdacOrchestratorRawGithubUrl)
-    }
-    Write-Detail ('Orchestrator src  : {0}' -f $resolved.Source)
-    Write-Detail ('Orchestrator path : {0}' -f $resolved.Path)
-    $actualHash = Get-CanonicalScriptHash -Path $resolved.Path
-    Write-Detail ('Orchestrator hash : {0}' -f $actualHash)
-    if ($actualHash -ne $Script:ExpectedWdacScriptCanonicalSha256) {
-        Write-Warn2 'Orchestrator canonical hash does NOT match the value this driver script was built against.'
-        Write-Warn2 ('  Expected: {0}' -f $Script:ExpectedWdacScriptCanonicalSha256)
-        Write-Warn2 ('  Actual  : {0}' -f $actualHash)
-        Write-Warn2 'Continuing because the orchestrator may have been independently updated; verify the new hash matches an approved release.'
-    }
-    $myScriptLeaf = if ($Script:ScriptPath) { Split-Path -Leaf -Path $Script:ScriptPath } else { '(unknown)' }
-    $argsMap = @{
-        CertFile                  = $CerPath
-        CallerScript              = $myScriptLeaf
-        CallerScriptVersion       = $Script:ScriptVersion
-        ReplaceExistingFromCaller = $ReplaceExistingFromCaller
-        ForceOverrideForeign      = $ForceOverrideForeign
-        AuditMode                 = $AuditMode
-    }
-    $r = Invoke-WdacOrchestrator -ScriptPath $resolved.Path -Action 'AddCert' -Arguments $argsMap
-    return [pscustomobject]@{
-        OrchestratorPath = $resolved.Path
-        OrchestratorHash = $actualHash
-        ExitCode         = $r.ExitCode
-        Result           = $r.Result
-        Stdout           = $r.Stdout
-        Stderr           = $r.Stderr
-    }
-}
-
-
-#####################################################################
-# SECTION 3: OS context
-#####################################################################
-#####################################################################
-# SECTION (r69, QI-10): BootLoadable WDAC SPF policy check
-#####################################################################
-# Driver-side helper that invokes the WDAC SPF orchestrator's new
-# BootLoadableCheck action (introduced in orchestrator r05) and
-# translates the JSON envelope into operator-facing messages with
-# recovery commands. Called from the phase dispatcher after the
-# I02 (AuthorizeDriverSigning) phase succeeds.
-#
-# Behaviour:
-#   - On non-legacy hosts (WS2022/2025, Path A/MPF), returns a
-#     synthetic 'pass' result without invoking the orchestrator;
-#     BootLoadableCheck has no equivalent semantics in the MPF
-#     supplemental-policy path.
-#   - On legacy hosts (WS2019/2016, Path C/SPF), invokes the
-#     orchestrator's BootLoadableCheck action, passing -Strict
-#     when the caller requests it (see -StrictBootValidation switch).
-#   - Failure handling is split:
-#       Strict + Result='fail' -> caller must throw and abort I03
-#       Strict + Result='warn' -> printed but does not abort
-#       !Strict + any failure   -> printed as warning, returns
-#
-# Byte-identical across Chipset / Graphics / BthPan (PSA8001).
-# NPU is excluded via psa8001_ignore_functions because NPU refuses
-# Install on legacy Windows Server (Q-X1, r17).
-#
-# See SPEC SS D.26.3 (QI-10), SS D.29 (errorCategory taxonomy).
-
-function Invoke-BootLoadableCheck { # psa-disable-line PSA6003 -- 'Check' is a singular verb-noun pair matching the orchestrator action name 'BootLoadableCheck'
-    [CmdletBinding()]
-    [OutputType([pscustomobject])]
-    param(
-        [switch]$Strict
-    )
-    # --- Non-legacy fast path ---
-    # On WS2022+, the SPF/MPF distinction does not apply; return a
-    # synthetic 'pass' so the caller can uniformly handle the result
-    # without branching on OS version.
-    if (-not (Test-IsLegacyWindowsServerOs)) {
-        return [pscustomobject]@{
-            Result   = 'pass'
-            ExitCode = 0
-            Detail   = [pscustomobject]@{
-                skipped = $true
-                reason  = 'BootLoadableCheck not applicable on the MPF / Path A code path (WS2022 / WS2025).'
-            }
-        }
-    }
-    # --- Locate orchestrator ---
-    $resolved = Resolve-WdacOrchestratorScript
-    if ($resolved.Source -eq 'not-found') {
-        Write-Warn2 ('  [!] BootLoadableCheck SKIPPED: orchestrator not found ({0}).' -f $Script:WdacOrchestratorFileName)
-        return [pscustomobject]@{
-            Result   = 'warn'
-            ExitCode = -1
-            Detail   = [pscustomobject]@{
-                skipped = $true
-                reason  = ('orchestrator not found: ' + $Script:WdacOrchestratorFileName)
-            }
-        }
-    }
-    # --- Invoke orchestrator ---
-    Write-Detail ('Boot-loadable check via orchestrator: {0}' -f $resolved.Path)
-    $argsMap = @{}
-    if ($Strict) { $argsMap['Strict'] = $true }
-    $r = $null
-    try {
-        $r = Invoke-WdacOrchestrator -ScriptPath $resolved.Path -Action 'BootLoadableCheck' -Arguments $argsMap
-    } catch {
-        Write-Fail ('  [X] BootLoadableCheck invocation threw: {0}' -f $_.Exception.Message)
-        return [pscustomobject]@{
-            Result   = 'fail'
-            ExitCode = -2
-            Detail   = [pscustomobject]@{
-                skipped = $false
-                reason  = ('Invoke-WdacOrchestrator threw: ' + $_.Exception.Message)
-            }
-        }
-    }
-    if (-not $r.Result) {
-        $stderrSnippet = ''
-        if ($r.Stderr) { $stderrSnippet = $r.Stderr.Trim() }
-        Write-Fail ('  [X] BootLoadableCheck: orchestrator output unparseable (exit={0}).' -f $r.ExitCode)
-        if ($stderrSnippet) {
-            Write-Detail ('       stderr: {0}' -f $stderrSnippet) -Color DarkGray
-        }
-        return [pscustomobject]@{
-            Result   = 'fail'
-            ExitCode = -3
-            Detail   = [pscustomobject]@{
-                skipped = $false
-                reason  = 'orchestrator output unparseable'
-                rawStderr = $stderrSnippet
-            }
-        }
-    }
-    # --- Translate errorCategory into operator-facing message ---
-    $parsed = $r.Result
-    $cat = $null
-    if ($parsed.details) { $cat = $parsed.details.errorCategory }
-    $msgByCat = @{
-        'NoPolicy'                = 'SPF policy not deployed. I02 may have failed silently. Re-run -Action Install (or invoke the orchestrator -Action AddCert directly).'
-        'PolicyCorrupt'           = 'SPF policy exists but is not parseable as a P7B-signed CI policy. Run orchestrator -Action Repair.'
-        'SignatureInvalid'        = 'SPF policy signature does not verify (signtool /pa returned non-zero). Run orchestrator -Action Repair.'
-        'ManifestMissing'         = 'Orchestrator manifest is missing. Policy may be deployed but cert-tracking state is broken; run orchestrator -Action GetStatus.'
-        'ManifestCorrupt'         = 'Orchestrator manifest exists but JSON parse failed. Delete manifest.json and re-run orchestrator -Action AddCert.'
-        'ConfigCIMissing'         = 'ConfigCI module not present on this host. Install the Windows Defender Application Control feature.'
-        'AllowAllTemplateMissing' = 'WDAC AllowAll template missing under %windir%\schemas\CodeIntegrity\ExamplePolicies\. OS integrity may be compromised.'
-        'PermissionDenied'        = 'Cannot read the deployed SPF policy file. Re-run from an elevated PowerShell session.'
-        'Other'                   = ('Unhandled BootLoadableCheck error: ' + $parsed.message)
-    }
-    $msg = $null
-    if ($cat -and $msgByCat.ContainsKey($cat)) {
-        $msg = $msgByCat[$cat]
-    } else {
-        $msg = $parsed.message
-    }
-    # --- Print operator-facing summary ---
-    Write-Host ''
-    Write-Host '--- Boot-loadable WDAC SPF policy check ---' -ForegroundColor Cyan
-    switch ($parsed.result) {
-        'pass' {
-            Write-Host '  [+] SPF policy is structurally valid and signed.' -ForegroundColor Green
-            if ($parsed.details) {
-                Write-Host ('      Path                 : {0}' -f $parsed.details.siPolicyPath)    -ForegroundColor DarkGray
-                Write-Host ('      SHA256               : {0}' -f $parsed.details.siPolicySha256)  -ForegroundColor DarkGray
-                Write-Host ('      Authorized certs     : {0}' -f $parsed.details.authorizedCertCount) -ForegroundColor DarkGray
-            }
-        }
-        'warn' {
-            Write-Warn2 ('  [!] BootLoadableCheck WARNING: ' + $msg)
-            Write-Warn2 ('      errorCategory: {0}' -f $cat)
-        }
-        'fail' {
-            Write-Fail ('  [X] BootLoadableCheck FAILED: ' + $msg)
-            Write-Fail ('      errorCategory: {0}' -f $cat)
-            if ($Strict) {
-                Write-Fail '  [X] -StrictBootValidation is set; the caller will abort before I03.'
-            } else {
-                Write-Warn2 '  [!] -StrictBootValidation NOT set; I03 will continue, but boot may fail.'
-                Write-Warn2 '  [!] Recommended: pass -StrictBootValidation on future runs to enforce this check.'
-            }
-        }
-        default {
-            Write-Warn2 ('  [?] Unrecognized BootLoadableCheck result: {0}' -f $parsed.result)
-        }
-    }
-    Write-Host ''
-    return [pscustomobject]@{
-        Result   = $parsed.result
-        ExitCode = [int]$parsed.exitCode
-        Detail   = $parsed.details
-    }
-}
-
-
-#####################################################################
 # SECTION (r69, QI-6): CRITICAL severity acknowledgement helpers
 #####################################################################
 # Adds a CRITICAL severity level to the I00 PreInstallReview risk
-# summary. When any of conditions C1, C2, C3, C5 (per Q6-A) hit,
+# summary. When any of conditions C1, C2, C5 (per Q6-A) hit,
 # the operator must acknowledge each item via an interactive y/N
 # checklist before I01 begins. -ForceUnsafe bypasses the prompt
 # (intended for CI/CD; the bypass is logged via Set-DebugStep).
@@ -4881,9 +4434,6 @@ function Invoke-BootLoadableCheck { # psa-disable-line PSA6003 -- 'Check' is a s
 # Conditions:
 #   C1: Display driver replacement on single-display host
 #   C2: BitLocker ON + AMD PSP driver replacement
-#   C3: 2nd-or-later self-signed cert deploy in the same WDAC SPF
-#       manifest (= another driver script already deployed without
-#       a reboot in between)
 #   C5: Host has not been rebooted in 24+ hours
 # (C4, System Restore disabled, is handled by QI-9 as a non-blocking
 #  warning per Q6-A.)
@@ -4905,7 +4455,7 @@ function Invoke-BootLoadableCheck { # psa-disable-line PSA6003 -- 'Check' is a s
 #
 # See SPEC SS D.28 for the CRITICAL judgement logic in detail.
 
-function Get-CriticalRiskItems {
+function Get-CriticalRiskItem {
     [CmdletBinding()]
     [OutputType([pscustomobject[]])]
     param(
@@ -4981,41 +4531,6 @@ function Get-CriticalRiskItems {
             ) -join "`n")
             AckQuestion = ('I have my BitLocker recovery key saved (KeyProtector: {0}) and accept the risk (y/N): ' -f $protectorTypes)
         })
-    }
-
-    # --- C3: 2nd-or-later self-signed cert deploy in same WDAC SPF manifest ---
-    $manifestPath = Join-Path $env:ProgramData 'Deploy-Drivers-For-WindowsServer\wdac\manifest.json'
-    if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
-        try {
-            $m = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 -ErrorAction Stop |
-                 ConvertFrom-Json -ErrorAction Stop
-            $myThumb = ''
-            if ($Ctx -and $Ctx.CertThumbprint) { $myThumb = ([string]$Ctx.CertThumbprint).ToUpper() }
-            $others = @()
-            if ($m.authorizedCerts) {
-                $others = @($m.authorizedCerts | Where-Object {
-                    $_.thumbprint -and (([string]$_.thumbprint).ToUpper() -ne $myThumb)
-                })
-            }
-            if ($others.Count -ge 1) {
-                $otherSummary = (@($others | ForEach-Object {
-                    '    - {0} ({1})' -f $_.thumbprint, $_.subject
-                }) -join "`n")
-                $items.Add([pscustomobject]@{
-                    Id = 'C3'
-                    Title = ('Same-session WDAC SPF deploy stacking ({0} other cert(s) already authorized)' -f $others.Count)
-                    Detail = (@(
-                        ('  Existing authorized certs in {0}:' -f $manifestPath),
-                        $otherSummary,
-                        '  This means another driver script (chipset / graphics / bthpan) has',
-                        '  already deployed its self-signed cert. Stacking multiple Install',
-                        '  actions without reboot has been observed to brick WS2019 hosts.',
-                        '  See SPEC SS D.26 (catastrophic field failure 2026-05-23).'
-                    ) -join "`n")
-                    AckQuestion = 'I have rebooted since the previous Install AND verified the host is healthy (y/N): '
-                })
-            }
-        } catch { } # psa-disable-line PSA3004 -- manifest is best-effort; absent/corrupt manifest just means no C3 hit
     }
 
     # --- C5: No reboot in last 24 hours ---
@@ -7250,7 +6765,7 @@ function Clear-PhaseMarker {
 # psa8001_ignore_functions because NPU refuses Install on legacy
 # Windows Server (Q-X1, r17).
 
-function Get-SystemRestorePointStatus {
+function Get-SystemRestorePointStatus { # psa-disable-line PSA6003 -- "Status" is a Latin-origin singular noun (no plural form in PowerShell idiom); the -s suffix is morphological, not plural
     # Returns the current System Restore configuration for the
     # system drive.
     #
@@ -12210,7 +11725,7 @@ function Invoke-InstPhase00_PreInstallReview {
     # bypasses the prompt but logs the bypass via Set-DebugStep.
     # See SPEC SS D.28.
     Set-DebugStep 'QI-6: CRITICAL acknowledgement checklist'
-    $criticalItems = Get-CriticalRiskItems -Ctx $Ctx -Matched $matched
+    $criticalItems = Get-CriticalRiskItem -Ctx $Ctx -Matched $matched
     if ($criticalItems.Count -gt 0) {
         $acked = Invoke-CriticalAcknowledgementChecklist -Items $criticalItems -ForceUnsafe:$Script:ForceUnsafe
         if (-not $acked) {
@@ -12373,50 +11888,6 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
         Write-Warn2 ("UEFI Secure Boot baseline pre-check failed (non-fatal): {0}" -f $_.Exception.Message)
     }
     Write-Host ''
-
-    Set-DebugStep 'Path C: legacy WS2019/2016 WDAC SPF via external orchestrator'
-    # =====================================================================
-    # PATH C: legacy WS2019 / WS2016 WDAC Single Policy Format
-    # =====================================================================
-    # Windows Server 2019 (build 17763) and Windows Server 2016 (build
-    # 14393) do not support the Multiple Policy Format (MPF) used by
-    # Path A above (no CiTool.exe, no Active\{GUID}.cip slot). On
-    # these legacy server OSes we delegate to a sister orchestrator
-    # script that builds and deploys a Single Policy Format (SPF)
-    # policy. See SPEC.md Part D entry D.25 for the design rationale
-    # and TESTING.md §11 for validation scenarios.
-    if (Test-IsLegacyWindowsServerOs) {
-        Write-Host 'Path: WDAC Single Policy Format via external orchestrator (legacy WS2019/2016).' -ForegroundColor Cyan
-        Write-Host '  (CiTool / MPF supplemental policies are not available on this OS.)' -ForegroundColor DarkGray
-        $cer = if ($Ctx.CertCerPath) { $Ctx.CertCerPath } else { Join-Path $Ctx.Paths.Cert 'AMD-Chipset-Driver-CodeSign.cer' }
-        if (-not (Test-Path $cer)) {
-            throw "I02: cert file not found at $cer - run P07 (CreateCertificate) first."
-        }
-        $delegate = Invoke-LegacyWdacAuthorization `
-            -CerPath $cer `
-            -ForceOverrideForeign:$Script:ForceOverrideForeign `
-            -AuditMode:$Script:AuditMode `
-            -ReplaceExistingFromCaller
-        if ($delegate.Result) {
-            $r = $delegate.Result
-            Write-Detail ('State transition: {0} -> {1}' -f $r.stateBefore, $r.stateAfter)
-            if ($r.details -and $r.details.activationMethod) {
-                Write-Detail ('Activation method: {0}' -f $r.details.activationMethod)
-            }
-            if ($r.details -and $r.details.deployedSha256) {
-                Write-Detail ('Deployed SHA256  : {0}' -f $r.details.deployedSha256)
-            }
-        }
-        if ($delegate.ExitCode -ne 0) {
-            $errMsg = if ($delegate.Result -and $delegate.Result.message) { $delegate.Result.message } else { 'see orchestrator stderr' }
-            throw ('Path C orchestrator returned exitCode={0}. message={1}' -f $delegate.ExitCode, $errMsg)
-        }
-        Write-Ok 'Legacy WDAC SPF policy is active. No reboot required (per WMI CIM bridge).'
-        Set-PhaseMarker -Ctx $Ctx -PhaseId 'I02'
-        Write-PhaseFooter 'I02' 'done'
-        return
-    }
-
 
     Set-DebugStep 'decide Path A (WDAC) or Path B (testsigning)'
     # ---- Decide which path to take ----
@@ -13159,12 +12630,12 @@ function Invoke-InstPhase04_PostInstallVerification {
                 if ($pnp) {
                     $cmErr = ('ConfigManagerErrorCode={0} ({1})' -f $pnp.ConfigManagerErrorCode, $pnp.Status)
                 }
-            } catch { }
+            } catch { } # psa-disable-line PSA3004 -- best-effort PnP enrichment; if Get-PnpDevice fails the diagnostic line is printed without the CM error code
             Write-Host ('    - {0}' -f $p.DeviceName) -ForegroundColor Red
             Write-Host ('        Bound INF: {0}, AFTER: v{1}  {2}' -f $infName, $cv, $cmErr) -ForegroundColor DarkRed
-            Write-Host '        Likely cause: Secure Boot is enforcing kernel CI but the WDAC SPF policy did' -ForegroundColor DarkRed
-            Write-Host '                      not authorize this self-signed cert at boot time, OR HVCI is on.' -ForegroundColor DarkRed
-            Write-Host '        Recovery   : reboot, verify WDAC SPF policy is active via -OnlyPhases V06,' -ForegroundColor DarkRed
+            Write-Host '        Likely cause: Secure Boot is enforcing kernel CI but the WDAC supplemental policy' -ForegroundColor DarkRed
+            Write-Host '                      did not authorize this self-signed cert at boot time, OR HVCI is on.' -ForegroundColor DarkRed
+            Write-Host '        Recovery   : reboot, verify the WDAC supplemental policy is active via -OnlyPhases V06,' -ForegroundColor DarkRed
             Write-Host '                     and re-check.  If still failing, run "pnputil /delete-driver"' -ForegroundColor DarkRed
             Write-Host '                     on the failed INF, then re-run -Action Install.' -ForegroundColor DarkRed
         }
@@ -13899,31 +13370,6 @@ try {
             Write-Fail "$($phase.Id) [$($phase.Name)] failed: $($_.Exception.Message)"
             Write-PhaseFooter $phase.Id 'failed'
             throw
-        }
-
-        # r69 (QI-10): after I02 succeeds, run the BootLoadableCheck
-        # so the operator gets a structural-validity verdict on the
-        # WDAC SPF policy *before* I03 starts modifying the driver
-        # store. On non-legacy hosts (WS2022/2025) the helper
-        # returns a synthetic 'pass' (skipped) so this loop body
-        # remains safe to execute unconditionally. See SPEC SS D.26.3.
-        if ($phase.Id -eq 'I02') {
-            try {
-                $bootCheck = Invoke-BootLoadableCheck -Strict:$Script:StrictBootValidation
-                if ($Script:StrictBootValidation -and $bootCheck.Result -eq 'fail') {
-                    throw 'BootLoadableCheck failed and -StrictBootValidation is set. Aborting before I03 to prevent boot regression.'
-                }
-            } catch {
-                # If -StrictBootValidation is set, re-throw to abort
-                # I03. Otherwise log and continue (warn-and-continue
-                # semantics per Q10-B=c).
-                if ($Script:StrictBootValidation) {
-                    Write-Fail ("BootLoadableCheck hook (Strict): $($_.Exception.Message)")
-                    throw
-                } else {
-                    Write-Warn2 ("BootLoadableCheck hook (non-Strict, continuing): $($_.Exception.Message)")
-                }
-            }
         }
     }
 

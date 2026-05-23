@@ -296,15 +296,7 @@ param(
     [int]$CertValidityYears = 5,
 
     [Parameter()]
-    [string]$WdacPolicyGuid = '',
-
-    # Path C: legacy WS2019/WS2016 WDAC SPF orchestrator overrides
-    # (these forward to Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1
-    # when running on WS2019/WS2016; ignored on WS2022+)
-    [switch]$ForceOverrideForeign,
-
-    # Audit-mode WDAC policy: violations logged but not enforced.
-    [switch]$AuditMode
+    [string]$WdacPolicyGuid = ''
 )
 
 # =============================================================================
@@ -329,8 +321,6 @@ $Script:CleanWorkRoot           = [bool]$CleanWorkRoot
 $Script:WorkRoot                = $WorkRoot
 $Script:PfxPassword             = $PfxPassword
 $Script:CertValidityYears       = $CertValidityYears
-$Script:ForceOverrideForeign   = [bool]$ForceOverrideForeign.IsPresent
-$Script:AuditMode              = [bool]$AuditMode.IsPresent
 
 # =============================================================================
 # Script-scope state
@@ -5357,58 +5347,13 @@ function Compare-InfDriverVer {
 
 
 #####################################################################
-# SECTION 1g: WDAC SPF orchestrator delegation (legacy WS2019/2016)
+# SECTION 1h: Legacy Windows Server OS detection helper
 #####################################################################
-# On Windows Server 2019 (build 17763) and Windows Server 2016 (build
-# 14393), the WDAC Multiple Policy Format (MPF) used by I02 Path A is
-# unavailable (no CiTool.exe; Active\{GUID}.cip is not enumerated by
-# the kernel). The I02 phase therefore delegates to a separate
-# orchestrator script that implements Single Policy Format (SPF).
-#
-# The 5 helper functions in this section coordinate that delegation:
-#   - canonical hash computation (BOM-strip + LF-normalize) so script
-#     identity is stable across CRLF/LF storage variants
-#   - resolving the orchestrator script path (co-located vs not)
-#   - invoking the orchestrator in JSON-output mode and parsing the
-#     envelope back into a [pscustomobject]
-#   - top-level Invoke-LegacyWdacAuthorization entry point called from
-#     I02 when Test-IsLegacyWindowsServerOs returns $true
-#
-# These functions are intentionally byte-for-byte identical across all
-# four driver scripts AND the orchestrator. Future maintenance must
-# update all five copies in lockstep (PSA8001 will flag drift once it
-# has 2+ peers to compare).
-
-$Script:WdacOrchestratorFileName            = 'Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1'
-$Script:ExpectedWdacScriptCanonicalSha256   = '7d61cf15ca0c3e244334d521c35f4dbf74333eaee823bc32fd8a5ba636b21dfb'
-$Script:WdacOrchestratorRawGithubUrl        = 'https://raw.githubusercontent.com/usui-tk/Deploy-Drivers-For-WindowsServer/main/Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1'
-
-function Get-CanonicalScriptHash {
-    # Computes SHA256 of file content after BOM-strip and CRLF->LF normalize.
-    # Invariant across UTF-8-BOM-CRLF (working tree) and UTF-8-LF (GitHub raw).
-    [CmdletBinding()]
-    [OutputType([string])]
-    param(
-        [Parameter(Mandatory=$true)]
-        [ValidateScript({Test-Path -LiteralPath $_ -PathType Leaf})]
-        [string]$Path
-    )
-    $bytes = [System.IO.File]::ReadAllBytes($Path)
-    if ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) {
-        $bytes = $bytes[3..($bytes.Length - 1)]
-    }
-    $text = [System.Text.Encoding]::UTF8.GetString($bytes)
-    $text = $text -replace "`r`n", "`n"
-    $text = $text -replace "`r",    "`n"
-    $canonicalBytes = [System.Text.Encoding]::UTF8.GetBytes($text)
-    $sha = [System.Security.Cryptography.SHA256]::Create()
-    try {
-        $hash = $sha.ComputeHash($canonicalBytes)
-        return ([System.BitConverter]::ToString($hash) -replace '-', '').ToLower()
-    } finally {
-        $sha.Dispose()
-    }
-}
+# Generic OS-version predicate retained after the r70 Path C deprecation.
+# Used by the Q-X1 refuse check that prevents NPU -Action Install
+# / -Action All on WS2019 / WS2016 (no physical-NPU validation exists
+# on those OS versions yet). The function name keeps its historical
+# form so existing call sites and future audits resolve cleanly.
 
 function Test-IsLegacyWindowsServerOs { # psa-disable-line PSA6003 -- "Os" is singular; analyzer false positive on -os ending. The function name is a boolean predicate.
     # Returns $true on WS2019 (build 17763) and WS2016 (build 14393).
@@ -5425,127 +5370,6 @@ function Test-IsLegacyWindowsServerOs { # psa-disable-line PSA6003 -- "Os" is si
     return ($build -ge 14393 -and $build -lt 20348)
 }
 
-function Resolve-WdacOrchestratorScript {
-    # Returns @{ Path = '...'; Source = 'local' | 'not-found' } or throws.
-    # Locates the orchestrator script. The expected layout is co-located:
-    # the orchestrator lives next to the driver script in the same dir.
-    [OutputType([pscustomobject])]
-    param()
-    $candidates = @()
-    if ($Script:ScriptPath) {
-        $dir = Split-Path -Parent -Path $Script:ScriptPath
-        if (-not [string]::IsNullOrEmpty($dir)) {
-            $candidates += (Join-Path $dir $Script:WdacOrchestratorFileName)
-        }
-    }
-    $candidates += (Join-Path (Get-Location).Path $Script:WdacOrchestratorFileName)
-    foreach ($p in $candidates) {
-        if (Test-Path -LiteralPath $p -PathType Leaf) {
-            return [pscustomobject]@{ Path = $p; Source = 'local' }
-        }
-    }
-    return [pscustomobject]@{ Path = $null; Source = 'not-found' }
-}
-
-function Invoke-WdacOrchestrator {
-    # Invokes the orchestrator script with the given arguments in JSON
-    # output mode, captures stdout, parses the envelope, returns the
-    # parsed object plus the orchestrator exit code.
-    [OutputType([pscustomobject])]
-    param(
-        [Parameter(Mandatory=$true)][string]$ScriptPath,
-        [Parameter(Mandatory=$true)][string]$Action,
-        [hashtable]$Arguments = @{}
-    )
-    $argv = @('-NoProfile','-ExecutionPolicy','Bypass','-File',$ScriptPath,'-Action',$Action,'-OutputFormat','Json')
-    foreach ($k in $Arguments.Keys) {
-        $v = $Arguments[$k]
-        if ($v -is [switch] -or $v -is [bool]) {
-            if ($v) { $argv += ('-{0}' -f $k) }
-        } else {
-            $argv += ('-{0}' -f $k)
-            $argv += ('{0}' -f $v)
-        }
-    }
-    $outFile = [System.IO.Path]::GetTempFileName()
-    $errFile = [System.IO.Path]::GetTempFileName()
-    try {
-        $psExe = if ($PSVersionTable.PSEdition -eq 'Core') { 'pwsh' } else { 'powershell' }
-        $proc = Start-Process -FilePath $psExe -ArgumentList $argv -NoNewWindow -Wait -PassThru -RedirectStandardOutput $outFile -RedirectStandardError $errFile # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
-        $stdout = ''
-        if (Test-Path -LiteralPath $outFile) {
-            $stdout = [System.IO.File]::ReadAllText($outFile, [System.Text.UTF8Encoding]::new($false))
-        }
-        $stderr = ''
-        if (Test-Path -LiteralPath $errFile) {
-            $stderr = [System.IO.File]::ReadAllText($errFile, [System.Text.UTF8Encoding]::new($false))
-        }
-        $parsed = $null
-        if (-not [string]::IsNullOrWhiteSpace($stdout)) {
-            try {
-                $parsed = $stdout | ConvertFrom-Json -ErrorAction Stop
-            } catch {
-                $parsed = $null
-            }
-        }
-        return [pscustomobject]@{
-            ExitCode = [int]$proc.ExitCode
-            Stdout   = $stdout
-            Stderr   = $stderr
-            Result   = $parsed
-        }
-    } finally {
-        if (Test-Path -LiteralPath $outFile) { Remove-Item -LiteralPath $outFile -Force -ErrorAction SilentlyContinue }
-        if (Test-Path -LiteralPath $errFile) { Remove-Item -LiteralPath $errFile -Force -ErrorAction SilentlyContinue }
-    }
-}
-
-function Invoke-LegacyWdacAuthorization {
-    # Top-level entry point used by the I02 phase Path C branch.
-    # Resolves the orchestrator, verifies its canonical hash matches
-    # what this driver script was built against, and delegates the
-    # AddCert action with appropriate parameters.
-    [OutputType([pscustomobject])]
-    param(
-        [Parameter(Mandatory=$true)][string]$CerPath,
-        [switch]$ForceOverrideForeign,
-        [switch]$AuditMode,
-        [switch]$ReplaceExistingFromCaller
-    )
-    $resolved = Resolve-WdacOrchestratorScript
-    if ($resolved.Source -eq 'not-found') {
-        throw ('Cannot locate {0}. Place it next to this driver script, or fetch from {1}.' -f `
-            $Script:WdacOrchestratorFileName, $Script:WdacOrchestratorRawGithubUrl)
-    }
-    Write-Detail ('Orchestrator src  : {0}' -f $resolved.Source)
-    Write-Detail ('Orchestrator path : {0}' -f $resolved.Path)
-    $actualHash = Get-CanonicalScriptHash -Path $resolved.Path
-    Write-Detail ('Orchestrator hash : {0}' -f $actualHash)
-    if ($actualHash -ne $Script:ExpectedWdacScriptCanonicalSha256) {
-        Write-Warn2 'Orchestrator canonical hash does NOT match the value this driver script was built against.'
-        Write-Warn2 ('  Expected: {0}' -f $Script:ExpectedWdacScriptCanonicalSha256)
-        Write-Warn2 ('  Actual  : {0}' -f $actualHash)
-        Write-Warn2 'Continuing because the orchestrator may have been independently updated; verify the new hash matches an approved release.'
-    }
-    $myScriptLeaf = if ($Script:ScriptPath) { Split-Path -Leaf -Path $Script:ScriptPath } else { '(unknown)' }
-    $argsMap = @{
-        CertFile                  = $CerPath
-        CallerScript              = $myScriptLeaf
-        CallerScriptVersion       = $Script:ScriptVersion
-        ReplaceExistingFromCaller = $ReplaceExistingFromCaller
-        ForceOverrideForeign      = $ForceOverrideForeign
-        AuditMode                 = $AuditMode
-    }
-    $r = Invoke-WdacOrchestrator -ScriptPath $resolved.Path -Action 'AddCert' -Arguments $argsMap
-    return [pscustomobject]@{
-        OrchestratorPath = $resolved.Path
-        OrchestratorHash = $actualHash
-        ExitCode         = $r.ExitCode
-        Result           = $r.Result
-        Stdout           = $r.Stdout
-        Stderr           = $r.Stderr
-    }
-}
 
 # =============================================================================
 # Phase implementations P00 - P09 (Prep)
@@ -5589,10 +5413,9 @@ function Invoke-PrepPhase00_Initialize {
         Write-Fail '========================================================================'
         Write-Fail ''
         Write-Fail '  The AMD NPU driver pipeline has not been validated on legacy Windows'
-        Write-Fail '  Server SKUs that require the WDAC Single Policy Format (SPF) path.'
-        Write-Fail '  Running NPU Install (or All, which includes Install) on these hosts'
-        Write-Fail '  would exercise unvalidated SPF interaction code that has no'
-        Write-Fail '  physical-hardware test coverage.'
+        Write-Fail '  Server SKUs (WS2019 / WS2016). The NPU script has no physical-hardware'
+        Write-Fail '  test coverage on these OS versions, so running Install (or All, which'
+        Write-Fail '  includes Install) on these hosts is refused as a safety measure.'
         Write-Fail ''
         Write-Fail '  Supported hosts for NPU Install:'
         Write-Fail '    - Windows Server 2025 (build 26100)  [primary target]'
@@ -6743,43 +6566,6 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
         Write-Warn2 ("UEFI Secure Boot baseline pre-check failed (non-fatal): {0}" -f $_.Exception.Message)
     }
     Write-Host ''
-
-    Set-DebugStep 'Path C: legacy WS2019/2016 WDAC SPF via external orchestrator'
-    # =====================================================================
-    # PATH C: legacy WS2019 / WS2016 WDAC Single Policy Format
-    # =====================================================================
-    # Windows Server 2019 (build 17763) and Windows Server 2016 (build
-    # 14393) do not support the Multiple Policy Format (MPF) used by
-    # the default WDAC supplemental path. On these legacy server OSes
-    # we delegate to a sister orchestrator script that builds and
-    # deploys a Single Policy Format (SPF) policy.
-    if (Test-IsLegacyWindowsServerOs) {
-        Write-Host 'Path: WDAC Single Policy Format via external orchestrator (legacy WS2019/2016).' -ForegroundColor Cyan
-        Write-Host '  (CiTool / MPF supplemental policies are not available on this OS.)' -ForegroundColor DarkGray
-        $cer = $Script:CerPath
-        if (-not (Test-Path $cer)) {
-            throw "I02: cert file not found at $cer - run P07 (CreateCertificate) first."
-        }
-        $delegate = Invoke-LegacyWdacAuthorization `
-            -CerPath $cer `
-            -ForceOverrideForeign:$Script:ForceOverrideForeign `
-            -AuditMode:$Script:AuditMode `
-            -ReplaceExistingFromCaller
-        if ($delegate.Result) {
-            $r = $delegate.Result
-            Write-Detail ('State transition: {0} -> {1}' -f $r.stateBefore, $r.stateAfter)
-            if ($r.details -and $r.details.activationMethod) {
-                Write-Detail ('Activation method: {0}' -f $r.details.activationMethod)
-            }
-        }
-        if ($delegate.ExitCode -ne 0) {
-            $errMsg = if ($delegate.Result -and $delegate.Result.message) { $delegate.Result.message } else { 'see orchestrator stderr' }
-            throw ('Path C orchestrator returned exitCode={0}. message={1}' -f $delegate.ExitCode, $errMsg)
-        }
-        Write-Ok 'Legacy WDAC SPF policy is active. No reboot required (per WMI CIM bridge).'
-        return
-    }
-
 
     Set-DebugStep 'testsigning fallback or WDAC policy build'
     if ($Script:UseTestSigning) {

@@ -71,6 +71,308 @@ constants in the four driver scripts remain unchanged (the rename
 only affects the Chipset script's own canonical hash, which is not
 embedded anywhere).
 
+## [Chipset r70 / Graphics r36 / NPU r18 / BthPan r18] — 2026-05-23 — Path C deprecation
+
+### Removed
+
+- **`Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1`** —
+  entire file (4,096 lines). The orchestrator script that
+  implemented WDAC Single Policy Format (SPF) deployment for
+  Windows Server 2019 / 2016 is removed from the repository. The
+  catastrophic field failure narrative previously documented in
+  SPEC §D.26 plus the second 2026-05-23 single-script bench
+  observation (where Chipset `Install` alone bricked WS2019 with
+  Secure Boot ON, Path C present) collectively established that
+  Path C added a credible host-brick risk without solving any
+  problem an operator-driven Path B could not solve more safely.
+  See SPEC §D.30 for the full F1–F12 evidence chain.
+- **All four driver scripts: SECTION 1g** — WDAC SPF orchestrator
+  delegation helpers (~190 lines per script). Specifically removed:
+  `Get-CanonicalScriptHash`, `Resolve-WdacOrchestratorScript`,
+  `Invoke-WdacOrchestrator`, `Invoke-LegacyWdacAuthorization`,
+  the `$Script:WdacOrchestratorFileName` /
+  `$Script:ExpectedWdacScriptCanonicalSha256` /
+  `$Script:WdacOrchestratorRawGithubUrl` constants. NPU retains a
+  minimal `Test-IsLegacyWindowsServerOs` predicate as SECTION 1h
+  because the Q-X1 refuse check (see SPEC §D.27) still needs it;
+  the other three scripts no longer reference it.
+- **Chipset / Graphics / BthPan: SECTION (r69, QI-10)** —
+  `Invoke-BootLoadableCheck` helper and its
+  errorCategory-to-message translation table (~155 lines per
+  script). The post-I02 dispatcher hook that invoked it (~24 lines
+  per script) is also removed. BthPan's variant included a
+  `(-not $phaseFailed)` guard tied to its Start-DebugTrace /
+  Stop-DebugTrace wrapping; that wrapping is preserved, only the
+  BootLoadableCheck call is removed.
+- **All four driver scripts: I02 Path C branch** (~40 lines per
+  script). The early-return block that delegated to
+  `Invoke-LegacyWdacAuthorization` on WS2019 / WS2016 is removed
+  from `Invoke-InstPhase02_AuthorizeDriverSigning`. I02 now falls
+  through to Path A (WDAC MPF on WS2022+) or Path B (testsigning)
+  on all OS versions.
+- **All four driver scripts: `Test-LegacyWdacSpfAuthorizedForCert`
+  function** (~48 lines per script). This predicate parsed the
+  orchestrator's `manifest.json` to check whether the current
+  script's cert was authorised; it has no purpose after Path C
+  removal.
+- **Chipset / Graphics / BthPan: `Get-CriticalRiskItems` →
+  `Get-CriticalRiskItem` rename** (sister-script byte-identical
+  helper). PowerShell singular-noun convention (PSA6003) cleanup
+  applied at the same time as the C3 condition removal, since the
+  function definition and both callers (the I00 PreInstallReview
+  integration site) are byte-rewritten anyway. The rename
+  preserves PSA8001 cross-file sync because all three scripts are
+  updated in lockstep. Documentation cross-references in SPEC §D.28
+  and TESTING §13 are updated to the new name; historical CHANGELOG
+  entries (r69 and earlier) continue to use the pluralised name as
+  per Keep a Changelog 1.1.0 conventions.
+- **Chipset / Graphics / BthPan: `Get-CriticalRiskItem` C3
+  condition** (~34 lines per script). The manifest.json-based
+  "same-session WDAC SPF deploy stacking" check is removed because
+  the manifest no longer exists in r70+ deployments. The QI-6
+  CRITICAL acknowledgement framework is preserved; C1, C2, C5 are
+  unchanged. The r71 planned `C6` condition (WHQL co-sign
+  shortfall on Secure-Boot-ON host) is the planned replacement
+  operator-protection mechanism for the new failure mode.
+- **All four driver scripts: `param()` block switches** —
+  `-ForceOverrideForeign`, `-AuditMode`, `-StrictBootValidation`.
+  Plus the corresponding `$Script:` scope assignments. The cached
+  `$Script:ForceUnsafe` is preserved. NPU did not carry
+  `-StrictBootValidation` (no QI-10 in NPU); its removal of
+  `-ForceOverrideForeign` and `-AuditMode` is unchanged in scope.
+  Existing automation passing any of the removed switches will now
+  fail at parameter binding, which is the intended early-failure
+  signal.
+- **Chipset / Graphics / BthPan: `Update-BootSigningEnvironmentForCtx`
+  SPF fallback branch** (~17 lines per script). The fallback that
+  consulted `Test-LegacyWdacSpfAuthorizedForCert` when
+  `Test-AmdWdacPolicyDeployed` returned null is removed. The
+  function's behaviour on legacy Server hosts after r70 is to
+  return the boot-signing environment without any SPF-related
+  state (because no SPF state exists to report).
+- **Chipset / Graphics: WDAC SPF policy mention in LOAD_FAILED
+  recovery message**. The post-install diagnostic line that
+  pointed operators at "verify WDAC SPF policy is active via
+  `-OnlyPhases V06`" is genericized to "verify the WDAC
+  supplemental policy is active" — applicable to Path A on
+  WS2022+, no Path C dependency. BthPan's LOAD_FAILED handling
+  did not include the SPF-specific wording and is unchanged.
+- **SPEC.md §D.25** ("Legacy Windows Server I02 abort on hosts
+  with Secure Boot ON and CiTool absent") — entire section
+  removed (~343 lines). The narrative is folded into SPEC §D.30
+  Part 1 as historical context, but the original design rationale
+  is no longer the canonical reference because the design itself
+  has been withdrawn.
+- **SPEC.md §D.26** ("Post-r04 catastrophic field failure and the
+  resulting quality-improvement programme") — entire section
+  removed (~186 lines). The 2025 cumulative-stacking incident
+  narrative is folded into SPEC §D.30 Part 2 and into the
+  rewritten README BRICK-LEVEL RISK warning.
+- **SPEC.md §D.29** ("BootLoadableCheck errorCategory taxonomy
+  (QI-10)") — entire section removed (~67 lines). The
+  `BootLoadableCheck` action and its driver-side wrapper no
+  longer exist, so the taxonomy has no referent.
+- **TESTING.md §11** ("Validation Scenario 11: WS2019 Legacy
+  WDAC SPF integration (r67 / WDAC SPF r03 → r04)") — entire
+  section removed (~302 lines). The pilot validation scenarios
+  for an orchestrator that no longer exists have no purpose.
+- **TESTING.md §13 QI-10 subsection** — TC13.13 (BootLoadableCheck
+  pass), TC13.14 (warn ManifestMissing without `-Strict`), TC13.15
+  (fail ManifestMissing with `-StrictBootValidation`), TC13.16
+  (signtool-absent pass), plus the "Negative test — orchestrator
+  hash mismatch on disk" closing entry. TC13.10 (QI-6 C3 cert
+  stacking) is also removed because C3 itself is removed. TC13.1
+  – TC13.4 (Q-X1), TC13.5 – TC13.7 (QI-9), TC13.8, TC13.9, TC13.11,
+  TC13.12 (QI-6 C1 / C2 / C5 / BthPan adapter) are retained.
+
+### Added
+
+- **SPEC.md §D.30** ("Path C deprecation: WDAC SPF orchestrator
+  was net-negative (2026-05-23)") — new section (~135 lines).
+  Records the F1–F12 evidence chain (eight bench-reproduced
+  findings plus four Microsoft-Learn-cross-referenced findings),
+  the falsified design assumptions, the post-r70 path matrix
+  (Path A / Path B; Path C struck through), the operator
+  workflow on WS2019 / WS2016 after r70, migration guidance for
+  existing deployments, a file-level inventory of what was
+  removed, and a forward reference to r71 (planned WHQL co-sign
+  pre-detection plus Path B prerequisite checker).
+- **NPU: SECTION 1h — Legacy Windows Server OS detection helper**.
+  A minimal `Test-IsLegacyWindowsServerOs` predicate is retained
+  in the NPU script so the Q-X1 refuse check (SPEC §D.27) can
+  still gate on WS2019 / WS2016 detection. The function body is
+  identical to the version that previously lived in SECTION 1g;
+  only the surrounding banner and the helpers around it are
+  removed.
+
+### Changed
+
+- **All four driver scripts: I02 phase behaviour on WS2019 / WS2016**.
+  Previously, the legacy-Server path was Path C (orchestrator
+  delegation). After r70, the script falls through to Path A
+  (WDAC MPF) — which will fail on WS2019 / WS2016 because
+  CiTool.exe is absent — and then to Path B (`bcdedit /set
+  TESTSIGNING ON`), which will fail on a Secure-Boot-ON host
+  because the firmware refuses the `bcdedit` command (see SPEC
+  §D.30 F9). The operator-facing result on a "non-WHQL drivers
+  + Secure Boot ON + no `-UseTestSigning`" host is a clear
+  Path B failure with the verbatim Microsoft error message; the
+  host remains bootable. r71 will surface this condition as an
+  early ABORT in I02 with explicit firmware-change instructions
+  before any driver-store modification is attempted.
+- **SPEC.md §D.27** (NPU refuses Install on legacy Windows
+  Server). The justification text is updated: previously it
+  cited "untested SPF interaction code", now it cites simply
+  "no physical-NPU validation on legacy Server SKUs". The
+  underlying Q-X1 guard logic is unchanged. The §D.27.2
+  implementation paragraph is updated to note that
+  `Test-IsLegacyWindowsServerOs` is retained as the NPU
+  script's own helper (SECTION 1h) rather than shared from
+  SECTION 1g (which no longer exists).
+- **SPEC.md §D.28** (CRITICAL severity acknowledgement). The
+  C3 row in the conditions table is removed; the framework is
+  described as evaluating C1 / C2 / C5 only. The original
+  C3 description is preserved as a parenthetical historical
+  note explaining why the framework counts to C5 rather than
+  C4. The "Why C3 specifically targets the 2026-05-23 failure
+  mode" subsection (§D.28.4) is rewritten as a historical note
+  noting that the cumulative-stacking failure mode it targeted
+  is structurally impossible to construct in r70+ releases.
+- **TESTING.md §12** (Catastrophic field failure incident
+  2026-05-23). A "2026-05-23 second incident — Chipset alone
+  is enough to brick the host (drives r70)" subsection is
+  appended documenting the single-script brick observation and
+  cross-referencing SPEC §D.30 for the full investigation
+  summary.
+- **TESTING.md §13** (Validation Scenario 13). Section title
+  updated from `QI-6 / QI-9 / QI-10 / Q-X1 (r69/r35/r17/r17/r05)`
+  to `QI-6 / QI-9 / Q-X1 (r69/r35/r17/r17)`. Scope table now
+  lists three families instead of four. A parenthetical note
+  explains that the QI-10 test cases were removed in r70 along
+  with the `Invoke-BootLoadableCheck` helper.
+- **README.md / README.ja.md: BRICK-LEVEL RISK warning** rewritten
+  to integrate the 2026-05-23 single-script observation alongside
+  the original 2025 3-script-cumulative observation. The warning
+  explicitly notes that the brick mechanism observed in both
+  incidents is structurally impossible to trigger in r70+
+  releases. The disclaimer's intensity is preserved.
+- **README.md / README.ja.md: Operating systems in scope** table.
+  The WS2019 / WS2016 rows are updated from "Path C (legacy WDAC
+  SPF via external orchestrator)" to a Path A / Path B summary
+  with notes on WHQL co-signed vs non-WHQL driver behaviour and
+  a forward reference to r71's planned `-SkipNonCosignedDrivers`
+  switch. The follow-on paragraph about "automatic delegation to
+  the orchestrator" is rewritten to describe the operator-driven
+  Path A / Path B workflow and cross-reference SPEC §D.30.
+- **README.md / README.ja.md: Physical-machine deployment
+  paragraph**. The parenthetical "the WDAC SPF policy this
+  orchestrator deploys" is genericized to "the WDAC supplemental
+  policy file the boot loader evaluates". The structural point
+  (System Restore does not capture SiPolicy.p7b) is unchanged.
+- **README.md / README.ja.md: "What about running everything in
+  one pass?" warning**. The "WDAC SPF policy authorizing all
+  three certs" wording is genericized to a self-signed-cert
+  description. The sequencing recommendation is unchanged.
+- **README.md / README.ja.md: Recovery sub-step 1.4**. The
+  text is rewritten to clarify that the `del
+  SiPolicy.p7b` command applies only to hosts upgraded from
+  r69-or-earlier deployments that still have a legacy SPF policy
+  file on disk; r70+ deployments do not deploy this file and the
+  step is a no-op for them. The migration guidance (run
+  orchestrator `-Action Uninstall` before upgrading) is in
+  SPEC §D.30.6.
+- **README.md / README.ja.md: NPU refuses warning**. The
+  justification text is shortened to match SPEC §D.27 — no
+  SPF references; "no physical-NPU validation on legacy
+  Server" is the cited reason.
+- **README.md / README.ja.md: Parameters table**. The
+  `-StrictBootValidation` row is removed. The `-ForceUnsafe`
+  row description is updated to list C1 / C2 / C5 only (C3 is
+  no longer evaluated).
+- **`Deploy-AMDNpuDriverOnWindowsServer.ps1`: Q-X1 refuse
+  message wording**. The operator-facing reason is updated from
+  "has not been validated on legacy Windows Server SKUs that
+  require the WDAC Single Policy Format (SPF) path... would
+  exercise unvalidated SPF interaction code" to "has no
+  physical-hardware test coverage on these OS versions, so
+  running Install (or All, which includes Install) on these
+  hosts is refused as a safety measure".
+
+### Rationale
+
+The 2026-05-23 single-script bench observation (Chipset r69
+`-Action Install` alone, Secure Boot ON, Path C present) bricked
+WS2019, including Safe Mode. WinRE recovery via `del
+SiPolicy.p7b` restored boot, after which the WHQL co-signed AMD
+drivers loaded without any WDAC policy in place, while the
+non-WHQL drivers remained kernel-CI-rejected regardless of
+policy contents. Together with the previously-documented 2025
+cumulative-stacking incident, this established that Path C was
+the brick mechanism rather than merely a contributing factor,
+and that it offered no value over operator-driven Path B for
+non-WHQL drivers or trust-store-only Path A for WHQL co-signed
+drivers. Microsoft Learn cross-references in the same
+investigation established that `bcdedit /set TESTSIGNING ON`
+under Secure Boot ON is refused at command execution (not
+silently dropped by the boot loader), and that the alternative
+flags `NOINTEGRITYCHECKS` / `LOADOPTIONS DISABLE_INTEGRITY_CHECKS`
+are silently ignored on WS2008+ x64 — closing off any
+hypothetical "bcdedit-only bypass" workaround.
+
+### Migration
+
+Hosts that previously deployed Path C (r67 / r68 / r69 / WDAC
+SPF orchestrator r03 / r04 / r05) should, **before upgrading to
+r70**:
+
+1. Run `Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1
+   -Action GetStatus` to capture current state for the record.
+2. Run `Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1
+   -Action Uninstall` to remove the deployed `SiPolicy.p7b` and
+   the manifest. This avoids leaving a host-wide WDAC policy
+   behind after the orchestrator is gone.
+
+After upgrading to r70, automation that passed
+`-ForceOverrideForeign`, `-AuditMode`, or `-StrictBootValidation`
+to the driver scripts will fail at parameter binding. Removing
+those flags from the invocation is the only required code
+change. Operators who rely on the boot-time SPF policy
+authorisation chain on WS2019 / WS2016 should consult SPEC
+§D.30.4 / §D.30.5 to choose between Path A (trust-store only,
+all-WHQL install set) and Path B (`-UseTestSigning` after
+firmware Secure Boot disablement).
+
+If recovery from a stuck post-Path-C state is required (a host
+that won't boot because a Path C policy left it that way), the
+recovery procedure is unchanged: WinRE → `del
+C:\Windows\System32\CodeIntegrity\SiPolicy.p7b` → reboot. The
+orchestrator script is no longer required for this recovery
+because the policy file is the only host-state artifact and a
+simple `del` accomplishes the same outcome the orchestrator's
+`-Action Uninstall` did.
+
+### Out of scope (deferred to r71)
+
+The following operator-assistance features are **not** part of
+r70. They are planned for r71 (separate release) so that the
+deletion diff in r70 can be reviewed in isolation from new
+functionality:
+
+- WHQL co-sign pre-detection in P05 (`Test-WhqlCoSignature`,
+  `$Ctx.WhqlCoSignAnalysis`).
+- Path B prerequisite checking in I02
+  (`Invoke-PathBPrerequisiteCheck`), with explicit firmware-
+  change instructions, BitLocker advisory text, and the verbatim
+  Microsoft error message from SPEC §D.30 F9.
+- New `-SkipNonCosignedDrivers` switch for operators who want to
+  keep Secure Boot ON and accept that non-WHQL drivers will not
+  load.
+- New `C6` CRITICAL acknowledgement condition (WHQL co-sign
+  shortfall on a Secure-Boot-ON host).
+- New SPEC §D.31 documenting the r71 design contract.
+
+See SPEC §D.30.8 for the r71 plan summary.
+
 ## [Chipset r69 / Graphics r35 / NPU r17 / BthPan r17 / WDAC SPF r05] — 2026-05-23
 
 ### Context — implementing the planned improvements from r68 (QI-6 / QI-9 / QI-10 + Q-X1)
