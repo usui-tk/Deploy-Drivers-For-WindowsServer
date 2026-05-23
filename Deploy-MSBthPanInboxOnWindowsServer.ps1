@@ -388,7 +388,23 @@ param(
     [switch]$ForceOverrideForeign,
 
     # Audit-mode WDAC policy: violations logged but not enforced.
-    [switch]$AuditMode
+    [switch]$AuditMode,
+
+    # r69 (QI-10): enforce structural validation of the SPF policy
+    # right after I02 succeeds. Default is opt-in (false) so that
+    # benign warnings (e.g. manifest missing on a fresh install)
+    # do not block I03; pass -StrictBootValidation to escalate
+    # those structural warnings to a hard abort before I03. See
+    # SPEC SS D.26.3 (QI-10) and SS D.29 (errorCategory taxonomy).
+    [switch]$StrictBootValidation,
+
+    # r69 (QI-6): bypass the CRITICAL acknowledgement checklist in
+    # I00. Intended for CI/CD or controlled-lab automation where an
+    # interactive Read-Host prompt is not possible. The bypass is
+    # logged via Set-DebugStep in the run transcript so an audit can
+    # reconstruct whether C1/C2/C3/C5 were ever surfaced. NEVER use
+    # in production without out-of-band review. See SPEC SS D.28.
+    [switch]$ForceUnsafe
 )
 
 $ErrorActionPreference = 'Stop'
@@ -398,6 +414,8 @@ $ProgressPreference    = 'SilentlyContinue'
 # without re-binding param() variables across function-call boundaries.
 $Script:ForceOverrideForeign = [bool]$ForceOverrideForeign.IsPresent
 $Script:AuditMode            = [bool]$AuditMode.IsPresent
+$Script:StrictBootValidation = [bool]$StrictBootValidation.IsPresent
+$Script:ForceUnsafe          = [bool]$ForceUnsafe.IsPresent
 
 #####################################################################
 # SECTION 0: Script-level timing state
@@ -426,7 +444,7 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-$Script:ScriptVersion = 'msbthpan-2026.05.23-r16'
+$Script:ScriptVersion = 'msbthpan-2026.05.23-r17'
 $Script:ScriptTag     = 'legacy-ws2019-wdac-spf-integration'
 $Script:ScriptHash    = '(unknown)'
 try {
@@ -4306,7 +4324,7 @@ function Resolve-PhaseSelection {
 # has 2+ peers to compare).
 
 $Script:WdacOrchestratorFileName            = 'Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1'
-$Script:ExpectedWdacScriptCanonicalSha256   = 'f779bf50c41201a6564bf968d040cf39348433951cb83accd856245bebef7ced'
+$Script:ExpectedWdacScriptCanonicalSha256   = '7d61cf15ca0c3e244334d521c35f4dbf74333eaee823bc32fd8a5ba636b21dfb'
 $Script:WdacOrchestratorRawGithubUrl        = 'https://raw.githubusercontent.com/usui-tk/Deploy-Drivers-For-WindowsServer/main/Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1'
 
 function Get-CanonicalScriptHash {
@@ -4477,6 +4495,375 @@ function Invoke-LegacyWdacAuthorization {
 #####################################################################
 # SECTION 3: OS context
 #####################################################################
+#####################################################################
+# SECTION (r69, QI-10): BootLoadable WDAC SPF policy check
+#####################################################################
+# Driver-side helper that invokes the WDAC SPF orchestrator's new
+# BootLoadableCheck action (introduced in orchestrator r05) and
+# translates the JSON envelope into operator-facing messages with
+# recovery commands. Called from the phase dispatcher after the
+# I02 (AuthorizeDriverSigning) phase succeeds.
+#
+# Behaviour:
+#   - On non-legacy hosts (WS2022/2025, Path A/MPF), returns a
+#     synthetic 'pass' result without invoking the orchestrator;
+#     BootLoadableCheck has no equivalent semantics in the MPF
+#     supplemental-policy path.
+#   - On legacy hosts (WS2019/2016, Path C/SPF), invokes the
+#     orchestrator's BootLoadableCheck action, passing -Strict
+#     when the caller requests it (see -StrictBootValidation switch).
+#   - Failure handling is split:
+#       Strict + Result='fail' -> caller must throw and abort I03
+#       Strict + Result='warn' -> printed but does not abort
+#       !Strict + any failure   -> printed as warning, returns
+#
+# Byte-identical across Chipset / Graphics / BthPan (PSA8001).
+# NPU is excluded via psa8001_ignore_functions because NPU refuses
+# Install on legacy Windows Server (Q-X1, r17).
+#
+# See SPEC SS D.26.3 (QI-10), SS D.29 (errorCategory taxonomy).
+
+function Invoke-BootLoadableCheck { # psa-disable-line PSA6003 -- 'Check' is a singular verb-noun pair matching the orchestrator action name 'BootLoadableCheck'
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [switch]$Strict
+    )
+    # --- Non-legacy fast path ---
+    # On WS2022+, the SPF/MPF distinction does not apply; return a
+    # synthetic 'pass' so the caller can uniformly handle the result
+    # without branching on OS version.
+    if (-not (Test-IsLegacyWindowsServerOs)) {
+        return [pscustomobject]@{
+            Result   = 'pass'
+            ExitCode = 0
+            Detail   = [pscustomobject]@{
+                skipped = $true
+                reason  = 'BootLoadableCheck not applicable on the MPF / Path A code path (WS2022 / WS2025).'
+            }
+        }
+    }
+    # --- Locate orchestrator ---
+    $resolved = Resolve-WdacOrchestratorScript
+    if ($resolved.Source -eq 'not-found') {
+        Write-Warn2 ('  [!] BootLoadableCheck SKIPPED: orchestrator not found ({0}).' -f $Script:WdacOrchestratorFileName)
+        return [pscustomobject]@{
+            Result   = 'warn'
+            ExitCode = -1
+            Detail   = [pscustomobject]@{
+                skipped = $true
+                reason  = ('orchestrator not found: ' + $Script:WdacOrchestratorFileName)
+            }
+        }
+    }
+    # --- Invoke orchestrator ---
+    Write-Detail ('Boot-loadable check via orchestrator: {0}' -f $resolved.Path)
+    $argsMap = @{}
+    if ($Strict) { $argsMap['Strict'] = $true }
+    $r = $null
+    try {
+        $r = Invoke-WdacOrchestrator -ScriptPath $resolved.Path -Action 'BootLoadableCheck' -Arguments $argsMap
+    } catch {
+        Write-Fail ('  [X] BootLoadableCheck invocation threw: {0}' -f $_.Exception.Message)
+        return [pscustomobject]@{
+            Result   = 'fail'
+            ExitCode = -2
+            Detail   = [pscustomobject]@{
+                skipped = $false
+                reason  = ('Invoke-WdacOrchestrator threw: ' + $_.Exception.Message)
+            }
+        }
+    }
+    if (-not $r.Result) {
+        $stderrSnippet = ''
+        if ($r.Stderr) { $stderrSnippet = $r.Stderr.Trim() }
+        Write-Fail ('  [X] BootLoadableCheck: orchestrator output unparseable (exit={0}).' -f $r.ExitCode)
+        if ($stderrSnippet) {
+            Write-Detail ('       stderr: {0}' -f $stderrSnippet) -Color DarkGray
+        }
+        return [pscustomobject]@{
+            Result   = 'fail'
+            ExitCode = -3
+            Detail   = [pscustomobject]@{
+                skipped = $false
+                reason  = 'orchestrator output unparseable'
+                rawStderr = $stderrSnippet
+            }
+        }
+    }
+    # --- Translate errorCategory into operator-facing message ---
+    $parsed = $r.Result
+    $cat = $null
+    if ($parsed.details) { $cat = $parsed.details.errorCategory }
+    $msgByCat = @{
+        'NoPolicy'                = 'SPF policy not deployed. I02 may have failed silently. Re-run -Action Install (or invoke the orchestrator -Action AddCert directly).'
+        'PolicyCorrupt'           = 'SPF policy exists but is not parseable as a P7B-signed CI policy. Run orchestrator -Action Repair.'
+        'SignatureInvalid'        = 'SPF policy signature does not verify (signtool /pa returned non-zero). Run orchestrator -Action Repair.'
+        'ManifestMissing'         = 'Orchestrator manifest is missing. Policy may be deployed but cert-tracking state is broken; run orchestrator -Action GetStatus.'
+        'ManifestCorrupt'         = 'Orchestrator manifest exists but JSON parse failed. Delete manifest.json and re-run orchestrator -Action AddCert.'
+        'ConfigCIMissing'         = 'ConfigCI module not present on this host. Install the Windows Defender Application Control feature.'
+        'AllowAllTemplateMissing' = 'WDAC AllowAll template missing under %windir%\schemas\CodeIntegrity\ExamplePolicies\. OS integrity may be compromised.'
+        'PermissionDenied'        = 'Cannot read the deployed SPF policy file. Re-run from an elevated PowerShell session.'
+        'Other'                   = ('Unhandled BootLoadableCheck error: ' + $parsed.message)
+    }
+    $msg = $null
+    if ($cat -and $msgByCat.ContainsKey($cat)) {
+        $msg = $msgByCat[$cat]
+    } else {
+        $msg = $parsed.message
+    }
+    # --- Print operator-facing summary ---
+    Write-Host ''
+    Write-Host '--- Boot-loadable WDAC SPF policy check ---' -ForegroundColor Cyan
+    switch ($parsed.result) {
+        'pass' {
+            Write-Host '  [+] SPF policy is structurally valid and signed.' -ForegroundColor Green
+            if ($parsed.details) {
+                Write-Host ('      Path                 : {0}' -f $parsed.details.siPolicyPath)    -ForegroundColor DarkGray
+                Write-Host ('      SHA256               : {0}' -f $parsed.details.siPolicySha256)  -ForegroundColor DarkGray
+                Write-Host ('      Authorized certs     : {0}' -f $parsed.details.authorizedCertCount) -ForegroundColor DarkGray
+            }
+        }
+        'warn' {
+            Write-Warn2 ('  [!] BootLoadableCheck WARNING: ' + $msg)
+            Write-Warn2 ('      errorCategory: {0}' -f $cat)
+        }
+        'fail' {
+            Write-Fail ('  [X] BootLoadableCheck FAILED: ' + $msg)
+            Write-Fail ('      errorCategory: {0}' -f $cat)
+            if ($Strict) {
+                Write-Fail '  [X] -StrictBootValidation is set; the caller will abort before I03.'
+            } else {
+                Write-Warn2 '  [!] -StrictBootValidation NOT set; I03 will continue, but boot may fail.'
+                Write-Warn2 '  [!] Recommended: pass -StrictBootValidation on future runs to enforce this check.'
+            }
+        }
+        default {
+            Write-Warn2 ('  [?] Unrecognized BootLoadableCheck result: {0}' -f $parsed.result)
+        }
+    }
+    Write-Host ''
+    return [pscustomobject]@{
+        Result   = $parsed.result
+        ExitCode = [int]$parsed.exitCode
+        Detail   = $parsed.details
+    }
+}
+
+
+#####################################################################
+# SECTION (r69, QI-6): CRITICAL severity acknowledgement helpers
+#####################################################################
+# Adds a CRITICAL severity level to the I00 PreInstallReview risk
+# summary. When any of conditions C1, C2, C3, C5 (per Q6-A) hit,
+# the operator must acknowledge each item via an interactive y/N
+# checklist before I01 begins. -ForceUnsafe bypasses the prompt
+# (intended for CI/CD; the bypass is logged via Set-DebugStep).
+#
+# Conditions:
+#   C1: Display driver replacement on single-display host
+#   C2: BitLocker ON + AMD PSP driver replacement
+#   C3: 2nd-or-later self-signed cert deploy in the same WDAC SPF
+#       manifest (= another driver script already deployed without
+#       a reboot in between)
+#   C5: Host has not been rebooted in 24+ hours
+# (C4, System Restore disabled, is handled by QI-9 as a non-blocking
+#  warning per Q6-A.)
+#
+# Byte-identical across Chipset / Graphics / BthPan (PSA8001).
+# NPU is excluded via psa8001_ignore_functions because NPU refuses
+# Install on legacy Windows Server (Q-X1, r17).
+#
+# Data contract for $Matched (B2 decision, 2026-05-23):
+#   [pscustomobject]@{
+#       Device     = <PnP device object>
+#       MatchKey   = <HWID match key>
+#       Current    = <current driver info from Get-DeviceCurrentDriver>
+#       Category   = <driver-source classification record>
+#       Candidates = <INF object array, each with .InfName>
+#   }
+# BthPan does not build $matched (single inbox INF only); callers
+# pass @() and C1/C2 simply yield no items.
+#
+# See SPEC SS D.28 for the CRITICAL judgement logic in detail.
+
+function Get-CriticalRiskItems {
+    [CmdletBinding()]
+    [OutputType([pscustomobject[]])]
+    param(
+        [Parameter(Mandatory)] $Ctx,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]]$Matched
+    )
+    $items = New-Object System.Collections.Generic.List[pscustomobject]
+
+    # --- C1: Display driver replacement on single-display host ---
+    $displays = @()
+    try {
+        $displays = @(Get-PnpDevice -Class Display -ErrorAction SilentlyContinue |
+                      Where-Object Status -eq 'OK')
+    } catch { } # psa-disable-line PSA3004 -- best-effort PnP enumeration; not having Get-PnpDevice means there are no enumerable displays anyway
+    $willReplaceDisplay = $false
+    foreach ($entry in $Matched) {
+        if (-not $entry.Candidates) { continue }
+        foreach ($cand in $entry.Candidates) {
+            $infName = $cand.InfName
+            if ([string]::IsNullOrEmpty($infName)) { continue }
+            if ($infName -match '(?i)^(display\.inf|u020.*\.inf)$') {
+                $willReplaceDisplay = $true
+                break
+            }
+        }
+        if ($willReplaceDisplay) { break }
+    }
+    if ($willReplaceDisplay -and $displays.Count -le 1) {
+        $items.Add([pscustomobject]@{
+            Id = 'C1'
+            Title = 'Display driver replacement on single-display host'
+            Detail = (@(
+                '  Only one Display class device is currently bound (Get-PnpDevice).',
+                '  The install plan will replace the inbox or current Display driver.',
+                '  If the new driver fails to load at boot, you may lose all display output.',
+                '  Recovery would require an external display or remote-access workaround.'
+            ) -join "`n")
+            AckQuestion = 'I understand display loss is possible and have an alternative display path or remote access ready (y/N): '
+        })
+    }
+
+    # --- C2: BitLocker ON + AMD PSP driver replacement ---
+    $bitlocker = $null
+    try {
+        $bitlocker = Get-BitLockerVolume -MountPoint $env:SystemDrive -ErrorAction SilentlyContinue
+    } catch { } # psa-disable-line PSA3004 -- best-effort BitLocker query; absence means no BitLocker concern
+    $willReplacePsp = $false
+    foreach ($entry in $Matched) {
+        if (-not $entry.Candidates) { continue }
+        foreach ($cand in $entry.Candidates) {
+            $infName = $cand.InfName
+            if ([string]::IsNullOrEmpty($infName)) { continue }
+            if ($infName -match '(?i)psp') {
+                $willReplacePsp = $true
+                break
+            }
+        }
+        if ($willReplacePsp) { break }
+    }
+    if ($bitlocker -and $bitlocker.ProtectionStatus -eq 'On' -and $willReplacePsp) {
+        $protectorTypes = ''
+        if ($bitlocker.KeyProtector) {
+            $protectorTypes = (($bitlocker.KeyProtector | ForEach-Object { $_.KeyProtectorType }) -join ', ')
+        }
+        $items.Add([pscustomobject]@{
+            Id = 'C2'
+            Title = 'BitLocker ON + AMD PSP driver replacement'
+            Detail = (@(
+                '  BitLocker is currently ON on the system drive.',
+                '  The install plan replaces an AMD PSP (Platform Security Processor) driver.',
+                '  PSP firmware changes can trigger BitLocker recovery prompts on next boot.',
+                '  Without the BitLocker recovery key, the drive contents become inaccessible.'
+            ) -join "`n")
+            AckQuestion = ('I have my BitLocker recovery key saved (KeyProtector: {0}) and accept the risk (y/N): ' -f $protectorTypes)
+        })
+    }
+
+    # --- C3: 2nd-or-later self-signed cert deploy in same WDAC SPF manifest ---
+    $manifestPath = Join-Path $env:ProgramData 'Deploy-Drivers-For-WindowsServer\wdac\manifest.json'
+    if (Test-Path -LiteralPath $manifestPath -PathType Leaf) {
+        try {
+            $m = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 -ErrorAction Stop |
+                 ConvertFrom-Json -ErrorAction Stop
+            $myThumb = ''
+            if ($Ctx -and $Ctx.CertThumbprint) { $myThumb = ([string]$Ctx.CertThumbprint).ToUpper() }
+            $others = @()
+            if ($m.authorizedCerts) {
+                $others = @($m.authorizedCerts | Where-Object {
+                    $_.thumbprint -and (([string]$_.thumbprint).ToUpper() -ne $myThumb)
+                })
+            }
+            if ($others.Count -ge 1) {
+                $otherSummary = (@($others | ForEach-Object {
+                    '    - {0} ({1})' -f $_.thumbprint, $_.subject
+                }) -join "`n")
+                $items.Add([pscustomobject]@{
+                    Id = 'C3'
+                    Title = ('Same-session WDAC SPF deploy stacking ({0} other cert(s) already authorized)' -f $others.Count)
+                    Detail = (@(
+                        ('  Existing authorized certs in {0}:' -f $manifestPath),
+                        $otherSummary,
+                        '  This means another driver script (chipset / graphics / bthpan) has',
+                        '  already deployed its self-signed cert. Stacking multiple Install',
+                        '  actions without reboot has been observed to brick WS2019 hosts.',
+                        '  See SPEC SS D.26 (catastrophic field failure 2026-05-23).'
+                    ) -join "`n")
+                    AckQuestion = 'I have rebooted since the previous Install AND verified the host is healthy (y/N): '
+                })
+            }
+        } catch { } # psa-disable-line PSA3004 -- manifest is best-effort; absent/corrupt manifest just means no C3 hit
+    }
+
+    # --- C5: No reboot in last 24 hours ---
+    try {
+        $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
+        $hoursSince = ((Get-Date) - $os.LastBootUpTime).TotalHours
+        if ($hoursSince -gt 24) {
+            $items.Add([pscustomobject]@{
+                Id = 'C5'
+                Title = ('Host has not been rebooted in {0:N1} hours' -f $hoursSince)
+                Detail = (@(
+                    ('  Last boot: {0}' -f $os.LastBootUpTime.ToString('u')),
+                    '  PnP changes may have accumulated; the next reboot will process them all',
+                    '  at once, which raises the probability of cumulative regression.',
+                    '  RECOMMENDED: reboot the host now, then re-run -Action Install.'
+                ) -join "`n")
+                AckQuestion = 'I accept that accumulated pending PnP changes may interact with this Install (y/N): '
+            })
+        }
+    } catch { } # psa-disable-line PSA3004 -- CIM unavailable means we cannot compute hours-since-boot; non-fatal
+
+    return ,@($items.ToArray())
+}
+
+function Invoke-CriticalAcknowledgementChecklist {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [pscustomobject[]]$Items,
+        [switch]$ForceUnsafe
+    )
+    if ($Items.Count -eq 0) { return $true }
+    Write-Host ''
+    Write-Host '========================================================================' -ForegroundColor Red
+    Write-Host (' CRITICAL RISK ITEMS ({0}) - operator acknowledgement required' -f $Items.Count) -ForegroundColor Red
+    Write-Host '========================================================================' -ForegroundColor Red
+    foreach ($it in $Items) {
+        Write-Host ''
+        Write-Host ('[CRITICAL][{0}] {1}' -f $it.Id, $it.Title) -ForegroundColor Red
+        Write-Host $it.Detail -ForegroundColor DarkRed
+    }
+    Write-Host ''
+    if ($ForceUnsafe) {
+        Write-Warn2 '  [!] -ForceUnsafe is set; CRITICAL acknowledgement checklist is BYPASSED.'
+        Write-Warn2 '  [!] This is recorded in the run transcript for audit purposes.'
+        Set-DebugStep ('CRITICAL bypass via -ForceUnsafe: items=' + (($Items | ForEach-Object { $_.Id }) -join ','))
+        return $true
+    }
+    $allAcked = $true
+    foreach ($it in $Items) {
+        Write-Host ('  [{0}] ' -f $it.Id) -ForegroundColor Red -NoNewline
+        Write-Host $it.AckQuestion -ForegroundColor Yellow -NoNewline
+        $resp = Read-Host
+        $ack = ($resp -match '^(y|yes)$')
+        Set-DebugStep ('CRITICAL ack {0}: response="{1}" ack={2}' -f $it.Id, $resp, $ack)
+        if (-not $ack) {
+            Write-Fail ('  [X] CRITICAL[{0}] NOT acknowledged. Aborting before I01.' -f $it.Id)
+            $allAcked = $false
+            break
+        }
+        Write-Host ('  [+] CRITICAL[{0}] acknowledged.' -f $it.Id) -ForegroundColor Green
+    }
+    return $allAcked
+}
+
+
 function Get-OsContext {
     # CIM is the preferred path. On extremely locked-down or Server
     # Core images (mainly older WS2016/WS2019), the CIM service can
@@ -6273,6 +6660,110 @@ function Clear-PhaseMarker {
 # SECTION 8: PREPARATION PHASES
 #####################################################################
 
+#####################################################################
+# SECTION (r69, QI-9): System Restore status helpers
+#####################################################################
+# Operator-facing warning about System Restore state. Called from
+# P01 (PrepareWorkspace) after the workspace is created. We DO NOT
+# enable System Restore automatically (Q9-A) - the warning is
+# informational only. The most important caveat is that SiPolicy.p7b
+# is excluded from System Restore by design, so rolling back a
+# restore point will NOT recover a WDAC boot-policy regression.
+# See SPEC SS D.26.2.D / D.26.3 (QI-9) / D.27.
+#
+# These two functions are PSA8001-enforced byte-identical across
+# Chipset / Graphics / BthPan. NPU is excluded via
+# psa8001_ignore_functions because NPU refuses Install on legacy
+# Windows Server (Q-X1, r17).
+
+function Get-SystemRestorePointStatus {
+    # Returns the current System Restore configuration for the
+    # system drive.
+    #
+    # OUTPUT: pscustomobject with:
+    #   - Enabled            ([bool])  true if System Restore is enabled
+    #   - ConfigurationFound ([bool])  true if SR config registry exists
+    #   - RecentPoints       (object[]) recent restore points (<= 30 days)
+    #   - SiPolicyExcluded   ([bool])  always $true - informational
+    #
+    # NOTES:
+    #   - On Windows Server, System Restore is OFF by default.
+    #   - Get-ComputerRestorePoint throws on disabled SR; we catch.
+    #   - SR does NOT capture C:\Windows\System32\CodeIntegrity\SiPolicy.p7b
+    #     (boot-time policy is excluded from System Restore by
+    #     design); this is surfaced to the operator by
+    #     Show-SystemRestorePointWarning. See SPEC SS D.26.2.D.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+    $result = [pscustomobject]@{
+        Enabled            = $false
+        ConfigurationFound = $false
+        RecentPoints       = @()
+        SiPolicyExcluded   = $true
+    }
+    try {
+        $srKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore'
+        if (Test-Path $srKey) {
+            $result.ConfigurationFound = $true
+        }
+        $points = Get-ComputerRestorePoint -ErrorAction Stop
+        $result.Enabled = $true
+        $cutoff = (Get-Date).AddDays(-30)
+        $result.RecentPoints = @($points | Where-Object {
+            $_.CreationTime -ge $cutoff
+        })
+    } catch {
+        # Either SR is disabled (most common on Server SKUs) or we
+        # lack privileges. Leave Enabled=$false, RecentPoints=@().
+        $result.Enabled = $false
+    }
+    return $result
+}
+
+function Show-SystemRestorePointWarning {
+    # Print the operator-facing warning about System Restore status.
+    # Called from P01 (PrepareWorkspace) after the workspace is created.
+    #
+    # CRITICAL: this function MUST mention that SiPolicy.p7b is
+    # excluded from System Restore, because operators reading
+    # 'Restore Point available' without that caveat would expect a
+    # roll-back to recover boot-policy regressions, which it cannot.
+    # See SPEC SS D.26.2.D and the catastrophic field failure case
+    # study in SPEC SS D.26.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)] [pscustomobject]$Status
+    )
+    Write-Host ''
+    Write-Host '--- System Restore status (snapshot recommendation) ---' -ForegroundColor Cyan
+    if ($Status.Enabled) {
+        Write-Host '  System Restore is ENABLED on the system drive' -ForegroundColor Green
+        Write-Host ('  Recent restore points (last 30 days): {0}' -f $Status.RecentPoints.Count) -ForegroundColor Green
+        if ($Status.RecentPoints.Count -eq 0) {
+            Write-Host '  [!] No recent restore points exist. Create one BEFORE running -Action Install:' -ForegroundColor Yellow
+            Write-Host '      Checkpoint-Computer -Description "pre-driver-install"' -ForegroundColor DarkYellow
+        }
+    } else {
+        Write-Host '  System Restore is DISABLED on the system drive (default on Windows Server SKUs)' -ForegroundColor Yellow
+        Write-Host '  [!] You have NO automatic rollback path for driver-store regressions.' -ForegroundColor Yellow
+        Write-Host '  RECOMMENDED: take a VM snapshot, full disk image, or external backup BEFORE proceeding.' -ForegroundColor Yellow
+        Write-Host '  Alternative (Windows-native): enable System Restore manually with:' -ForegroundColor DarkYellow
+        Write-Host '      Enable-ComputerRestore -Drive C:' -ForegroundColor DarkYellow
+        Write-Host '      Checkpoint-Computer -Description "pre-driver-install"' -ForegroundColor DarkYellow
+    }
+    # CRITICAL caveat - must always be printed regardless of SR state.
+    Write-Host ''
+    Write-Host '  [IMPORTANT] System Restore does NOT capture WDAC boot policy.' -ForegroundColor Red
+    Write-Host ('             {0} is excluded from System Restore by design.' -f 'C:\Windows\System32\CodeIntegrity\SiPolicy.p7b') -ForegroundColor Red
+    Write-Host '             If the host fails to boot due to WDAC policy regression,' -ForegroundColor Red
+    Write-Host '             rolling back System Restore alone will NOT fix it. You will' -ForegroundColor Red
+    Write-Host '             need WinRE-driven manual SiPolicy.p7b deletion or OS reinstall.' -ForegroundColor Red
+    Write-Host '             See README "Recovery from unbootable state" for details.' -ForegroundColor Red
+    Write-Host ''
+}
+
+
 function Invoke-PrepPhase00_Initialize {
     param($Ctx)
     Write-PhaseHeader 'P00' 'Initialize' 'Prep'
@@ -6530,6 +7021,21 @@ function Invoke-PrepPhase01_PrepareWorkspace {
     Assert-NoConcurrentRun -Ctx $Ctx
 
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'P01'
+    # QI-9 (r69, 2026-05-23): System Restore status check.
+    # Workspace has been created; this is the natural place to remind
+    # the operator that no Windows-managed rollback path exists for a
+    # WDAC boot-policy regression. See SPEC SS D.27. Non-fatal and
+    # never blocks; informational only.
+    Set-DebugStep 'QI-9: System Restore status check'
+    try {
+        $srStatus = Get-SystemRestorePointStatus
+        Show-SystemRestorePointWarning -Status $srStatus
+    } catch {
+        # SR status is informational; failure here MUST NOT block
+        # workspace preparation. Log and continue.
+        Write-Warn2 ('System Restore status check failed (non-fatal): {0}' -f $_.Exception.Message)
+    }
+
     Write-PhaseFooter 'P01' 'done'
 }
 
@@ -9106,6 +9612,21 @@ function Invoke-InstPhase00_PreInstallReview {
     }
 
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'I00' -Metadata @{ Acknowledged = $true }
+
+    # r69 (QI-6): CRITICAL severity acknowledgement (Q6-A).
+    # C1/C2/C3/C5 may fire depending on host state + install plan;
+    # if any item is returned, the operator must acknowledge each
+    # via interactive y/N prompt before I01 begins. -ForceUnsafe
+    # bypasses the prompt but logs the bypass via Set-DebugStep.
+    # See SPEC SS D.28.
+    Set-DebugStep 'QI-6: CRITICAL acknowledgement checklist'
+    $criticalItems = Get-CriticalRiskItems -Ctx $Ctx -Matched @()
+    if ($criticalItems.Count -gt 0) {
+        $acked = Invoke-CriticalAcknowledgementChecklist -Items $criticalItems -ForceUnsafe:$Script:ForceUnsafe
+        if (-not $acked) {
+            throw 'CRITICAL risk item(s) not acknowledged. Aborting before I01.'
+        }
+    }
     Write-PhaseFooter 'I00' 'done'
 }
 
@@ -10443,6 +10964,28 @@ try {
         }
         if (-not $phaseFailed) {
             Stop-DebugTrace -Outcome 'success'
+        }
+
+        # r69 (QI-10): after I02 succeeds, run the BootLoadableCheck
+        # so the operator gets a structural-validity verdict on the
+        # WDAC SPF policy *before* I03 starts modifying the driver
+        # store. On non-legacy hosts (WS2022/2025) the helper
+        # returns a synthetic 'pass' (skipped) so this loop body
+        # remains safe to execute unconditionally. See SPEC SS D.26.3.
+        if ($phase.Id -eq 'I02' -and (-not $phaseFailed)) {
+            try {
+                $bootCheck = Invoke-BootLoadableCheck -Strict:$Script:StrictBootValidation
+                if ($Script:StrictBootValidation -and $bootCheck.Result -eq 'fail') {
+                    throw 'BootLoadableCheck failed and -StrictBootValidation is set. Aborting before I03 to prevent boot regression.'
+                }
+            } catch {
+                if ($Script:StrictBootValidation) {
+                    Write-Fail ("BootLoadableCheck hook (Strict): $($_.Exception.Message)")
+                    throw
+                } else {
+                    Write-Warn2 ("BootLoadableCheck hook (non-Strict, continuing): $($_.Exception.Message)")
+                }
+            }
         }
     }
 

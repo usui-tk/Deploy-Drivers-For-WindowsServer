@@ -196,6 +196,7 @@ param(
         'Verify',
         'Uninstall',
         'Repair',
+        'BootLoadableCheck',
         'ComputeCanonicalHash',
         'ComputeOwnCanonicalHash',
         'Help'
@@ -226,6 +227,15 @@ param(
 
     # === Policy generation ============================================
     [switch]$AuditMode,
+
+    # === BootLoadableCheck action (r05, QI-10) ========================
+    # When set on -Action BootLoadableCheck, structural failures
+    # (missing SiPolicy.p7b, manifest missing/corrupt, signature
+    # invalid) escalate to 'fail' / exitCode=6 instead of 'warn' /
+    # exitCode=5. Driver scripts pass -StrictBootValidation through
+    # to this switch so the operator can opt in to stricter behaviour
+    # without burning operators on false positives. See SPEC SS D.29.
+    [switch]$Strict,
 
     # === Output =======================================================
     [ValidateSet('Text','Json')]
@@ -265,8 +275,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'wdac-2026.05.23-r04'
-$Script:ScriptTag     = 'sister-script-seeded-from-chipset-r66'
+$Script:ScriptVersion = 'wdac-2026.05.23-r05'
+$Script:ScriptTag     = 'r05-bootloadable-check-and-strict-switch'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -3741,10 +3751,219 @@ function Invoke-ActionComputeOwnCanonicalHash {
     }
 }
 
+#####################################################################
+# SECTION 10c: Action handler - BootLoadableCheck (r05, QI-10)
+#####################################################################
+# Pre-flight sanity check for the deployed SPF policy. Asks:
+#   - Is ConfigCI available? (required for Repair / replay scenarios)
+#   - Is the AllowAll WDAC template present? (Repair fallback)
+#   - Is SiPolicy.p7b present on disk?
+#   - Does signtool verify the policy signature? (best-effort; signtool
+#     may not be on PATH on stock Server installs - that case yields a
+#     'pass-with-skipped-signature' result, not a failure)
+#   - Is manifest.json present and JSON-parseable?
+# Maps each failure to a discrete errorCategory so driver scripts can
+# print a tailored recovery message. Build-time guarantees (-Option
+# 6,10 supplied to New-CIPolicy) are NOT re-verified here per Q10-C=ii;
+# adding a P7B parser would be substantial new code and is out of
+# scope for r05. See SPEC SS D.29 for the errorCategory taxonomy.
+#
+# Behaviour wrt -Strict:
+#   default (no -Strict): structural failures with no boot-impact
+#     proof (e.g. manifest missing, signtool absent) emit 'warn' /
+#     exit 5. Driver scripts continue I03 but surface the warning.
+#   -Strict: every structural failure escalates to 'fail' / exit 6.
+#     Driver scripts honour their own -StrictBootValidation to either
+#     abort before I03 or proceed with a louder warning.
+
+function Find-Signtool {
+    # Locate signtool.exe. Search order:
+    #   1. Get-Command (PATH)
+    #   2. WindowsSdkDir environment variable (set when SDK is installed)
+    #   3. Common SDK installation roots under Program Files (x86)
+    # Returns the absolute path string, or $null if not found.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    # 1. PATH lookup
+    $cmd = Get-Command -Name 'signtool.exe' -ErrorAction SilentlyContinue
+    if ($cmd -and $cmd.Source) { return $cmd.Source }
+    # 2. WindowsSdkDir env var
+    $sdkDir = $env:WindowsSdkDir
+    if (-not [string]::IsNullOrEmpty($sdkDir)) {
+        $glob = Join-Path $sdkDir 'bin\*\x64\signtool.exe'
+        $hit = Get-ChildItem -Path $glob -ErrorAction SilentlyContinue |
+               Sort-Object -Property FullName -Descending |
+               Select-Object -First 1
+        if ($hit) { return $hit.FullName }
+    }
+    # 3. Common SDK roots under Program Files (x86)
+    $roots = @()
+    if (${env:ProgramFiles(x86)}) {
+        $roots += (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin')
+        $roots += (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\8.1\bin')
+    }
+    foreach ($r in $roots) {
+        if (Test-Path -LiteralPath $r) {
+            $hit = Get-ChildItem -Path (Join-Path $r '*\x64\signtool.exe') -ErrorAction SilentlyContinue |
+                   Sort-Object -Property FullName -Descending |
+                   Select-Object -First 1
+            if ($hit) { return $hit.FullName }
+        }
+    }
+    return $null
+}
+
+function Invoke-ActionBootLoadableCheck { # psa-disable-line PSA6003 -- "Check" is a singular noun verb-noun pair matching action name 'BootLoadableCheck'
+    # r05 (QI-10): pre-flight structural sanity check for the deployed
+    # WDAC SPF policy and orchestrator manifest. See section header
+    # comment block for design notes.
+    #
+    # Emits a JSON envelope with:
+    #   result   : 'pass' | 'warn' | 'fail'
+    #   exitCode : 0 (pass) | 5 (warn) | 6 (fail)
+    #   message  : human-readable summary
+    #   details  : @{
+    #       siPolicyExists      : bool
+    #       siPolicyPath        : string
+    #       siPolicySha256      : string | $null
+    #       signtoolVerify      : @{ exitCode = int|$null; output = string }
+    #       manifestExists      : bool
+    #       manifestParseable   : bool
+    #       authorizedCertCount : int
+    #       errorCategory       : 'NoPolicy' | 'PolicyCorrupt' |
+    #                             'SignatureInvalid' | 'ManifestMissing' |
+    #                             'ManifestCorrupt' | 'ConfigCIMissing' |
+    #                             'AllowAllTemplateMissing' |
+    #                             'PermissionDenied' | 'Other' | $null
+    #   }
+    $detail = @{
+        siPolicyExists      = $false
+        siPolicyPath        = $Script:DeployedPolicyPath
+        siPolicySha256      = $null
+        signtoolVerify      = @{ exitCode = $null; output = '' }
+        manifestExists      = $false
+        manifestParseable   = $false
+        authorizedCertCount = 0
+        errorCategory       = $null
+    }
+
+    # --- 1. ConfigCI module availability ---
+    # Required for Repair / replay flows. Absence is a structural
+    # failure regardless of -Strict.
+    if (-not (Get-Module -ListAvailable -Name ConfigCI -ErrorAction SilentlyContinue)) {
+        $detail.errorCategory = 'ConfigCIMissing'
+        Set-JsonResult -Result 'fail' -ExitCode 6 `
+            -Message 'ConfigCI module not present on this host. Install the Windows Defender Application Control feature.' `
+            -Details $detail
+        return
+    }
+
+    # --- 2. AllowAll template present ---
+    # The base policy is derived from the inbox AllowAll.xml template.
+    # If missing, the Repair action cannot reconstruct the policy.
+    $allowAll = Join-Path $env:windir 'schemas\CodeIntegrity\ExamplePolicies\AllowAll.xml'
+    if (-not (Test-Path -LiteralPath $allowAll -PathType Leaf)) {
+        $detail.errorCategory = 'AllowAllTemplateMissing'
+        Set-JsonResult -Result 'fail' -ExitCode 6 `
+            -Message ('WDAC AllowAll template missing at {0}. OS integrity may be compromised.' -f $allowAll) `
+            -Details $detail
+        return
+    }
+
+    # --- 3. SiPolicy.p7b present on disk ---
+    if (-not (Test-Path -LiteralPath $Script:DeployedPolicyPath -PathType Leaf)) {
+        $detail.errorCategory = 'NoPolicy'
+        Set-JsonResult -Result 'fail' -ExitCode 6 `
+            -Message ('SPF policy not deployed at {0}. I02 may have failed silently; re-run -Action AddCert.' -f $Script:DeployedPolicyPath) `
+            -Details $detail
+        return
+    }
+    $detail.siPolicyExists = $true
+
+    # --- 4. SHA256 of deployed policy ---
+    try {
+        $detail.siPolicySha256 = (Get-FileHash -LiteralPath $Script:DeployedPolicyPath -Algorithm SHA256 -ErrorAction Stop).Hash.ToLower()
+    } catch {
+        $detail.errorCategory = 'PermissionDenied'
+        Set-JsonResult -Result 'fail' -ExitCode 6 `
+            -Message ('Cannot read SPF policy file ({0}): {1}' -f $Script:DeployedPolicyPath, $_.Exception.Message) `
+            -Details $detail
+        return
+    }
+
+    # --- 5. signtool verify (best-effort) ---
+    # signtool.exe is part of the Windows SDK and is NOT shipped with a
+    # stock Windows Server install. We treat its absence as a "skipped"
+    # check (not a failure) because the alternative would be to demand
+    # the SDK on every production host, which is unrealistic.
+    $signtool = Find-Signtool
+    if ($signtool) {
+        try {
+            $out = & $signtool verify /pa $Script:DeployedPolicyPath 2>&1 | Out-String # psa-disable-line PSA3001 -- signtool verify takes positional args; -ArgumentList is for Start-Process, not the call-operator path
+            $detail.signtoolVerify.exitCode = $LASTEXITCODE
+            $detail.signtoolVerify.output = $out
+            if ($LASTEXITCODE -ne 0) {
+                $detail.errorCategory = 'SignatureInvalid'
+                $resultLabel = if ($Script:Strict) { 'fail' } else { 'warn' }
+                $exitCode    = if ($Script:Strict) { 6 } else { 5 }
+                Set-JsonResult -Result $resultLabel -ExitCode $exitCode `
+                    -Message ('signtool reported signature invalid (exit {0}). Run orchestrator -Action Repair.' -f $LASTEXITCODE) `
+                    -Details $detail
+                return
+            }
+        } catch {
+            # signtool crashed - treat as SignatureInvalid (best-effort)
+            $detail.errorCategory = 'SignatureInvalid'
+            $detail.signtoolVerify.output = ('signtool invocation threw: {0}' -f $_.Exception.Message)
+            $resultLabel = if ($Script:Strict) { 'fail' } else { 'warn' }
+            $exitCode    = if ($Script:Strict) { 6 } else { 5 }
+            Set-JsonResult -Result $resultLabel -ExitCode $exitCode `
+                -Message 'signtool invocation failed; signature could not be verified.' `
+                -Details $detail
+            return
+        }
+    } else {
+        $detail.signtoolVerify.output = '(signtool.exe not found in PATH, WindowsSdkDir, or under Program Files (x86)\Windows Kits; signature check skipped)'
+    }
+
+    # --- 6. Manifest check ---
+    if (-not (Test-Path -LiteralPath $Script:ManifestPath -PathType Leaf)) {
+        $detail.errorCategory = 'ManifestMissing'
+        $resultLabel = if ($Script:Strict) { 'fail' } else { 'warn' }
+        $exitCode    = if ($Script:Strict) { 6 } else { 5 }
+        Set-JsonResult -Result $resultLabel -ExitCode $exitCode `
+            -Message ('Manifest missing at {0}. Policy may be deployed but state tracking is broken.' -f $Script:ManifestPath) `
+            -Details $detail
+        return
+    }
+    $detail.manifestExists = $true
+    try {
+        $raw = [System.IO.File]::ReadAllText($Script:ManifestPath, [System.Text.UTF8Encoding]::new($false))
+        $m = $raw | ConvertFrom-Json -ErrorAction Stop
+        $detail.manifestParseable = $true
+        if ($m.authorizedCerts) {
+            $detail.authorizedCertCount = @($m.authorizedCerts).Count
+        }
+    } catch {
+        $detail.errorCategory = 'ManifestCorrupt'
+        Set-JsonResult -Result 'fail' -ExitCode 6 `
+            -Message ('Manifest JSON parse failed: {0}. Delete manifest.json and re-run -Action AddCert.' -f $_.Exception.Message) `
+            -Details $detail
+        return
+    }
+
+    # --- 7. All checks passed ---
+    Set-JsonResult -Result 'pass' -ExitCode 0 `
+        -Message 'SPF policy is structurally valid and signed; manifest is present and parseable.' `
+        -Details $detail
+}
+
+
 function Invoke-ActionHelp {
     if ($Script:OutputFormat -eq 'Json') {
         Set-JsonResult -Result 'success' -Message 'See -Action GetStatus for runtime state.' -ExitCode 0 -Details @{
-            availableActions  = @('GetStatus','AddCert','RemoveCert','Verify','Uninstall','Repair','ComputeCanonicalHash','ComputeOwnCanonicalHash')
+            availableActions  = @('GetStatus','AddCert','RemoveCert','Verify','Uninstall','Repair','BootLoadableCheck','ComputeCanonicalHash','ComputeOwnCanonicalHash')
             scriptVersion     = $Script:ScriptVersion
             selfCanonicalHash = (Get-SelfCanonicalHash)
         }
@@ -3768,6 +3987,8 @@ function Invoke-ActionHelp {
     Write-Host '    Verify                   Check whether a thumbprint is authorized.'
     Write-Host '    Uninstall                Remove the entire WDAC policy + manifest.'
     Write-Host '    Repair                   Recover from Inconsistent / Ours-Stale.'
+    Write-Host '    BootLoadableCheck        Pre-flight sanity check for the deployed SPF policy.'
+    Write-Host '                             Pass -Strict to escalate structural warnings to failure.'
     Write-Host '    ComputeCanonicalHash     Dev: compute canonical hash of arbitrary file.'
     Write-Host '    ComputeOwnCanonicalHash  Dev: emit canonical hash of THIS script.'
     Write-Host ''
@@ -3799,6 +4020,7 @@ function Invoke-Main {
         'Verify'                   { Invoke-ActionVerify }
         'Uninstall'                { Invoke-ActionUninstall }
         'Repair'                   { Invoke-ActionRepair }
+        'BootLoadableCheck'        { Invoke-ActionBootLoadableCheck }
         'ComputeCanonicalHash'     { Invoke-ActionComputeCanonicalHash }
         'ComputeOwnCanonicalHash'  { Invoke-ActionComputeOwnCanonicalHash }
         'Help'                     { Invoke-ActionHelp }
@@ -3824,6 +4046,7 @@ $Script:ForceOverrideForeign      = [bool]$ForceOverrideForeign.IsPresent
 $Script:ReplaceExistingFromCaller = [bool]$ReplaceExistingFromCaller.IsPresent
 $Script:RestoreForeignBackup      = [bool]$RestoreForeignBackup.IsPresent
 $Script:AuditMode                 = [bool]$AuditMode.IsPresent
+$Script:Strict                    = [bool]$Strict.IsPresent
 $Script:OutputFormat              = $OutputFormat
 $Script:HistoryMaxEntries         = $HistoryMaxEntries
 

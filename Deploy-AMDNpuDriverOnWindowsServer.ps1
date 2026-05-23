@@ -335,7 +335,7 @@ $Script:AuditMode              = [bool]$AuditMode.IsPresent
 # =============================================================================
 # Script-scope state
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.05.23-r16'
+$Script:ScriptVersion       = 'npu-2026.05.23-r17'
 $Script:ScriptTag           = 'legacy-ws2019-wdac-spf-integration'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
@@ -5380,7 +5380,7 @@ function Compare-InfDriverVer {
 # has 2+ peers to compare).
 
 $Script:WdacOrchestratorFileName            = 'Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1'
-$Script:ExpectedWdacScriptCanonicalSha256   = 'f779bf50c41201a6564bf968d040cf39348433951cb83accd856245bebef7ced'
+$Script:ExpectedWdacScriptCanonicalSha256   = '7d61cf15ca0c3e244334d521c35f4dbf74333eaee823bc32fd8a5ba636b21dfb'
 $Script:WdacOrchestratorRawGithubUrl        = 'https://raw.githubusercontent.com/usui-tk/Deploy-Drivers-For-WindowsServer/main/Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1'
 
 function Get-CanonicalScriptHash {
@@ -5570,6 +5570,43 @@ function Invoke-PrepPhase00_Initialize {
     $Script:DetectedPlatform.Inf2CatOsSwitch = $os.Inf2CatOsSwitch
     $Script:DetectedPlatform.IsWorkstationOs = $os.IsWorkstationOs
     $Script:DetectedPlatform.IsServer2025    = $os.IsServer2025
+
+    # r17 (Q-X1, 2026-05-23): refuse NPU Install / All on legacy Windows Server
+    # (WS2019 / WS2016) before any further initialization work runs. The
+    # AMD NPU driver pipeline has not been validated on legacy Windows
+    # Server SKUs that require the WDAC Single Policy Format (SPF) path,
+    # and running it would exercise unvalidated SPF interaction code with
+    # no physical-hardware test coverage. Non-destructive actions
+    # (PrepareVerify, Verify, Prepare, Cleanup, ListPhases) remain
+    # functional on legacy hosts so operators can still inspect the
+    # workspace, run dry-runs, or clean up. See SPEC §D.27 and the
+    # catastrophic field failure case study in SPEC §D.26.
+    Set-DebugStep 'legacy Windows Server refuse check (Q-X1)'
+    if ($Script:Action -in @('Install','All') -and (Test-IsLegacyWindowsServerOs)) {
+        Write-Fail ''
+        Write-Fail '========================================================================'
+        Write-Fail (' NPU -Action {0} is NOT SUPPORTED on Windows Server 2019 / 2016.' -f $Script:Action)
+        Write-Fail '========================================================================'
+        Write-Fail ''
+        Write-Fail '  The AMD NPU driver pipeline has not been validated on legacy Windows'
+        Write-Fail '  Server SKUs that require the WDAC Single Policy Format (SPF) path.'
+        Write-Fail '  Running NPU Install (or All, which includes Install) on these hosts'
+        Write-Fail '  would exercise unvalidated SPF interaction code that has no'
+        Write-Fail '  physical-hardware test coverage.'
+        Write-Fail ''
+        Write-Fail '  Supported hosts for NPU Install:'
+        Write-Fail '    - Windows Server 2025 (build 26100)  [primary target]'
+        Write-Fail '    - Windows Server 2022 (build 20348)  [secondary]'
+        Write-Fail ''
+        Write-Fail '  Actions that REMAIN available on Windows Server 2019 / 2016:'
+        Write-Fail '    - PrepareVerify (default) / Prepare / Verify / Cleanup / ListPhases'
+        Write-Fail '    - These are non-destructive and do NOT modify the driver store.'
+        Write-Fail ''
+        Write-Fail '  If you need NPU support on WS2019/2016, please open a GitHub issue;'
+        Write-Fail '  the path can be enabled after dedicated physical validation.'
+        Write-Fail ''
+        throw ('NPU -Action {0} refused on legacy Windows Server. See message above.' -f $Script:Action)
+    }
 
     # NPU-specific OS support warning
     Write-Host ''

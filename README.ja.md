@@ -510,6 +510,8 @@ Get-PnpDevice -InstanceId 'BTH\MS_BTHPAN*' |
 
 > **再掲**: 本スクリプトは実験的です。 続行前に [4 スクリプトのリスク分類](#4-スクリプトのリスク分類) を必ず読んでください。
 
+> **🆘 r17 (2026-05-23, Q-X1) — NPU は legacy Windows Server で Install を拒否します。** r17 以降、 `Deploy-AMDNpuDriverOnWindowsServer.ps1` は **Windows Server 2019 (build 17763) と Windows Server 2016 (build 14393) では `-Action Install` と `-Action All` を拒否** します。 AMD NPU ドライバパイプラインは WDAC Single Policy Format (SPF) path を必要とする legacy Server SKU 上で検証されておらず、 実行すると物理ハードウェアでのテストカバレッジ無しに未検証の SPF 連携コードを実行することになります。 **非破壊 action は引き続き利用可能** (WS2019 / WS2016): `-Action PrepareVerify` (デフォルト)、 `-Action Prepare`、 `-Action Verify`、 `-Action Cleanup`、 `-Action ListPhases`。 WS2019 / WS2016 で NPU を必要とする場合は GitHub Issue を開いてください — 物理機での検証完了後に path を有効化できます。 詳細は SPEC §D.27。
+
 ### Step 1 — NPU ドライバ ZIP を取得 (4 つのいずれかの Tier)
 
 NPU スクリプトは優先順位の高い順に **4 段階のダウンロード方式 (Tier)** を実装しています:
@@ -681,6 +683,8 @@ $cred = Get-Credential -UserName 'you@example.com' -Message 'AMD アカウント
 | `-LogFile`                 | `''` (無効)         | コンソール出力全体を `Start-Transcript` / `Stop-Transcript` でファイルにキャプチャするためのオプションパス。 ファイル側は全ストリーム (Output / Host / Error / Warning / Verbose / Debug) をプレーンテキストで受け取り、 インタラクティブコンソール側は `Write-Host -ForegroundColor` の色装飾を維持する。 レガシーな `... \|*>&1 \| Tee-Object -FilePath ...` イディオムは Write-Host の色情報がパイプ経由で削除されるが、 こちらは色を保持できるため推奨。 推奨ファイル名: `C:\Temp\<tag>_<Action>_<yyyyMMdd-HHmmss>.log` |
 | `-PfxPassword`             | スクリプト別         | 自己署名 PFX のパスワード (Chipset / Graphics: `'ChangeMe!2026'`、 NPU: `''`)                     |
 | `-WdacPolicyGuid`          | スクリプト別 (固定 UUID v4) | WDAC 補助 policy GUID を上書き。 デフォルトはスクリプト別 (Chipset: `503860EA-…`、 Graphics: `85336828-…`、 NPU: `8B2C4F12-…`)。 レガシー deploy のクリーンアップ、 または並列複数 deploy で使用 |
+| `-StrictBootValidation`    | (off)                | **r69+ (Chipset / Graphics / BthPan のみ)。** `I02 (AuthorizeDriverSigning)` 成功後、 WDAC SPF orchestrator の `BootLoadableCheck` action を実行し、 deploy された `SiPolicy.p7b` が構造的に検証できなければ `I03 (InstallDrivers)` 開始前に中止する (manifest 欠落、 signtool が署名無効を報告、 等)。 このスイッチ無しでは構造警告は表示のみで I03 は続行する。 WS2022 / WS2025 では no-op。 詳細は SPEC §D.29 |
+| `-ForceUnsafe`             | (off)                | **r69+ (Chipset / Graphics / BthPan のみ)。** I00 PreInstallReview で条件 C1 / C2 / C3 / C5 が成立した場合に表示される CRITICAL 承認チェックリスト (シングルディスプレイホストでの display ドライバ置換、 BitLocker ON + AMD PSP ドライバ置換、 既に WDAC SPF manifest に別の自己署名 cert が authorized 済、 ホストが 24+ 時間 reboot されていない) をバイパス。 CI / CD 自動化用途のみ。 バイパスは `Set-DebugStep` で run transcript に記録される。 **本番では絶対に使用しないこと。** 詳細は SPEC §D.28 |
 
 ### Chipset / Graphics 固有パラメータ
 

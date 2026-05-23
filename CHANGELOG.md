@@ -71,6 +71,70 @@ constants in the four driver scripts remain unchanged (the rename
 only affects the Chipset script's own canonical hash, which is not
 embedded anywhere).
 
+## [Chipset r69 / Graphics r35 / NPU r17 / BthPan r17 / WDAC SPF r05] — 2026-05-23
+
+### Context — implementing the planned improvements from r68 (QI-6 / QI-9 / QI-10 + Q-X1)
+
+The post-r04 catastrophic field failure on 2026-05-23 (see the next release entry below and SPEC §D.26) produced a planned-improvements table (QI-1 through QI-14) for code-side mitigations. This release lands four of those items: **QI-6** (CRITICAL severity acknowledgement), **QI-9** (System Restore status warning), **QI-10** (BootLoadable WDAC SPF policy check), and a new pre-flight item **Q-X1** (NPU refuses Install on legacy Windows Server because the SPF interaction has not been validated on physical NPU hardware). The remaining QI items (QI-1 through QI-5, QI-7, QI-8, QI-11 through QI-14) remain open for subsequent releases.
+
+No physical re-validation is possible in this release: the only WS2019 + Renoir bench is queued for OS reinstall. All changes have been verified via code review and PSA static analysis only; operators should treat r69 / r35 / r17 / r17 / r05 as "code-review validated, no bench replay" until a new physical host is available.
+
+### Added
+
+- **WDAC SPF orchestrator: new `-Action BootLoadableCheck` (QI-10).** Pre-flight structural sanity check for the deployed SPF policy. Verifies: (i) `ConfigCI` module is available; (ii) WDAC `AllowAll.xml` template is present under `%windir%\schemas\CodeIntegrity\ExamplePolicies\`; (iii) `SiPolicy.p7b` exists at `%windir%\System32\CodeIntegrity\`; (iv) `signtool verify /pa` against the deployed policy returns 0 (best-effort — signtool is not on stock Windows Server, in which case the check is reported as "skipped" rather than failed); (v) `manifest.json` exists and parses as JSON; (vi) authorized cert count is reported back. Each failure maps to one of a discrete `errorCategory` taxonomy (`NoPolicy` / `PolicyCorrupt` / `SignatureInvalid` / `ManifestMissing` / `ManifestCorrupt` / `ConfigCIMissing` / `AllowAllTemplateMissing` / `PermissionDenied` / `Other`) so driver scripts can print a tailored recovery message. See SPEC §D.29 for the full taxonomy.
+
+- **WDAC SPF orchestrator: new `-Strict` switch.** When passed alongside `-Action BootLoadableCheck`, structural warnings (e.g. manifest missing on a fresh install, signtool absent) escalate to `result=fail` / `exitCode=6` instead of `result=warn` / `exitCode=5`. Without `-Strict` the BootLoadableCheck is informational; with `-Strict` it is gating.
+
+- **WDAC SPF orchestrator: new `Find-Signtool` helper.** Locates `signtool.exe` by searching, in order: `PATH` (`Get-Command`), `$env:WindowsSdkDir`, then `${env:ProgramFiles(x86)}\Windows Kits\{10,8.1}\bin\*\x64\`. Returns the absolute path string, or `$null` if not found. Used by `BootLoadableCheck`; the absent-signtool case is handled gracefully as "signature check skipped".
+
+- **WDAC SPF orchestrator: `Invoke-Main` switch dispatch and Help text updated to include the new Action.** Both the `Text` and `Json` output paths now list `BootLoadableCheck` in their action enumeration.
+
+- **Driver scripts: `Invoke-BootLoadableCheck` helper (Chipset / Graphics / BthPan, byte-identical).** Driver-side wrapper around the orchestrator's new BootLoadableCheck action. On non-legacy hosts (WS2022 / WS2025, Path A/MPF) returns a synthetic `pass` with `skipped=$true`. On legacy hosts (Path C/SPF), calls `Resolve-WdacOrchestratorScript` → `Invoke-WdacOrchestrator -Action 'BootLoadableCheck'`, translates the orchestrator's `errorCategory` field into an operator-facing recovery message, and returns `[pscustomobject]@{ Result; ExitCode; Detail }`. Hooked into the phase dispatcher to run automatically after `I02 (AuthorizeDriverSigning)` succeeds and before `I03 (InstallDrivers)` starts. PSA8001-enforced byte-identical across the three scripts; region SHA256 = `a3366d00a01650ef60da3927fc2ba8910d469fe8e96e372bd2af17aa0311bd89`.
+
+- **Driver scripts: new `-StrictBootValidation` switch (Chipset / Graphics / BthPan).** Opt-in switch that flows through to the orchestrator's `-Strict`. When set and `BootLoadableCheck` returns `fail`, the dispatcher hook throws before `I03` begins, aborting the install with the boot-policy regression risk explicitly surfaced.
+
+- **Driver scripts: `Get-SystemRestorePointStatus` + `Show-SystemRestorePointWarning` helpers (Chipset / Graphics / BthPan, byte-identical, QI-9).** Operator-facing warning about System Restore state, called from `P01 (PrepareWorkspace)` after the workspace is created. Reports whether System Restore is enabled (`Get-ComputerRestorePoint`), how many recent restore points exist (last 30 days), and — critically — always prints the caveat that `SiPolicy.p7b` is **excluded from System Restore by design**, so rolling back a restore point cannot recover a WDAC boot-policy regression. Per Q9-A=b, System Restore is **not** automatically enabled; the helper is informational only. PSA8001-enforced byte-identical; region SHA256 = `4cf7b5d61532c591a320a46afdd61d822d09a244d024fa0c1fa311dd2e34fcb7`.
+
+- **Driver scripts: `Get-CriticalRiskItems` + `Invoke-CriticalAcknowledgementChecklist` helpers (Chipset / Graphics / BthPan, byte-identical, QI-6).** Adds a CRITICAL severity level to the I00 PreInstallReview risk summary. Evaluates four conditions per Q6-A: **C1** display driver replacement on single-display host, **C2** BitLocker ON + AMD PSP driver replacement, **C3** another self-signed cert already authorized in the WDAC SPF manifest (= same-session stacking detected — the exact failure mode of the 2026-05-23 incident), **C5** host has not been rebooted in 24+ hours. When any item fires, the operator must acknowledge each via interactive `y/N` prompt before I01 begins. PSA8001-enforced byte-identical; region SHA256 = `34e074d2c3ead16a0ee2d63f3e7e728472bf50219fe4e971a12b4f61016411aa`.
+
+- **Driver scripts: new `-ForceUnsafe` switch (Chipset / Graphics / BthPan).** Bypasses the CRITICAL acknowledgement checklist for CI/CD or controlled-lab automation. The bypass is recorded via `Set-DebugStep` so the audit transcript shows whether C1/C2/C3/C5 were ever surfaced. **NEVER use in production without out-of-band review** — the entire point of QI-6 is to force the operator to pause when the install plan crosses one of these tripwires.
+
+### Changed
+
+- **`Deploy-AMDNpuDriverOnWindowsServer.ps1` r16 → r17 (Q-X1): refuse `-Action Install` and `-Action All` on Windows Server 2019 / 2016.** The AMD NPU driver pipeline has not been validated on legacy Windows Server SKUs that require the WDAC Single Policy Format (SPF) path. Running NPU Install on these hosts would exercise unvalidated SPF interaction code with no physical-hardware test coverage. The P00 Initialize phase now early-throws if `Test-IsLegacyWindowsServerOs` returns `$true` AND `$Script:Action -in @('Install','All')`. Non-destructive actions (PrepareVerify, Verify, Prepare, Cleanup, ListPhases) remain functional on legacy hosts so operators can still inspect the workspace, run dry-runs, or clean up. See SPEC §D.27.
+
+- **WDAC SPF orchestrator r04 → r05.** The orchestrator's canonical SHA256 changes accordingly: `f779bf50c41201a6564bf968d040cf39348433951cb83accd856245bebef7ced` (r04) → `7d61cf15ca0c3e244334d521c35f4dbf74333eaee823bc32fd8a5ba636b21dfb` (r05). All four driver scripts' `$Script:ExpectedWdacScriptCanonicalSha256` constants are updated in lock-step. The orchestrator's `ScriptTag` is updated from `'sister-script-seeded-from-chipset-r66'` to `'r05-bootloadable-check-and-strict-switch'` to reflect that r05 carries net-new functionality rather than just being a sister-script port.
+
+- **Driver scripts: phase dispatcher modified to add a post-I02 hook (Chipset / Graphics / BthPan).** After I02 succeeds, the dispatcher invokes `Invoke-BootLoadableCheck -Strict:$Script:StrictBootValidation`. With `-StrictBootValidation`, a `Result='fail'` return is converted into a `throw` that aborts before I03; without `-StrictBootValidation`, the result is logged as a warning and I03 continues. BthPan's dispatcher uses an additional `(-not $phaseFailed)` guard because its loop body includes `Start-DebugTrace` / `Stop-DebugTrace` wrapping that needs to remain semantically intact.
+
+- **Driver scripts: `P01 (PrepareWorkspace)` integration block (Chipset / Graphics / BthPan).** Calls `Get-SystemRestorePointStatus` and `Show-SystemRestorePointWarning` immediately before `Write-PhaseFooter 'P01' 'done'`. The integration block is byte-identical across the three scripts (729 bytes). **Note**: the original r68 handoff document referred to this insertion site as "P02 (PrepareWorkspace)" — that was a typographical error in the handoff itself; the actual phase function is `Invoke-PrepPhase01_PrepareWorkspace` (`P01`), as confirmed by the operator on 2026-05-23.
+
+- **Driver scripts: `I00 (PreInstallReview)` integration block (Chipset / Graphics / BthPan).** Calls `Get-CriticalRiskItems -Ctx $Ctx -Matched <expr>` and `Invoke-CriticalAcknowledgementChecklist` immediately before `Write-PhaseFooter 'I00' 'done'`. Chipset and Graphics pass `$matched` (the per-device install plan built inside I00); BthPan passes `@()` because its I00 does not build a `$matched` array (single inbox `bthpan.inf` only) — C1/C2 cannot fire from an empty plan, while C3/C5 (which do not depend on `$Matched`) remain fully evaluated. The `Get-CriticalRiskItems` signature was redesigned during this release from the originally-proposed `$V06Plan.PerDeviceTargets[].Candidate.InfName` shape to the actual I00-internal `$matched[].Candidates[].InfName` shape (operator-confirmed B2 decision on 2026-05-23). See SPEC §D.28.
+
+### Documentation
+
+- **`SPEC.md` §D.27 (new).** NPU refuse on legacy Windows Server: rationale, refused action enumeration (Install, All), retained-functionality enumeration (PrepareVerify, Verify, Prepare, Cleanup, ListPhases), recovery path for operators who genuinely need NPU on WS2019/2016.
+
+- **`SPEC.md` §D.28 (new).** CRITICAL severity judgement logic: data contract for `Get-CriticalRiskItems` (`$Matched` shape, BthPan `@()` adapter), each condition C1/C2/C3/C5 with detection pattern, acknowledgement UX, `-ForceUnsafe` bypass semantics and audit-trail requirements.
+
+- **`SPEC.md` §D.29 (new).** `BootLoadableCheck` errorCategory taxonomy: per-category meaning, mapping to driver-side recovery messages, interaction with `-Strict` (orchestrator) and `-StrictBootValidation` (driver). Cross-references SPEC §D.26.3 QI-10.
+
+- **`SPEC.md` §D.26.3 updated.** QI-6, QI-9, QI-10, and Q-X1 status changed from "planned" to "implemented (r69 / r35 / r17 / r17 / r05)" with forward links to §D.27, §D.28, §D.29.
+
+- **`README.md` / `README.ja.md` parameter documentation updated.** New switches documented under each driver script: `-StrictBootValidation`, `-ForceUnsafe`. New action documented under the orchestrator: `-Action BootLoadableCheck` with `-Strict`. NPU-specific note added: legacy Windows Server hosts can only run non-destructive actions.
+
+- **`TESTING.md` §13 (new).** Test cases TC13.1–TC13.16 for QI-6 / QI-9 / QI-10 / Q-X1. Includes mock fixtures for the `manifest.json` shapes that drive C3 detection, and recipes for triggering each `errorCategory` value on a controlled-lab host.
+
+### Status
+
+- **Behavioural status — Chipset r69 / Graphics r35 / BthPan r17 / NPU r17 / WDAC SPF r05**: code-review validated, no physical bench replay (the only WS2019 + Renoir bench is queued for OS reinstall). On a re-validation host, the expected delta from r68 / r34 / r16 / r16 / r04 is: (i) `P01` prints the System Restore status snapshot with the `SiPolicy.p7b` exclusion caveat; (ii) `I00` halts before I01 if any C1/C2/C3/C5 item fires and the operator does not acknowledge (or `-ForceUnsafe` is not passed); (iii) `BootLoadableCheck` runs automatically after I02 and either passes silently, prints a warning, or (with `-StrictBootValidation`) aborts before I03; (iv) NPU's `-Action Install` or `-Action All` immediately refuses on WS2019/2016 with a recovery message pointing to non-destructive actions.
+
+- **Orchestrator canonical SHA256 propagation verified**: all four driver scripts (Chipset / Graphics / NPU / BthPan) embed `7d61cf15ca0c3e244334d521c35f4dbf74333eaee823bc32fd8a5ba636b21dfb`. The driver scripts will print a warning if the orchestrator on disk reports a different canonical hash; they will not refuse to proceed because the orchestrator may have been independently updated.
+
+- **PSA8001 byte-identity verified** across Chipset / Graphics / BthPan for the three new helper regions (System Restore, BootLoadableCheck driver-side wrapper, CRITICAL acknowledgement). NPU is excluded from these regions because it refuses Install on legacy hosts (Q-X1) and therefore does not need the SPF-path machinery.
+
+---
+
 ## [Chipset r68 / Graphics r34 / NPU r16 / BthPan r16 / WDAC SPF r04] — 2026-05-23
 
 ### Context — post-r04 catastrophic field failure

@@ -510,6 +510,8 @@ Get-PnpDevice -InstanceId 'BTH\MS_BTHPAN*' |
 
 > **Reminder**: this script is experimental. Read [Risk classification of the four scripts](#risk-classification-of-the-four-scripts) before continuing.
 
+> **🆘 r17 (2026-05-23, Q-X1) — NPU refuses Install on legacy Windows Server.** Starting in r17, `Deploy-AMDNpuDriverOnWindowsServer.ps1` will **refuse `-Action Install` and `-Action All` on Windows Server 2019 (build 17763) and Windows Server 2016 (build 14393)**. The AMD NPU driver pipeline has not been validated on legacy Server SKUs that require the WDAC Single Policy Format (SPF) path, and running it would exercise unvalidated SPF interaction code with no physical-hardware test coverage. **Non-destructive actions remain available** on WS2019/2016: `-Action PrepareVerify` (default), `-Action Prepare`, `-Action Verify`, `-Action Cleanup`, `-Action ListPhases`. If you need NPU on WS2019/2016, open a GitHub issue — the path can be enabled after dedicated physical validation. See SPEC §D.27.
+
 ### Step 1 — obtain the NPU driver ZIP (one of the four tiers)
 
 The NPU script supports **four download tiers** in priority order:
@@ -681,6 +683,8 @@ All four scripts share a common parameter contract for `-Action`, `-OnlyPhases`,
 | `-LogFile`                 | `''` (disabled)      | Optional path to capture the full console transcript via `Start-Transcript` / `Stop-Transcript`. The file receives every stream (Output / Host / Error / Warning / Verbose / Debug) as plain text; the interactive console keeps its `Write-Host -ForegroundColor` decoration intact. Recommended over the legacy `... \|*>&1 \| Tee-Object -FilePath ...` idiom, which strips Write-Host coloring. Suggested filename: `C:\Temp\<tag>_<Action>_<yyyyMMdd-HHmmss>.log` |
 | `-PfxPassword`             | per-script           | Password for the self-signed PFX (chipset/graphics/BthPan: `'ChangeMe!2026'`, NPU: `''`)          |
 | `-WdacPolicyGuid`          | per-script (fixed UUID v4) | Override the fixed WDAC supplemental policy GUID. Default is per-script (chipset: `503860EA-…`, graphics: `85336828-…`, NPU: `8B2C4F12-…`, BthPan: `A6E72D4F-3B98-4C5A-9E1D-7F8B2A4C6E5D`). Used for legacy-deploy cleanup or side-by-side multi-instance deploy |
+| `-StrictBootValidation`    | (off)                | **r69+ (Chipset/Graphics/BthPan only).** After `I02 (AuthorizeDriverSigning)` succeeds, run the WDAC SPF orchestrator's `BootLoadableCheck` action and abort before `I03 (InstallDrivers)` if the deployed `SiPolicy.p7b` fails structural validation (missing manifest, signtool reports invalid signature, etc.). Without this switch, structural warnings are printed but I03 proceeds. On non-legacy hosts (WS2022 / WS2025) the check is a no-op. See SPEC §D.29 |
+| `-ForceUnsafe`             | (off)                | **r69+ (Chipset/Graphics/BthPan only).** Bypass the CRITICAL acknowledgement checklist that I00 PreInstallReview prompts the operator with when conditions C1/C2/C3/C5 fire (display driver replacement on single-display host; BitLocker ON + AMD PSP driver replacement; another self-signed cert already authorized in the WDAC SPF manifest; host hasn't been rebooted in 24+ hours). Intended for CI/CD automation only; the bypass is logged via `Set-DebugStep` in the run transcript. **Do NOT use in production.** See SPEC §D.28 |
 
 ### Chipset / Graphics-specific parameters
 

@@ -3439,20 +3439,22 @@ P00 cannot fully verify items 1, 3, and 4 from inside the running OS, but it CAN
 
 | ID | Item | Severity gate | Target release |
 | --- | --- | --- | --- |
-| QI-1 | SPF-aware boot-signing table (§D.26.1.A) | bug | **r68/r34/r16 (this release)** |
-| QI-2 | LOAD_FAILED disposition (§D.26.1.B) | bug | **r68/r34 (this release)** |
-| QI-3 | BthPan I05 Attempt 3 redirect fix (§D.26.1.C) | bug | **r16 (this release)** |
-| QI-4 | BthPan I05 Attempt 4 error verbosity (§D.26.1.D) | bug | **r16 (this release)** |
-| QI-5 | Unified `WDAC supp` label across families (§D.26.1.E) | cosmetic | r69/r35/r17 |
-| QI-6 | CRITICAL severity + interactive acknowledgement (§D.26.2.A) | design | r69/r35/r17 |
-| QI-7 | `-PauseAfterPhase` / `-PauseBeforePhase` (§D.26.2.B) | design | r69/r35/r17 |
-| QI-8 | `-DryRun` for I03 (§D.26.2.C) | design | r69/r35/r17 |
-| QI-9 | P00 recovery-USB / BitLocker-key readiness gate (§D.26.2.D) | design | r69/r35/r17 |
-| QI-10 | Boot-time policy validation post-I02 (§D.26.2.E) | design | r69/r35/r17 |
-| QI-11 | README brick warning + sequencing prescription | doc | **r68/r34/r16 (this release)** |
-| QI-12 | README "Recovery from unbootable state" section | doc | **r68/r34/r16 (this release)** |
-| QI-13 | SPEC §D.26 (this section) | doc | **r68/r34/r16 (this release)** |
-| QI-14 | TESTING §12 — catastrophic-failure case study | doc | **r68/r34/r16 (this release)** |
+| QI-1 | SPF-aware boot-signing table (§D.26.1.A) | bug | **r68/r34/r16 (landed)** |
+| QI-2 | LOAD_FAILED disposition (§D.26.1.B) | bug | **r68/r34 (landed)** |
+| QI-3 | BthPan I05 Attempt 3 redirect fix (§D.26.1.C) | bug | **r16 (landed)** |
+| QI-4 | BthPan I05 Attempt 4 error verbosity (§D.26.1.D) | bug | **r16 (landed)** |
+| QI-5 | Unified `WDAC supp` label across families (§D.26.1.E) | cosmetic | r70/r36/r18 |
+| QI-6 | CRITICAL severity + interactive acknowledgement (§D.26.2.A) | design | **r69/r35/r17 (landed — see §D.28)** |
+| QI-7 | `-PauseAfterPhase` / `-PauseBeforePhase` (§D.26.2.B) | design | r70/r36/r18 |
+| QI-8 | `-DryRun` for I03 (§D.26.2.C) | design | r70/r36/r18 |
+| QI-9 | System Restore status warning in P01 (§D.26.2.D, Q9-A=b informational variant) | design | **r69/r35/r17 (landed — see §D.27 referenced byte-identical helpers)** |
+| QI-9b | P00 recovery-USB / BitLocker-key readiness gate (§D.26.2.D, full readiness-gate variant) | design | deferred to r70/r36/r18 |
+| QI-10 | BootLoadableCheck post-I02 (§D.26.2.E) | design | **r69/r35/r17/r05 (landed — see §D.29)** |
+| QI-11 | README brick warning + sequencing prescription | doc | **r68/r34/r16 (landed)** |
+| QI-12 | README "Recovery from unbootable state" section | doc | **r68/r34/r16 (landed)** |
+| QI-13 | SPEC §D.26 (this section) | doc | **r68/r34/r16 (landed)** |
+| QI-14 | TESTING §12 — catastrophic-failure case study | doc | **r68/r34/r16 (landed)** |
+| Q-X1 | NPU refuses Install on legacy Windows Server (§D.27) | bug-prevention | **r17 (landed — see §D.27)** |
 
 ### D.26.4 Generally-applicable lessons
 
@@ -3463,6 +3465,196 @@ Three lessons generalise beyond this specific incident:
 2. **Cumulative blast radius scales superlinearly with un-rebooted Install actions.** Each individual driver script's Install action is reversible-ish in isolation: `Cleanup` can undo the cert imports, the WDAC policy, and (with `pnputil /delete-driver /uninstall /force`) the driver-store entries. When three Install actions stack without a reboot between them, the dependencies between them (a single WDAC SPF policy authorizing three distinct certs simultaneously, three new self-signed catalogs that all need to pass the same boot-loader evaluation, three new sets of pnputil-published OEM INFs whose ranking interacts with each other and with whatever was inbox) compound the per-script reversibility into a state where Cleanup may not get the host back even from a successful boot, let alone an unsuccessful one. The sequencing prescription added to the README in this release is not a cosmetic recommendation — it is a hard constraint imposed by the architecture, and the bricked WS2019 + Renoir bench is the proof.
 
 3. **The repository targets physical machines, and physical machines have no OS-internal rollback path.** Early drafts of the post-r04 README and SPEC borrowed VM-shaped language ("take a snapshot before Install", "automatic System Restore Point in P02") that does not survive contact with physical-machine reality: there is no `Hyper-V Checkpoint` equivalent on a physical host, Server SKU System Restore is OFF by default and does not capture the boot-loader-evaluated `SiPolicy.p7b`, and full disk imaging is a separate hours-long workflow that runs from external rescue media (not from inside Windows). The only physical-machine-compatible recovery surface is **external preparation** — a recovery USB created on a second machine, BitLocker keys recorded to external storage, and (strongly recommended though not mandatory) a full disk image taken before `Install`. This shapes both the doc language (the README's "🖥️ Physical-machine-only deployment model" callout, the Step 0 pre-flight checklist, the Recovery-from-unbootable-state ordering) and the planned-improvement scope (QI-9 became a P00 readiness gate that PROMPTS for external-recovery preparation, not a System Restore Point creator). Any future feature that proposes "snapshot before X" on a physical-machine pipeline should be checked against this lesson before review.
+
+
+## D.27 NPU refuses Install on legacy Windows Server (`r17`, Q-X1)
+
+### D.27.0 Why this exists
+
+The AMD NPU driver pipeline (`Deploy-AMDNpuDriverOnWindowsServer.ps1`) targets the kernel-mode XDNA driver for Ryzen AI 300 / AI Max 300 / 7040 / 8040 series NPUs. Its primary validated target is **Windows Server 2025** (build 26100) and — secondarily — WS2022 (build 20348), where the WDAC Multiple Policy Format (MPF) is available via `CiTool.exe`. The pipeline's I02 phase delegates to the WDAC SPF orchestrator (`Deploy-WdacSinglePolicyFormatOnLegacyWindowsServer.ps1`) only when running on **Windows Server 2019** (build 17763) or **Windows Server 2016** (build 14393).
+
+That SPF delegation **has never been exercised on a physical NPU host**. The three production-validated driver scripts (Chipset / Graphics / BthPan) all have at least one real-bench validation of the SPF path; the NPU script has zero. The 2026-05-23 catastrophic field failure (see §D.26) reinforced that "untested boot-policy interaction code" is the highest-impact failure category for this repository — far more so than "untested driver-store interactions", because the former can leave the host unbootable.
+
+Rather than ship NPU with an untested SPF path and hope the operator never hits it, **`r17` makes NPU refuse `-Action Install` and `-Action All` on legacy Windows Server**. The refusal is enforced in P00 Initialize, immediately after OS detection, so no destructive work is queued.
+
+### D.27.1 Scope
+
+- **Refused actions on WS2019 / WS2016**: `Install`, `All`. The refusal throws with an operator-facing message that explains why and what alternatives remain.
+- **Retained actions on WS2019 / WS2016**: `PrepareVerify` (default), `Prepare`, `Verify`, `Cleanup`, `ListPhases`. These are non-destructive and do not touch the WDAC SPF path. Operators can still inspect workspace state, run dry-runs, and clean up.
+- **Unchanged on WS2022 / WS2025**: all actions remain available. The MPF path used by the NPU script on these SKUs has the same maturity level as on the Chipset / Graphics scripts.
+
+### D.27.2 Implementation
+
+`Invoke-PrepPhase00_Initialize` in `Deploy-AMDNpuDriverOnWindowsServer.ps1` now contains an early-return guard immediately after `$os = Show-OperatingSystemDetail` and `$Script:DetectedPlatform.*` assignments:
+
+```powershell
+Set-DebugStep 'legacy Windows Server refuse check (Q-X1)'
+if ($Script:Action -in @('Install','All') -and (Test-IsLegacyWindowsServerOs)) {
+    Write-Fail (' NPU -Action {0} is NOT SUPPORTED on Windows Server 2019 / 2016.' -f $Script:Action)
+    # ... operator-facing message block enumerating supported hosts and retained actions ...
+    throw ('NPU -Action {0} refused on legacy Windows Server. See message above.' -f $Script:Action)
+}
+```
+
+The guard fires for both `Install` (the primary destructive action) and `All` (which expands to all phases including I-phases). The `Test-IsLegacyWindowsServerOs` predicate is the same one used elsewhere in the script and the sister scripts to gate the SPF/MPF code-path split.
+
+### D.27.3 How to enable NPU on WS2019/WS2016
+
+The path is intentionally guarded but not permanently closed. To enable NPU on legacy Server, the project needs:
+
+1. A physical NPU-bearing host (Ryzen AI 300 / AI Max 300 / 7040 / 8040) running WS2019 or WS2016.
+2. A real test cycle covering at least: P00 OS detection, P05 INF analysis on the NPU INF, I02 SPF orchestrator delegation, I03 pnputil drive-store add, I04 disposition classification.
+3. Documentation of any divergence from Chipset / Graphics observed during the test cycle.
+
+Once that physical validation has been completed and reviewed, the guard in `Invoke-PrepPhase00_Initialize` can be removed in a future release and the SPF path documented as production-validated for NPU.
+
+Operators who need NPU on WS2019/2016 today should open a GitHub issue and commit to running the physical validation; the repository maintainer can then coordinate a per-bench bring-up.
+
+
+## D.28 CRITICAL severity acknowledgement (QI-6, `r69/r35/r17`)
+
+### D.28.0 Why this exists
+
+The 2026-05-23 catastrophic field failure (§D.26) was produced by stacking three Install actions on the same WS2019 + Renoir bench without rebooting between them. The I00 PreInstallReview phase displayed the install plan to the operator on each run, but its **HIGH-risk** label proved insufficient: the operator (correctly) interpreted HIGH as "this is a routine install on AMD/Server hosts; HIGH is the normal class for such installs" and proceeded.
+
+`r69/r35/r17` introduces a **CRITICAL severity** above HIGH that fires only when the *combination* of host state and install plan crosses one of four specific tripwires (per Q6-A). Each CRITICAL item requires the operator to acknowledge via an interactive `y/N` prompt before I01 begins. Acknowledgement is per-item, not blanket. The acknowledgement text is item-specific, and tells the operator exactly what risk is being acknowledged.
+
+### D.28.1 Conditions evaluated
+
+| ID | Condition | Detection pattern |
+| --- | --- | --- |
+| **C1** | Display driver replacement on single-display host | `@(Get-PnpDevice -Class Display -Status OK).Count -le 1` AND any candidate INF matches `(?i)^(display\.inf\|u020.*\.inf)$` |
+| **C2** | BitLocker ON + AMD PSP driver replacement | `Get-BitLockerVolume -MountPoint $env:SystemDrive` reports `ProtectionStatus='On'` AND any candidate INF matches `(?i)psp` |
+| **C3** | Same-session WDAC SPF cert stacking | `$env:ProgramData\Deploy-Drivers-For-WindowsServer\wdac\manifest.json` exists, parses, and `authorizedCerts[]` contains at least one entry whose thumbprint is *different from* the current driver script's `$Ctx.CertThumbprint`. This is the exact failure mode of 2026-05-23 — another driver script has already deployed its cert without an intervening reboot. |
+| **C5** | Host not rebooted in 24+ hours | `((Get-Date) - (Get-CimInstance Win32_OperatingSystem).LastBootUpTime).TotalHours -gt 24` |
+
+(C4 — "System Restore disabled" — was originally proposed in Q6-A but is handled by QI-9 (§D.27 area, System Restore status warning helpers) as a non-blocking informational warning per Q9-A=b, and was deliberately not promoted to CRITICAL: System Restore is OFF by default on Windows Server SKUs, so promoting C4 to CRITICAL would force every operator to acknowledge it on every install, which would condition them to acknowledge CRITICAL items reflexively. The whole point of CRITICAL is that it fires *rarely*.)
+
+### D.28.2 Data contract for `Get-CriticalRiskItems`
+
+The helper is invoked from each driver script's I00 PreInstallReview phase. Signature:
+
+```powershell
+function Get-CriticalRiskItems {
+    param(
+        [Parameter(Mandatory)] $Ctx,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]]$Matched
+    )
+    # returns [pscustomobject[]] @{ Id; Title; Detail; AckQuestion }
+}
+```
+
+The `$Matched` parameter is the I00-internal `$matched[]` array which has the shape:
+
+```powershell
+[pscustomobject]@{
+    Device     = <PnP device object>
+    MatchKey   = <HWID match key>
+    Current    = <current driver info from Get-DeviceCurrentDriver>
+    Category   = <driver-source classification record>
+    Candidates = <INF object[], each with .InfName>
+}
+```
+
+**Important — BthPan adapter**: BthPan's I00 phase does not build a `$matched[]` array because BthPan deals with a single inbox `bthpan.inf` (no per-device candidate enumeration). The BthPan integration site passes `@()` (an empty array) to `Get-CriticalRiskItems`. C1 and C2 iterate over `$Matched[].Candidates[].InfName` and therefore yield nothing on BthPan, which is correct — BthPan never replaces `display.inf` or a PSP driver. C3 and C5 do not depend on `$Matched` and remain fully evaluated on BthPan.
+
+This `$matched[]` shape was confirmed as the correct data contract by the operator on 2026-05-23 (decision B2, after the original r68 handoff proposed a `$V06Plan.PerDeviceTargets[].Candidate.InfName` shape that did not match the actual I00 phase data flow).
+
+### D.28.3 Acknowledgement UX and `-ForceUnsafe`
+
+`Invoke-CriticalAcknowledgementChecklist` is called from I00 with the items returned by `Get-CriticalRiskItems`. Behaviour:
+
+- **Empty items**: returns `$true` immediately. I00 continues, I01 begins normally.
+- **One or more items, `-ForceUnsafe` absent**: prints a CRITICAL header, then iterates each item and prompts `Read-Host` for `y/N`. On `y` / `yes`, the item is logged as acknowledged via `Set-DebugStep` and the next item is presented. On any other response, the function returns `$false` and the I00 integration site throws `'CRITICAL risk item(s) not acknowledged. Aborting before I01.'`
+- **`-ForceUnsafe` present**: prints a CRITICAL header AND a `-ForceUnsafe is set; CRITICAL acknowledgement checklist is BYPASSED` warning, logs the bypass via `Set-DebugStep` with the full item-ID list, and returns `$true`. The bypass-with-item-list trace event is the audit anchor for compliance review.
+
+The interactive `Read-Host` is intentionally not redirectable to a file — automation use cases must use `-ForceUnsafe` (which logs the bypass) rather than piping `y` into stdin. This is a deliberate ergonomic choice: it makes the bypass explicit in the script invocation rather than buried in a shell pipeline.
+
+### D.28.4 Why C3 specifically targets the 2026-05-23 failure mode
+
+The 2026-05-23 catastrophic field failure was caused by running `Chipset Install → Graphics Install → MSBthPan Install` on the same WS2019 host without reboots. Each script's I02 phase ran the WDAC SPF orchestrator's `AddCert` action, which appended a new authorized cert to the manifest:
+
+```json
+// manifest.json after Chipset Install
+{ "authorizedCerts": [ { "thumbprint": "<chipset-cert>", ... } ] }
+
+// manifest.json after Graphics Install (no reboot)
+{ "authorizedCerts": [ { "thumbprint": "<chipset-cert>", ... }, { "thumbprint": "<graphics-cert>", ... } ] }
+
+// manifest.json after MSBthPan Install (still no reboot)
+{ "authorizedCerts": [ { "thumbprint": "<chipset-cert>", ... }, { "thumbprint": "<graphics-cert>", ... }, { "thumbprint": "<bthpan-cert>", ... } ] }
+```
+
+C3 reads the manifest at I00 time and counts cert entries that are NOT the current script's own thumbprint. On the catastrophic-failure host, the second and third Install runs would have seen `≥ 1` other-thumbprint entry and triggered the C3 acknowledgement. The acknowledgement text says: *"I have rebooted since the previous Install AND verified the host is healthy"*. An honest operator answering `N` (because no reboot was performed) would have stopped the cumulative failure at the second Install. The 2026-05-23 incident would not have occurred.
+
+This is the *exact* tripwire C3 is designed to catch. Future-self note: do not soften the C3 acknowledgement text, do not add an `-AllowSessionStacking` switch that bypasses C3 only, and do not move C3 below WARNING severity. The cost of one extra y/N prompt for a legitimate same-session install (where the host actually has been rebooted; the operator answers `y` and proceeds) is dramatically lower than the cost of one bricked WS2019 + Renoir bench.
+
+
+## D.29 `BootLoadableCheck` errorCategory taxonomy (QI-10, `r05`/`r69/r35/r17`)
+
+### D.29.0 Why this exists
+
+I02 (AuthorizeDriverSigning) on legacy Server SKUs delegates to the WDAC SPF orchestrator's `AddCert` action, which deploys `SiPolicy.p7b` to `%windir%\System32\CodeIntegrity\`. The orchestrator returns success when the deployment finishes without errors, but **runtime CI activation success does not prove boot-time acceptance** (§D.26.4 lesson 1). A successful AddCert call can still produce a policy that:
+
+- has a structurally-valid P7B envelope but an invalid signature (the host's signer chain rejects the cert);
+- has a valid signature but a corrupt internal policy XML;
+- has no boot loader visibility because manifest.json is missing/corrupt and a future Repair action cannot find the policy;
+- is missing entirely (silent deploy failure that returned success).
+
+The new `-Action BootLoadableCheck` (r05) exposes each of these failure modes as a discrete `errorCategory` value, so the driver-side `Invoke-BootLoadableCheck` helper can print a category-specific recovery message.
+
+### D.29.1 Categories
+
+| `errorCategory` | Trigger | Severity (no `-Strict`) | Severity (`-Strict`) |
+| --- | --- | --- | --- |
+| `null` (= pass) | All checks passed | `pass` / exit 0 | `pass` / exit 0 |
+| `ConfigCIMissing` | `Get-Module -ListAvailable -Name ConfigCI` returns nothing | `fail` / exit 6 | `fail` / exit 6 |
+| `AllowAllTemplateMissing` | `%windir%\schemas\CodeIntegrity\ExamplePolicies\AllowAll.xml` does not exist | `fail` / exit 6 | `fail` / exit 6 |
+| `NoPolicy` | `%windir%\System32\CodeIntegrity\SiPolicy.p7b` does not exist | `fail` / exit 6 | `fail` / exit 6 |
+| `PermissionDenied` | `Get-FileHash -LiteralPath SiPolicy.p7b` throws (file locked / ACL deny) | `fail` / exit 6 | `fail` / exit 6 |
+| `SignatureInvalid` | `signtool verify /pa SiPolicy.p7b` exits non-zero | `warn` / exit 5 | `fail` / exit 6 |
+| `ManifestMissing` | `manifest.json` does not exist | `warn` / exit 5 | `fail` / exit 6 |
+| `ManifestCorrupt` | `manifest.json` exists but `ConvertFrom-Json` throws | `fail` / exit 6 | `fail` / exit 6 |
+| `Other` | (reserved — unmapped exception path) | `fail` / exit 6 | `fail` / exit 6 |
+
+**Notes on the severity split**:
+
+- `ConfigCIMissing` / `AllowAllTemplateMissing` are always `fail` because they indicate environment-level damage: the host is missing kernel-mode-integrity infrastructure that no in-script Repair can reconstruct.
+- `NoPolicy` / `PermissionDenied` / `ManifestCorrupt` are always `fail` because they indicate the deployment state is broken in a way that cannot be safely ignored — proceeding to I03 would publish drivers into a state where the SPF policy cannot authorize them.
+- `SignatureInvalid` / `ManifestMissing` are `warn` by default because they have legitimate transient causes: signtool may not be on PATH on a stock Server install (no SDK), and manifest.json may be missing on a brand-new host where no other driver script has been run. With `-Strict`, those are escalated.
+
+### D.29.2 Driver-side message mapping
+
+`Invoke-BootLoadableCheck` translates each `errorCategory` into an operator-facing recovery message:
+
+| `errorCategory` | Driver-side message |
+| --- | --- |
+| `NoPolicy` | SPF policy not deployed. I02 may have failed silently. Re-run `-Action Install` (or invoke the orchestrator `-Action AddCert` directly). |
+| `PolicyCorrupt` | SPF policy exists but is not parseable as a P7B-signed CI policy. Run orchestrator `-Action Repair`. |
+| `SignatureInvalid` | SPF policy signature does not verify (`signtool /pa` returned non-zero). Run orchestrator `-Action Repair`. |
+| `ManifestMissing` | Orchestrator manifest is missing. Policy may be deployed but cert-tracking state is broken; run orchestrator `-Action GetStatus`. |
+| `ManifestCorrupt` | Orchestrator manifest exists but JSON parse failed. Delete `manifest.json` and re-run orchestrator `-Action AddCert`. |
+| `ConfigCIMissing` | `ConfigCI` module not present on this host. Install the Windows Defender Application Control feature. |
+| `AllowAllTemplateMissing` | WDAC AllowAll template missing under `%windir%\schemas\CodeIntegrity\ExamplePolicies\`. OS integrity may be compromised. |
+| `PermissionDenied` | Cannot read the deployed SPF policy file. Re-run from an elevated PowerShell session. |
+| `Other` | Unhandled BootLoadableCheck error: `<orchestrator message>`. |
+
+### D.29.3 Interaction with `-Strict` / `-StrictBootValidation`
+
+There are two boolean knobs:
+
+1. **Orchestrator-side `-Strict`** (added to the orchestrator's `param()` block in r05). Controls whether the orchestrator's BootLoadableCheck action returns `warn` or `fail` for the warn-able categories (`SignatureInvalid`, `ManifestMissing`).
+2. **Driver-side `-StrictBootValidation`** (added to Chipset / Graphics / BthPan in r69 / r35 / r17). When set, the driver script (a) passes `-Strict` through to the orchestrator, AND (b) treats a `Result='fail'` return as a `throw` that aborts before I03.
+
+The two-knob design matters because the driver script needs to make a policy decision separate from the orchestrator's measurement. The orchestrator reports what it saw; the driver decides what to do about it. In default mode (no `-StrictBootValidation`), structural warnings are surfaced to the operator but do not prevent I03 from proceeding; this matches the operator-facing "print everything, let the operator decide" philosophy of the I00 phase. In strict mode, the driver pre-commits to "stop before I03 if anything is structurally wrong", which is appropriate for unattended-automation use cases.
+
+### D.29.4 Why `signtool` absence is "skipped" rather than "fail"
+
+`signtool.exe` is part of the Windows SDK and is NOT shipped with a stock Windows Server install. Treating its absence as a failure would force every production host to install the SDK, which is unrealistic.
+
+The orchestrator's `Find-Signtool` helper returns `$null` when signtool cannot be located, and `Invoke-ActionBootLoadableCheck` then records `signtoolVerify.output = '(signtool.exe not found... signature check skipped)'` and continues to the next check. The remaining checks (manifest validity, file existence) are independent of signtool and still complete. The category becomes `null` (= pass) when all non-signtool checks pass, with the skipped-signature note in the detail payload so the operator can see *what* was checked.
+
+Operators who want the signature check to be authoritative should install the Windows SDK and re-run; the next `BootLoadableCheck` invocation will pick up signtool from the SDK's bin directory via the `$env:WindowsSdkDir` fallback in `Find-Signtool`.
 
 
 ## Appendix: How to seed a new sister script from this SPEC
