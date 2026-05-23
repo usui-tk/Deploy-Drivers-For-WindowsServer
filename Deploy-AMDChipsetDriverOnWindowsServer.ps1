@@ -640,7 +640,7 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.05.23-r67'
+$Script:ScriptVersion = 'chipset-2026.05.23-r68'
 $Script:ScriptTag     = 'legacy-ws2019-wdac-spf-integration'
 $Script:ScriptHash    = '(unknown)'
 try {
@@ -3385,6 +3385,17 @@ function Update-BootSigningEnvironmentForCtx {
     # workspace marker file. Use this from any phase that has a $Ctx
     # in scope. The plain Get-BootSigningEnvironment is safe to call
     # at startup before $Ctx is populated.
+    #
+    # r68 (SPEC §D.26): on WS2019/WS2016 hosts where Path C deployed
+    # an SPF policy via the external orchestrator, the MPF-focused
+    # Test-AmdWdacPolicyDeployed cannot see it (no CiTool, no
+    # CiPolicies\Active\*.cip). Without an SPF-aware fallback, every
+    # post-I02 invocation falsely reports "Self-signed driver:
+    # BLOCKED / No WDAC supplemental policy authorizes the AMD
+    # self-signing certificate" even though the policy IS active and
+    # the cert IS authorized. This was directly observable in the
+    # WS2019 + Renoir pilot run that surfaced the chain of post-r04
+    # findings — see SPEC.md §D.26.
     param([Parameter(Mandatory)] $Ctx)
     $env = Get-BootSigningEnvironment
     $deployed = Test-AmdWdacPolicyDeployed -Ctx $Ctx
@@ -3399,6 +3410,24 @@ function Update-BootSigningEnvironmentForCtx {
                      ($env.TestSigningEnabled -eq $true) -and `
                      (-not $env.HvciRunning)
         $env.EffectiveCanLoadSelfSigned = ($true -or $path2Open)  # path1 is open
+        return $env
+    }
+    # Fallback: legacy WS2019/WS2016 SPF path. Only consult if the
+    # MPF probe returned nothing AND we have a cert thumbprint to
+    # check against. Test-LegacyWdacSpfAuthorizedForCert is cheap
+    # (parses one JSON file), so we always try it when MPF was empty.
+    $thumb = $null
+    if ($Ctx -and $Ctx.CertThumbprint) { $thumb = [string]$Ctx.CertThumbprint }
+    if ($thumb -and (Test-LegacyWdacSpfAuthorizedForCert -Thumbprint $thumb)) {
+        $env.AmdSuppPolicyActive = $true
+        $env.AmdSuppPolicyId     = '(SPF: see %ProgramData%\Deploy-Drivers-For-WindowsServer\wdac\manifest.json)'
+        $env.BlockReasons = @($env.BlockReasons | Where-Object {
+            $_ -ne 'No WDAC supplemental policy authorizes the AMD self-signing certificate'
+        })
+        $path2Open = ($env.SecureBootEnabled -ne $true) -and `
+                     ($env.TestSigningEnabled -eq $true) -and `
+                     (-not $env.HvciRunning)
+        $env.EffectiveCanLoadSelfSigned = ($true -or $path2Open)  # SPF path is open
     }
     return $env
 }
@@ -3737,6 +3766,55 @@ function Test-AmdWdacPolicyDeployed {
     if (-not $policyId) { return $null }
     $hit = $active | Where-Object { $_.PolicyId -eq $policyId } | Select-Object -First 1
     return $hit
+}
+
+function Test-LegacyWdacSpfAuthorizedForCert {
+    # WS2019/WS2016 cannot host the MPF supplemental policies that
+    # Test-AmdWdacPolicyDeployed inspects (no CiTool, no Active dir).
+    # On those hosts the WDAC SPF orchestrator deploys a single
+    # base policy at C:\Windows\System32\CodeIntegrity\SiPolicy.p7b
+    # and records the authorized cert thumbprints in a manifest at
+    # %ProgramData%\Deploy-Drivers-For-WindowsServer\wdac\manifest.json
+    # (schemaVersion 1.0, schemaId deploy-drivers-for-windowsserver/
+    # wdac-manifest/v1).
+    #
+    # This helper returns $true ONLY when ALL of the following hold:
+    #   1. The orchestrator's manifest.json exists and parses.
+    #   2. The deployed SiPolicy.p7b exists on disk.
+    #   3. The manifest's authorizedCerts[] array contains a row whose
+    #      thumbprint (case-insensitive, hex) matches $Thumbprint.
+    #
+    # Returns $false on any negative or unparseable condition. The
+    # caller is responsible for combining this with Secure Boot /
+    # testsigning / HVCI checks; this only asserts "the SPF policy
+    # has the cert listed", NOT "the kernel will load self-signed
+    # drivers right now". See SPEC.md §D.26 for the I02-I04 cross-path
+    # accuracy fix.
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory=$true)][string]$Thumbprint
+    )
+    if ([string]::IsNullOrWhiteSpace($Thumbprint)) { return $false }
+    $deployed = Join-Path $env:windir 'System32\CodeIntegrity\SiPolicy.p7b'
+    if (-not (Test-Path -LiteralPath $deployed -PathType Leaf)) { return $false }
+    $manifest = Join-Path $env:ProgramData 'Deploy-Drivers-For-WindowsServer\wdac\manifest.json'
+    if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { return $false }
+    try {
+        $raw = Get-Content -LiteralPath $manifest -Raw -Encoding UTF8 -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($raw)) { return $false }
+        $obj = $raw | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        return $false
+    }
+    if (-not $obj -or -not $obj.authorizedCerts) { return $false }
+    $target = $Thumbprint.ToUpper()
+    foreach ($c in $obj.authorizedCerts) {
+        if ($c -and $c.thumbprint -and ($c.thumbprint.ToUpper() -eq $target)) {
+            return $true
+        }
+    }
+    return $false
 }
 
 function New-AmdDriverWdacSupplementalPolicy {
@@ -12489,6 +12567,33 @@ function Invoke-InstPhase04_PostInstallVerification {
             $disposition = 'REBOOT_NEEDED'
         }
 
+        # r68 (SPEC §D.26): LOADED honesty gate. The two LOADED branches
+        # above classify a device as LOADED whenever Win32_PnPSignedDriver
+        # reports a new INF binding, but that table is updated by Setup
+        # API as part of the install transaction REGARDLESS of whether
+        # the kernel actually finished loading the driver. On a Secure
+        # Boot enforced host where the SPF policy didn't actually let
+        # the self-signed driver pass kernel CI, the device ends up
+        # bound on paper but with ConfigManagerErrorCode != 0
+        # (CM_PROB_DRIVER_FAILED_LOAD = 39, CM_PROB_NEED_RESTART = 14,
+        # etc.) and the associated service stopped. Demote those to
+        # the new LOAD_FAILED bucket so the per-device summary and the
+        # functional health probe stop disagreeing — this is exactly
+        # the surface symptom Takayuki saw on 2026-05-23 (Audio
+        # CoProcessor + HD Audio Controller showed up in [LOADED] yet
+        # also in the [FAIL] functional probe). See SPEC.md §D.26.
+        if ($disposition -eq 'LOADED' -and $a -and $a.PNPDeviceID) {
+            try {
+                $pnp = Get-PnpDevice -InstanceId $a.PNPDeviceID -ErrorAction Stop
+                if ($pnp -and $pnp.ConfigManagerErrorCode -and ([int]$pnp.ConfigManagerErrorCode) -ne 0) {
+                    $disposition = 'LOAD_FAILED'
+                }
+            } catch {
+                # If we can't query PnP, leave the LOADED classification
+                # as-is and let the functional probe surface details.
+            }
+        }
+
         $perDevice += [pscustomobject]@{
             DeviceName     = $a.DeviceName
             PNPDeviceID    = $a.PNPDeviceID
@@ -12507,18 +12612,43 @@ function Invoke-InstPhase04_PostInstallVerification {
     Write-Host ''
     Write-Host '--- 1. Driver disposition by device ---' -ForegroundColor Cyan
     Write-Host '  Driver-source categories: [A]Microsoft  [B]Vendor  [C]Self-signed  [?]Unknown' -ForegroundColor DarkGray
-    $loaded    = @($perDevice | Where-Object Disposition -eq 'LOADED')
-    $reboot    = @($perDevice | Where-Object Disposition -eq 'REBOOT_NEEDED')
-    $failed    = @($perDevice | Where-Object Disposition -eq 'FAILED')
-    $unchanged = @($perDevice | Where-Object Disposition -eq 'UNCHANGED')
-    $keptCur   = @($perDevice | Where-Object Disposition -eq 'KEPT_CURRENT')
+    $loaded     = @($perDevice | Where-Object Disposition -eq 'LOADED')
+    $reboot     = @($perDevice | Where-Object Disposition -eq 'REBOOT_NEEDED')
+    $failed     = @($perDevice | Where-Object Disposition -eq 'FAILED')
+    $loadFailed = @($perDevice | Where-Object Disposition -eq 'LOAD_FAILED')
+    $unchanged  = @($perDevice | Where-Object Disposition -eq 'UNCHANGED')
+    $keptCur    = @($perDevice | Where-Object Disposition -eq 'KEPT_CURRENT')
 
     Write-Host ('  LOADED        : {0,3} device(s)  - new driver active without reboot' -f $loaded.Count) -ForegroundColor Green
     Write-Host ('  REBOOT_NEEDED : {0,3} device(s)  - new driver in store, reboot to activate' -f $reboot.Count) -ForegroundColor Yellow
+    Write-Host ('  LOAD_FAILED   : {0,3} device(s)  - INF bound but kernel rejected the driver (CM_PROB error)' -f $loadFailed.Count) -ForegroundColor Red
     Write-Host ('  KEPT_CURRENT  : {0,3} device(s)  - current driver newer; intentionally not replaced' -f $keptCur.Count) -ForegroundColor Cyan
     Write-Host ('  UNCHANGED     : {0,3} device(s)  - no replacement INF in the patched set' -f $unchanged.Count) -ForegroundColor DarkGray
     Write-Host ('  FAILED        : {0,3} device(s)  - pnputil failed for this INF' -f $failed.Count) -ForegroundColor Red
     Write-Host ''
+
+    if ($loadFailed.Count -gt 0) {
+        Write-Host '  [LOAD_FAILED] - kernel rejected the new driver (see functional probe in Section 2):' -ForegroundColor Red
+        foreach ($p in $loadFailed) {
+            $cv = if ($p.After)  { $p.After.DriverVersion  } else { '(unknown)' }
+            $infName = if ($p.Candidate) { $p.Candidate.InfName } else { '(none)' }
+            $cmErr = ''
+            try {
+                $pnp = Get-PnpDevice -InstanceId $p.PNPDeviceID -ErrorAction Stop
+                if ($pnp) {
+                    $cmErr = ('ConfigManagerErrorCode={0} ({1})' -f $pnp.ConfigManagerErrorCode, $pnp.Status)
+                }
+            } catch { }
+            Write-Host ('    - {0}' -f $p.DeviceName) -ForegroundColor Red
+            Write-Host ('        Bound INF: {0}, AFTER: v{1}  {2}' -f $infName, $cv, $cmErr) -ForegroundColor DarkRed
+            Write-Host '        Likely cause: Secure Boot is enforcing kernel CI but the WDAC SPF policy did' -ForegroundColor DarkRed
+            Write-Host '                      not authorize this self-signed cert at boot time, OR HVCI is on.' -ForegroundColor DarkRed
+            Write-Host '        Recovery   : reboot, verify WDAC SPF policy is active via -OnlyPhases V06,' -ForegroundColor DarkRed
+            Write-Host '                     and re-check.  If still failing, run "pnputil /delete-driver"' -ForegroundColor DarkRed
+            Write-Host '                     on the failed INF, then re-run -Action Install.' -ForegroundColor DarkRed
+        }
+        Write-Host ''
+    }
 
     if ($keptCur.Count -gt 0) {
         Write-Host '  [KEPT_CURRENT] - version-aware skip; current driver is newer:' -ForegroundColor Cyan

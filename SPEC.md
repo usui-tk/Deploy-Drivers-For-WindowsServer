@@ -3281,6 +3281,190 @@ foreach ($f in (Get-ChildItem *.ps1)) {
 Adding this check as a `psa.py` repository-scoped rule (suggested code `PSAP0005`, alongside `PSAP0001`..`PSAP0004`) is on the backlog. Until then, maintainers must run the snippet above before any orchestrator or driver-script change that touches a `param()` block. The relationship between this audit and the PS 7+-only-parameter audit immediately above is that **both catch silently-accepted-but-broken PowerShell parser constructs**, which is the broader class of failure mode being defended against.
 
 
+## D.26 Post-r04 catastrophic field failure and the resulting quality-improvement programme
+
+**Affected scripts**: `Deploy-AMDChipsetDriverOnWindowsServer.ps1` (r67 → r68), `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` (r33 → r34), `Deploy-MSBthPanInboxOnWindowsServer.ps1` (r15 → r16). NPU is not affected (its simplified boot-signing helpers do not exhibit any of the symptoms described here).
+
+**Affected environment**: Windows Server 2019 build 17763 + Ryzen 5 PRO 4650U (Renoir) + Secure Boot ON + BitLocker OFF. WDAC SPF orchestrator at r04 (the post-fix release described in §D.25). All four certs (chipset, graphics, NPU was not run, BthPan) generated fresh on this bench.
+
+### D.26.0 What happened
+
+On 2026-05-23, immediately after the r04 orchestrator fix was validated in isolation (§D.25 Status r04 Pass), the operator ran `Chipset Install` → `Graphics Install` → `MSBthPan Install` in sequence on the same bench, **with no reboot between scripts**. All three scripts reported their phases as completed:
+
+- **Chipset Install**: I02 deploys SPF policy successfully (`State : None -> Ours-Healthy`), I03 installs 55 INFs (1 reboot-required for the AMD PSP driver, 2 no-op, 0 failed), I04 enumerates 42 AMD devices with 5 REBOOT_NEEDED / 37 UNCHANGED / 0 FAILED.
+- **Graphics Install** (executed without rebooting after Chipset Install): I02 reports `Legacy WDAC SPF policy is active. No reboot required (per WMI CIM bridge)` — yet I04 immediately afterwards still prints `WDAC-AMD=off / Self-signed driver: BLOCKED` and lists 2 LOADED devices (AMD Audio CoProcessor, AMD High Definition Audio Controller). Both LOADED devices then fail the I04 Section 2 functional probe with `[FAIL] PnP status: Error / ConfigCode = CM_PROB_DRIVER_FAILED_LOAD or CM_PROB_NEED_RESTART / Service Stopped`. Display adapter, Link Controller, and Crash Defender are placed in REBOOT_NEEDED.
+- **MSBthPan Install** (executed without rebooting after Graphics Install): I02 again reports SPF policy active; I03 installs `bthpan.inf`; I04 reports `BTH\MS_BTHPAN` is in Unknown state (code 28, no driver bind); I05 ForceRebind cascades through Attempts 1–4 and fails all of them. Attempt 3 fails on a PowerShell `Start-Process` validator error (`RedirectStandardOutput と RedirectStandardError が同じであるため、実行できません`), and Attempt 4 fails to start the `BthPan` service with a generic, recursively-self-referencing error message.
+
+**The operator then rebooted the host**. The system **failed to complete boot in normal mode, in any Safe Mode variant tested, or via WinRE-driven offline repair attempts**. The bench was retired to the OS-reinstall queue.
+
+### D.26.1 Bugs and design defects directly attributable to the failure mode
+
+#### D.26.1.A `Update-BootSigningEnvironmentForCtx` is not SPF-aware (Chipset / Graphics / BthPan)
+
+**Symptom**: I04 (and any other phase that emits the boot-signing table) prints `WDAC-AMD=off` and `Self-signed driver: BLOCKED` even when, moments earlier, I02 reported a successful SPF policy activation via the WMI `PS_UpdateAndCompareCIPolicy` bridge. The operator therefore cannot tell — from the script's own output — whether the SPF path completed correctly or silently failed; both states render identically.
+
+**Root cause**: `Get-ActiveCodeIntegrityPolicies` (the helper that drives `Test-AmdWdacPolicyDeployed` / `Test-MsBthPanWdacPolicyDeployed`) only enumerates Multiple Policy Format (MPF) policies. It tries `CiTool.exe -lp -json` first (not present on WS2019/WS2016) and falls back to `C:\Windows\System32\CodeIntegrity\CiPolicies\Active\*.cip` (the MPF active directory, not used by SPF). The SPF policy deployed by the legacy orchestrator lives at `C:\Windows\System32\CodeIntegrity\SiPolicy.p7b` and is never read by either path. `Update-BootSigningEnvironmentForCtx` therefore sees no policy hit, leaves `AmdSuppPolicyActive = false`, and emits the misleading boot-signing table.
+
+**Fix in r68 / r34 / r16**: a new helper `Test-LegacyWdacSpfAuthorizedForCert -Thumbprint <thumb>` is added to the Chipset, Graphics, and BthPan scripts (byte-identical across them, modulo the cosmetic comment header — the body is verbatim). It returns `$true` only when **all** of the following hold:
+1. `C:\Windows\System32\CodeIntegrity\SiPolicy.p7b` exists.
+2. `%ProgramData%\Deploy-Drivers-For-WindowsServer\wdac\manifest.json` exists and parses.
+3. The manifest's `authorizedCerts[]` contains a row whose `thumbprint` (case-insensitive) matches the argument.
+
+`Update-BootSigningEnvironmentForCtx` is extended so that if the existing MPF probe (`Test-AmdWdacPolicyDeployed` / `Test-MsBthPanWdacPolicyDeployed`) returns nothing, it falls through to `Test-LegacyWdacSpfAuthorizedForCert` using `$Ctx.CertThumbprint`. On a hit, it sets `AmdSuppPolicyActive = $true`, sets `AmdSuppPolicyId = '(SPF: see %ProgramData%\Deploy-Drivers-For-WindowsServer\wdac\manifest.json)'`, removes the `'No WDAC supplemental policy authorizes ...'` entry from `BlockReasons`, and recomputes `EffectiveCanLoadSelfSigned` — i.e., the SPF path is treated as equivalent to the MPF path for the purposes of the boot-signing table.
+
+**Why this matters beyond the cosmetic table**: the misleading `BLOCKED` reading was the operator's only feedback that something might be wrong with the SPF activation. Without an SPF-aware probe, "I02 said success but I04 says BLOCKED" reads as either a phase ordering bug or a runtime-vs-boot-time distinction (i.e., "the policy is active for new processes but the kernel hasn't picked it up yet, so reboot to apply"). Both readings are wrong — the policy IS active, and the table was just wrong — but a reasonable operator faced with `[!] Self-signed driver loading is currently BLOCKED. ... Resolve these BEFORE rebooting` does the most cautious thing the message suggests, which is to continue installing the rest of the scripts in the hope that the final reboot will pick everything up at once. That is exactly what led to the back-to-back run.
+
+#### D.26.1.B I04 `LOADED` disposition ignores PnP `ConfigManagerErrorCode` (Chipset / Graphics)
+
+**Symptom**: I04 prints
+
+```
+[LOADED] - new driver is active right now:
+  - AMD Audio CoProcessor              AS-IS: [?] v    AFTER: [B] v6.0.1.85    INF: amdacpbus.inf
+  - AMD High Definition Audio Controller  AS-IS: [A] v10.0.17763.1  AFTER: [B] v10.0.0.35  INF:
+```
+
+and then in Section 2 prints `[FAIL]` for **the same two devices** with `CM_PROB_DRIVER_FAILED_LOAD` and `CM_PROB_NEED_RESTART` respectively, and the associated services (`amdacpbus`, `AMDHDAudBusService`) shown as `Stopped`. The two outputs are produced by the same `$perDevice` collection but classified by different criteria, and they disagree.
+
+**Root cause**: the LOADED classification is driven by two branches that both rely on `Win32_PnPSignedDriver`:
+- `($b -and $a -and $b.DriverVersion -ne $a.DriverVersion)` — i.e., the driver version changed before vs after.
+- `($a -and $a.InfName -and $ourInfSet -and $ourInfSet.ContainsKey($a.InfName.ToLowerInvariant()))` — i.e., the OS reports the device is currently bound to one of OUR signed INFs.
+
+Neither branch consults the PnP layer. But `Win32_PnPSignedDriver` is updated by SetupAPI as part of the install transaction — it reflects the **declarative** binding decision regardless of whether the kernel actually completed loading the driver. On a Secure-Boot-enforced host where the SPF policy didn't authorize the cert at the moment the kernel evaluated it (or where HVCI / some other CI layer rejected the load), the device ends up bound on paper but with `ConfigManagerErrorCode != 0` and the service stopped.
+
+**Fix in r68 / r34**: a third disposition `LOAD_FAILED` is added, and a post-classification gate demotes `LOADED` to `LOAD_FAILED` whenever the AFTER PnP query reports `ConfigManagerErrorCode != 0`:
+
+```powershell
+if ($disposition -eq 'LOADED' -and $a -and $a.PNPDeviceID) {
+    try {
+        $pnp = Get-PnpDevice -InstanceId $a.PNPDeviceID -ErrorAction Stop
+        if ($pnp -and $pnp.ConfigManagerErrorCode -and ([int]$pnp.ConfigManagerErrorCode) -ne 0) {
+            $disposition = 'LOAD_FAILED'
+        }
+    } catch {
+        # If we can't query PnP, leave the LOADED classification as-is
+        # and let the functional probe surface details.
+    }
+}
+```
+
+The summary section gains a `LOAD_FAILED` bucket alongside LOADED / REBOOT_NEEDED / KEPT_CURRENT / UNCHANGED / FAILED, with per-device output that quotes the `ConfigManagerErrorCode` and includes recovery hints (reboot + V06 re-check + `pnputil /delete-driver` if persisting). BthPan is not affected because its I04 uses a different (driver-binding-based) classification rather than the AMD per-device snapshot diff.
+
+#### D.26.1.C BthPan I05 Attempt 3 `Start-Process` redirect-target validator failure (BthPan)
+
+**Symptom**: I05 Attempt 3 (`pnputil /remove-device $InstanceId`) immediately fails with the user-visible error
+
+```
+[Attempt 3] pnputil rebind failed: このコマンドは、"RedirectStandardOutput" と
+"RedirectStandardError" が同じであるため、実行できません。別の入力を指定し、
+コマンドを再度実行してください。
+```
+
+(In English: "This command cannot be executed because RedirectStandardOutput and RedirectStandardError are the same. Specify different inputs and run the command again.")
+
+**Root cause**: `Invoke-BthPanPnputilRebind` (Attempt 3) used a `Start-Process` splat where both stdout and stderr redirected to the literal path `'NUL'`. PowerShell's `Start-Process` validator treats redirect targets as filesystem paths (not as Windows null-device aliases) and rejects the call when both paths string-compare equal. The validator's wording is identical to what would happen if the caller had passed e.g. `-RedirectStandardOutput .\log.txt -RedirectStandardError .\log.txt`.
+
+**Fix in r16**: `Invoke-BthPanPnputilRebind` now allocates **four** distinct temp paths via `[System.IO.Path]::GetTempFileName()` (one stdout + one stderr for `/remove-device`, one stdout + one stderr for `/scan-devices`), passes those to `Start-Process`, surfaces the stderr content via `Write-Detail` on non-zero exit codes (so operators can see WHY pnputil rejected the call without re-running with `-Verbose`), and cleans up all four temp files in a `finally` block.
+
+#### D.26.1.D BthPan I05 Attempt 4 service-start error visibility (BthPan)
+
+**Symptom**: I05 Attempt 4 (`Stop-Service BthPan -> Start-Service BthPan`) fails with
+
+```
+[Attempt 4] BthPan service restart failed: 次のエラーのため、サービス 'Bluetooth
+Device (Personal Area Network) (BthPan)' を開始できません: コンピューター '.' で
+サービス 'BthPan' を開始できません。
+```
+
+— a recursive PowerShell-formatted error that just restates "cannot start service" twice without exposing the underlying Win32 / NTSTATUS code.
+
+**Root cause**: `Invoke-BthPanServiceRestart`'s `catch` block surfaced only `$_.Exception.Message`. The actual Win32 error is in `$_.Exception.InnerException.Message`, and the numeric code (often Win32_SERVICE_NOT_BOUND or DRIVER_FAILED_LOAD) is in `$_.Exception.InnerException.NativeErrorCode`. Without those, operators cannot distinguish "service binary missing" from "service binary present but dependency stopped" from "service entry point returned error" — all three look identical in the surface message.
+
+**Fix in r16**: the `catch` block now logs the outer message **and** drills down into `$_.Exception.InnerException.Message`, `$_.Exception.InnerException.NativeErrorCode` (hex-formatted), and `sc.exe queryex BthPan` output. The combined output makes the failure mode (driver not loaded vs dependency stopped vs binary missing) immediately distinguishable.
+
+#### D.26.1.E `WDAC-AMD` / `WDAC-BthPan` boot-signing-table label is hard-coded per script
+
+**Symptom**: the same boot-signing table is rendered with different column captions (`WDAC supp (AMD cert)` in AMD-family scripts, `WDAC supp (BthPan cert)` in MSBthPan) and different compact-mode tags (`WDAC-AMD`, `WDAC-BthPan`). Operators using both families on the same host can't visually align the outputs to spot drift.
+
+**Status**: NOT addressed in r68/r34/r16. Renaming both labels to a single neutral form (`WDAC supp` and `WDAC=on/off`) would require a coordinated change across `Show-BootSigningEnvironment` in all four scripts plus the documentation that references those labels (README boot-signing section, SPEC §D.15 and below). Tracked under "Planned improvements" in §D.26.3.
+
+### D.26.2 Design defects (architectural; not single-line fixes)
+
+#### D.26.2.A I00 Risk Summary label is too low for the actual blast radius
+
+**Observation**: I00 Risk Summary on the Graphics Install reported `[MEDIUM] 2 item(s) / [LOW] 2 item(s)`. The bench then bricked. The actual realised risk was "the host cannot boot in any mode and must be reinstalled" — a strictly higher severity than any current label expresses.
+
+**Discussion**: the existing labels (`HIGH`, `MEDIUM`, `LOW`, `INFO`) are scored against per-item criteria (BitLocker present, PSP driver replaced, etc.). They do not have a category for "the host may fail to boot at all, including Safe Mode". Without that category, the score function cannot produce a high enough output — even a perfect MEDIUM-classified pre-flight is consistent with a brick.
+
+**Planned improvement** (not yet implemented; for r69/r35/r17): add a fifth severity `CRITICAL` reserved for outcomes that are not user-recoverable from inside the running OS. The current MEDIUM scoring of "display driver replacement on a host with only one display path" should be promoted to CRITICAL, as should "boot-critical driver replacement on a host without a verified recovery USB". The I00 banner for any item in CRITICAL should require an extra explicit acknowledgement (e.g. an interactive prompt `Type 'I_HAVE_A_RECOVERY_USB' to continue`, with a `-ForceUnsafe` switch to bypass for unattended runs). The acknowledgement specifically names the recovery USB (and not an OS-internal snapshot mechanism) because the script's pilot target is physical machines, on which no OS-internal rollback path exists for the kinds of failures this script can produce — see §D.26.2.D for the matching planned improvement on the P00 / P02 pre-flight side.
+
+#### D.26.2.B No pause-between-phases mode
+
+**Observation**: the operator had no way to stop after I02, validate the SPF policy with V06, perform additional out-of-band checks (e.g. confirm the recovery USB still boots, take a manual disk image if one is wanted at this checkpoint), then proceed to I03. The current phase loop is straight-through.
+
+**Planned improvement** (for r69/r35/r17): add `-PauseAfterPhase <phaseId>` and `-PauseBeforePhase <phaseId>` switches that interactively prompt the operator after / before the named phase. Combined with `-OnlyPhases`, this gives operators a fine-grained checkpoint mechanism without requiring multi-invocation orchestration.
+
+#### D.26.2.C No `-DryRun` for I03
+
+**Observation**: I03 (driver install) is the irreversible-side-effect phase, but it does not have a dry-run mode that would print exactly what pnputil command will be invoked with what arguments and then stop without invoking it. V05 / V06 cover the install **decision**, but not the install **execution plan**.
+
+**Planned improvement** (for r69/r35/r17): add `-DryRun` to I03 that prints each `pnputil /add-driver ... /install` command verbatim and exits without running it. Operators can pipe the output through `Out-File` to produce a runbook they can review.
+
+#### D.26.2.D No P00 / P02 readiness check for recovery USB or BitLocker recovery key
+
+**Observation (physical-machine context — read carefully).** The pilot target of this repository is **physical Windows Server hosts**, not VMs. Physical machines have no OS-internal rollback path that protects against the failure modes this script can produce:
+
+- **There is no `Checkpoint-Computer`-style instant snapshot/restore on a physical machine.** `Checkpoint-Computer` does create a System Restore Point, but: (a) Server SKU System Restore is OFF by default and enabling it for the system drive is a separate operator action; (b) System Restore tracks the registry and driver-store metadata but does NOT capture `C:\Windows\System32\CodeIntegrity\SiPolicy.p7b` (the WDAC SPF policy this orchestrator deploys), which means a `SiPolicy.p7b` regression — exactly the failure mode at boot — cannot be rolled back by System Restore even if it is enabled; (c) System Restore runs during OS startup, AFTER the boot loader has already evaluated the SPF policy, so a host that bricks at boot-loader stage cannot reach System Restore at all. **A previously-mooted "automatic `Checkpoint-Computer` in P02" planned improvement was removed during the post-r04 review** as ineffective for the failure class it was supposed to mitigate.
+
+- **Full disk imaging (Macrium Reflect, Clonezilla, dd via Linux Live USB) is the only physical-machine-compatible mechanism that produces a true rollback target**, but it is a separate hours-long workflow with a hard external-storage prerequisite, runs from rescue media (not Windows), and is therefore outside the scripts' ability to invoke or even validate. The scripts can recommend it, but cannot enforce or automate it.
+
+- **Recovery USB / Windows installation media** is the closest thing to a universal pre-flight requirement that is BOTH practical on a physical machine AND directly actionable from a script's pre-flight gate: every successful WinRE-based recovery path described in the README "Recovery from unbootable state" section depends on the operator having such a USB, and creating one is a one-time 10-minute task that requires no new hardware beyond a spare 16 GB USB stick.
+
+**Planned improvement (for r69/r35/r17)**: replace the previously-considered (and now-rejected) "auto System Restore Point" idea with a P00 pre-flight readiness gate that, when `-Action Install` is selected, prompts the operator to confirm the following preconditions are in place (interactive, with `-ConfirmRecoveryReadiness` switch to suppress for unattended runs):
+
+1. A bootable Windows recovery USB exists on a SECOND machine (not this one) and has been tested.
+2. BitLocker recovery keys for C: have been recorded to an external location, OR BitLocker is not enabled on C:.
+3. An OS install ISO + matching license key is on hand for last-resort reinstall.
+4. (Strongly recommended but not blocking) A full disk image has been taken to external media.
+
+P00 cannot fully verify items 1, 3, and 4 from inside the running OS, but it CAN check item 2 (`manage-bde -status C:`) and print an explicit acknowledgement banner for the others, with line-by-line `[Y/n]` prompts that go into the run transcript. The acknowledgement, with timestamps and host identity, then becomes part of the I00 → I04 audit trail in `debugtrace.jsonl`. This does not eliminate the failure mode (the script cannot prevent a boot-time WDAC policy regression by checking pre-flight status), but it ensures that operators who proceed have done so with explicit, recorded acknowledgement that they understand the recovery surface is entirely external to the script.
+
+#### D.26.2.E No boot-time-policy validation
+
+**Observation**: the WMI `PS_UpdateAndCompareCIPolicy` activation reported by the orchestrator guarantees that the policy is loaded **for runtime CI checks**, but it does NOT prove that the boot loader will accept the same policy at the next boot. There is no equivalent `Test-WdacPolicyBootLoadable` step. On the failed bench, the policy WAS active at runtime (otherwise `pnputil /install` would have rejected the self-signed catalogs) but boot-time evaluation appears to have rejected the resulting kernel module set.
+
+**Planned improvement** (for r69/r35/r17): after I02 deploys the SPF policy, verify the policy file with `signtool verify /pa SiPolicy.p7b` and parse the binary structure to confirm Option 6 (`Enabled:Unsigned System Integrity Policy`) and Option 10 (`Enabled:Boot Audit on Failure`) are both set. Option 10 is specifically the "fail to audit instead of bricking" option called out in §D.25 Decision 7. Failing this check should block I03 until the operator runs orchestrator `Repair`.
+
+### D.26.3 Planned improvements summary (post-r04 quality programme)
+
+| ID | Item | Severity gate | Target release |
+| --- | --- | --- | --- |
+| QI-1 | SPF-aware boot-signing table (§D.26.1.A) | bug | **r68/r34/r16 (this release)** |
+| QI-2 | LOAD_FAILED disposition (§D.26.1.B) | bug | **r68/r34 (this release)** |
+| QI-3 | BthPan I05 Attempt 3 redirect fix (§D.26.1.C) | bug | **r16 (this release)** |
+| QI-4 | BthPan I05 Attempt 4 error verbosity (§D.26.1.D) | bug | **r16 (this release)** |
+| QI-5 | Unified `WDAC supp` label across families (§D.26.1.E) | cosmetic | r69/r35/r17 |
+| QI-6 | CRITICAL severity + interactive acknowledgement (§D.26.2.A) | design | r69/r35/r17 |
+| QI-7 | `-PauseAfterPhase` / `-PauseBeforePhase` (§D.26.2.B) | design | r69/r35/r17 |
+| QI-8 | `-DryRun` for I03 (§D.26.2.C) | design | r69/r35/r17 |
+| QI-9 | P00 recovery-USB / BitLocker-key readiness gate (§D.26.2.D) | design | r69/r35/r17 |
+| QI-10 | Boot-time policy validation post-I02 (§D.26.2.E) | design | r69/r35/r17 |
+| QI-11 | README brick warning + sequencing prescription | doc | **r68/r34/r16 (this release)** |
+| QI-12 | README "Recovery from unbootable state" section | doc | **r68/r34/r16 (this release)** |
+| QI-13 | SPEC §D.26 (this section) | doc | **r68/r34/r16 (this release)** |
+| QI-14 | TESTING §12 — catastrophic-failure case study | doc | **r68/r34/r16 (this release)** |
+
+### D.26.4 Generally-applicable lessons
+
+Three lessons generalise beyond this specific incident:
+
+1. **A successful runtime CI activation does not prove boot-time acceptance.** WMI's `PS_UpdateAndCompareCIPolicy.Update()` is the most direct measurement we have of "is this policy live?", but its scope is the running kernel's CI subsystem. The boot loader re-reads `SiPolicy.p7b` from disk on the next cold start and applies its own enforcement decisions; if those reject any boot-critical driver, the host fails to boot before the policy's own audit-mode fallback can produce a log entry. Designs that rely on "the script verified the policy is active" as a green light to install boot-critical drivers (display, PSP, storage, network) are dangerously optimistic. The correct posture is "install one boot-critical driver, reboot, verify the host still boots, only then install the next" — which is what the new README sequencing section codifies.
+
+2. **Cumulative blast radius scales superlinearly with un-rebooted Install actions.** Each individual driver script's Install action is reversible-ish in isolation: `Cleanup` can undo the cert imports, the WDAC policy, and (with `pnputil /delete-driver /uninstall /force`) the driver-store entries. When three Install actions stack without a reboot between them, the dependencies between them (a single WDAC SPF policy authorizing three distinct certs simultaneously, three new self-signed catalogs that all need to pass the same boot-loader evaluation, three new sets of pnputil-published OEM INFs whose ranking interacts with each other and with whatever was inbox) compound the per-script reversibility into a state where Cleanup may not get the host back even from a successful boot, let alone an unsuccessful one. The sequencing prescription added to the README in this release is not a cosmetic recommendation — it is a hard constraint imposed by the architecture, and the bricked WS2019 + Renoir bench is the proof.
+
+3. **The repository targets physical machines, and physical machines have no OS-internal rollback path.** Early drafts of the post-r04 README and SPEC borrowed VM-shaped language ("take a snapshot before Install", "automatic System Restore Point in P02") that does not survive contact with physical-machine reality: there is no `Hyper-V Checkpoint` equivalent on a physical host, Server SKU System Restore is OFF by default and does not capture the boot-loader-evaluated `SiPolicy.p7b`, and full disk imaging is a separate hours-long workflow that runs from external rescue media (not from inside Windows). The only physical-machine-compatible recovery surface is **external preparation** — a recovery USB created on a second machine, BitLocker keys recorded to external storage, and (strongly recommended though not mandatory) a full disk image taken before `Install`. This shapes both the doc language (the README's "🖥️ Physical-machine-only deployment model" callout, the Step 0 pre-flight checklist, the Recovery-from-unbootable-state ordering) and the planned-improvement scope (QI-9 became a P00 readiness gate that PROMPTS for external-recovery preparation, not a System Restore Point creator). Any future feature that proposes "snapshot before X" on a physical-machine pipeline should be checked against this lesson before review.
+
+
 ## Appendix: How to seed a new sister script from this SPEC
 
 If you are creating a 5th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1`):

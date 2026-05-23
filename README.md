@@ -69,18 +69,24 @@ This pipeline solves both problems by:
 
 **USE AT YOUR OWN RISK.** These scripts are provided "AS IS" without warranty of any kind, express or implied. The authors and contributors are not liable for any damages, data loss, BSODs, BitLocker recovery prompts, account suspension, hardware instability, or any other problems — direct or indirect — that may arise from using, modifying, or distributing these scripts.
 
+> **🆘 BRICK-LEVEL RISK (2026-05-23 field observation).** On the WS2019 + Ryzen 5 PRO 4650U (Renoir) pilot bench, a successful end-to-end run of `Chipset Install` → `Graphics Install` → `MSBthPan Install` (in that order, **no reboot between scripts**, post-r04 orchestrator) left the host **unable to complete the next boot — including Safe Mode** — requiring an OS reinstall. The most plausible root cause is the cumulative kernel-driver surface installed during a single uninterrupted Install pass: the patched AMD display driver (`u0201039.inf`, 1066+ HWID variants) replaces the inbox `display.inf`, AMD PSP firmware bindings change, and the WDAC SPF policy must be re-evaluated by the boot loader against several brand-new self-signed catalogs at once. Any one of those interacting with Secure Boot enforcement at boot time can leave the host without a working display path or with kernel CI rejection of a boot-critical driver. The post-r04 I00 risk summary currently labels the typical case `[MEDIUM]` — that label is **too low for hosts with Secure Boot ON, BitLocker enabled, or no spare display path**. Treat any `Install` action on a production-shaped host as having a non-trivial probability of leaving the host non-bootable until reinstall. See SPEC §D.26 and TESTING §12 for the full incident narrative and the strict best-practice sequencing this surfaced.
+
+> **🖥️ Physical-machine-only deployment model.** This repository targets **physical Windows Server hosts** running on consumer Ryzen / Athlon hardware (Lenovo M75q Tiny, ThinkPad X13 Gen 1 AMD, etc.). It is not a VM-targeted toolkit. **Physical machines have no native "snapshot" mechanism** — there is no `Hyper-V Checkpoint` or `VMware Revert to Snapshot` you can call before `-Action Install` and roll back to in seconds after. Full disk imaging (Macrium Reflect, Clonezilla, dd via Linux Live USB) is possible but is a **separate, hours-long, requires-second-storage-device** workflow that lives entirely outside this repository. **Windows Server System Restore is OFF by default**, and even when enabled it does **not** capture `C:\Windows\System32\CodeIntegrity\SiPolicy.p7b` (the WDAC SPF policy this orchestrator deploys, which is evaluated by the boot loader before System Restore can run). The practical consequence is that **a failed `-Action Install` on a physical machine has no fast-rollback path**; remediation is either offline WinRE repair (covered in [Recovery from unbootable state](#recovery-from-unbootable-state)) or OS reinstall. **The supported deployment model is therefore: a physical machine you are prepared to wipe and reinstall.** Do not run these scripts on a physical host whose current OS install you cannot afford to lose.
+
 By running these scripts, you acknowledge that:
 
 * You are solely responsible for verifying that your use complies with AMD's End User License Agreement, Microsoft's Windows Software License Terms, and any applicable laws or regulations
 * You understand that patching AMD's INFs and re-signing them with your own certificate makes **you** — not AMD, not Microsoft — the cryptographic publisher of those drivers from Windows' point of view
 * You accept that **WHQL certification is invalidated** for any driver this pipeline replaces; if you rely on Microsoft Premier Support for affected hardware, your support contract may not cover issues caused by self-signed drivers
 * You will record your **BitLocker recovery keys** before running `-Action Install` on the chipset script (the PSP driver replacement interacts with Platform Security Processor firmware and can trigger recovery prompts on next boot)
+* You accept that **the host may fail to boot at all — including Safe Mode** — after an `-Action Install`, and that recovery in that case requires WinRE / installation media / a separate working host to repair the disk offline (or, as the project's primary remediation, an OS reinstall). The supported deployment model is therefore: **a physical machine you are prepared to wipe and reinstall** — not an in-production server you cannot afford to lose. Optional non-destructive rollback paths require advance preparation BEFORE `-Action Install`: see the "Step 0 — pre-flight" subsection of [Full installation](#full-installation-chipset-graphics-bthpan) below for the recommended pre-flight checklist on physical machines.
+* You will run **only one script at a time**, reboot, and verify with `-OnlyPhases V06` before running the next script. Running `Chipset Install` → `Graphics Install` → `MSBthPan Install` back-to-back without reboots has been observed to brick the host (see the field observation above).
 * You will review the script source code and understand its behavior before running it in any environment
 * For the **NPU script specifically**, you understand it is **experimental / research-grade** — see [Risk classification](#risk-classification-of-the-four-scripts) below
 
 Operate these tools considerately. **Always prefer official AMD Server-supported drivers when they exist.** This repository targets the narrow case where official Server-class drivers are unavailable and you are willing to operate a self-signed driver chain on your own hardware.
 
-For the full at-your-own-risk acknowledgements (BitLocker, anti-cheat software, support implications, cert expiry, etc.), see the [Disclaimer & at-your-own-risk acknowledgements](#disclaimer--at-your-own-risk-acknowledgements) section further down.
+For the full at-your-own-risk acknowledgements (BitLocker, anti-cheat software, support implications, cert expiry, etc.), see the [Disclaimer & at-your-own-risk acknowledgements](#disclaimer--at-your-own-risk-acknowledgements) section further down. For the recommended sequence of operations and what to do when the host is unbootable, see the [Recovery from unbootable state](#recovery-from-unbootable-state) section.
 
 ---
 
@@ -286,17 +292,125 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 ### Full installation (chipset, graphics, BthPan)
 
+> **🆘 Do NOT run these three scripts back-to-back without reboots.** That sequence was directly observed to leave WS2019 + Renoir unable to boot — including Safe Mode — and there is no automated rollback. The supported sequence is described below.
+
+> **Physical-machine reality check (read before Step 0).** This repository targets physical Windows Server hosts, not VMs. Physical machines have no "snapshot" feature you can call from PowerShell, no `Restore-VMSnapshot` to roll back to seconds after a bad `Install`. Server SKU System Restore is OFF by default and even when on does **not** roll back `SiPolicy.p7b`. Full disk imaging (Macrium Reflect, Clonezilla, dd) is possible but requires an external drive sized for your C: and is a separate workflow that runs outside Windows. The Step 0 checklist below codifies what is actually practical and effective on a physical machine: ensure you have a working repair path **before** you need it, record the keys you would otherwise be locked out by, and run scripts one at a time so the blast radius of any failure is bounded.
+
 ```powershell
-.\Deploy-AMDChipsetDriverOnWindowsServer.ps1   -Action Install
-.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1  -Action Install
-.\Deploy-MSBthPanInboxOnWindowsServer.ps1      -Action Install
+# ---- 0. Pre-flight (physical machine) — complete BEFORE -Action Install ----
+#
+#   A. Create a Windows recovery USB on a SECOND machine.
+#      You cannot create one after the target is bricked.
+#         - In Windows 10/11/Server 2022+: search for "Create a recovery
+#           drive" (`RecoveryDrive.exe`) on a working host. Use a 16+ GB
+#           USB stick. This gives you WinRE: command prompt, Startup
+#           Repair, System Image Recovery, and `bcdedit`.
+#         - Alternative: download the Windows Server 2019/2022/2025 ISO
+#           matching the failed host's edition from the Volume Licensing
+#           Service Center (VLSC) or Microsoft Evaluation Center, then
+#           use Rufus / MediaCreationTool to write it to a USB stick.
+#           Installation media also boots straight into WinRE via
+#           "Repair your computer" on the first screen.
+#         - Test the USB boots on a known-good machine before you need it.
+#
+#   B. Record BitLocker recovery keys IF BitLocker is enabled on C:.
+#         manage-bde -protectors -get C: | Out-File C:\BitLockerKeys.txt
+#      Print the file or save it to a separate device. The chipset
+#      script's PSP driver replacement can trigger BitLocker recovery
+#      on next boot.
+#
+#   C. (Strongly recommended, but optional.) Take a full disk image of
+#      the system drive to external media:
+#         - Macrium Reflect Free (rescue media boot + image C: to USB-
+#           attached drive), or Clonezilla, or `dd if=/dev/sdX` from a
+#           Linux Live USB. Expect 20-60 minutes for typical NVMe sizes.
+#         - This is the ONLY mechanism that allows full rollback of a
+#           bricked physical host without OS reinstall. It is not
+#           required by the scripts, but it is the difference between
+#           "30 minutes to restore" and "an afternoon to reinstall +
+#           reconfigure".
+#
+#   D. Confirm you have an OS install ISO + matching license key on
+#      hand. If steps A-C all fail at recovery time, reinstall is the
+#      explicitly-supported recovery path of last resort. Knowing in
+#      advance that you can rebuild the host within the day is part of
+#      "a physical machine you are prepared to wipe".
+#
+#   E. Note: -CleanWorkRoot does NOT make this any safer. The destructive
+#      side effects of Install are on the OS itself, not the workspace.
+
+# ---- 1. Install the chipset drivers FIRST and reboot ----
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install
+# After completion, REVIEW the I04 output:
+#   - Count of LOADED, REBOOT_NEEDED, LOAD_FAILED, FAILED
+#   - If LOAD_FAILED > 0: STOP. Diagnose before continuing.
+#   - If REBOOT_NEEDED > 0: reboot now.
+Restart-Computer
+# After the host comes back up, confirm baseline:
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -OnlyPhases V06
+# Only if V06 reports the expected post-install state, proceed.
+
+# ---- 2. Install the graphics drivers and reboot ----
+.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action Install
+# I04 review (same as step 1). If LOAD_FAILED > 0 OR Section 2 shows
+# functional probe failures, STOP. Recovery is much easier from this
+# checkpoint than from later in the chain.
+Restart-Computer
+.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -OnlyPhases V06
+
+# ---- 3. Install BthPan (smallest surface, lowest risk) ----
+.\Deploy-MSBthPanInboxOnWindowsServer.ps1 -Action Install
+# If I04 prints "*** TRUE RESOLUTION NOT YET ACHIEVED ***", reboot
+# and re-run. PnP rebind sometimes requires a fresh boot.
 ```
 
-Run on a Windows Server 2025 host. All scripts are idempotent and cleanup-safe (`-Action Cleanup` removes the workspace, the certs from the trust stores, and the deployed WDAC policy).
+All scripts are idempotent and cleanup-safe (`-Action Cleanup` removes the workspace, the certs from the trust stores, and the deployed WDAC policy). However, **Cleanup runs from a booted host**; if `Install` left the host unbootable, see [Recovery from unbootable state](#recovery-from-unbootable-state).
+
+> **What about running everything in one pass?** Conceptually, all three Install actions converge on the same end state — patched INFs in the driver store plus a single WDAC SPF policy authorizing all three self-signed certs. In practice, doing it as one uninterrupted sequence has a strictly worse failure mode: each Install can introduce a regression that only becomes visible at the next boot, and the per-script post-install verification (I04 / V06) cannot fully predict boot-time behaviour because it runs in the live OS, before the boot loader re-evaluates the WDAC SPF policy against the new catalogs. Running one script at a time with a reboot between bounds the blast radius of any single regression to "the most recently installed family", which is the difference between "roll back one driver via WinRE" and "reinstall the OS".
 
 > **BthPan-specific outcome check**: after the BthPan script's `Install` action completes, I04 (PostInstallVerification) explicitly distinguishes Phantom OK from true resolution. The script prints `*** TRUE RESOLUTION ACHIEVED ***` only when `bthpan.sys` is loaded, `BthPan` service is running, and `BTH\MS_BTHPAN` reports `Class=Net, Service=BthPan, DriverInfPath=oem*.inf`. If you instead see `*** TRUE RESOLUTION NOT YET ACHIEVED ***`, a reboot is the typical fix (PnP rebind sometimes requires a fresh boot).
 
 > **NPU script `Install`**: see [NPU-specific quick start](#npu-specific-quick-start). The `Install` action requires extra preconditions (offline ZIP availability or AMD account credentials) and is **not recommended without physical NPU hardware**.
+
+### Recovery from unbootable state
+
+If a reboot after `-Action Install` leaves the host unable to boot (display blank, infinite reboot loop, BSOD-on-boot, **Safe Mode also fails**, etc.), the realistic recovery options on a physical machine are listed below in the order operators should actually attempt them. Note the ordering is different from a VM context: WinRE-based offline repair comes first here because most physical-host operators will not have a disk image ready.
+
+1. **WinRE-based offline repair** (primary path on a physical machine without a pre-existing disk image). Boot the recovery USB you created in Step 0A. From WinRE → Troubleshoot → Advanced options → Command Prompt, try the following in order, rebooting between each step to see if the host comes back:
+
+   1.1. **Identify the system drive's letter under WinRE.** WinRE re-letters drives, so `C:` from the running OS may be `D:` or `E:` here. Run `diskpart`, `list volume`, find the volume with the Windows installation, note its letter, then `exit`. The examples below use `C:` — replace with your actual letter.
+
+   1.2. **Revert any uncommitted Setup transaction:**
+   ```cmd
+   dism /image:C:\ /cleanup-image /revertpendingactions
+   ```
+   This undoes a pending driver install or servicing operation that didn't finish before the failed reboot. Always try this first — it is the cheapest fix and resolves a meaningful fraction of cases where the install transaction itself was the problem.
+
+   1.3. **Remove the published OEM drivers this repository's scripts added:**
+   ```cmd
+   dism /image:C:\ /get-drivers /format:table
+   ```
+   Identify the `oem<NN>.inf` entries published by this repository (the Provider column will show the self-signed cert Subject CN, e.g. `AMD Chipset Driver Self-Sign (WS2019 Lab, At Own Risk)`). For each, remove it:
+   ```cmd
+   dism /image:C:\ /remove-driver /driver:oem<NN>.inf
+   ```
+   This removes the offending driver-store entries without booting the broken OS. After all repository-published OEM drivers are removed, reboot.
+
+   1.4. **Last-resort: remove the WDAC SPF policy.** If the host still doesn't boot, the WDAC SPF policy itself may be rejecting a boot-critical driver. Delete it from WinRE:
+   ```cmd
+   del C:\Windows\System32\CodeIntegrity\SiPolicy.p7b
+   ```
+   This reverts the host to "no WDAC SPF policy", which removes the orchestrator's enforcement layer entirely. **If BitLocker is enabled on C:, you will be prompted for your recovery key on the next boot** — this is why Step 0B is mandatory.
+
+   1.5. **Startup Repair as a final WinRE-side attempt:** Troubleshoot → Advanced options → Startup Repair. Microsoft's automatic repair handles a small set of boot-loader-only corruptions that the above commands don't address.
+
+2. **Roll back to a pre-Install full disk image** (if you took one in Step 0C). On a physical machine this means booting the imaging tool's rescue media (Macrium / Clonezilla / etc.) and restoring the C: image to the original drive. Expect 20–60 minutes depending on drive size. This is the **fastest path to a known-good state IF you have an image**, but most physical-machine operators will not.
+
+3. **Pull the disk and read offline from a working machine.** If the recovery USB doesn't boot for some reason (UEFI Secure Boot policy on the failed host rejecting it, etc.), the next step is to physically remove the drive, attach it to a working machine via USB-to-NVMe / SATA adapter, and run `dism /image:` and `del` commands from that second machine. This is slower than option 1 but covers cases where the failed host won't boot any external media.
+
+4. **OS reinstall** (last resort). When options 1–3 fail or are not practical (no recovery USB, no spare machine, no disk image), reinstall from your Step 0D media. This is the explicitly-supported recovery path of last resort for this repository, and is the reason the disclaimer emphasises "a physical machine you are prepared to wipe and reinstall".
+
+The repository **does not** ship a recovery script that runs from inside a broken OS, because by the nature of the failure mode the OS is no longer running. The protections we do ship are entirely pre-emptive: the Step 0 checklist above, aggressive `-Action PrepareVerify` dry-run output, V05/V06 hardware-impact analysis, and the strict reboot-between-scripts sequencing.
 
 ### Selective phase execution
 

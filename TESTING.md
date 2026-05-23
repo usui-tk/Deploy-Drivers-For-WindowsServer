@@ -1727,3 +1727,116 @@ Decision 2):
 
 ---
 
+## 12. Validation Scenario 12: Catastrophic field failure incident (2026-05-23)
+
+### Status
+
+**This is a post-mortem case study, not a reproducible test scenario.** The bench that surfaced this incident was retired to OS reinstall. The lessons documented here drive the bug fixes and design changes in `Chipset r68 / Graphics r34 / BthPan r16` and the planned improvements tracked under SPEC §D.26.3 for `r69/r35/r17`.
+
+### Bench
+
+| Attribute | Value |
+| --- | --- |
+| OS | Windows Server 2019 Datacenter, build 17763 |
+| CPU | AMD Ryzen 5 PRO 4650U (Renoir) |
+| Firmware | UEFI, GPT system disk |
+| Secure Boot | ON (Healthy baseline; UEFI CA 2023 N/A; no MS sample script) |
+| BitLocker | OFF |
+| HVCI / VBS | OFF |
+| Pre-existing drivers | Inbox display (`display.inf`), inbox AMD chipset stubs, inbox `bthpan.inf` (Phantom OK), no AMD Adrenalin, no AMD chipset software |
+| Pipeline release | Chipset r67 / Graphics r33 / NPU r16 (not run) / BthPan r15 / WDAC SPF orchestrator r04 |
+
+### Action sequence (as executed)
+
+```
+1. Chipset    -Action Install       -> reports success
+2. Graphics   -Action Install       -> reports success (with internal inconsistencies, see below)
+3. MSBthPan   -Action Install       -> reports I04 FAIL + I05 attempts all fail
+4. Restart-Computer
+5. Host fails to boot (normal mode, all Safe Mode variants, WinRE attempts)
+```
+
+**Step 4 was the first reboot of the entire sequence.** Steps 1–3 were run back-to-back with no reboot between scripts.
+
+### Observed phase outputs
+
+#### Chipset Install
+
+I02 deployed SPF policy successfully (`State : None -> Ours-Healthy`, WMI bridge activation, 3.57 s). I03 installed 55 INFs (1 reboot-required for AMD PSP, 2 no-op, 0 failed). I04 enumerated 42 AMD devices: 0 LOADED / 5 REBOOT_NEEDED / 0 KEPT_CURRENT / 37 UNCHANGED / 0 FAILED.
+
+#### Graphics Install (no reboot since chipset)
+
+I02 reported `[+] Legacy WDAC SPF policy is active. No reboot required (per WMI CIM bridge)` — yet the I04 boot-signing table on the same run still printed:
+
+```
+Boot Signing : Firmware=UEFI ... SecureBoot=ON  TestSigning=off HVCI=off WDAC-AMD=off
+Self-signed driver  : BLOCKED
+[!] Self-signed driver loading is currently BLOCKED. ...
+```
+
+I04 Section 1 classified two devices as LOADED:
+
+```
+[LOADED] - new driver is active right now:
+  - AMD Audio CoProcessor
+      AS-IS: [?] v    AFTER: [B] v6.0.1.85    INF: amdacpbus.inf
+  - AMD High Definition Audio Controller
+      AS-IS: [A] v10.0.17763.1    AFTER: [B] v10.0.0.35    INF:
+```
+
+I04 Section 2 (functional probe) then immediately reported the **same two devices** as `[FAIL]`:
+
+```
+[FAIL] AMD Audio CoProcessor
+    [x] PnP status OK        : Error
+    [x] ConfigCode = 0       : CM_PROB_DRIVER_FAILED_LOAD
+    [x] Service running      : amdacpbus -> Stopped
+[FAIL] AMD High Definition Audio Controller
+    [x] PnP status OK        : Error
+    [x] ConfigCode = 0       : CM_PROB_NEED_RESTART
+    [x] Service running      : AMDHDAudBusService -> Stopped
+```
+
+The script then placed `Microsoft 基本ディスプレイ アダプター` (the Microsoft Basic Display Adapter) in REBOOT_NEEDED, queued for replacement by `u0201039.inf` (the AMD Adrenalin display driver with 1066+ HWID variants), and exited successfully.
+
+#### MSBthPan Install (no reboot since graphics)
+
+I02 again reported SPF active. I03 installed `bthpan.inf`. I04 found `BTH\MS_BTHPAN\7&1F82E917&0&2` in Unknown state (PnP `Status: Error`, `Class:` blank, `Service:` blank, `DriverInfPath:` blank — driver bind had not occurred). I05 cascaded through Attempts 1–4 and failed all of them, including the Attempt 3 `Start-Process` validator failure documented in SPEC §D.26.1.C.
+
+### Post-reboot state
+
+The host did not present any visible boot progress on the next start, and did not respond to F8 / Shift+F8 / repeated power cycles intended to trigger automatic WinRE. Boot from installation media presented WinRE but `dism /image:C:\ /cleanup-image /revertpendingactions` did not restore boot. The host was added to the reinstall queue.
+
+### Root-cause hypothesis (not directly confirmable post-reinstall)
+
+The most plausible chain of causation, listed in order from most likely to least:
+
+1. **Display driver replacement on a single-display-path host with Secure Boot enforcement.** The `display.inf -> u0201039.inf` swap installed a brand-new self-signed display driver whose catalog had to pass kernel CI at the boot loader's evaluation point. If the boot loader did not accept the SPF policy as authorizing that specific catalog (for any reason — Option 6 / Option 10 not actually set in the deployed policy, signature timestamp issue, etc.), the kernel falls back to Basic Display only IF that driver itself is still loadable; on a system where the Basic Display Adapter has already been visibly replaced in PnP, the fallback may not happen, leaving the host with no display path.
+2. **AMD PSP driver replacement** on a host that may have firmware-level expectations on PSP behaviour. r67 already warns about this in the BitLocker context; BitLocker was off on this bench, but a PSP rejection at boot can still freeze the system before display init.
+3. **Cumulative kernel-mode driver surface from three concurrent Installs**. Even individually-safe driver replacements can interact at boot — three new self-signed catalogs simultaneously evaluated against a SPF policy that has authorized three different certs is not a code path the orchestrator's pilot validation exercised in isolation.
+4. **WDAC SPF policy regressions across re-deploys**. Each driver script's I02 invokes the orchestrator's `AddCert` action, which rewrites the SPF policy with the accumulated cert list. If any of the three I02 invocations produced a policy missing Option 10 (Boot Audit on Failure), the host has no audit fallback at boot.
+
+None of these is individually confirmable without forensic offline access to the bricked system, which was reinstalled before forensic capture was attempted.
+
+### Test artifacts that would have caught each defect earlier
+
+| Defect | Test that would have caught it |
+| --- | --- |
+| §D.26.1.A SPF-aware boot-signing table | Run `Chipset Install` on a WS2019 bench; observe that I04 prints `BLOCKED` on a SPF-active host. There was no such test in §11 — a "self-consistency probe between I02 reported state and I04 reported state" check belongs in §11 or §12. |
+| §D.26.1.B LOADED disposition vs functional probe | The graphics log itself contains the disagreement, side-by-side. A self-consistency cross-check between Section 1 (`LOADED`) and Section 2 (`PASS`) of I04 belongs in the harness. |
+| §D.26.1.C BthPan I05 Attempt 3 redirect bug | Force I04 to fail (e.g. by running on a host where PnP rebind cannot complete in time), trigger I05, observe Attempt 3 fail with the validator error. Unit-test-shaped: `Invoke-BthPanPnputilRebind` can be exercised in isolation against a synthetic `$InstanceId`. |
+| §D.26.1.D BthPan I05 Attempt 4 error visibility | Same as above; trigger Attempt 4 and inspect the captured Write-Detail output for the InnerException / NativeErrorCode lines. |
+| §D.26.2.* (design defects) | No fast unit test catches these. They require the "back-to-back Install on a production-shaped host" scenario the README now explicitly disqualifies from the supported deployment model. |
+
+### Boot-time policy validation (planned for r69/r35/r17)
+
+The orchestrator currently activates the SPF policy via the WMI `PS_UpdateAndCompareCIPolicy` CIM bridge and treats a successful return as "policy is live". The planned `Test-WdacPolicyBootLoadable` extension will additionally:
+
+1. Re-read `C:\Windows\System32\CodeIntegrity\SiPolicy.p7b` from disk.
+2. Verify with `signtool verify /pa` (the policy file is self-contained; this catches corrupt deployments).
+3. Parse the policy header and assert Option 6 (Enabled:Unsigned System Integrity Policy) and Option 10 (Enabled:Boot Audit on Failure) are both set.
+4. Block I03 if any of (1)–(3) fail.
+
+This does NOT guarantee boot-time acceptance (the boot loader has its own enforcement decisions that runtime tools cannot fully predict), but it eliminates the failure modes where the deployed policy is structurally invalid.
+
+---

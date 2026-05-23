@@ -426,7 +426,7 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-$Script:ScriptVersion = 'msbthpan-2026.05.23-r15'
+$Script:ScriptVersion = 'msbthpan-2026.05.23-r16'
 $Script:ScriptTag     = 'legacy-ws2019-wdac-spf-integration'
 $Script:ScriptHash    = '(unknown)'
 try {
@@ -3171,6 +3171,15 @@ function Update-BootSigningEnvironmentForCtx {
     # workspace marker file. Use this from any phase that has a $Ctx
     # in scope. The plain Get-BootSigningEnvironment is safe to call
     # at startup before $Ctx is populated.
+    #
+    # r16 (SPEC §D.26): on WS2019/WS2016 hosts where Path C deployed
+    # an SPF policy via the external orchestrator, the MPF-focused
+    # Test-MsBthPanWdacPolicyDeployed cannot see it (no CiTool, no
+    # CiPolicies\Active\*.cip). Without an SPF-aware fallback, every
+    # post-I02 invocation falsely reports "Self-signed driver: BLOCKED
+    # / No WDAC supplemental policy authorizes the MS BthPan
+    # self-signing certificate" even though the policy IS active and
+    # the cert IS authorized. See SPEC.md §D.26.
     param([Parameter(Mandatory)] $Ctx)
     $env = Get-BootSigningEnvironment
     $deployed = Test-MsBthPanWdacPolicyDeployed -Ctx $Ctx
@@ -3185,6 +3194,21 @@ function Update-BootSigningEnvironmentForCtx {
                      ($env.TestSigningEnabled -eq $true) -and `
                      (-not $env.HvciRunning)
         $env.EffectiveCanLoadSelfSigned = ($true -or $path2Open)  # path1 is open
+        return $env
+    }
+    # SPF fallback for legacy WS2019/WS2016 (see r16 comment above).
+    $thumb = $null
+    if ($Ctx -and $Ctx.CertThumbprint) { $thumb = [string]$Ctx.CertThumbprint }
+    if ($thumb -and (Test-LegacyWdacSpfAuthorizedForCert -Thumbprint $thumb)) {
+        $env.MsBthPanSuppPolicyActive = $true
+        $env.AmdSuppPolicyId          = '(SPF: see %ProgramData%\Deploy-Drivers-For-WindowsServer\wdac\manifest.json)'
+        $env.BlockReasons = @($env.BlockReasons | Where-Object {
+            $_ -ne 'No WDAC supplemental policy authorizes the MS BthPan self-signing certificate'
+        })
+        $path2Open = ($env.SecureBootEnabled -ne $true) -and `
+                     ($env.TestSigningEnabled -eq $true) -and `
+                     (-not $env.HvciRunning)
+        $env.EffectiveCanLoadSelfSigned = ($true -or $path2Open)  # SPF path is open
     }
     return $env
 }
@@ -3523,6 +3547,55 @@ function Test-MsBthPanWdacPolicyDeployed {
     if (-not $policyId) { return $null }
     $hit = $active | Where-Object { $_.PolicyId -eq $policyId } | Select-Object -First 1
     return $hit
+}
+
+function Test-LegacyWdacSpfAuthorizedForCert {
+    # WS2019/WS2016 cannot host the MPF supplemental policies that
+    # Test-AmdWdacPolicyDeployed inspects (no CiTool, no Active dir).
+    # On those hosts the WDAC SPF orchestrator deploys a single
+    # base policy at C:\Windows\System32\CodeIntegrity\SiPolicy.p7b
+    # and records the authorized cert thumbprints in a manifest at
+    # %ProgramData%\Deploy-Drivers-For-WindowsServer\wdac\manifest.json
+    # (schemaVersion 1.0, schemaId deploy-drivers-for-windowsserver/
+    # wdac-manifest/v1).
+    #
+    # This helper returns $true ONLY when ALL of the following hold:
+    #   1. The orchestrator's manifest.json exists and parses.
+    #   2. The deployed SiPolicy.p7b exists on disk.
+    #   3. The manifest's authorizedCerts[] array contains a row whose
+    #      thumbprint (case-insensitive, hex) matches $Thumbprint.
+    #
+    # Returns $false on any negative or unparseable condition. The
+    # caller is responsible for combining this with Secure Boot /
+    # testsigning / HVCI checks; this only asserts "the SPF policy
+    # has the cert listed", NOT "the kernel will load self-signed
+    # drivers right now". See SPEC.md §D.26 for the I02-I04 cross-path
+    # accuracy fix.
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory=$true)][string]$Thumbprint
+    )
+    if ([string]::IsNullOrWhiteSpace($Thumbprint)) { return $false }
+    $deployed = Join-Path $env:windir 'System32\CodeIntegrity\SiPolicy.p7b'
+    if (-not (Test-Path -LiteralPath $deployed -PathType Leaf)) { return $false }
+    $manifest = Join-Path $env:ProgramData 'Deploy-Drivers-For-WindowsServer\wdac\manifest.json'
+    if (-not (Test-Path -LiteralPath $manifest -PathType Leaf)) { return $false }
+    try {
+        $raw = Get-Content -LiteralPath $manifest -Raw -Encoding UTF8 -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($raw)) { return $false }
+        $obj = $raw | ConvertFrom-Json -ErrorAction Stop
+    } catch {
+        return $false
+    }
+    if (-not $obj -or -not $obj.authorizedCerts) { return $false }
+    $target = $Thumbprint.ToUpper()
+    foreach ($c in $obj.authorizedCerts) {
+        if ($c -and $c.thumbprint -and ($c.thumbprint.ToUpper() -eq $target)) {
+            return $true
+        }
+    }
+    return $false
 }
 
 function New-MsBthPanDriverWdacSupplementalPolicy {
@@ -5246,16 +5319,27 @@ function Invoke-BthPanDisableEnableRebind {
 }
 
 function Invoke-BthPanPnputilRebind {
+    # NOTE (r16): the previous implementation passed 'NUL' as both
+    # -RedirectStandardOutput and -RedirectStandardError. Start-Process
+    # treats those as file paths and the validator rejects the call with
+    # the user-visible error "RedirectStandardOutput and RedirectStandardError
+    # are the same" (in ja-JP: "RedirectStandardOutput と RedirectStandardError
+    # が同じであるため、実行できません"). See SPEC.md §D.26.
+    # Use distinct GetTempFileName paths and discard them in a finally block.
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$InstanceId)
+    $out1 = [System.IO.Path]::GetTempFileName()
+    $err1 = [System.IO.Path]::GetTempFileName()
+    $out2 = [System.IO.Path]::GetTempFileName()
+    $err2 = [System.IO.Path]::GetTempFileName()
     try {
         Write-Detail ('  [Attempt 3] pnputil /remove-device {0}' -f $InstanceId)
         $p1 = @{
             FilePath = 'pnputil.exe'
             ArgumentList = @('/remove-device', $InstanceId)
             NoNewWindow = $true; Wait = $true; PassThru = $true
-            RedirectStandardOutput = 'NUL'; RedirectStandardError = 'NUL'
+            RedirectStandardOutput = $out1; RedirectStandardError = $err1
         }
         $proc1 = Start-Process @p1 # psa-disable-line PSA3001 -- splatting canonical for pnputil
         Start-Sleep -Seconds 2
@@ -5264,18 +5348,49 @@ function Invoke-BthPanPnputilRebind {
             FilePath = 'pnputil.exe'
             ArgumentList = @('/scan-devices')
             NoNewWindow = $true; Wait = $true; PassThru = $true
-            RedirectStandardOutput = 'NUL'; RedirectStandardError = 'NUL'
+            RedirectStandardOutput = $out2; RedirectStandardError = $err2
         }
         $proc2 = Start-Process @p2 # psa-disable-line PSA3001 -- splatting canonical for pnputil
         Start-Sleep -Seconds 3
+        # Surface the most informative diagnostic (stderr) on failure so
+        # operators don't have to re-run with -Verbose to see why pnputil
+        # rejected the call. Best-effort: ignore read errors.
+        if ($proc1.ExitCode -ne 0) {
+            $e1 = ''
+            try { $e1 = (Get-Content -LiteralPath $err1 -Raw -ErrorAction SilentlyContinue) } catch { }
+            if (-not [string]::IsNullOrWhiteSpace($e1)) {
+                Write-Detail ('  [Attempt 3] /remove-device stderr: {0}' -f $e1.Trim())
+            }
+        }
+        if ($proc2.ExitCode -ne 0) {
+            $e2 = ''
+            try { $e2 = (Get-Content -LiteralPath $err2 -Raw -ErrorAction SilentlyContinue) } catch { }
+            if (-not [string]::IsNullOrWhiteSpace($e2)) {
+                Write-Detail ('  [Attempt 3] /scan-devices stderr: {0}' -f $e2.Trim())
+            }
+        }
         return ($proc1.ExitCode -eq 0 -or $proc2.ExitCode -eq 0)
     } catch {
         Write-Warn2 ('  [Attempt 3] pnputil rebind failed: {0}' -f $_.Exception.Message)
         return $false
+    } finally {
+        foreach ($f in @($out1, $err1, $out2, $err2)) {
+            if (Test-Path -LiteralPath $f) {
+                Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue
+            }
+        }
     }
 }
 
 function Invoke-BthPanServiceRestart {
+    # NOTE (r16): on a host where BthPan was just freshly added by pnputil
+    # but PnP binding has not actually picked up the new INF (e.g. because
+    # BTH\MS_BTHPAN is still in Phantom or Unknown state), Start-Service
+    # routinely fails with a confusing message that just recurses the
+    # error ("Cannot start service ... due to the following error: Cannot
+    # start service ..."). Surface the underlying Win32 error code via
+    # InnerException, $_.Exception.NativeErrorCode, and the registry-stored
+    # service state so the operator can act on it.
     [CmdletBinding()]
     [OutputType([bool])]
     param()
@@ -5295,6 +5410,31 @@ function Invoke-BthPanServiceRestart {
         return $true
     } catch {
         Write-Warn2 ('  [Attempt 4] BthPan service restart failed: {0}' -f $_.Exception.Message)
+        # Drill down for the actual Win32 error. Service.StartService surface
+        # collapses everything into the outer Exception.Message; the real
+        # NTSTATUS / Win32 code is usually in InnerException.
+        $inner = $_.Exception.InnerException
+        if ($inner) {
+            Write-Detail ('  [Attempt 4] InnerException: {0}' -f $inner.Message)
+            try {
+                $native = $inner.NativeErrorCode
+                if ($native) {
+                    Write-Detail ('  [Attempt 4] NativeErrorCode: {0} (0x{0:X8})' -f [int]$native)
+                }
+            } catch { }
+        }
+        # As an extra diagnostic, surface the service's last-failure
+        # reason from the SCM, which often points at the real cause
+        # (driver not loaded, dependency service stopped, etc.).
+        try {
+            $sc = & sc.exe queryex BthPan 2>&1 | Out-String
+            if (-not [string]::IsNullOrWhiteSpace($sc)) {
+                Write-Detail ('  [Attempt 4] sc.exe queryex BthPan:')
+                foreach ($ln in ($sc -split "`r?`n")) {
+                    if ($ln.Trim()) { Write-Detail ('    ' + $ln.TrimEnd()) }
+                }
+            }
+        } catch { }
         return $false
     }
 }

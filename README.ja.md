@@ -69,18 +69,24 @@ AMD のコンシューマー向け Ryzen チップセットドライバ・Radeon
 
 **自己責任でご利用ください。** 本スクリプトは "AS IS" で提供され、 明示・黙示を問わず、 いかなる種類の保証もありません。 作者およびコントリビュータは、 本スクリプトの使用・改変・配布から直接的または間接的に生じる、 損害、 データ消失、 BSOD、 BitLocker recovery prompt、 アカウント停止、 ハードウェア不安定化、 その他いかなる問題に対しても、 一切責任を負いません。
 
+> **🆘 ブリックレベルのリスク (2026-05-23 実機観測)。** WS2019 + Ryzen 5 PRO 4650U (Renoir) のパイロット環境で、 `Chipset Install` → `Graphics Install` → `MSBthPan Install` を **スクリプト間で再起動を挟まずに連続実行**したところ (post-r04 orchestrator)、 次回起動時にホストが **セーフモードも含めて起動不能**になり、 **OS の再インストールが必要**となりました。 もっとも蓋然性の高い原因は、 単一の中断なし Install パスで蓄積された kernel-mode driver の置換面の広さです: パッチ済み AMD display driver (`u0201039.inf`、 1066+ HWID variants) が inbox `display.inf` を置き換える、 AMD PSP firmware の binding が変わる、 さらに WDAC SPF policy が新しい self-signed catalog 群に対してブートローダで再評価される — これらが Secure Boot enforcement と起動時に相互作用すると、 ホストは表示パスを失うか、 boot-critical driver が kernel CI で拒絶される、 という結末に達し得ます。 現行の I00 Risk Summary が通常 `[MEDIUM]` ラベルを付けるのは、 **Secure Boot ON、 BitLocker 有効、 予備の表示パスなしの実環境に対しては明らかに低すぎる**評価です。 本番形態のホストに対する `Install` action は、 **再インストールするまでホストが起動できなくなる確率が無視できない**ものとして扱ってください。 完全なインシデント記録と、 ここから導出される厳格なシーケンシング推奨は SPEC §D.26 と TESTING §12 を参照してください。
+
+> **🖥️ 物理マシン専用のデプロイモデル。** 本リポジトリの対象は **物理 Windows Server ホスト** (Lenovo M75q Tiny、 ThinkPad X13 Gen 1 AMD 等のコンシューマ Ryzen / Athlon ハードウェア)です。 VM 向けではありません。 **物理マシンにはネイティブの「スナップショット」機構が存在しません** — `-Action Install` の直前に呼び出して数秒でロールバックできる `Hyper-V Checkpoint` も `VMware Revert to Snapshot` もありません。 フルディスクイメージ取得 (Macrium Reflect、 Clonezilla、 Linux Live USB からの dd 等) は可能ですが、 これは **数十分〜数時間かかる、 外部ストレージを要する、 本リポジトリの完全に外側に存在する別ワークフロー**です。 **Windows Server の System Restore は既定で OFF** であり、 有効化したとしても `C:\Windows\System32\CodeIntegrity\SiPolicy.p7b` (本オーケストレータが deploy する WDAC SPF policy 本体。 ブートローダが System Restore より前に評価する) は復元対象に**含まれません**。 結果として、 **物理マシンでの失敗した `-Action Install` には高速ロールバック経路が存在しません**。 復旧手段は WinRE 経由のオフライン修復 ([起動不能状態からの復旧](#起動不能状態からの復旧)を参照) もしくは OS 再インストールに限られます。 **したがってサポート対象のデプロイモデルは「消去・再インストールを受容できる物理マシン」です**。 現在の OS インストール状態を失えない物理ホストでは本スクリプトを実行しないでください。
+
 本スクリプトを実行することにより、 以下を了承したものとみなします:
 
 * AMD End User License Agreement、 Microsoft Windows Software License Terms、 および適用される法令・規制に対する遵守は、 利用者の単独責任である
 * AMD の INF をパッチし自己生成証明書で再署名する行為により、 Windows から見た当該ドライバの暗号学的 publisher は AMD でも Microsoft でもなく、 **利用者自身**となる
 * 本パイプラインが置換するドライバは **WHQL 認証が無効化される**こと。 対象ハードウェアで Microsoft Premier Support を頼っている場合、 自己署名ドライバ起因の問題はサポート契約の対象外となる可能性がある
 * Chipset スクリプトで `-Action Install` を実行する前に **BitLocker 回復キーを記録**する (PSP driver の置換は Platform Security Processor firmware と相互作用し、 次回起動時に回復プロンプトが表示される可能性がある)
+* `-Action Install` の後に **ホストが起動できなくなる可能性 (セーフモードを含む) を受容する**。 復旧には WinRE、 インストールメディア、 もしくは別の稼動ホストでオフライン修復が必要となり、 本プロジェクトの第一義的な復旧手段は **OS の再インストール**である。 したがってサポート対象のデプロイモデルは、 **消去・再インストールを受容できる物理マシン**であり、 失えない本番サーバではない。 非破壊的なロールバック経路を確保したい場合は、 `-Action Install` の **前** に事前準備が必要 — 後述の [フルインストール](#フルインストール-chipset-graphics-bthpan) の「Step 0 — 事前準備」を参照。
+* **スクリプトは一度に 1 本のみ**を実行し、 再起動の上で `-OnlyPhases V06` で検証してから次のスクリプトを実行する。 `Chipset Install` → `Graphics Install` → `MSBthPan Install` を再起動を挟まずに連続実行することは、 ホストをブリックする結果が実機で観測されている (上記参照)。
 * 実行環境を問わず、 スクリプトのソースコードを確認し動作を理解した上で実行する
 * **NPU スクリプトに関しては特に**、 実験的・研究用途のツールであることを了承する — 詳細は[4 スクリプトのリスク分類](#4-スクリプトのリスク分類)を参照
 
 本ツールは慎重に運用してください。 **AMD 公式の Server サポート対象ドライバが存在する場合は、 そちらを優先してください**。 本リポジトリは、 公式 Server クラスドライバが提供されておらず、 自己署名ドライバチェーンを自身のハードウェアで運用するリスクを受容できる、 という狭いケースを対象としています。
 
-BitLocker、 アンチチートソフト、 サポート影響、 証明書有効期限などを含む、 完全な自己責任の確認事項は、 後述の[免責事項・自己責任の確認](#免責事項自己責任の確認)を参照してください。
+BitLocker、 アンチチートソフト、 サポート影響、 証明書有効期限などを含む、 完全な自己責任の確認事項は、 後述の[免責事項・自己責任の確認](#免責事項自己責任の確認)を参照してください。 推奨される実行順序と、 ホストが起動不能になった場合の対処については、 [起動不能状態からの復旧](#起動不能状態からの復旧)セクションを参照してください。
 
 ---
 
@@ -286,17 +292,126 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 ### フルインストール (chipset・ graphics・ BthPan)
 
+> **🆘 この 3 本を再起動なしで連続実行しないでください**。 WS2019 + Renoir で同じ連続実行を行った結果、 ホストがセーフモードを含めて起動できなくなる事象が直接観測されています。 自動ロールバック機構は存在しません。 サポートされる手順は以下です。
+
+> **物理マシンの現実 (Step 0 の前にお読みください)。** 本リポジトリの対象は物理 Windows Server ホストであり、 VM ではありません。 物理マシンには PowerShell から呼び出せる「スナップショット」機能はなく、 不適切な `Install` から数秒でロールバックできる `Restore-VMSnapshot` のような手段もありません。 Server SKU の System Restore は既定で OFF、 有効化しても `SiPolicy.p7b` は復元対象外です。 フルディスクイメージ取得 (Macrium Reflect、 Clonezilla、 dd 等) は可能ですが、 C: ドライブと同等以上の外部ストレージが必要で、 Windows の外で実行する別ワークフローです。 以下の Step 0 チェックリストは、 **物理マシン上で実際に実行可能かつ効果的な事前準備**を体系化したものです: 復旧手段を **必要になる前**に確保する、 失う可能性のある鍵を記録する、 そしてスクリプトを 1 本ずつ実行することで故障の影響範囲を限定する、 という 3 点です。
+
 ```powershell
-.\Deploy-AMDChipsetDriverOnWindowsServer.ps1   -Action Install
-.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1  -Action Install
-.\Deploy-MSBthPanInboxOnWindowsServer.ps1      -Action Install
+# ---- 0. 事前準備 (物理マシン) — -Action Install の「前」に完了させる ----
+#
+#   A. 別の動作マシン上で Windows 復旧 USB を作成する。
+#      対象機がブリックしてからでは作成できません。
+#         - Windows 10/11/Server 2022+: 動作中のホストで「回復ドライブの
+#           作成」(`RecoveryDrive.exe`)を検索。 16 GB 以上の USB を使用。
+#           WinRE (コマンドプロンプト、 スタートアップ修復、 システム
+#           イメージ復元、 bcdedit) が利用可能になります。
+#         - 代替案: Volume Licensing Service Center (VLSC) または
+#           Microsoft Evaluation Center から対象ホストのエディションに
+#           合った Windows Server 2019/2022/2025 ISO をダウンロードし、
+#           Rufus / MediaCreationTool で USB に書き込む。 インストール
+#           メディアの最初の画面の「コンピューターを修復する」から
+#           WinRE に入れます。
+#         - 必要になる前に、 別の正常なマシンで USB が起動するか
+#           確認する。
+#
+#   B. C: に BitLocker が有効ならその回復キーを記録する。
+#         manage-bde -protectors -get C: | Out-File C:\BitLockerKeys.txt
+#      ファイルを印刷するか、 別のデバイスに保存。 Chipset スクリプト
+#      の PSP driver 置換が次回 boot で BitLocker 回復を triggers する
+#      可能性があります。
+#
+#   C. (強く推奨、 ただし任意) システムドライブのフルディスクイメージを
+#      外部メディアへ取得する:
+#         - Macrium Reflect Free (rescue media boot + USB 接続ドライブ
+#           へ C: をイメージ化)、 Clonezilla、 または Linux Live USB
+#           からの `dd if=/dev/sdX`。 典型的な NVMe サイズで 20-60 分。
+#         - これはブリックした物理ホストを OS 再インストールなしで
+#           完全ロールバックできる「唯一の」機構です。 スクリプトが
+#           必須要件として要求するわけではありませんが、 「30 分で
+#           復元」と「半日かけて再インストール+再設定」を分ける差です。
+#
+#   D. OS インストール ISO + 対応するライセンスキーが手元にあることを
+#      確認する。 A-C 全てが復旧時に失敗した場合、 再インストールは
+#      明示的にサポートされる最終手段の復旧パスです。 「その日のうちに
+#      ホストを再構築できる」と事前に分かっていることが、 「消去・
+#      再インストールを受容できる物理マシン」の意味するところです。
+#
+#   E. 補足: -CleanWorkRoot はこのリスク対策にはなりません。 Install の
+#      破壊的副作用はワークスペースではなく OS そのものにあります。
+
+# ---- 1. 最初に chipset driver をインストールし、 再起動 ----
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install
+# 完了後、 I04 の出力を必ず確認:
+#   - LOADED, REBOOT_NEEDED, LOAD_FAILED, FAILED の各バケットの件数
+#   - LOAD_FAILED > 0 の場合: ここで停止して原因究明 (次に進まない)
+#   - REBOOT_NEEDED > 0 の場合: 再起動を実行
+Restart-Computer
+# 起動後、 ベースラインを確認:
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -OnlyPhases V06
+# V06 が期待される post-install 状態を報告した場合のみ次に進む
+
+# ---- 2. graphics driver をインストールし、 再起動 ----
+.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action Install
+# I04 確認は step 1 と同じ。 LOAD_FAILED > 0 もしくは Section 2 で
+# functional probe failure が出ている場合は停止し、 ここで復旧する。
+# 後段で復旧するより遥かに楽です。
+Restart-Computer
+.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -OnlyPhases V06
+
+# ---- 3. BthPan をインストール (置換面が最小、 リスクが最低) ----
+.\Deploy-MSBthPanInboxOnWindowsServer.ps1 -Action Install
+# I04 が "*** TRUE RESOLUTION NOT YET ACHIEVED ***" の場合は
+# 再起動して同コマンドを再実行。 PnP rebind は新規 boot を要求する
+# ケースがあります。
 ```
 
-Windows Server 2025 ホスト上で実行してください。 すべてのスクリプトは冪等で、 cleanup-safe です (`-Action Cleanup` でワークスペース削除、 trust store からの証明書削除、 deploy された WDAC policy の削除を行います)。
+すべてのスクリプトは冪等で、 cleanup-safe です (`-Action Cleanup` でワークスペース削除、 trust store からの証明書削除、 deploy された WDAC policy の削除を行います)。 ただし **Cleanup は OS が起動している状態でないと実行できません**。 `Install` 後にホストが起動不能になった場合は [起動不能状態からの復旧](#起動不能状態からの復旧)を参照してください。
+
+> **全部を 1 パスで実行できないか?** 概念上、 3 本の Install action は最終的に同一の終端状態 (パッチ済み INF が driver store に存在、 単一の WDAC SPF policy が 3 つの self-signed cert すべてを認可) に収束します。 しかし**実機の故障モード**はそうではありません: 各 Install は次の boot まで顕在化しない regression を導入し得て、 スクリプト個別の post-install 検証 (I04 / V06) は live OS 上で実行されるため、 ブートローダが新しい catalog 群に対して WDAC SPF policy を再評価した結果までは完全に予測できません。 1 本ずつ実行し再起動を挟むことで、 任意の regression の影響範囲を「最後にインストールしたドライバファミリ」に限定でき、 これは「WinRE で 1 つの driver を rollback すれば済む」と「OS 再インストール」を分ける差です。
 
 > **BthPan スクリプト固有の成否判定**: BthPan スクリプトの `Install` 完了後、 I04 (PostInstallVerification) は Phantom OK と真の解消を明示的に区別します。 `bthpan.sys` が load されかつ `BthPan` サービスが稼働中、 `BTH\MS_BTHPAN` が `Class=Net・Service=BthPan・DriverInfPath=oem*.inf` を報告する場合のみ、 スクリプトは `*** TRUE RESOLUTION ACHIEVED ***` と表示します。 代わりに `*** TRUE RESOLUTION NOT YET ACHIEVED ***` と表示された場合、 再起動が典型的な解決策です (PnP rebind は次回起動時にしか効かないケースがあります)。
 
 > **NPU スクリプトの `Install`**: [NPU スクリプト固有の Quick Start](#npu-スクリプト固有の-quick-start) を参照してください。 `Install` アクションには追加の前提条件 (offline ZIP の所有もしくは AMD アカウント認証情報) が必要で、 **物理 NPU ハードウェアなしでの実行は推奨されません**。
+
+### 起動不能状態からの復旧
+
+`-Action Install` 後の再起動でホストが起動できなくなった (画面非表示、 再起動ループ、 boot 時 BSOD、 **セーフモードも起動不能**等) 場合、 物理マシンで現実的な復旧手段を、 オペレータが実際に試すべき順で以下に示します。 VM の場合とは順序が異なります: 物理ホストのオペレータの大半は事前ディスクイメージを持っていないため、 WinRE 経由のオフライン修復を最優先とします。
+
+1. **WinRE 経由のオフライン修復** (事前ディスクイメージなしの物理マシンでの主経路)。 Step 0A で作成した復旧 USB から起動します。 WinRE → トラブルシューティング → 詳細オプション → コマンドプロンプトに入り、 以下を順に試行 (各ステップの後に再起動して、 復旧したか確認):
+
+   1.1. **WinRE 上でシステムドライブのドライブレターを特定する**。 WinRE は drive letter を再割り当てするので、 動作中 OS での `C:` が WinRE 上では `D:` や `E:` になっていることがあります。 `diskpart`、 `list volume` を実行し Windows インストールがあるボリュームを探してドライブレターを記録、 `exit`。 以下の例では `C:` を使いますが、 実際のドライブレターに置き換えてください。
+
+   1.2. **uncommitted な Setup transaction を取り消す:**
+   ```cmd
+   dism /image:C:\ /cleanup-image /revertpendingactions
+   ```
+   失敗した reboot 前に完了しなかった保留中の driver install / servicing 操作を取り消します。 まずこれを試行 — 最もコストが低く、 「install transaction 自体が問題だった」ケースを意味のある割合で解決できます。
+
+   1.3. **本リポジトリのスクリプト群が追加した OEM driver を削除する:**
+   ```cmd
+   dism /image:C:\ /get-drivers /format:table
+   ```
+   本リポジトリが公開した `oem<NN>.inf` エントリを特定 (Provider 列に self-signed cert の Subject CN が表示されます。 例: `AMD Chipset Driver Self-Sign (WS2019 Lab, At Own Risk)`)。 各エントリに対して:
+   ```cmd
+   dism /image:C:\ /remove-driver /driver:oem<NN>.inf
+   ```
+   問題のある driver-store エントリを、 壊れた OS を起動せずに削除できます。 本リポジトリが公開した全 OEM driver を削除した後、 再起動。
+
+   1.4. **最終手段: WDAC SPF policy を削除する**。 上記でもホストが起動しない場合、 WDAC SPF policy 自体が boot-critical driver を拒絶している可能性があります。 WinRE から削除:
+   ```cmd
+   del C:\Windows\System32\CodeIntegrity\SiPolicy.p7b
+   ```
+   これによりホストは「WDAC SPF policy なし」の状態に戻り、 orchestrator の enforcement レイヤを完全に除去します。 **C: で BitLocker が有効な場合、 次回 boot で回復キーが要求されます** — Step 0B が必須となる理由です。
+
+   1.5. **WinRE 側での最終手段としてのスタートアップ修復**: トラブルシューティング → 詳細オプション → スタートアップ修復。 Microsoft の自動修復は boot loader のみの破損の一部を、 上記コマンドが対処しない範囲でカバーします。
+
+2. **Install 前のフルディスクイメージへロールバック** (Step 0C で取得していた場合)。 物理マシンでは、 イメージ取得ツールの rescue media (Macrium / Clonezilla 等)から起動し、 C: イメージを元のドライブへ復元します。 ドライブサイズ次第で 20-60 分。 **イメージがあれば既知の良好状態への最速経路**ですが、 大半の物理マシンオペレータは持っていません。
+
+3. **ディスクを抜き出し、 動作するマシンからオフライン読み取り**。 復旧 USB が何らかの理由で起動しない場合 (失敗したホストの UEFI Secure Boot ポリシーが外部メディアを拒否する等)、 ディスクを物理的に取り外して USB-to-NVMe / SATA アダプタで動作するマシンに接続し、 そのマシンから `dism /image:` や `del` を実行します。 オプション 1 より遅いですが、 失敗したホストが外部メディアを起動できないケースをカバーします。
+
+4. **OS 再インストール** (最終手段)。 オプション 1-3 が失敗もしくは実行不可能 (復旧 USB なし、 予備マシンなし、 ディスクイメージなし) の場合、 Step 0D の媒体から再インストール。 これは本リポジトリの明示的にサポートされる最終手段の復旧パスであり、 免責事項で「消去・再インストールを受容できる物理マシン」を強調している理由です。
+
+本リポジトリは **壊れた OS の内部から実行する復旧スクリプトは提供しません** — 故障モードの性質上、 OS がもう走っていないからです。 提供している保護は完全に予防的です: 上記の Step 0 チェックリスト、 積極的な `-Action PrepareVerify` dry-run 出力、 V05/V06 ハードウェア影響解析、 そして厳格な「再起動を挟む」シーケンシングです。
 
 ### 特定 phase のみの実行
 
