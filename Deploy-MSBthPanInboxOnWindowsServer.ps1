@@ -437,7 +437,7 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-$Script:ScriptVersion = 'msbthpan-2026.05.23-r20'
+$Script:ScriptVersion = 'msbthpan-2026.05.23-r21'
 $Script:ScriptTag     = 'legacy-ws2019-wdac-spf-integration'
 $Script:ScriptHash    = '(unknown)'
 try {
@@ -10935,6 +10935,17 @@ $Ctx = [pscustomobject]@{
     # (pre-check). Pre-declared as $null here so plain '.' assignment
     # works on the [pscustomobject] without requiring Add-Member.
     SecureBootBaseline = $null
+    # WHQL co-signature analysis (added with the r71 release).
+    # Pre-declared as $null here so plain '.' assignment works on
+    # the [pscustomobject] without requiring Add-Member. Populated
+    # by P05 (New-WhqlCoSignAnalysis); consumed by I00 (C6 condition),
+    # P06 (-SkipNonCosignedDrivers trim), and I02 (r72 short-circuit
+    # for all-WHQL trimmed install plans). r21: this declaration was
+    # missing in r71/r72 and caused P05 to throw "WhqlCoSignAnalysis
+    # property cannot be found on this object" at the first
+    # $Ctx.WhqlCoSignAnalysis = ... assignment site, even before the
+    # WHQL analysis itself ran. See SPEC SS D.31 and PSA2009.
+    WhqlCoSignAnalysis = $null
 
     # BthPan-specific properties. Pre-declared so phase functions
     # can use plain '.' assignment without Add-Member.

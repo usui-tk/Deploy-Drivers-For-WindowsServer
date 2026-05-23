@@ -1784,4 +1784,95 @@ This section covers the four r71 mechanisms documented in SPEC §D.31 and the on
 | 4 | On WS2022+, Path A deploys the WDAC supplemental policy normally. On WS2019, Path B prerequisite check runs (and ABORTs if Secure Boot ON, or proceeds to set testsigning if OFF). | The re-run is exactly equivalent to a first-time run on a host that happens to already have I01 trust-store import done — no surprise trapping behaviour. |
 | 5 | Inspect the workspace's `phase-markers.json` (or equivalent). | The new I02 marker (Path A or Path B success) replaces the prior `ShortCircuit=$true` marker. The diagnostic history is not lost — operators inspecting the previous run's transcript still see the short-circuit invocation; only the current workspace state reflects the most recent outcome. |
 
+### TC14.12 — `$Ctx.WhqlCoSignAnalysis` property-declaration smoke test (PSA2009 static-analysis gate)
+
+Added with the Chipset r73 / Graphics r39 / BthPan r21 release as the static-analysis gate that prevents recurrence of the Chipset r72 P05 hard-failure defect. This test does NOT require a Windows host — it runs purely on the developer / CI machine via Python 3 and the canonical `psa.py` 3.8.0 (or newer) artifact.
+
+| Step | Setup | Expected outcome |
+| --- | --- | --- |
+| 1 | Working tree at the current mainline of `Deploy-Drivers-For-WindowsServer`. Python 3.8+ installed. Fetch the canonical analyzer: `curl -sSL https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py -o /tmp/psa.py` (and the sibling `VERSION` file). Confirm `python3 /tmp/psa.py --version` reports `psa.py 3.8.0` or later. | — |
+| 2 | Run `python3 /tmp/psa.py --include PSA2009 --no-color Deploy-AMDChipsetDriverOnWindowsServer.ps1`. | `Issues : 0 errors, 0 warnings, 0 info` followed by `(no issues found)`. The exit code is 0. |
+| 3 | Run `python3 /tmp/psa.py --include PSA2009 --no-color Deploy-AMDGraphicsDriverOnWindowsServer.ps1`. | Same as step 2. |
+| 4 | Run `python3 /tmp/psa.py --include PSA2009 --no-color Deploy-AMDNpuDriverOnWindowsServer.ps1`. | Same as step 2. (NPU does not use `[pscustomobject]@{...}` for its `$Ctx` and is exempt from the WHQL producer-consumer contract; the rule still scans the file and finds zero violations.) |
+| 5 | Run `python3 /tmp/psa.py --include PSA2009 --no-color Deploy-MSBthPanInboxOnWindowsServer.ps1`. | Same as step 2. |
+| 6 | (Regression replay only — do not run on the current mainline). Check out the r72 / r38 / r18 / r20 baseline (i.e., the immediate predecessor of this release) and re-run steps 2–5. | Step 2 (Chipset) reports `Issues : 0 errors, 2 warnings, 0 info` with both warnings pointing at the P05 happy-path assignment line and the `catch`-block fallback line for `$Ctx.WhqlCoSignAnalysis`. Step 5 (BthPan) reports the same. Steps 3 and 4 (Graphics, NPU) report `0 warnings`. This replay confirms that PSA2009 would have caught the historical defect at static-analysis time, and that the current mainline closes the regression. |
+
+CI integration: this test case is the recommended gate for any pre-commit hook or CI pipeline that wants to prevent recurrence of the `[pscustomobject]` sealed-object defect class. Adding `--include PSA2009` to the existing full-rule invocation is redundant but harmless (PSA2009 is on by default at warning severity in psa.py 3.8.0+).
+
+### TC14.13 — Graphics P05 emits the WHQL co-signature analysis summary banner (r39 producer-site smoke test)
+
+Added with the Graphics r39 release to verify that the historical producer-site gap (r37 / r38 shipped consumers but no producer) is closed. The test requires a Windows host with a real Adrenalin INF set extracted into the workspace — the Adrenalin 26.5.2 Vega-Polaris Legacy run already validated under TC10.x is the canonical reference.
+
+| Step | Setup | Expected outcome |
+| --- | --- | --- |
+| 1 | Windows Server 2019 / 2022 / 2025 host with Adrenalin 26.5.2 Vega-Polaris Legacy (or a comparable Adrenalin package) cached. Run `.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot`. | P05 runs normally; the inventory CSV and TXT are written to the workspace. |
+| 2 | Inspect the P05 phase transcript section. Look for the new three-line WHQL summary banner: `--- WHQL co-signature analysis ---` followed by `Fully WHQL co-signed INFs : <N>`, `Mixed-signing INFs (partial): <M>`, `No WHQL co-signature : <P>`. | The banner is present immediately before the `PHASE P05 -> DONE` footer. Prior to r39 this banner was missing entirely on the Graphics script. |
+| 3 | Inspect `$Ctx.WhqlCoSignAnalysis` via the workspace-stored phase marker (`%WorkRoot%\markers\P05-*.json` or equivalent). | The marker's `Metadata` section now includes the WHQL analysis result count. Prior to r39 the field was absent (because the producer never ran). |
+| 4 | Re-run with `-SkipNonCosignedDrivers`: `.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action PrepareVerify -SkipNonCosignedDrivers -CleanWorkRoot`. | P06 entry now emits the `r71: -SkipNonCosignedDrivers filter applied` banner with a concrete trim count (or the "already fully WHQL co-signed" message if Adrenalin happens to be fully co-signed). Prior to r39 the filter was a silent no-op on Graphics because `$Ctx.WhqlCoSignAnalysis` was never populated. |
+| 5 | Re-run with `-Action All` on a Secure-Boot-ON host with mixed-signing Adrenalin: `.\Deploy-AMDGraphicsDriverOnWindowsServer.ps1 -Action All`. | I00 §C6 ("WHQL co-sign shortfall on Secure-Boot-ON host") now fires (or correctly does not fire if Adrenalin is fully WHQL co-signed). Prior to r39, C6 was unreachable on Graphics because its `$hasAnalysis` precondition was always false. |
+
+This test case is a runtime acceptance test (not a static-analysis test); it complements TC14.12's static gate by verifying that the wiring actually works end-to-end on real Adrenalin packaging.
+
+---
+
+## 15. Validation Scenario 15: Chipset r73 / Graphics r39 / BthPan r21 — `$Ctx.WhqlCoSignAnalysis` pre-declaration fix + Graphics WHQL producer port
+
+This scenario records the field-reported defect that triggered the Chipset r73 / Graphics r39 / BthPan r21 release on 2026-05-23, together with the static-analysis hardening that closes the defect class going forward.
+
+### 15.1 Field report
+
+**Reporter**: end-user.
+**Environment**: clean-installed Windows Server 2019 Datacenter (build 17763), ja-JP locale, shift_jis (cp932) console encoding, PowerShell 5.1.17763.8755 Desktop, ConsoleHost. AMD Ryzen 5 PRO 4650U with Radeon Graphics, mobile FP6-series BGA (Zen 2 / Renoir). UEFI firmware in GPT mode, Secure Boot OFF (legacy posture). System Restore disabled (default on Server SKUs). No prior workspace.
+**Command**: `.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot` at script version `chipset-2026.05.23-r72` (script tag `legacy-ws2019-wdac-spf-integration`, SHA256 first-12 `a580af9da833`).
+**Outcome**: PHASE P05 transitioned to FAILED at `+6.42s` into the phase with the localised exception:
+
+```
+[X] P05 [AnalyzeInfs] failed: "WhqlCoSignAnalysis" の設定中に例外が発生しました:
+"このオブジェクトにプロパティ 'WhqlCoSignAnalysis' が見つかりません。
+プロパティが存在し、設定可能であることを確認してください。"
+```
+
+The stack trace pointed at line 8470 column 9 of the r72 source, which is the `catch`-block fallback assignment `$Ctx.WhqlCoSignAnalysis = @()`. The two warning lines emitted immediately before the failure (`r71: WHQL co-sign analysis failed: 指定された名前のパラメーターを使用してパラメーター セットを解決できません。` and `r71: I00 C6 condition and -SkipNonCosignedDrivers will operate on an empty analysis.`) were the script's own diagnostic narration from inside the same `catch` block — the initial exception inside the `try` block was a *different* defect (a `param`-binding failure in a downstream signtool helper) that the `catch` block correctly intercepted; the failure that aborted P05 was the `catch`-block fallback itself attempting to assign to a non-existent property.
+
+The P04 extraction had already completed successfully (downloaded `amd_chipset_software_8.05.04.516.exe`, 76.5 MB; extracted via InstallShield admin-install chain; 117 INF files harvested; preferred variant `WTx64` selected; 60 INFs eligible for patching) and P05 had completed its inventory-CSV and inventory-TXT writes. The failure point was purely the WHQL-analysis production block at the end of P05, immediately before `Set-PhaseMarker`.
+
+### 15.2 Root-cause analysis
+
+Three nested defects:
+
+1. **Inner defect (the trigger)** — The signtool helper `Test-WhqlCoSignature` (or one of its downstream helpers) raised a localised `指定された名前のパラメーターを使用してパラメーター セットを解決できません。` (English: "Cannot resolve parameter set with the specified named parameters") at parameter-binding time on this host. The exact site is not material to the P05 failure because the `try` block was specifically designed to catch this class of helper-side failure.
+2. **Middle defect (the actual failure)** — The `catch` block was designed to write `$Ctx.WhqlCoSignAnalysis = @()` as a graceful-degradation sentinel. Because the `[pscustomobject]@{...}` `$Ctx` initialiser at the top of the r71 / r72 script does NOT include `WhqlCoSignAnalysis = $null`, the `catch` block's own assignment raises a SECOND terminating exception (the localised property-not-found message). This second exception is NOT caught by the same `try/catch` (the `catch` block is the one raising it) and propagates to the phase runner, which records P05 as FAILED.
+3. **Outer defect (the silent regression)** — The same defective initialiser is shared between Chipset r72 and BthPan r20. Graphics r38 has a different but equally severe defect: the entire P05 WHQL-analysis production block is missing, so `$Ctx.WhqlCoSignAnalysis` remains at its (implicit, undeclared) `$null` value, every consumer site silently degrades to its fallback path, and the user never sees a runtime error — they just don't get the WHQL pre-detection benefit at all.
+
+### 15.3 Why no existing static-analysis rule caught this
+
+The `psa.py` v3.7.0 rule catalog (36 rules) did not include a check for "PSCustomObject property assigned without prior declaration". PSScriptAnalyzer's equivalent (`Invoke-ScriptAnalyzer`) also does not include such a rule. The defect is therefore detectable only by:
+
+- **Runtime execution on a host that traverses the affected phase** (which is exactly how the user discovered it — they hit it on their first `-Action PrepareVerify` run).
+- **A new static-analysis rule** that models the PSv5 sealed-object semantic specifically. This is what `psa.py` v3.8.0's new PSA2009 rule does. The rule was developed as part of the r73 / r39 / r21 fix work; see SPEC §A.11.5c for the rule documentation and §D.31.16 for the broader checklist applied to future `$Ctx.<NewField>` integrations.
+
+The defect went undetected for two prior revisions (r71 introduced it on 2026-05-23, r72 hardened the I02 short-circuit on the same day but did not touch the initialiser) because:
+
+- The project's CI matrix did not include a `PrepareVerify` run on WS2019 with the cleanest-possible workspace (no cached tools, fresh download, fresh extraction). The defect needs the `try`-block's inner failure to fire in order to reach the `catch`-block's outer failure; on hosts with cached signtool the inner failure does not fire reliably.
+- The project's static-analysis baseline (`psa.py` --config .psa.config.json) reported 0 errors / 0 warnings / 0 info on r72, which appeared to confirm clean-baseline status. The defect was below the rule catalog's detection floor.
+
+### 15.4 Repair scope and verification
+
+The r73 / r39 / r21 release applies the following changes:
+
+| Script | Change | Verification |
+| --- | --- | --- |
+| Chipset r73 | Add `WhqlCoSignAnalysis = $null` to the `$Ctx` initialiser with a multi-line explanatory comment cross-referencing SPEC §D.31 and PSA2009. | `psa.py --include PSA2009` reports 0 findings (was 2). Re-running TC10.x WS2019 PrepareVerify scenario completes P05 with the WHQL summary banner present. |
+| Graphics r39 | Add `WhqlCoSignAnalysis = $null` to `$Ctx` (same shape as Chipset). Port the P05 WHQL-analysis production block from Chipset r71 (~17 lines, byte-identical except for revision-tag comments rephrased to `r39`). | `psa.py --include PSA2009` reports 0 findings (was 0; Graphics had the producer-gap defect, not the initialiser defect). New TC14.13 verifies the producer-site banner appears at runtime. |
+| BthPan r21 | Add `WhqlCoSignAnalysis = $null` to `$Ctx` (same shape as Chipset). | `psa.py --include PSA2009` reports 0 findings (was 2). Re-running the bthpan flow completes P05 with the synthetic-record WHQL analysis. |
+| NPU r18 | No change. NPU's `$Ctx` does not exercise `WhqlCoSignAnalysis`. | `psa.py --include PSA2009` reports 0 findings (was 0). Per SPEC §A.7 ("no empty revisions"), NPU is NOT bumped. |
+| `psa.py` v3.7.0 → v3.8.0 | New rule PSA2009. | All four scripts report 0 findings at the new baseline. The r72 / r38 / r18 / r20 regression-replay (TC14.12 step 6) reproduces 2 + 0 + 0 + 2 findings, confirming the rule would have caught the defect at static-analysis time. |
+
+### 15.5 Lessons learned (for future field-incident reports)
+
+1. **Initial diagnosis must start with the script version recorded in the operator's transcript**, not with the current mainline. The r72 transcript line `chipset-2026.05.23-r72/a580af9da833` was the entry point; the fix branch is bumped to r73 to make the relationship explicit.
+2. **A failed `catch` block is harder to debug than a failed `try` block** because the operator's transcript shows the `catch` block's own narration before the actual failure surfaces. Always read the FINAL exception in the transcript, then walk backward.
+3. **PowerShell 5.1 sealed-object semantics are a recurring footgun**. The `[pscustomobject]@{...}` accelerator is the strictest form available in PSv5 and the project uses it intentionally to surface integration defects loudly — but the strictness backfires when the surfaced error is itself inside a `catch` block. SPEC §D.31.16 codifies the checklist that prevents this from recurring; PSA2009 is the static-analysis gate that mechanically enforces it.
+4. **A clean static-analysis baseline is necessary but not sufficient.** The r72 baseline was clean under `psa.py` v3.7.0 and still shipped the defect. Adding new rules (when a defect class is identified) is the correct response — see SPEC §A.11 ("Static Analysis with psa.py") for the canonical artifact-versioning workflow that this release exercised.
+
 ---

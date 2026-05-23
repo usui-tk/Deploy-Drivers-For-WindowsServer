@@ -786,7 +786,7 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'graphics-2026.05.23-r38'
+$Script:ScriptVersion = 'graphics-2026.05.23-r39'
 $Script:ScriptTag     = 'legacy-ws2019-wdac-spf-integration'
 $Script:ScriptHash    = '(unknown)'
 try {
@@ -8610,6 +8610,30 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     $totalAll = $report.Count
     Write-Ok "Inventory: $csvPath ($totalAll total / $totalSelected selected for patching from $($preferredVariants -join '+'))"
     Write-Ok "Detail   : $reportTxtPath"
+
+    # Build the WHQL co-sign analysis (added with the r71 release; ported into Graphics by r39)
+    # from the patch-eligible subset and attach to $Ctx so I00 / C6 / I03 (and
+    # -SkipNonCosignedDrivers filtering) can read it. The analysis is best-effort:
+    # when signtool is not present the per-INF classification falls back to a
+    # conservative 'self-only' verdict on non-Microsoft primary signers, which
+    # means C6 may over-report on signtool-absent hosts but never under-report.
+    # See SPEC SS D.31. Until r39, Graphics shipped the consumer code (I00 C6,
+    # P06 -SkipNonCosignedDrivers trim, I02 r72 short-circuit) but never the
+    # producer site here in P05, which silently disabled all three for Graphics.
+    Set-DebugStep 'r71: build WHQL co-sign analysis from patch-eligible INFs'
+    $whqlInfRecords = @($detailReport | Where-Object {
+        $_.NeedsPatch -eq $true -or $_.NeedsPatch -eq 'True'
+    } | ForEach-Object {
+        [pscustomobject]@{ InfName = $_.Inf; InfPath = $_.FullPath }
+    })
+    try {
+        $Ctx.WhqlCoSignAnalysis = New-WhqlCoSignAnalysis -InfRecords $whqlInfRecords
+        Show-WhqlCoSignAnalysisReport -Analyses $Ctx.WhqlCoSignAnalysis
+    } catch {
+        Write-Warn2 ('  r71: WHQL co-sign analysis failed: {0}' -f $_.Exception.Message)
+        Write-Warn2 '  r71: I00 C6 condition and -SkipNonCosignedDrivers will operate on an empty analysis.'
+        $Ctx.WhqlCoSignAnalysis = @()
+    }
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'P05' -Metadata @{ Total=$totalAll; Selected=$totalSelected; CsvPath=$csvPath; ReportPath=$reportTxtPath; Variants=($preferredVariants -join ',') }
     Write-PhaseFooter 'P05' 'done'
 }
@@ -13668,6 +13692,18 @@ $Ctx = [pscustomobject]@{
     # update on the existing pscustomobject rather than a new member
     # add (which is the safer pattern in PSv5 + StrictMode).
     SecureBootBaseline = $null
+    # WHQL co-signature analysis (added with the r71 release).
+    # Pre-declared as $null so the later '.WhqlCoSignAnalysis = ...'
+    # assignment in P05 is a property update on the existing
+    # pscustomobject rather than a new member add. Populated by P05
+    # (New-WhqlCoSignAnalysis); consumed by I00 (C6 condition), P06
+    # (-SkipNonCosignedDrivers trim), and I02 (r72 short-circuit for
+    # all-WHQL trimmed install plans). r39: this declaration and the
+    # P05 analysis block itself were both missing in r38; P05 wrote
+    # neither a $Ctx.WhqlCoSignAnalysis value nor the WHQL summary
+    # block to the operator, which in turn silently disabled C6 and
+    # the r72 I02 short-circuit. See SPEC SS D.31 and PSA2009.
+    WhqlCoSignAnalysis = $null
 }
 
 # ----- Cleanup short-circuit -----

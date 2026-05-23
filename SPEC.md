@@ -98,7 +98,7 @@ When extending these scripts, **copy these helpers verbatim** from the most rece
 psa.py  (obtained from the canonical artifact repository — see A.11)
 ```
 
-`psa.py` is a **pure Python** static analyzer (no PowerShell installation required) with a **36-rule** check set spanning `PSA1001`..`PSA9002` plus the project-convention family `PSAP0001`..`PSAP0004`. The repository policy is to validate against the **latest mainline** `psa.py` from the canonical repository (see §A.11 for the rationale and workflow). It is **not** bundled in this repository. It is maintained as a single canonical artifact at:
+`psa.py` is a **pure Python** static analyzer (no PowerShell installation required) with a **37-rule** check set spanning `PSA1001`..`PSA9002` plus the project-convention family `PSAP0001`..`PSAP0004`. The repository policy is to validate against the **latest mainline** `psa.py` from the canonical repository (see §A.11 for the rationale and workflow). It is **not** bundled in this repository. It is maintained as a single canonical artifact at:
 
 ```
 https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/python/powershell-static-analyzer/psa.py
@@ -939,6 +939,8 @@ The 2026-05-18 release is the **first revision where the canonical static-analys
 
 The follow-on 2026-05-20 release (`psa-py-v360-baseline-uplift`, Chipset r63 / Graphics r31 / NPU r14 / MSBthPan r13) **also preserves the 0 / 0 / 0 baseline** while adopting the upstream `psa.py` v3.6.0 rule expansion (PSA2007 / PSA2008 / PSA3006 / PSA6007 / PSA6008 added; PSA2002 risky-shadow set expanded from 8 to 38 entries). The uplift renames two auto-variable-shadowing locals (`$home` → `$winHomeLocation` in `Get-MachineRegion`; `$profile` → `$osProfile` in `Show-OperatingSystemDetail`) — both were true defects in the sense that they assigned to a PowerShell engine auto-variable — and adds `[OutputType([<type>])]` declarations to 27 functions across the four scripts. PSA8001 byte-for-byte parity on the shared helpers is preserved. See [CHANGELOG.md](./CHANGELOG.md) for the detailed function-by-function diff.
 
+The 2026-05-23 release (`psa-py-v380-pscustomobject-rule`, Chipset r73 / Graphics r39 / NPU r18 / BthPan r21) introduces **PSA2009 — PSCustomObject property assigned without prior declaration** (warning, on by default). PSA2009 is the static-analysis counterpart of the runtime defect that surfaced in this release as `Chipset r72 P05 -> FAILED with "WhqlCoSignAnalysis" property-not-found exception` on a Japanese-locale Windows Server 2019 host. The rule models the PowerShell 5.1 `[pscustomobject]@{...}` sealed-object semantic: any `$obj.NewProp = value` assignment where `NewProp` was not in the initialiser AND was not added later via `Add-Member -MemberType NoteProperty -Name NewProp` is reported as a warning. False-positive prevention is engineered into the rule: a variable that is also assigned with a plain hashtable literal (`@{...}` / `[hashtable]@{...}` / `[ordered]@{...}`) anywhere in the same file is conservatively dropped from tracking, which addresses NPU's accumulator pattern where `$result` is sometimes `[pscustomobject]@{...}` (for the per-section parse result) and sometimes `@{...}` (for the per-patch outcome) in different functions of the same file. Running `psa.py --include PSA2009` against the four PowerShell scripts in this repository at the r72/r38/r18/r20 baseline reproduces two warnings on Chipset, two on BthPan, and zero on Graphics / NPU — corresponding exactly to the two assignment sites (happy path + `catch` fallback) per affected script. After the r73 / r39 / r21 fix landed in this release, all four scripts report zero PSA2009 findings. See **A.11.5c** below for the rule's detailed semantics.
+
 How the previously-documented findings were resolved in this sync:
 
 | Rule                                       | Prior totals (per script)       | Resolution applied                                                                                                                                                                                                                                                                            |
@@ -984,6 +986,82 @@ Across all four pipeline scripts, **34 helper functions** are inherited verbatim
 When adding a new shared helper that should remain in sync across all four scripts, add it to all four scripts with identical bodies and do NOT add it to `psa8001_ignore_functions`. PSA8001 will then enforce its sync invariant from that point onward.
 
 **Documented per-driver-family exceptions to byte-identity**: One additional helper, `Build-PatchedInfHwidIndex`, appears in both Chipset and Graphics with intentionally divergent bodies and is listed in `psa8001_ignore_functions`. The Chipset variant integrates a phantom-file-reference filter (added in Chipset r65; see [§D.24](#d24-phantom-file-reference-detection--pipeline-wide-skip-chipset)) that calls the Chipset-only helpers `Get-IneligibleInfLookup` / `Test-InfIsIneligible` to exclude INFs flagged by P05 as ineligible from the V06 AS-IS / TO-BE comparison. The Graphics variant omits this filter by design: Adrenalin packaging (single-EXE WIX BURN bootstrapper) does not exhibit the layered NSIS → InstallShield SFX → nested-MSI structure that produced the Chipset `SECREPAIR Error: 3` cascade, and Graphics P05 has been validated (Adrenalin 26.5.2 Vega-Polaris Legacy on Renoir / WS2019) to produce 0 ineligible INFs in practice. Per SPEC §D.24 the port of the r65 phantom-file machinery to Graphics is deferred until the same defect is observed in a real Adrenalin package; until then, the `psa8001_ignore_functions` entry codifies this asymmetry so the CI baseline remains at 0 errors / 0 warnings.
+
+### A.11.5c PSA2009 — PSCustomObject sealed-object semantic checks
+
+**Rule code**: PSA2009.
+**Severity**: warning.
+**Default**: on.
+**Introduced**: `psa.py` v3.8.0 (Chipset r73 / Graphics r39 / NPU r18 / BthPan r21 release).
+
+#### Motivation
+
+PowerShell 5.1's `[pscustomobject]@{...}` accelerator constructs a sealed object whose property surface is fixed at the moment the initialiser runs. Any subsequent `$obj.NewProp = value` assignment that targets a property NOT in the initialiser raises a terminating exception:
+
+```
+"<PropName>" の設定中に例外が発生しました: "このオブジェクトにプロパティ '<PropName>' が見つかりません。
+プロパティが存在し、設定可能であることを確認してください。"
+
+(English) Exception setting "<PropName>": "The property '<PropName>' cannot be
+found on this object. Verify that the property exists and can be set."
+```
+
+This is *unlike* hashtable literals (`@{...}`, `[hashtable]@{...}`, `[ordered]@{...}`), which freely accept new keys at runtime, and *unlike* `New-Object PSObject` constructions, which can always be extended via `Add-Member`. The four pipeline scripts in this repository use the strictest form (`[pscustomobject]@{...}`) intentionally — it surfaces "you added a new feature in the script body but forgot to wire it into the `$Ctx` initialiser" defects loudly — but the defect surfaces as a runtime exception during the phase that first attempts the assignment, not at parse time or at script load. PSA2009 closes this loop at static-analysis time.
+
+#### Detection
+
+The rule walks the file in three passes:
+
+1. **Initialiser pass**. Every top-level `$VarName = [pscustomobject]@{...}` initialiser is parsed brace-balanced (string-literal-aware), and the declared property names are harvested as the "declared" set for that variable name. Scope qualifiers (`$Script:`, `$Global:`, `$Local:`, `$Private:`) are stripped from the variable name so a `$Script:Foo = [pscustomobject]@{...}` initialiser and a later `$Foo.Bar = ...` assignment correlate correctly.
+
+2. **`Add-Member` pass**. Two surface forms of `Add-Member -MemberType NoteProperty -Name <propname>` are recognised and the named property is *added* to the declared set for the target variable:
+   - `$Var | Add-Member -MemberType NoteProperty -Name Foo -Value ...`
+   - `Add-Member -InputObject $Var -MemberType NoteProperty -Name Foo -Value ...`
+   This makes the rule compatible with the runtime-property-bag pattern used in `Get-BootSigningEnvironment` (where `$env` is initialised with the WDAC-related fields added via `Add-Member` later in the same function).
+
+3. **Hashtable-form drop pass**. Any variable name that is *also* assigned somewhere in the file with a plain hashtable literal (e.g., `$result = @{...}` or `$tbl = [ordered]@{...}`) is conservatively *dropped* from tracking. This false-positive prevention is necessary because `psa.py` analysis is file-level rather than function-scope-aware, and the four scripts in this repository legitimately reuse local variable names like `$result` across multiple functions with different shapes. The rationale: if a variable name has *any* hashtable-form initialisation in the file, free runtime key addition is the dominant semantic and PSA2009 cannot reliably decide which assignment sites are sealed-object violations vs. legitimate hashtable extensions. Dropping the name is safer than warning.
+
+4. **Assignment pass**. Every `$VarName.Property = ...` assignment site is checked against the declared set for `$VarName`. The rule fires when:
+   - `$VarName` survived the hashtable-form drop pass (i.e., is exclusively a `[pscustomobject]` in this file), AND
+   - The assignment operator is `=` (not `+=`, `-=`, `*=`, `/=`, or `==`), AND
+   - `Property` is not in the declared set for `$VarName`.
+
+The rule does *not* fire on:
+- Well-known dynamic property bags: `$_`, `$Matches`, `$PSBoundParameters`, `$Host`, `$Error`, `$PSCmdlet`, `$MyInvocation`, `$args`, `$input`, `$this`. These are PowerShell engine-provided objects that legitimately accept dynamic property assignment patterns.
+- Hashtable variables (per the drop pass).
+- Variables that PSA2009 has never seen in a `[pscustomobject]@{...}` initialiser — those are typically parameters, pipeline output, or external object references where the surface contract is opaque to the analyzer.
+
+#### Differences from related rules
+
+- **PSA2001 (Undefined variable reference)** operates at the *variable* level: it flags a reference to `$Foo` when `$Foo` was never assigned. PSA2009 operates at the *property* level: it flags `.NewProp = value` when `NewProp` is not part of the variable's `[pscustomobject]` surface. The two rules are orthogonal — PSA2001 cannot detect the WhqlCoSignAnalysis bug because `$Ctx` is well-defined at every assignment site.
+- **PSA2002 (Auto-variable shadowing)** operates at the variable level on PowerShell engine auto-variables. PSA2009 has nothing to do with auto-variables.
+- **PSA8001 (Function-body drift)** operates at the cross-file function-body level. PSA2009 operates inside a single file.
+
+#### Inline suppression
+
+Suppress on the *assignment* line, not the initialiser:
+
+```powershell
+$Ctx.OptInPropertyForExperimentalFeature = $value  # psa-disable-line PSA2009
+```
+
+The recommended fix is almost always to add the missing `PropName = $null` declaration to the `[pscustomobject]@{...}` initialiser, not to suppress the warning. PSA2009 suppression should be reserved for cases where the assignment is to an inherited or extended object (e.g., a pscustomobject returned from another function which the author cannot easily annotate).
+
+#### Reproducing the historical Chipset r72 P05 failure
+
+To verify that PSA2009 catches the exact runtime defect reported on 2026-05-23:
+
+```bash
+# At the r72 / r38 / r18 / r20 baseline (before this release):
+git checkout <commit-before-r73>
+curl -sSL https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py -o /tmp/psa-3.8.0.py
+python3 /tmp/psa-3.8.0.py --include PSA2009 Deploy-AMDChipsetDriverOnWindowsServer.ps1
+# Expected output: 2 warnings, at the happy-path assignment site and the catch-block fallback site.
+
+# At the r73 / r39 / _ / r21 baseline (this release and forward):
+python3 /tmp/psa-3.8.0.py --include PSA2009 Deploy-AMDChipsetDriverOnWindowsServer.ps1
+# Expected output: 0 warnings.
+```
 
 ### A.11.6 Self-quality gates for `psa.py` (consumer-side usage)
 
@@ -3212,6 +3290,17 @@ The analysis runs only on the **patch-eligible subset** (`NeedsPatch=true` or, f
 
 When mixed-signing or non-co-signed INFs are present, the report enumerates the first 10 of each so the operator sees concrete filenames before reaching I00.
 
+**Producer-site status table** (updated 2026-05-23 Chipset r73 / Graphics r39 / NPU r18 / BthPan r21 release):
+
+| Script   | P05 producer site status | Source of `$Ctx.WhqlCoSignAnalysis` |
+|----------|---------------------------|--------------------------------------|
+| Chipset  | producer (r71 added, r73 hardened with `$Ctx.WhqlCoSignAnalysis = $null` pre-declaration) | Built from `$detailReport | Where-Object NeedsPatch` (multi-INF AMD chipset package) |
+| Graphics | producer (r39 ported from Chipset r71 — *not present in r37 / r38*) | Built from `$detailReport | Where-Object NeedsPatch` (multi-INF Adrenalin package) |
+| NPU      | implicit (no producer site needed) | NPU package is a single inbox-style INF; the C6 / `-SkipNonCosignedDrivers` mechanisms do not exercise this path |
+| BthPan   | producer (r71 added, r21 hardened with `$Ctx.WhqlCoSignAnalysis = $null` pre-declaration) | Single-INF synthetic record `@([pscustomobject]@{ InfName='bthpan.inf'; InfPath=$infPath })` — the analysis always reports IsFullyCoSigned=true for the Microsoft inbox bthpan.inf |
+
+The Graphics r39 backport was identified during the r73 fix work for the Chipset / BthPan `$Ctx` pre-declaration defect: psa.py v3.8.0's new PSA2009 rule flagged the Chipset and BthPan defects directly, and the broader audit triggered by the rule's addition revealed that Graphics r37 / r38 shipped the four consumer sites (I00 §D.31.4 C6, P06 §D.31.5 `-SkipNonCosignedDrivers` trim, I02 §D.31.11 r72 short-circuit, recap line in I00) but never the producer site. From r39 onward, Graphics conforms to the same producer / consumer contract as Chipset and BthPan.
+
 ### D.31.3 Mechanism 2 — Path B prerequisite check in I02 (`Invoke-PathBPrerequisiteCheck`, `Test-SecureBootEnabledFromFirmware`)
 
 I02's Path B branch (`-UseTestSigning`) now calls `Invoke-PathBPrerequisiteCheck` immediately after the "BCD testsigning already ON?" cached-state check and BEFORE any `bcdedit` invocation or driver-store modification. The check returns one of three outcomes:
@@ -3409,6 +3498,57 @@ For clarity, r72 leaves the following unchanged from r71:
 - `$nonCoSignedAfterTrim` is computed inside the `if` branch rather than relying on a P06-side flag, so a future P06 refactor that changes the trim semantics will not silently desynchronise the short-circuit. The verification is local to I02 entry.
 - The Set-PhaseMarker call passes a hashtable Metadata so future diagnostic tools can recognise short-circuited I02 phases (e.g., for a "what does this workspace tell me about kernel-mode signer authorization state?" query) without having to inspect the actual host state.
 - The Write-Detail messages enumerate the two reasons the WHQL embedded signatures and trust-store import are sufficient (kernel CI + pnputil), so operators reading the transcript years later can reconstruct the design rationale without consulting the SPEC.
+
+### D.31.16 `$Ctx` initialiser checklist for r71 producer rollout (lesson learned in r73 / r39 / r21)
+
+Background. The Chipset r72 P05 phase failed at runtime on a clean-installed Windows Server 2019 host with the localised exception:
+
+```
+"WhqlCoSignAnalysis" の設定中に例外が発生しました: "このオブジェクトに
+プロパティ 'WhqlCoSignAnalysis' が見つかりません。
+プロパティが存在し、設定可能であることを確認してください。"
+```
+
+…thrown from the `$Ctx.WhqlCoSignAnalysis = @()` fallback line inside the `catch` block of the r71 P05 WHQL-analysis production site. The root cause was that the `[pscustomobject]@{...}` `$Ctx` initialiser at the top of the script did NOT include a `WhqlCoSignAnalysis = $null` line. In PowerShell 5.1 sealed-object semantics, any `$obj.NewProp = value` assignment that targets a property not declared in the initialiser raises a terminating exception (see SPEC §A.11.5c for the rule and §D.31.7 for the broader PS 5.1 footgun catalog).
+
+The same defect was present in BthPan r20. Graphics r38 did not exhibit the defect, but for a different reason: Graphics had no P05 producer site at all (an unrelated functional gap fixed in r39).
+
+#### D.31.16.1 Checklist for adding a new field to `$Ctx`
+
+Any future revision that adds a new field to `$Ctx` (a) **MUST** add a corresponding `<NewField> = $null` (or appropriate empty-sentinel) line to the `[pscustomobject]@{...}` initialiser in the same revision, and (b) **SHOULD** add an explanatory comment naming the producer and consumer phases. The checklist:
+
+1. **Decide on the sentinel value**. For collections, prefer `@()` over `$null` so consumers can use `.Count -eq 0` without a `$null` guard. For scalars, `$null` is correct. For complex pscustomobject sub-records (e.g., `SecureBootBaseline`), `$null` is correct and the consumer must check for `-not $null` before reading members.
+2. **Add the initialiser line** in the same script revision that adds the producer phase. The initialiser line is byte-identical across Chipset, Graphics, and BthPan (NPU exempt — different `$Ctx` shape). Add it to all three scripts as a single revision.
+3. **Add the explanatory comment** above the initialiser line. Format:
+   ```powershell
+   # <FieldName> — <one-line purpose>.
+   # Pre-declared as <sentinel> so plain '.' assignment works on
+   # the [pscustomobject] without requiring Add-Member.
+   # Populated by <ProducerPhaseId>; consumed by <Consumer1>, <Consumer2>.
+   # See SPEC §<section>.
+   <FieldName> = <sentinel>
+   ```
+4. **Run `psa.py --include PSA2009`** against all four scripts before committing. The rule is the static-analysis gate that closes this loop. If PSA2009 reports zero findings, the integration is correctly wired.
+5. **Add a TESTING.md test case** under "Static analysis acceptance tests" that asserts the assignment site exists and is reachable. Format: TC14.<N> ("`$Ctx.<FieldName>` property-declaration smoke test"). The Chipset r73 / Graphics r39 / BthPan r21 release introduces this convention with TC14.6.
+6. **Bump all affected scripts together**. The `$Ctx` initialiser is part of the cross-script shared contract; bumping one script without the others creates a producer-consumer skew that PSA8001 cannot detect (because the affected function is not in the shared-helper drift set). Bump Chipset, Graphics, and BthPan together — and skip NPU explicitly if it does not exercise the new field (no empty revisions; cite the per-script applicability table in the CHANGELOG entry).
+
+#### D.31.16.2 Producer-consumer wiring audit
+
+Whenever a new field is added to `$Ctx`, audit the four scripts for producer-consumer skew:
+
+- **Producer site present?** Find the phase that should populate the field (`grep -n '$Ctx\.<FieldName>\s*=' <script>.ps1`). If the producer is missing in any script, the field will remain at its sentinel value and every consumer will silently degrade to its fallback path. This is the defect that hid in Graphics r37 / r38 for two full revisions.
+- **Consumer sites present?** Find every read site (`grep -n '$Ctx\.<FieldName>' <script>.ps1`). If a consumer is missing in any script, the field will be populated but the dependent feature will not run on that driver family. This is the defect that *would* have hidden in NPU if r71 had added the consumer sites without exempting NPU.
+- **Producer-consumer order respected?** Phase IDs are lexicographically ordered (`P00 < P01 < ... < V01 < ... < I00 < ... < I05`). Any consumer at phase X must run after the producer at phase Y where Y < X. The producer must NOT run after the consumer.
+
+#### D.31.16.3 Why PSA2009 is the right place for this rule
+
+The defect could in principle be detected by other static-analysis approaches:
+
+- **PSScriptAnalyzer (`Invoke-ScriptAnalyzer`)** does not have an equivalent rule. Its closest analogue is `PSAvoidAssignmentToAutomaticVariable`, which is about engine auto-variables, not user pscustomobjects.
+- **AST-walking with `[System.Management.Automation.Language.Parser]`** could in theory model the sealed-object semantic, but the implementation would have to track variable identity across the entire script and decide which `$X.Y = value` assignments are sealed-object violations vs. legitimate hashtable extensions. This is essentially what PSA2009 does — but at the file level rather than the phase level, with the conservative hashtable-form drop pass that prevents false positives on accumulator patterns like NPU's `$result`.
+- **Runtime detection (e.g., a `try/catch` at the assignment site)** would surface the defect only at the first execution, and only on the host that happens to traverse the affected phase. This is exactly what hid the Chipset r72 defect: the project's CI matrix did not include a `PrepareVerify` run on WS2019, and the defect surfaced only when a customer triggered the path on their own host.
+
+PSA2009 is the right gate because it is (a) language-aware (models the PSv5 sealed-object semantic accurately), (b) file-level (no need to reason about phase ordering at static-analysis time), (c) conservative against false positives (the hashtable-form drop pass), and (d) zero-cost at runtime (purely a pre-commit / CI artifact). The Chipset r73 / Graphics r39 / BthPan r21 release upstreams the rule into `psa.py` v3.8.0 and codifies its use in the §A.11.5c rule documentation.
 
 
 ## Appendix: How to seed a new sister script from this SPEC
