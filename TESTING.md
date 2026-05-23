@@ -1739,7 +1739,7 @@ This section covers the four r71 mechanisms documented in SPEC §D.31 and the on
 
 | Step | Setup | Expected outcome |
 | --- | --- | --- |
-| 1 | WS2019 host without the WDK installed; `Find-Signtool` returns `$null`. Install set has a non-WHQL primary signer (typical for AMD's own publisher cert on non-co-signed drivers). | — |
+| 1 | WS2019 host without the WDK installed; `Find-KitTool 'signtool.exe'` returns `$null`. Install set has a non-WHQL primary signer (typical for AMD's own publisher cert on non-co-signed drivers). | — |
 | 2 | Run `.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action PrepareVerify` | `Test-WhqlCoSignature` falls back to the primary-signer-only check. Non-Microsoft primary signers are classified `Reason=self-only, IsCoSigned=$false`. |
 | 3 | Inspect P05 output. | Conservative classification: the WHQL summary may over-report `No WHQL co-signature` on actually-co-signed drivers because nested signers are not visible. C6 may fire on Secure-Boot-ON hosts where it would not fire with signtool present. Operators with no WDK can either install signtool or accept the conservative outcome. |
 
@@ -1876,3 +1876,97 @@ The r73 / r39 / r21 release applies the following changes:
 4. **A clean static-analysis baseline is necessary but not sufficient.** The r72 baseline was clean under `psa.py` v3.7.0 and still shipped the defect. Adding new rules (when a defect class is identified) is the correct response — see SPEC §A.11 ("Static Analysis with psa.py") for the canonical artifact-versioning workflow that this release exercised.
 
 ---
+
+## 16. r74 / r40 / r22 release validation (2026-05-24, Renoir + WS2019)
+
+This section records the test scenarios that close the four r74 defects documented in SPEC §D.32. The bench host is the same one used for §15 (clean-installed Windows Server 2019 Datacenter, build 17763, ja-JP, PowerShell 5.1.17763.8755 Desktop, ConsoleHost, AMD Ryzen 5 PRO 4650U / Renoir, UEFI / GPT, Secure Boot OFF, no prior workspace, no BitLocker).
+
+### 16.1 Field report
+
+**Reporter**: end-user.
+**Environment**: identical to §15.1 except the host had a prior `r73` install run completed and rebooted before the diagnostic snapshot was taken; testsigning ON, 5 AMD chipset devices on script-installed drivers.
+**Command**: `.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -OnlyPhases V06` at script version `chipset-2026.05.23-r73`.
+**Outcome**: V06 reported `[A]=36 [B]=5 [C]=0 [?]=1` and "Match summary: 2 device(s) WILL be replaced" — both incorrect on a freshly-installed-and-rebooted host. The diagnostic pre-reboot snapshot also surfaced that `Test-WhqlCoSignature` had been returning conservative `self-only` for every `.sys` file across the entire r71–r73 lifetime (the silent degradation documented in §D.32.2).
+
+The user's report contained four artefacts that were critical to triage:
+1. `CONSOLIDATED_REPORT.txt` (statement of work + raw signtool output for each staged `.sys`).
+2. `12_pre-reboot-amd-driver-bindings.csv` (showed `IsSigned=False` for all script-installed drivers, expected for self-signed kernel drivers).
+3. `13_pre-reboot-bcd.txt` (`testsigning Yes` plus the surprising `displaymessageoverride Recovery` value — later determined to be the WS2019 default).
+4. The full `-Action Install` transcript that revealed I02 → I03 ran in the same execution despite the "reboot then re-run" message (Defect 4).
+
+### 16.2 Test cases
+
+#### TC16.1 — `Test-WhqlCoSignature` returns `cosigned` for a known WHQL-co-signed file (positive)
+
+| Step | Action | Expected |
+|---|---|---|
+| 1 | Cherry-pick a Windows-inbox `.sys` known to be WHQL co-signed (e.g. `C:\Windows\System32\drivers\bthpan.sys`) into a temp directory. Install WDK 10 so `signtool.exe` is on PATH. | — |
+| 2 | Dot-source the patched `Test-WhqlCoSignature` body or run the script's P05 against an INF that references this file. | `Test-WhqlCoSignature` returns `IsCoSigned=$true`, `Reason='cosigned'`, `WhqlMarker` non-empty. |
+| 3 | Re-run with `Find-KitTool 'signtool.exe'` returning `$null` (no WDK). | Returns `IsCoSigned=$false`, `Reason='self-only'`. This is the conservative fallback documented in §D.32.2. |
+
+#### TC16.2 — `Test-WhqlCoSignature` returns `self-only` for AmdMicroPEP.sys from chipset 8.05.04.516 (negative)
+
+| Step | Action | Expected |
+|---|---|---|
+| 1 | After a successful `r74 Install` on the bench host, locate `C:\Windows\System32\DriverStore\FileRepository\amdmicropep.inf_amd64_*\AmdMicroPEP.sys`. | — |
+| 2 | Dot-source and call `Test-WhqlCoSignature -Path <path>`. | Returns `IsCoSigned=$false`, `Reason='self-only'`. Confirms §D.32.3 finding that chipset 8.05.04.516 dropped the WHQL co-signature. |
+
+#### TC16.3 — V06 on a freshly-installed host reports `[C]>0` for script-installed devices
+
+| Step | Action | Expected |
+|---|---|---|
+| 1 | On the bench host, after a successful `r74 Install` + reboot, run `.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -OnlyPhases V06`. | — |
+| 2 | Inspect the `Driver-source distribution among AMD HARDWARE:` line. | `[C]>0` for the 5 devices the script installed (chipset). On Graphics, the count is package-specific; on BthPan, V06 does not exercise Get-DriverSourceCategory and this TC is N/A. |
+| 3 | Inspect Section 2 `Match summary:` line. | `0 device(s) WILL be replaced` (idempotent) on a clean install + reboot. If `>0`, V06 still flagged a legitimate replacement target — verify against the install plan to confirm. |
+
+#### TC16.4 — V06 on a re-run after a successful install is idempotent
+
+| Step | Action | Expected |
+|---|---|---|
+| 1 | After TC16.3, run `-Action Install` a second time (no flags). | I00 detects all phases in target state, I02 is cached, I03 hits "all patched INFs already in driver store" cached path, I04 reports the same disposition as TC16.3 step 2. |
+| 2 | No driver is replaced. No `REBOOT_REQUIRED` lines appear. | — |
+
+#### TC16.5 — `-Action Install` on a host with `testsigning OFF` halts after I02
+
+| Step | Action | Expected |
+|---|---|---|
+| 1 | Boot a clean-installed WS2019 host (testsigning OFF in BCD). Secure Boot OFF in firmware so Path B is available. | — |
+| 2 | Run `-Action PrepareVerify -CleanWorkRoot` then `-Action Install`. | P00–P09, V01–V06 complete normally. I00 reviews. I01 imports cert. I02 sets BCD testsigning ON. |
+| 3 | I02 footer | `PHASE I02 -> DONE`. The next message line is the `*** A REBOOT IS REQUIRED ***` block (unchanged from r73). |
+| 4 | I03 entry | Prints `I03: halting because I02 just enabled testsigning in this run.` followed by the 3-step operator workflow. Footer is `PHASE I03 -> halted-pending-reboot`. |
+| 5 | I04 entry | Same halt body. Footer is `PHASE I04 -> halted-pending-reboot`. |
+| 6 | Workspace markers | I02 marker is written; I03 / I04 markers are NOT written. PendingRebootMarker is written. |
+| 7 | RUN SUMMARY | `Phases run` shows `P00 -> P01 -> I00 -> I01 -> I02 -> I03 -> I04`. Phase timings table shows I03 / I04 with `halted-pending-reboot` status. |
+
+#### TC16.6 — Re-run after the reboot proceeds normally
+
+| Step | Action | Expected |
+|---|---|---|
+| 1 | After TC16.5, reboot the host. Test Mode watermark appears. | — |
+| 2 | Re-run `-Action Install` (same command). | `$Ctx.RebootRequiredBeforeI03` starts as `$false` (per-process, NOT persisted). |
+| 3 | I02 entry | Hits the cached "already on" branch. Footer is `cached`. |
+| 4 | I03 entry | Does NOT halt. Stages drivers normally. |
+| 5 | I04 entry | Does NOT halt. Runs the post-install verification normally. |
+| 6 | I04 functional-health probe | Reports actual driver-load state. PendingRebootMarker is cleared by I04. |
+
+### 16.3 Static analysis posture for r74
+
+The r74 release adds no new `psa.py` rule. The four r74 defects (per SPEC §D.32) are all integration-level defects that local-form analysis cannot detect. A planned `psa.py` v3.9.0 rule **PSA2010 — invocation of undefined function** would catch Defect 1 (`Find-Signtool`) at static-analysis time, but the rule needs the full function-definition table across all four scripts simultaneously, which is a structural change to the analyzer. PSA2010 is tracked as future work.
+
+### 16.4 Regression risk
+
+| Risk | Mitigation |
+|---|---|
+| `signtool verify /all` produces unexpectedly verbose output that breaks the `Issued to:` regex. | `/all` adds nested-signature blocks but the per-signer `Issued to:` line format is unchanged across signtool 6.0–10.0.x. Verified against signtool 10.0.26100.0 (the version this repository's `Find-KitTool` resolves to). |
+| `$ourInfSet` build at V06 entry is slow on hosts with many oem*.cat files. | The same build runs in I04 already and has been stable since r60. V06's invocation reuses the helper unchanged. |
+| `$Ctx.RebootRequiredBeforeI03` is added but not removed on `-CleanWorkRoot`. | The flag is per-process. `-CleanWorkRoot` rebuilds `$Ctx` from scratch, so the flag is implicitly absent in the next run. The flag is also explicitly NOT persisted to disk (per §D.32.5 design rationale). |
+| Operator runs `-OnlyPhases I03,I04` skipping I02. | I03 / I04 do not check `RebootRequiredBeforeI03` against `$Ctx.UseTestSigning` — they trust the flag. If I02 was not run in this session, the flag is `$null`/`$false` and I03 / I04 proceed as before. This is the intended behavior. |
+
+### 16.5 Lessons learned (additions to §15.5)
+
+5. **Helper functions referenced by name but never defined are not caught by `psa.py`.** This is a structural blind spot the project lived with from r71 to r73. PSA2010 (planned, v3.9.0) is the static-analysis answer. Until then, a manual `grep -E '\bFind-[A-Z][a-zA-Z]+' *.ps1` cross-check against `grep -E '^function Find-[A-Z]'` is the recommended pre-commit gate.
+6. **External-tool flag changes (e.g., signtool's `/all`) are easy to miss in code review** because the call site looks unchanged. The countermeasure is to inline the rationale for every flag (the r74 helper comment explicitly enumerates `/all`, `/pa`, `/v` and what each does) so future readers do not silently re-remove a flag they think is unused.
+7. **V06 / I04 share the `Get-DriverSourceCategory` consumer surface but have asymmetric `Get-OurSignedOemInfSet` producer sites.** Any future helper that depends on a one-time-per-phase build SHOULD be invoked at the same site in BOTH V06 and I04 unless there is a documented reason not to. The r74 V06 fix codifies this pattern.
+
+---
+

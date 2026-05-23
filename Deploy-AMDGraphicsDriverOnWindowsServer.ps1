@@ -786,8 +786,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'graphics-2026.05.23-r39'
-$Script:ScriptTag     = 'legacy-ws2019-wdac-spf-integration'
+$Script:ScriptVersion = 'graphics-2026.05.24-r40'
+$Script:ScriptTag     = 'legacy-ws2019-runtime-correctness-fix'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -4903,15 +4903,24 @@ function Test-WhqlCoSignature { # psa-disable-line PSA6003 -- "Signature" is a s
         # rejects the surface.
         Set-DebugStep ('Test-WhqlCoSignature: Get-AuthenticodeSignature failed for {0}: {1}' -f $Path, $_.Exception.Message)
     }
-    # Step 2: try signtool to enumerate co-signers. Find-Signtool is the
-    # cross-script helper used elsewhere; it returns $null if WDK is
-    # not installed, in which case we cannot reach nested signatures
-    # from PS 5.1.
+    # Step 2: try signtool to enumerate co-signers. Find-KitTool is the
+    # cross-script Windows Kits resolver introduced for this purpose; it
+    # returns the absolute signtool.exe path as a string, or $null when
+    # the WDK / Windows Kits SDK is not installed, in which case we
+    # cannot reach nested signatures from PS 5.1.
+    #
+    # NOTE (r74): Earlier revisions called a non-existent Find-Signtool
+    # helper, which raised CommandNotFoundException at runtime. The
+    # surrounding try/catch swallowed that exception silently and
+    # forced this function into the "no signtool" fallback path for
+    # every call, masking the defect across the entire fleet. The
+    # Find-KitTool fix landed in chipset r74 / graphics r40 / bthpan r22.
+    # See SPEC §D.32 for the post-incident analysis.
     $signtool = $null
     try {
-        $signtool = Find-Signtool
+        $signtool = Find-KitTool 'signtool.exe'
     } catch {
-        Set-DebugStep ('Test-WhqlCoSignature: Find-Signtool threw: {0}' -f $_.Exception.Message)
+        Set-DebugStep ('Test-WhqlCoSignature: Find-KitTool ''signtool.exe'' threw: {0}' -f $_.Exception.Message)
     }
     if (-not $signtool) {
         # Without signtool we cannot enumerate co-signers on PS 5.1.
@@ -4924,13 +4933,19 @@ function Test-WhqlCoSignature { # psa-disable-line PSA6003 -- "Signature" is a s
         }
         return $result
     }
-    # signtool verify /pa /v <file> exits 0 when at least one signature
-    # is valid for kernel-mode use. We parse stdout for the per-
-    # signature certificate chain block. The output is stable across
-    # signtool versions 6.0..10.0.x.
+    # signtool verify /all /pa /v <file> enumerates BOTH the primary
+    # signature AND every nested signature. The /all flag was missing
+    # in earlier revisions, which caused this helper to silently miss
+    # WHQL co-signatures embedded as nested signatures (the most common
+    # form for AMD-published kernel drivers). The /pa /v flags retain
+    # the previous semantic: /pa selects the policy-aware ("plug-and-
+    # play") chain, /v emits the per-signer "Issued to:" lines this
+    # function parses. Output format is stable across signtool versions
+    # 6.0..10.0.x. See SPEC §D.32 for the field evidence that motivated
+    # the /all addition in r74.
     $stdOut = ''
     try {
-        $stdOut = & $signtool verify /pa /v $Path 2>&1 | Out-String
+        $stdOut = & $signtool verify /all /pa /v $Path 2>&1 | Out-String
     } catch {
         Set-DebugStep ('Test-WhqlCoSignature: signtool invocation failed for {0}: {1}' -f $Path, $_.Exception.Message)
         return $result
@@ -11408,6 +11423,21 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     $hw       = @($hwAll | Where-Object IsAmdHardware)
     $hwSoftSw = @($hwAll | Where-Object { -not $_.IsAmdHardware })
 
+    # r40 (graphics): build the OEM-name lookup set once. Threaded into
+    # every Get-DriverSourceCategory call below (Section 1, Section 2,
+    # AS-IS/TO-BE comparison) so script-installed drivers classify as
+    # [C] even when WMI returns the OEM-numbered InfName and the .cat
+    # path-resolution Step 0a fails. Returns an empty hashtable when
+    # the workspace has no cert thumbprint recorded (PrepareVerify-only
+    # runs); in that case the helper still operates correctly via
+    # Steps 0a / 1 / 2 / 3. See SPEC §D.32.2.
+    $ourInfSet = if ($Ctx.CertThumbprint) {
+        Get-OurSignedOemInfSet -ExpectedThumbprint $Ctx.CertThumbprint
+    } else {
+        @{}
+    }
+    Set-DebugStep ('Section 1: ourInfSet count = {0}' -f $ourInfSet.Count)
+
     # Pre-compute per-device current-driver categorization. Doing
     # this once up-front lets us reuse the result in Sections 1, 2
     # and the AMD-on-MS-generic detection without re-querying
@@ -11417,7 +11447,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     foreach ($d in $hwAll) {
         $cur = Get-DeviceCurrentDriver -DeviceID $d.DeviceID
         $cat = if ($cur) {
-            Get-DriverSourceCategory -Provider $cur.Provider -Signer $cur.Signer -InfName $cur.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint
+            Get-DriverSourceCategory -Provider $cur.Provider -Signer $cur.Signer -InfName $cur.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint -KnownOurInfSet $ourInfSet
         } else {
             @{ Code='?'; ShortLabel='[?]'; Label='No driver bound'; Color='DarkGray' }
         }
@@ -11912,8 +11942,14 @@ function Invoke-InstPhase00_PreInstallReview {
         $infs = if ($infIndex.ContainsKey($key)) { $infIndex[$key] } else { @() }
         if ($infs.Count -gt 0) {
             $cur = Get-DeviceCurrentDriver -DeviceID $d.DeviceID
+            # r40 (graphics): thread $ourInfSet (built earlier in
+            # Section 1) into Get-DriverSourceCategory so script-
+            # installed drivers classify as [C], not [B]. This is what
+            # makes the "0 device(s) keep current driver" line match
+            # reality on re-runs after a successful install. See
+            # SPEC §D.32.2.
             $cat = if ($cur) {
-                Get-DriverSourceCategory -Provider $cur.Provider -Signer $cur.Signer -InfName $cur.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint
+                Get-DriverSourceCategory -Provider $cur.Provider -Signer $cur.Signer -InfName $cur.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint -KnownOurInfSet $ourInfSet
             } else {
                 @{ Code='?'; ShortLabel='[?]'; Label='No driver bound'; Color='DarkGray' }
             }
@@ -12485,6 +12521,22 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     Set-PendingRebootMarker -Ctx $Ctx -Source 'I02' `
         -Reason 'BCD testsigning was just set; reboot required for it to take effect.'
 
+    # r40 (graphics): signal to the phase dispatcher that subsequent
+    # phases (I03, I04) MUST NOT run in this same execution. Earlier
+    # revisions printed the "reboot then re-run" guidance above but
+    # then proceeded to I03/I04 immediately, staging drivers that
+    # kernel CI would reject until the next boot. The result was a
+    # confusing mix of "REBOOT_REQUIRED" disposition lines from
+    # pnputil and I04 functional-health probes that could not run
+    # because no driver had actually loaded yet. The new
+    # RebootRequiredBeforeI03 flag makes the halt explicit; I03 / I04
+    # read it at entry and short-circuit with a clear "halt for
+    # reboot" message. The flag is per-process, NOT persisted to
+    # disk: the re-run after reboot starts with
+    # $Ctx.RebootRequiredBeforeI03=$false, so I03 / I04 proceed
+    # normally then.
+    $Ctx | Add-Member -NotePropertyName RebootRequiredBeforeI03 -NotePropertyValue $true -Force
+
     $reverseInstr = @(
         'To revert testsigning later (after you are done):',
         '  bcdedit /set testsigning off',
@@ -12499,6 +12551,31 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
 function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     param($Ctx)
     Write-PhaseHeader 'I03' 'InstallDrivers' 'Inst'
+
+    # r40 (graphics): I02 sets $Ctx.RebootRequiredBeforeI03 when it
+    # newly enables BCD testsigning. In that case the host's kernel
+    # CI cannot yet admit self-signed drivers; staging them via
+    # pnputil would still succeed at the trust-store layer (because
+    # I01 imported the cert already) but every PnP load attempt for
+    # an unloaded device would be rejected with
+    # CM_PROB_DRIVER_FAILED_LOAD (code 39) until the reboot. To keep
+    # the install transcript honest and the host in a clean
+    # intermediate state, I03 halts immediately when the flag is set.
+    # The operator reboots once and re-runs -Action Install: on the
+    # re-run, $Ctx.RebootRequiredBeforeI03 starts as $false (the flag
+    # is per-process, not persisted), and I03 / I04 proceed normally.
+    # See SPEC §D.32.3 for the design rationale.
+    if ($Ctx.RebootRequiredBeforeI03) {
+        Write-Warn2 'I03: halting because I02 just enabled testsigning in this run.'
+        Write-Host  '     Self-signed kernel-mode drivers cannot load until the host reboots.' -ForegroundColor Yellow
+        Write-Host  '     Staging them now would queue REBOOT_REQUIRED entries and I04 would' -ForegroundColor Yellow
+        Write-Host  '     not be able to verify driver load. To proceed cleanly:' -ForegroundColor Yellow
+        Write-Host  '       1) Reboot Windows now (Test Mode watermark will appear)'           -ForegroundColor Cyan
+        Write-Host  '       2) Re-run -Action Install (same command); I03 / I04 will run'     -ForegroundColor Cyan
+        Write-Host  '          automatically because I01 / I02 are already in target state.'   -ForegroundColor Cyan
+        Write-PhaseFooter 'I03' 'halted-pending-reboot'
+        return
+    }
 
     if (-not (Test-Path $Ctx.Paths.Patched)) {
         throw "I03: patched directory missing ($($Ctx.Paths.Patched)) - run P06 (PatchInfs) first."
@@ -12800,6 +12877,18 @@ function Invoke-InstPhase04_PostInstallVerification {
     # health table.
     param($Ctx)
     Write-PhaseHeader 'I04' 'PostInstallVerification' 'Inst'
+
+    # r40 (graphics): mirror the I03 halt - if I02 just enabled
+    # testsigning in this run, I03 returned without staging drivers,
+    # so I04 has no post-install state to verify. Halt cleanly rather
+    # than emit a spurious "no I03 install results" warning.
+    if ($Ctx.RebootRequiredBeforeI03) {
+        Write-Warn2 'I04: halting because I03 was halted earlier (testsigning newly enabled in I02).'
+        Write-Host  '     There is no post-install state to verify yet. Reboot and re-run' -ForegroundColor Yellow
+        Write-Host  '     -Action Install (same command); I03 / I04 will run automatically.' -ForegroundColor Yellow
+        Write-PhaseFooter 'I04' 'halted-pending-reboot'
+        return
+    }
 
     if (-not $Ctx.InstallResults) {
         Write-Warn2 'I04: no I03 install results found in context. I03 must run first in the same session.'

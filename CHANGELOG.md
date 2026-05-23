@@ -20,6 +20,46 @@ independently.
 
 ---
 
+## [2026-05-24] `legacy-ws2019-runtime-correctness-fix` — Chipset r74 / Graphics r40 / BthPan r22 / NPU r18 (unchanged)
+
+This release closes four runtime defects surfaced during a clean-installed
+Windows Server 2019 + AMD Ryzen 5 PRO 4650U (Renoir) bench cycle on
+2026-05-24. The defects had been latent since r71 and were not caught by
+any `psa.py` v3.8.0 rule because they are integration defects, not local-
+form defects. Full post-incident analysis lives in
+[SPEC §D.32](./SPEC.md#d32-runtime-correctness-fixes-from-the-2026-05-24-ws2019--renoir-bench-cycle-r74);
+test scenarios live in [TESTING §16](./TESTING.md#16-r74--r40--r22-release-validation-2026-05-24-renoir--ws2019).
+
+### Fixed
+
+- **Defect 1 — `Test-WhqlCoSignature` called a non-existent `Find-Signtool` helper.** The actual Windows Kits resolver is `Find-KitTool 'signtool.exe'`. The mistyped call silently raised `CommandNotFoundException` inside a `try/catch`, forcing every WHQL classification into the conservative `'self-only'` fallback for the entire r71–r73 lifetime. The C6 acknowledgement gate, `-SkipNonCosignedDrivers` trim, and r72 I02 short-circuit all silently degraded as a result. (Chipset r74 / Graphics r40 / BthPan r22 — byte-identical helper fix.)
+- **Defect 2 — `signtool verify /pa /v` did not emit nested signatures.** The `/all` flag was missing. AMD's kernel drivers historically embed WHQL co-signatures as nested signatures, so the missing flag hid exactly the data this function was looking for. Now invokes `signtool verify /all /pa /v`. (Chipset r74 / Graphics r40 / BthPan r22 — byte-identical helper fix.)
+- **Defect 3 — V06 misclassified script-installed drivers as `[B]` instead of `[C]`.** V06 omitted the `-KnownOurInfSet` argument to `Get-DriverSourceCategory`, which forced classification to rely on Step 0a (`.cat` thumbprint match) alone. Step 0a fails on certain WS2019 catalog-merging paths; the I04 helper `Get-OurSignedOemInfSet` was already designed to handle the gap but V06 never invoked it. Now builds `$ourInfSet` once at V06 entry and threads it into Section 1 and Section 2. (Chipset r74 / Graphics r40 — BthPan V06 does not call Get-DriverSourceCategory.)
+- **Defect 4 — I02 → I03 ran in the same execution despite "reboot then re-run" message.** When I02 newly enables BCD testsigning, the kernel CI cannot admit self-signed drivers until the reboot, so I03 would stage drivers that immediately fail to load. Now I02 sets a per-process `$Ctx.RebootRequiredBeforeI03 = $true` flag; I03 and I04 check the flag at entry and halt with a clear "reboot and re-run" message. (Chipset r74 / Graphics r40 / BthPan r22.)
+
+### Changed
+
+- **All three bumped scripts** now ship `$Script:ScriptTag = 'legacy-ws2019-runtime-correctness-fix'` (was `'legacy-ws2019-wdac-spf-integration'`).
+- **`Deploy-AMDChipsetDriverOnWindowsServer.ps1` → `chipset-2026.05.24-r74`** (from `chipset-2026.05.23-r73`).
+- **`Deploy-AMDGraphicsDriverOnWindowsServer.ps1` → `graphics-2026.05.24-r40`** (from `graphics-2026.05.23-r39`).
+- **`Deploy-MSBthPanInboxOnWindowsServer.ps1` → `msbthpan-2026.05.24-r22`** (from `msbthpan-2026.05.23-r21`).
+- **`Deploy-AMDNpuDriverOnWindowsServer.ps1`**: NOT bumped (per SPEC §A.7 "no empty revisions"). NPU does not exercise `Test-WhqlCoSignature`, `Get-DriverSourceCategory`, or the `RebootRequiredBeforeI03` flag — every r74 defect is structurally inapplicable to NPU.
+
+### Documentation
+
+- **`SPEC.md` §D.30.2**: Added an `r74 amendment (2026-05-24)` note on row F4 clarifying that the original WHQL co-signature observation was specific to chipset 8.04.x; the 8.05.04.516 build dropped WHQL co-signatures from AmdMicroPEP.sys and every other chipset `.sys`. WHQL status must be re-verified per package release.
+- **`SPEC.md` §D.31.10**: Added the r74 / r40 / r22 release contract row.
+- **`SPEC.md` §D.32** (new section): Post-incident analysis covering all four r74 defects, the empirical signtool-verify output table from the 2026-05-24 bench, the r74 release version contract, and a forward reference to PSA2010 (planned, `psa.py` v3.9.0).
+- **`TESTING.md` §16** (new section): TC16.1–TC16.6 covering positive / negative WHQL classification, V06 [C]-classification correctness, idempotency on re-run, I02→I03 halt semantics, and re-run-after-reboot semantics.
+- **`README.md` / `README.ja.md`**: Version references updated; "What's in the box" maturity table updated; SPEC §D.32 cross-reference added in the troubleshooting section.
+
+### Known limitations
+
+- **`Test-WhqlCoSignature` on signtool-absent hosts** continues to return conservative `'self-only'` for any `.sys` whose primary signer is not WHQL. This is intentional — over-reporting is preferred to under-reporting. Operators who want the strict WHQL classification on a WDK-less host should install the Windows 10/11 SDK (the script's P02 phase handles this for the Install action; PrepareVerify-only runs can fall back to the conservative verdict without issue).
+- **No static-analysis gate yet catches Defect 1.** Until `psa.py` v3.9.0 introduces the PSA2010 rule (invocation of undefined function), a manual `grep -E '\bFind-[A-Z][a-zA-Z]+' *.ps1` cross-check against `grep -E '^function Find-[A-Z]'` is the recommended pre-commit guard.
+
+---
+
 ## [Unreleased]
 
 ### Changed

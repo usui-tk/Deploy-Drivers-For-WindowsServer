@@ -3150,7 +3150,7 @@ The findings below are recorded as `F<n>` labels matching the r70 handover docum
 | **F1** | Chipset r69 `-Action Install` alone (no Graphics, no MSBthPan) + Secure Boot ON + Path C leaves the host **unable to complete the next boot**, including Safe Mode. | 2026-05-23 14:48 bench run; host hung on Lenovo logo screen, F8 Safe Mode also hung. |
 | **F2** | Disabling Secure Boot in firmware **after** F1 does NOT restore boot. Same hang. | BIOS Setup → Security → Secure Boot = Disabled, Save & Exit; identical hang. |
 | **F3** | Deleting `C:\Windows\System32\CodeIntegrity\SiPolicy.p7b` from WinRE restores boot immediately. | USB Recovery → WinRE command prompt → `del`; subsequent boot succeeded. |
-| **F4** | AMD `.sys` files are a **mix** of WHQL co-signed and non-WHQL: `AmdMicroPEP.sys` carries a Microsoft Windows Hardware Compatibility co-signature, `amdi2c.sys` and `amdsfhkmdf.sys` do not. | `signtool verify /v /pa` chain output. |
+| **F4** | AMD `.sys` files are a **mix** of WHQL co-signed and non-WHQL: `AmdMicroPEP.sys` carries a Microsoft Windows Hardware Compatibility co-signature, `amdi2c.sys` and `amdsfhkmdf.sys` do not. ⚠️ **r74 amendment (2026-05-24)**: this finding was specific to chipset 8.04.x. The 8.05.04.516 build dropped WHQL co-signature from `AmdMicroPEP.sys` and every other chipset `.sys`; WHQL status must be re-verified per package release. See SPEC §D.32.3. | `signtool verify /v /pa` chain output (and r74-corrected `signtool verify /all /v /pa`). |
 | **F5** | WHQL co-signed AMD drivers **load** on WS2019 even with no WDAC policy and Secure Boot OFF. | `AmdMicroPEP.sys` (driverDate 2025/12/17) showed `Status=OK` in Device Manager after the F3 cleanup. |
 | **F6** | Non-WHQL AMD drivers are **rejected by kernel CI** regardless of whether the WDAC SPF policy is deployed. | `amdi2c.sys` (driverDate 2025/09/09) showed `Status=Error`, `ProblemCode=39` (`CM_PROB_DRIVER_FAILED_LOAD`), `ProblemStatus=0xC0000423` both before and after F3. |
 | **F7** | Kernel-CI rejection of non-WHQL drivers is **not solvable** by deploying a WDAC SPF policy. (Derived from F4–F6.) | Path C's design premise — "authorise our self-signing cert via WDAC, and any driver signed with it will load" — is incorrect for boot-time kernel CI evaluation when the driver lacks a Microsoft co-signature. |
@@ -3273,7 +3273,7 @@ WHQL co-signing is detected by matching the case-insensitive regex `(?i)Microsof
 The implementation uses two probes:
 
 1. **Primary signer via `Get-AuthenticodeSignature`** — PS 5.1 returns only the primary signer; this catches the case where WHQL is the primary signer (rare but possible for Microsoft-published drivers).
-2. **Nested signers via `signtool verify /pa /v`** — when WDK is installed and `Find-Signtool` succeeds, signtool's stdout enumerates the full cosigner chain. The parser extracts subject CNs from `Issued to:` lines and matches each against the WHQL regex.
+2. **Nested signers via `signtool verify /all /pa /v`** — when the Windows Kits SDK is installed and `Find-KitTool 'signtool.exe'` succeeds, signtool's stdout enumerates the full primary + nested signature chain. The parser extracts subject CNs from `Issued to:` lines and matches each against the WHQL regex. (Note: pre-r74 code used `Find-Signtool` here, which never existed as a function — see §D.32.2 for the post-incident analysis.)
 
 When signtool is absent, the analysis falls back to a conservative `self-only` verdict on any non-WHQL primary signer. This means C6 may **over-report** on signtool-absent hosts (a co-signed driver might be reported as `self-only` because we cannot enumerate the chain) but will never **under-report**. Over-reporting is preferred because the cost is one extra acknowledgement prompt; under-reporting would allow a driver-store regression to ship.
 
@@ -3419,9 +3419,25 @@ r72 bumps them to:
 - `BthPan r20`
 - `NPU r18` (carried forward unchanged; no r72 changes apply to NPU — the r72 short-circuit predicates on `-SkipNonCosignedDrivers` which NPU does not carry)
 
+r73 / r39 / r21 (`psa-py-v380-pscustomobject-rule`, 2026-05-23) bumps them to:
+
+- `Chipset r73` (adds `WhqlCoSignAnalysis = $null` to `$Ctx` initialiser per §D.31.16)
+- `Graphics r39` (adds the missing P05 producer site per §D.31.16)
+- `BthPan r21` (same initialiser fix as Chipset)
+- `NPU r18` (carried forward unchanged; NPU `$Ctx` shape does not exercise `WhqlCoSignAnalysis`)
+
+r74 / r40 / r22 (`legacy-ws2019-runtime-correctness-fix`, 2026-05-24) bumps them to:
+
+- `Chipset r74` (fixes the four r74 defects per §D.32: `Find-Signtool` → `Find-KitTool 'signtool.exe'`, `signtool verify /all /pa /v`, V06 `$ourInfSet` threading, I02→I03 halt)
+- `Graphics r40` (same four fixes; same byte-identical helper change as Chipset for Test-WhqlCoSignature; same V06 fix; same I02→I03 halt)
+- `BthPan r22` (defects 1, 2, 4 only — Defect 3 not applicable because BthPan V06 does not call Get-DriverSourceCategory)
+- `NPU r18` (carried forward unchanged; NPU does not exercise Test-WhqlCoSignature, Get-DriverSourceCategory, or the RebootRequiredBeforeI03 flag)
+
 The `WDAC SPF orchestrator` row that used to appear in this list is permanently absent; the orchestrator was deleted in r70.
 
 Sister-script PSA8001 byte-identity is preserved across Chipset / Graphics / BthPan for the r71 helpers `Test-WhqlCoSignature`, `Get-InfDriverFileList`, `New-WhqlCoSignAnalysis`, `Show-WhqlCoSignAnalysisReport`, `Test-SecureBootEnabledFromFirmware`, `Invoke-PathBPrerequisiteCheck`, `Get-EligibleInfRecordList`. The I02 Path B prerequisite call site is byte-identical between Chipset and Graphics; BthPan's I02 has a slightly different surrounding structure (Set-DebugStep ordering, `Test-MsBthPanWdacPolicyDeployed` instead of `Test-AmdWdacPolicyDeployed`) and is documented in the BthPan-specific PSA8001 ignore list rather than as an in-script divergence.
+
+The r74 `Test-WhqlCoSignature` `Find-KitTool` / `/all`-flag fix is byte-identical across Chipset r74 / Graphics r40 / BthPan r22. The r74 V06 `$ourInfSet` threading is byte-identical between Chipset r74 and Graphics r40 (BthPan does not have the construct). The r74 I02 / I03 / I04 halt block is byte-identical between Chipset r74 and Graphics r40; BthPan r22's variant inherits the pre-existing single-INF / `Get-MsBthPanDevice`-based I04 structure but uses the same halt logic body.
 
 The r72 I02 short-circuit block follows the same convention: byte-identical between Chipset and Graphics; BthPan's variant inherits the pre-existing Set-DebugStep / cache-check ordering difference but uses the same short-circuit logic body.
 
@@ -3549,6 +3565,182 @@ The defect could in principle be detected by other static-analysis approaches:
 - **Runtime detection (e.g., a `try/catch` at the assignment site)** would surface the defect only at the first execution, and only on the host that happens to traverse the affected phase. This is exactly what hid the Chipset r72 defect: the project's CI matrix did not include a `PrepareVerify` run on WS2019, and the defect surfaced only when a customer triggered the path on their own host.
 
 PSA2009 is the right gate because it is (a) language-aware (models the PSv5 sealed-object semantic accurately), (b) file-level (no need to reason about phase ordering at static-analysis time), (c) conservative against false positives (the hashtable-form drop pass), and (d) zero-cost at runtime (purely a pre-commit / CI artifact). The Chipset r73 / Graphics r39 / BthPan r21 release upstreams the rule into `psa.py` v3.8.0 and codifies its use in the §A.11.5c rule documentation.
+
+
+
+## D.32 Runtime correctness fixes from the 2026-05-24 WS2019 + Renoir bench cycle (`r74`)
+
+### D.32.1 Summary
+
+§D.31 landed the WHQL co-sign pre-detection, Path B prerequisite check, `-SkipNonCosignedDrivers`, and r72 I02 short-circuit. The intent was that a Renoir + WS2019 + Secure Boot OFF host should run `-Action Install` end-to-end and produce an honest install transcript with WHQL classification visible to the operator. The 2026-05-24 bench cycle — an `-Action PrepareVerify -CleanWorkRoot` followed by `-Action Install` followed by a reboot followed by `-OnlyPhases V06` on a clean-installed Windows Server 2019 Datacenter host with AMD Ryzen 5 PRO 4650U (Renoir, Lenovo ThinkPad X13 Gen 1 AMD) — surfaced three additional defects that survived the r73 release. r74 (chipset) / r40 (graphics) / r22 (bthpan) closes all three. NPU is unaffected (its helper surface does not exercise the affected code paths) and stays at r18.
+
+This section is the post-incident analysis and design contract for the r74 release.
+
+### D.32.2 Defect 1: `Test-WhqlCoSignature` called a non-existent `Find-Signtool` helper
+
+**Symptom (operator-visible).** P05 emitted the localised warning pair `r71: WHQL co-sign analysis failed: 指定された名前のパラメーターを使用してパラメーター セットを解決できません。` followed by `r71: I00 C6 condition and -SkipNonCosignedDrivers will operate on an empty analysis.` The r73 catch-block fallback wrote `$Ctx.WhqlCoSignAnalysis = @()`, P05 completed cleanly, and the install proceeded — but every downstream consumer of the analysis (the `Show-WhqlCoSignAnalysisReport` banner, the C6 acknowledgement gate, the `-SkipNonCosignedDrivers` trim, and the r72 I02 short-circuit) silently degraded to its empty-analysis fallback. The operator never saw which drivers were WHQL co-signed and which were not, and the safer "Path A on the WHQL subset, keep Secure Boot ON" workflow was structurally unreachable.
+
+**Root cause.** `Test-WhqlCoSignature` line 4776 (chipset r71-r73, equivalent positions in graphics / bthpan) read:
+
+```powershell
+$signtool = $null
+try {
+    $signtool = Find-Signtool
+} catch {
+    Set-DebugStep ('Test-WhqlCoSignature: Find-Signtool threw: {0}' -f $_.Exception.Message)
+}
+```
+
+The helper named `Find-Signtool` does not exist in this repository. The actual Windows Kits resolver is `Find-KitTool` and the correct call is `Find-KitTool 'signtool.exe'`. Calling a non-existent command raises `[System.Management.Automation.CommandNotFoundException]`, which the surrounding `try/catch` caught silently. The conservative fallback at the `if (-not $signtool)` branch then returned `'self-only'` for every `.sys` file, even those carrying a WHQL co-signature. Because the inner `try/catch` then succeeded (returning the conservative verdict), the outer `New-WhqlCoSignAnalysis` finished without raising, the analysis array was populated with valid records, and P05 completed normally — *but every record reported `IsFullyCoSigned=$false`*.
+
+This is why the symptom presented as "WHQL analysis fails with parameter-binding error" on the **r72** host but as "WHQL analysis succeeds with empty banner" on the **r73** host. r73 added the `$Ctx.WhqlCoSignAnalysis = $null` pre-declaration (per §D.31.16) which kept the catch-block fallback from raising a secondary exception, masking the inner defect more thoroughly.
+
+The localised `指定された名前のパラメーターを使用してパラメーター セットを解決できません。` message in the 2026-05-23 transcript is consistent with `CommandNotFoundException` re-raised through a deeper PowerShell parameter-binding path in some PS 5.1 host configurations (the message format varies by host).
+
+**Fix (r74).** Replace `Find-Signtool` with `Find-KitTool 'signtool.exe'`:
+
+```powershell
+$signtool = $null
+try {
+    $signtool = Find-KitTool 'signtool.exe'
+} catch {
+    Set-DebugStep ('Test-WhqlCoSignature: Find-KitTool ''signtool.exe'' threw: {0}' -f $_.Exception.Message)
+}
+```
+
+The change is byte-identical across chipset r74 / graphics r40 / bthpan r22 (PSA8001-compliant).
+
+**Why this defect went undetected for three revisions.** The Test-WhqlCoSignature helper was introduced in r71 and has been quietly returning `'self-only'` for every `.sys` file ever since on every host that lacked a pre-cached `signtool` resolution path. The r71 / r72 / r73 CI matrix included no end-to-end run that observed the `Show-WhqlCoSignAnalysisReport` banner output, so the silent degradation was invisible. The 2026-05-24 bench was the first run that explicitly diffed expected vs. actual WHQL classification (against `signtool verify /pa` output on the staged `.sys` files) and noticed every classification was wrong.
+
+### D.32.3 Defect 2: `signtool verify` was invoked without the `/all` flag
+
+**Symptom (operator-visible).** Even after Defect 1 was fixed, the WHQL classification of AMD chipset 8.05.04.516 drivers reported every `.sys` file as `IsFullyCoSigned=$false`. The signtool stdout block returned only the primary signer (AMD via Sectigo CA R36 chain) and never showed the Microsoft Windows Hardware Compatibility nested signature when the file carried one.
+
+**Root cause.** The line `& $signtool verify /pa /v $Path 2>&1 | Out-String` retrieves the primary signature only. The `/all` flag is required to enumerate the primary signature AND every nested signature. AMD's kernel drivers historically embed the WHQL co-signature as a nested signature on top of AMD's own primary signature, so `signtool verify /pa /v` alone hides exactly the signature this function is looking for.
+
+This is independent of Defect 1 — fixing Defect 1 alone yielded a correctly-invoked but still-wrong-result helper. Both fixes are needed.
+
+**Fix (r74).** Add `/all` to the verify invocation:
+
+```powershell
+$stdOut = & $signtool verify /all /pa /v $Path 2>&1 | Out-String
+```
+
+The `/pa` flag retains the existing semantic (policy-aware / plug-and-play chain selection). The `/v` flag retains verbose output that emits the per-signer `Issued to:` lines this function parses. The output format is stable across signtool versions 6.0–10.0.x; the `Issued to:` line regex needs no change.
+
+**Empirical finding from 2026-05-24 bench.** When Defect 1 + Defect 2 are both fixed and `signtool verify /all /pa /v` is invoked on the chipset 8.05.04.516 `.sys` files staged in `C:\Windows\System32\DriverStore\FileRepository\*`, the verdict per file is:
+
+| `.sys` file | Number of Signatures | WHQL co-signature present |
+|---|---|---|
+| `AmdMicroPEP.sys` | 1 | **❌ No** |
+| `amdi2c.sys` | 1 | ❌ No |
+| `amdsfhkmdf.sys` | 1 | ❌ No |
+| `amdgpio2.sys` | 1 | ❌ No |
+| `amdgpio3.sys` | 1 | ❌ No (ASMedia primary) |
+| `amdpsp.sys` (variant A) | 1 | ❌ No |
+| `amdpsp.sys` (variant B) | 1 | ⚠️ Possibly (dual-signed; signtool primary differs from `Get-AuthenticodeSignature.SignerCertificate`) |
+| `amduart.sys` | 1 | ❌ No |
+| `SMBUSamd.sys` | 1 | ❌ No |
+| `AMDInterface.sys` | 1 | ❌ No |
+
+This **contradicts SPEC §D.30.2 F4** ("`AmdMicroPEP.sys` carries a Microsoft Windows Hardware Compatibility co-signature"), which was written against an older AMD chipset package (the 8.04.x branch). The 8.05.04.516 build dropped the Microsoft co-signature from the AmdMicroPEP, amdi2c, amdsfhkmdf, and related drivers — every chipset driver in the 2026-05-24 bench package is AMD-self-signed only (Sectigo CA R36 / 2026-Q1 issuer).
+
+**Operational consequence.** On Renoir + WS2019 + chipset 8.05.04.516, the Path A WHQL-only install path (SPEC §D.30.4) is **structurally unreachable** — every patch-eligible INF requires Path B (testsigning) to load. The `-SkipNonCosignedDrivers` flag, when set on this package, would trim the install plan to zero INFs.
+
+The §D.30.2 F4 line is updated in this revision to reflect that WHQL co-signature status is **package-version-specific** and cannot be assumed for any given AMD release. The §D.30.4 path-selection matrix is unchanged: it still correctly enumerates Path A and Path B as the only options on legacy Server SKUs.
+
+### D.32.4 Defect 3: V06 misclassified script-installed drivers as `[B]` instead of `[C]`
+
+**Symptom (operator-visible).** After a successful `-Action Install` followed by a reboot, `-OnlyPhases V06` reported:
+
+```
+  Driver-source distribution among AMD HARDWARE: [A]=36  [B]=5  [C]=0  [?]=1
+```
+
+The five `[B]` entries were the very drivers this script had just installed (AmdMicroPEP, AMDInterface, amdgpio2, amdi2c, amdpsp). The expected V06 report on a freshly-installed host is `[C]=5` for the script-installed devices, signalling that V06 recognises them as its own work and would not propose re-installing them on a subsequent run.
+
+The downstream impact is that V06's Section 2 reported `2 device(s) WILL be replaced` even though the install had already happened. A re-run of `-Action Install` would attempt to "upgrade" the same drivers it had just staged, breaking idempotency.
+
+**Root cause.** `Get-DriverSourceCategory`'s Step 0a (catalog-thumbprint match against `C:\Windows\INF\<oemNN>.cat`) and Step 0b (KnownOurInfSet lookup) are the only paths that can return `[C]` for a driver whose primary `.sys` signer is AMD/vendor and whose patched INF declares `Provider="Advanced Micro Devices"`. Step 1 (Signer-string heuristic) does not match because `Win32_PnPSignedDriver.Signer` is empty for self-signed catalogs on WS2019; Step 2 (Microsoft Provider) does not match; Step 3 (any other Provider) returns `[B]`.
+
+I04 builds `$ourInfSet = Get-OurSignedOemInfSet -ExpectedThumbprint $Ctx.CertThumbprint` once at phase entry (line 13111, chipset r73) and threads it into every `Get-DriverSourceCategory` call. V06 did not — it called `Get-DriverSourceCategory` with `-InfName $cur.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint` only, omitting `-KnownOurInfSet`. Step 0a's `.cat`-path resolution was then the only chance at `[C]` classification, and that resolution fails when:
+
+- The OEM-numbered InfName (e.g. `oem68.inf`) is not the same as the patched-INF basename, and `[System.IO.Path]::ChangeExtension($InfName, '.cat')` produces a path that exists but whose primary signature was overwritten by Windows' catalog-merging machinery during pnputil staging on certain WS2019 build variants.
+- The catalog is co-signed by both the script's cert AND a Microsoft-derived intermediate, and Step 0a's `SignerCertificate.Thumbprint -eq $ExpectedSelfSignThumbprint` check returns the wrong cert.
+
+Step 0b (KnownOurInfSet) handles both cases by walking `C:\Windows\INF\oem*.cat` directly and cross-referencing through `pnputil /enum-drivers`, but V06 never invoked the helper that builds the set.
+
+**Fix (r74 / r40).** Build `$ourInfSet` once at the start of V06 Section 1 and pass it to every `Get-DriverSourceCategory` call in V06 Section 1 and Section 2. The change adds ~10 lines per call site and is functionally equivalent to the pre-existing I04 build site. BthPan's V06 does not exercise `Get-DriverSourceCategory` (it uses a different device-disposition probe specific to `BTH\MS_BTHPAN`), so the BthPan r22 release is not affected by this defect.
+
+The build is gated on `$Ctx.CertThumbprint` being non-empty: PrepareVerify-only runs that never reach P07 / I01 leave the thumbprint unset, so V06 returns an empty hashtable in that case and the existing Step 0a / Step 1 / Step 2 / Step 3 cascade continues to work.
+
+### D.32.5 Defect 4: I02 → I03 control flow ran I03 / I04 immediately after newly enabling testsigning
+
+**Symptom (operator-visible).** When `-Action Install` was invoked on a host where I02 newly enabled BCD testsigning (i.e., I02 was not in its cached "already on" branch), the script printed:
+
+```
+*** A REBOOT IS REQUIRED FOR TESTSIGNING TO TAKE EFFECT ***
+After reboot the desktop will display a "Test Mode" watermark.
+Then run -Action Install AGAIN (same command). The script will
+detect that I01/I02 are already done and continue with I03/I04.
+PHASE I02 -> DONE     elapsed: 0.95s
+
+========================================================================
+ PHASE I03 - InstallDrivers
+========================================================================
+```
+
+The message says "run AGAIN" but the script proceeded to I03 / I04 in the same execution. The drivers were staged in the driver store (this works because pnputil's signature check uses the trust store, which I01 already populated), but kernel CI cannot load self-signed drivers until the reboot activates testsigning. I04 then reported five devices in `REBOOT_NEEDED` and the functional-health probe could not run.
+
+The result is a self-inconsistent transcript: the I02 footer announced an intermission that did not happen.
+
+**Root cause.** I02 wrote the `PendingRebootMarker` to disk and printed the warning, but the phase dispatcher continued with the next phase in `Selected phases`. I03 did not check the marker because the marker is informational; it is not a halt signal.
+
+**Fix (r74 / r40 / r22).** I02 now sets `$Ctx.RebootRequiredBeforeI03 = $true` whenever it newly enables testsigning (the flag is per-process, NOT persisted to disk). I03 and I04 read the flag at the top of their respective `param($Ctx)` blocks and short-circuit with a clear "halt for reboot" message when the flag is set. The footer reads `Write-PhaseFooter 'I03' 'halted-pending-reboot'` to distinguish from `'done'` or `'cached'`.
+
+On the re-run after the reboot, `$Ctx.RebootRequiredBeforeI03` starts as `$false` (per-process flag, fresh `$Ctx` initialiser), I02 hits its cached "already on" branch, and I03 / I04 proceed normally.
+
+Why the flag is per-process and not persisted: persisting it would require a `Clear-` call at the right moment after the reboot, which is fragile. The post-reboot re-run already does the right thing by design — I02 detects "testsigning already on", caches, and falls through — so no marker is needed.
+
+### D.32.6 What r74 does NOT change
+
+For clarity:
+
+- **`Find-KitTool`** itself is unchanged. The fix is the call site in `Test-WhqlCoSignature`.
+- **The Step 0a / 0b / 1 / 2 / 3 cascade** in `Get-DriverSourceCategory` is unchanged. The fix is to make V06 thread `$ourInfSet` into the call so Step 0b can fire.
+- **The PendingRebootMarker mechanism** is unchanged. The fix adds a new per-process flag that runs alongside the existing marker.
+- **The WHQL analysis surface in P05** is unchanged. It just now produces correct results.
+- **The C6 acknowledgement gate** is unchanged. It now fires when it should (it previously could not fire on any host because the analysis was empty / all-self-only).
+- **The r72 I02 short-circuit** is unchanged. It now can fire on hosts where the WHQL analysis correctly identifies an all-WHQL-coverable install plan.
+
+### D.32.7 Release version contract for r74
+
+| Script | Old | New | Reason for bump |
+|---|---|---|---|
+| Chipset | `chipset-2026.05.23-r73` | `chipset-2026.05.24-r74` | All four r74 defects above |
+| Graphics | `graphics-2026.05.23-r39` | `graphics-2026.05.24-r40` | Defects 1, 2 (byte-identical helper); Defect 3 (V06); Defect 4 (I02→I03) |
+| BthPan | `msbthpan-2026.05.23-r21` | `msbthpan-2026.05.24-r22` | Defects 1, 2 (byte-identical helper); Defect 4 (I02→I03). Defect 3 not applicable (BthPan V06 does not exercise Get-DriverSourceCategory). |
+| NPU | `npu-2026.05.23-r18` | `npu-2026.05.23-r18` (unchanged) | NPU does not carry `Test-WhqlCoSignature`, `Get-DriverSourceCategory`, or `RebootRequiredBeforeI03`. Per SPEC §A.7 ("no empty revisions") NPU is NOT bumped. |
+| `$Script:ScriptTag` (all three bumped) | `legacy-ws2019-wdac-spf-integration` | `legacy-ws2019-runtime-correctness-fix` | r74 release-line identity |
+
+Sister-script PSA8001 byte-identity is preserved across chipset r74 / graphics r40 / bthpan r22 for `Test-WhqlCoSignature`. The V06 `$ourInfSet` build is byte-identical between chipset and graphics; bthpan does not have the construct. The I02 / I03 / I04 halt block is byte-identical between chipset and graphics; bthpan's variant inherits its single-INF / `Get-MsBthPanDevice`-based I04 structure and uses the same halt logic body with the BthPan-specific subheader.
+
+### D.32.8 Test scenarios captured in TESTING.md §16
+
+TC16.1 — `Test-WhqlCoSignature` returns `cosigned` for a known WHQL-co-signed file (e.g. a Windows-inbox `.sys` cherry-picked into `C:\Temp\`).
+TC16.2 — `Test-WhqlCoSignature` returns `self-only` for AmdMicroPEP.sys from chipset 8.05.04.516 (negative case; confirms §D.32.3 finding).
+TC16.3 — V06 on a host that has staged the script's drivers reports `[C]>0` for those devices.
+TC16.4 — V06 on a re-run after a successful install reports `0 device(s) WILL be replaced` (idempotency).
+TC16.5 — `-Action Install` on a host with `testsigning OFF` halts after I02 with `'halted-pending-reboot'` footer; no I03 / I04 entries written to the workspace markers.
+TC16.6 — `-Action Install` on a re-run after the reboot of TC16.5 proceeds through I02 (cached) → I03 → I04 with `RebootRequiredBeforeI03=$false`.
+
+See TESTING.md §16 for the full step-by-step procedures.
+
+### D.32.9 Static analysis posture
+
+The four defects above are not detectable by any rule in `psa.py` v3.8.0 because they are integration defects, not local-form defects. A new rule **PSA2010** (defined in `psa.py` v3.9.0, planned) would walk the AST and flag invocation of any function name that has zero `function <Name>` definition in any of the loaded scripts. PSA2010 would have caught Defect 1 at static-analysis time. The other three defects need integration-level detection (call-graph for Defect 3, control-flow for Defect 4, external-binary semantics for Defect 2) which is out of scope for `psa.py`.
+
+Until PSA2010 lands, the project relies on the field-incident handover documents (this section, TESTING.md §16) to prevent regression by checklist rather than by static-analysis gate.
 
 
 ## Appendix: How to seed a new sister script from this SPEC

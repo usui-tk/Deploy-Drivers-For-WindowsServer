@@ -118,6 +118,18 @@ All four PowerShell scripts share the same 21-phase architecture, the same self-
 
 ## What's new
 
+**Latest release: `2026-05-24` — Chipset r74 / Graphics r40 / BthPan r22 / NPU r18 (unchanged)** (`legacy-ws2019-runtime-correctness-fix`).
+This release closes four runtime defects surfaced during a clean-installed
+WS2019 + Renoir bench cycle: (1) `Test-WhqlCoSignature` called a non-
+existent `Find-Signtool` helper (the actual helper is `Find-KitTool 'signtool.exe'`);
+(2) `signtool verify` was invoked without the `/all` flag, hiding nested
+WHQL signatures; (3) V06 misclassified script-installed drivers as `[B]`
+instead of `[C]` due to a missing `-KnownOurInfSet` argument; (4) I02→I03
+ran in the same execution despite the "reboot then re-run" message. See
+[SPEC §D.32](./SPEC.md#d32-runtime-correctness-fixes-from-the-2026-05-24-ws2019--renoir-bench-cycle-r74)
+for the full post-incident analysis and [TESTING §16](./TESTING.md#16-r74--r40--r22-release-validation-2026-05-24-renoir--ws2019)
+for the regression scenarios.
+
 See [CHANGELOG.md](./CHANGELOG.md) for the chronological per-release entry log
 organised by date and by script — this is the single source of truth for
 what the main branch ships at any given moment. For the architectural
