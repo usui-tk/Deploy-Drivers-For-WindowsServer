@@ -98,7 +98,7 @@ When extending these scripts, **copy these helpers verbatim** from the most rece
 psa.py  (obtained from the canonical artifact repository — see A.11)
 ```
 
-`psa.py` is a **pure Python** static analyzer (no PowerShell installation required) with a **45-rule** check set spanning `PSA1001`..`PSA9002` plus the project-convention family `PSAP0001`..`PSAP0004`. The repository policy is to validate against the **latest mainline** `psa.py` from the canonical repository (see §A.11 for the rationale and workflow). It is **not** bundled in this repository. It is maintained as a single canonical artifact at:
+`psa.py` is a **pure Python** static analyzer (no PowerShell installation required) with a **46-rule** check set spanning `PSA1001`..`PSA9002` plus the project-convention family `PSAP0001`..`PSAP0005`. The repository policy is to validate against the **latest mainline** `psa.py` from the canonical repository (see §A.11 for the rationale and workflow). It is **not** bundled in this repository. It is maintained as a single canonical artifact at:
 
 ```
 https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/python/powershell-static-analyzer/psa.py
@@ -873,9 +873,9 @@ python3 psa.py --severity error Deploy-AMDChipsetDriverOnWindowsServer.ps1
 # Exit code 0 = no errors. Warnings and info do not gate the build.
 ```
 
-### Rule coverage (45 rules)
+### Rule coverage (46 rules)
 
-`psa.py` ships with a **45-rule** check set grouped into **nine categories**. The PSA8xxx, PSA9xxx, and PSAPxxxx families were added in 3.2.0; PSAP0003 and PSAP0004 were added in 3.3.0; PSA2007 / PSA2008 were added in 3.6.0; PSA3005 was added in 3.2.0 and PSA3006 in 3.7.0; PSA7002 was added in 3.7.0; PSA2009 was added in 3.8.0; PSA2010 and PSA2011 were added in 3.9.0 (this release; see §D.33.8 for the motivation). The older PSA1xxx–PSA7xxx families are otherwise unchanged in scope. (See the canonical [psa.py `CHANGELOG.md`](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/CHANGELOG.md) for the full per-version history; this repository validates against the latest mainline — see the Version policy subsection above.)
+`psa.py` ships with a **46-rule** check set grouped into **nine categories**. The PSA8xxx, PSA9xxx, and PSAPxxxx families were added in 3.2.0; PSAP0003 and PSAP0004 were added in 3.3.0; PSA2007 / PSA2008 were added in 3.6.0; PSA3005 was added in 3.2.0 and PSA3006 in 3.7.0; PSA7002 was added in 3.7.0; PSA2009 was added in 3.8.0; PSA2010 and PSA2011 were added in 3.9.0 (see §D.33.8 for the motivation); **PSAP0005 was added in 4.0.0 — the LLM-assisted maintenance guardrail companion of PSAP0003, see SPEC §A.13 "Enforcement matrix" and the upstream `psa.py` SPEC §4.37 for its detection rules and the relaxed-mode migration aid**. The older PSA1xxx–PSA7xxx families are otherwise unchanged in scope. (See the canonical [psa.py `CHANGELOG.md`](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/CHANGELOG.md) for the full per-version history; this repository validates against the latest mainline — see the Version policy subsection above.)
 
 | Category                                  | Code range            | Examples                                                                                                                                                                                                                                                              |
 | ----------------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -928,12 +928,40 @@ This repository has the following **accepted** warning / info baseline
 Any deviation from these counts must be explained in the commit message
 and either added here or fixed.
 
+**Strict baseline** (all rules except `PSAP0005`):
+
 | Script                                          | Errors | Warnings | Info | Total |
 | ----------------------------------------------- | -----: | -------: | ---: | ----: |
 | `Deploy-AMDChipsetDriverOnWindowsServer.ps1`    |  **0** |    **0** |  **0** |   **0** |
 | `Deploy-AMDGraphicsDriverOnWindowsServer.ps1`   |  **0** |    **0** |  **0** |   **0** |
 | `Deploy-AMDNpuDriverOnWindowsServer.ps1`        |  **0** |    **0** |  **0** |   **0** |
 | `Deploy-MSBthPanInboxOnWindowsServer.ps1`       |  **0** |    **0** |  **0** |   **0** |
+
+**`PSAP0005` migration baseline** (relaxed mode, `psap0005_relaxed_mode: true`, introduced at the r76 / r42 / r24 / r20 release):
+
+| Script                                          | PSAP0005 (relaxed) | Note |
+| ----------------------------------------------- | ------------------: | ----- |
+| `Deploy-AMDChipsetDriverOnWindowsServer.ps1`    |              **22** | Migration target. See §A.13 "Migration roadmap". |
+| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1`   |              **24** | Migration target. Five `R9700` / `R1*` AMD hardware-platform-identifier sites are suppressed via `# psa-disable-line PSAP0005 -- AMD ... identifier`. |
+| `Deploy-AMDNpuDriverOnWindowsServer.ps1`        |               **2** | Migration target. |
+| `Deploy-MSBthPanInboxOnWindowsServer.ps1`       |              **16** | Migration target. |
+
+The PSAP0005 totals shown above are the warning counts reported under
+`psap0005_relaxed_mode: true`. They are accepted as the
+**`psa-py-v4-llm-governance-baseline` migration baseline** for the
+r76 / r42 / r24 / r20 release; the end-state goal is to drop them to
+**0** by completing the four-step migration documented in §A.13. The
+strict-mode baseline (i.e., `psap0005_relaxed_mode: false`) would be
+significantly higher (the four relaxed-mode exemptions catch the
+established prose patterns from SPEC §D.31 et al.); SPEC §A.13
+"Allowed / disallowed prose examples" and "Migration roadmap"
+describe the cleanup plan.
+
+PSA8001 byte-identity of the affected cross-script helpers is
+preserved throughout the migration (any cleanup that touches a
+shared-helper line must be applied to all sister scripts atomically;
+the suppression directives, where used, are inside per-script
+comments only and do not affect any byte-identical helper body).
 
 The 2026-05-18 release is the **first revision where the canonical static-analysis baseline is fully clean across all four scripts simultaneously** (with the canonical `.psa.config.json` as documented above). The subsequent 2026-05-20 cross-script consistency release (`debugtrace-helper-internal-cleanup`, Chipset r62 / Graphics r30 / NPU r13 / MSBthPan r12) **preserves this baseline unchanged at 0 / 0 / 0** on all four scripts. The release refines three shared helper functions (`_DebugTrace_WriteJsonlLine`, `Export-DebugTraceJson`, `Show-PowerShellEnvironment`) and is byte-for-byte synchronized across all four scripts per PSA8001 (see [CHANGELOG.md](./CHANGELOG.md) for the verified per-function SHA-256 hashes).
 
@@ -1345,6 +1373,137 @@ for chronological release log, `SPEC.md` Part D for architectural
 rationale — keeps each document focused on a single responsibility
 and avoids the "stale revision tag everywhere" problem that LLM-assisted
 maintenance is especially vulnerable to.
+
+#### Why this matters — LLM-assisted maintenance hazard
+
+The three-way split is not aesthetic; it is a defensive design against
+the failure mode most common in LLM-assisted maintenance of long-running
+PowerShell scripts: the gradual accumulation of revision-anchor
+commentary inside the script body. Each individual addition looks
+helpful in isolation ("Added in the r71 release", "(r74) bug fix"),
+but in aggregate they:
+
+- duplicate information already authoritative in `CHANGELOG.md`,
+- drift out of sync with `CHANGELOG.md` as the script evolves,
+- encode a moving frame of reference (`rNN`) into a document
+  (the script) that is supposed to describe the CURRENT state, and
+- accumulate as untraceable "where did this come from" markers that
+  readers cannot resolve without consulting Git history anyway.
+
+`psa.py` `PSAP0003` / `PSAP0004` / `PSAP0005` are the automated
+guardrail for these failures. Anything that escapes the guardrail
+(by design, e.g. block comments `<# ... #>`, or by configuration,
+e.g. relaxed-mode exemptions) is documented in the Enforcement
+matrix below as residual human-review responsibility.
+
+#### Enforcement matrix (introduced at the `psa-py-v4-llm-governance-baseline` r76/r42/r24/r20 release)
+
+The mapping between policy items above and the rules that enforce
+them is:
+
+| Policy item | Example | Enforced by |
+| --- | --- | --- |
+| EOF `REVISION HISTORY` block | `# REVISION HISTORY` header + body | `PSAP0004` (opt-in, on for this repo) |
+| Inline `# rNN:` tag | `# r42: bug fix in P05` | `PSAP0003` (opt-in, on for this repo) |
+| Inline `# (rNN)` tag | `# NOTE (r42): description` | `PSAP0003` (opt-in, on for this repo) |
+| Dash-decorated section tag | `# ---- r42: PHASE NAME ----` | `PSAP0003` (opt-in, on for this repo) |
+| **`# Before rNN` / `# From rNN on` / etc.** | **`# Before r74, this used Find-Signtool.`** | **`PSAP0005` (opt-in, on for this repo, relaxed-mode migration baseline)** |
+| **"Added in the rNN release" prose** | **`# (added with the r71 release)`** | **`PSAP0005` strict mode (currently exempted under relaxed mode; migration target)** |
+| **"As of rNN, ..." prose** | **`# As of r74, V06 builds the lookup once.`** | **`PSAP0005` (fires even under relaxed mode)** |
+| **SECTION header with rNN** | **`# SECTION r71: WHQL co-sign pre-detection`** | **`PSAP0005` strict mode (currently exempted under relaxed mode; migration target)** |
+| **SPEC cross-reference with rNN** | **`# Phantom file (r65, SPEC §D.24): inspect`** | **`PSAP0005` strict mode (currently exempted under relaxed mode; migration target)** |
+| Block comment `<# ... #>` containing rNN | (rare in this repo — `<#>` is used for `.SYNOPSIS` headers only) | **Residual human-review responsibility** (not scanned by PSAP0003/0004/0005, which are inline-comment scanners) |
+| String literal containing rNN | `$Script:ScriptVersion = 'chipset-2026.05.25-r76'` | **Out of scope by design** (PSAP0002 governs the identifier-trio shape; `rNN` inside the string is correct here) |
+
+#### Allowed / disallowed prose examples
+
+The intent of the policy is to keep script-body comments **timeless**:
+they should describe what the code does right now, without anchoring
+the description to a specific historical release.
+
+**Allowed (timeless wording — preferred)**:
+
+- `# Build the OEM-name lookup set once. Threaded into every` ← describes current behaviour
+- `# Earlier revisions called a non-existent Find-Signtool helper.` ← no rNN, narrative
+- `# See SPEC §D.32 for the post-incident analysis (Find-KitTool fix).` ← points reader at the authoritative source
+- `# Previously this function operated on an empty set; now it threads $ourInfSet through every call site.` ← "Previously / Now" anchor without rNN
+
+**Allowed under relaxed mode (migration aid — currently in baseline, will be cleaned up release-by-release)**:
+
+- `# SECTION r71: WHQL co-sign pre-detection` ← SECTION header (Exemption A)
+- `# Phantom file reference detection (r65, SPEC D.24): inspect` ← SPEC cross-reference (Exemption B)
+- `# Build the WHQL co-sign analysis (added with the r71 release)` ← Added-in-release phrasing (Exemption C)
+- `# Earlier revisions called Find-Signtool, which was undefined before r74.` ← Earlier-revisions prose (Exemption D)
+
+**Disallowed (fires `PSAP0003`)**:
+
+- `# r74: build the lookup set once.` ← bare colon tag
+- `# NOTE (r74): description.` ← parenthesised tag
+- `# ---- r71: PHASE NAME ----` ← dash-decorated section tag
+
+**Disallowed (fires `PSAP0005` even under relaxed mode)**:
+
+- `# As of r74, V06 builds the lookup once.` ← forward-looking anchor, not exempt
+- Any other `rNN` reference not matching one of the four
+  relaxed-mode exemption patterns (SECTION header / SPEC cross-ref /
+  Added-in-release / Earlier-revisions).
+
+#### Migration roadmap (`PSAP0005` relaxed → strict)
+
+The r76 / r42 / r24 / r20 release adopts `psa.py` 4.0.0's `PSAP0005`
+with `psap0005_relaxed_mode: true`. This means the four exemption
+patterns above are tolerated as the migration baseline. The
+documented end-state is `psap0005_relaxed_mode: false` (strict), at
+which point all `rNN` references in comment bodies are reported.
+
+The migration is intentionally phased so that no single release has
+to absorb the full ~60 prose rewrites at once. Each rewrite is
+literal text editing that does not affect runtime behaviour, but
+each one is also a PSA8001 byte-identity hazard if applied
+inconsistently across sister scripts (Chipset / Graphics / BthPan).
+Phasing the migration also lets each release CHANGELOG entry stay
+small and reviewable.
+
+Per-cycle migration steps:
+
+1. **Pick one exemption category** (A / B / C / D) per cycle (the
+   smallest-impact category is recommended first).
+2. **Rewrite occurrences across all four scripts** with timeless
+   wording, taking care to preserve byte-identity on any function
+   listed in `psa8001_ignore_functions` exceptions and on
+   cross-script-shared helpers.
+3. **Re-run `psa.py --config .psa.config.json`** to confirm the
+   per-script PSAP0005 count has dropped by the expected amount.
+4. **Bump the per-script revision number** (Chipset → r77,
+   Graphics → r43, etc.). The new release-line `ScriptTag` is the
+   same `psa-py-v4-llm-governance-baseline` until the entire
+   migration is complete; the migration-progress ScriptTag is
+   reserved for the eventual strict-mode flip.
+5. **CHANGELOG entry** lists exactly which exemption category was
+   addressed in this cycle and the resulting PSAP0005 count.
+
+The order of categories is at the maintainer's discretion. A
+suggested order, easiest first:
+
+1. **Exemption B (SPEC cross-reference)** — rewrite `(rNN, SPEC §D.YY)`
+   into `(see SPEC §D.YY)`. The `rNN` is redundant: SPEC §D.YY
+   itself is anchored to a single release.
+2. **Exemption A (SECTION header)** — rewrite `# SECTION r71: ...`
+   into `# SECTION: ...`. The `r71` is redundant: the SECTION block
+   itself is anchored to the current line set of the file.
+3. **Exemption D (Earlier-revisions prose)** — drop the `rNN`
+   suffix from `... before r74` style sentences, leaving the
+   "Earlier revisions" narrative intact.
+4. **Exemption C (Added-in-release phrasing)** — most invasive,
+   because the "added in the r71 release" phrasing often carries
+   important rationale ("here is the design intent of this code
+   block"). Rewrite to "This block was originally introduced to
+   address ... See SPEC §D.NN for the design rationale." without
+   the `rNN`.
+
+Once all four categories have been cleaned up across all four
+scripts, flip `psap0005_relaxed_mode` from `true` to `false` in
+`.psa.config.json` and ship the strict-mode-baseline release.
 
 ### Reuse before invention
 
@@ -3937,7 +4096,7 @@ The r75 release lands **two new psa.py rules** (v3.9.0) that close the static-an
 
 - **PSA2011 (error)** — `Split-Path -LiteralPath ... -Parent` triggers AmbiguousParameterSet on PowerShell 5.1 ja-JP. Would have caught Defect A (§D.33.2) at static-analysis time. PSA2011 is file-local; it walks each line (joining backtick continuations) and flags any `Split-Path` invocation containing both `-LiteralPath` and `-Parent` (in either order). Suggested remediations: `[System.IO.Path]::GetDirectoryName($path)` (the .NET method has no PS-binder ambiguity) or `Split-Path -Path $path -Parent` (without `-LiteralPath`).
 
-The four scripts under this repository now pass `psa.py 3.9.0 --severity error` with **0 errors** under `.psa.config.json` opt-ins (PSAP0001..PSAP0004 enabled). The accepted warning baseline (PSAP0003 inline-revision-tag historical references) is documented in §A.11.5; r75 itself adds no new warnings to the baseline. See TESTING.md §17 (TC17.6, TC17.7, TC17.8) for the verification procedures.
+The four scripts under this repository pass `psa.py 3.9.0 --severity error` with **0 errors** under `.psa.config.json` opt-ins (PSAP0001..PSAP0004 enabled). At the r75 baseline, PSAP0003 reported 9 warnings (the r74-introduced inline-revision-tag references). The subsequent **r76 / r42 / r24 / r20** release adopts `psa.py` 4.0.0, cleans up those 9 PSAP0003 references in line with the SPEC §A.13 policy, and opts in to the new PSAP0005 rule with `psap0005_relaxed_mode: true` as the migration baseline. The strict baseline (everything except PSAP0005) is **0 / 0 / 0** on all four scripts; the PSAP0005 migration baseline is documented separately in §A.11.5 and the cleanup roadmap lives in §A.13. See TESTING.md §17 (TC17.6, TC17.7, TC17.8) for the r75 verification procedures and TESTING.md §18 (TC18.x) for the r76 PSAP0003/PSAP0005 verification additions.
 
 ### D.33.9 Lessons learned (additions to §15.5 and §16.5)
 

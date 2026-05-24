@@ -651,8 +651,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.05.25-r75'
-$Script:ScriptTag     = 'legacy-ws2019-ps51-japp-correctness-fix'
+$Script:ScriptVersion = 'chipset-2026.05.25-r76'
+$Script:ScriptTag     = 'psa-py-v4-llm-governance-baseline'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -4773,13 +4773,12 @@ function Test-WhqlCoSignature { # psa-disable-line PSA6003 -- "Signature" is a s
     # the WDK / Windows Kits SDK is not installed, in which case we
     # cannot reach nested signatures from PS 5.1.
     #
-    # NOTE (r74): Earlier revisions called a non-existent Find-Signtool
-    # helper, which raised CommandNotFoundException at runtime. The
+    # Earlier revisions called a non-existent Find-Signtool helper,
+    # which raised CommandNotFoundException at runtime. The
     # surrounding try/catch swallowed that exception silently and
     # forced this function into the "no signtool" fallback path for
-    # every call, masking the defect across the entire fleet. The
-    # Find-KitTool fix landed in chipset r74 / graphics r40 / bthpan r22.
-    # See SPEC §D.32 for the post-incident analysis.
+    # every call, masking the defect across the entire fleet.
+    # See SPEC §D.32 for the post-incident analysis (Find-KitTool fix).
     $signtool = $null
     try {
         $signtool = Find-KitTool 'signtool.exe'
@@ -11696,7 +11695,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     # AMD entity it is, driver-source tells us WHO SIGNED the driver
     # currently bound to it.
     #
-    # NOTE (r74): V06 now builds the OEM-name lookup set once via
+    # V06 now builds the OEM-name lookup set once via
     # Get-OurSignedOemInfSet and threads it into every
     # Get-DriverSourceCategory call below. Earlier revisions only
     # called Get-OurSignedOemInfSet from I04, which meant V06 missed
@@ -11730,7 +11729,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     $hw       = @($hwAll | Where-Object IsAmdHardware)
     $hwSoftSw = @($hwAll | Where-Object { -not $_.IsAmdHardware })
 
-    # r74: build the OEM-name lookup set once. Threaded into every
+    # Build the OEM-name lookup set once. Threaded into every
     # Get-DriverSourceCategory call below (Section 1, Section 2,
     # AS-IS/TO-BE comparison) so script-installed drivers classify as
     # [C] even when WMI returns the OEM-numbered InfName and the .cat
@@ -12281,7 +12280,7 @@ function Invoke-InstPhase00_PreInstallReview {
         $infs = if ($infIndex.ContainsKey($key)) { $infIndex[$key] } else { @() }
         if ($infs.Count -gt 0) {
             $cur = Get-DeviceCurrentDriver -DeviceID $d.DeviceID
-            # r74: thread $ourInfSet (built earlier in Section 1) into
+            # Thread $ourInfSet (built earlier in Section 1) into
             # Get-DriverSourceCategory so script-installed drivers
             # classify as [C], not [B]. This is what makes the
             # "0 device(s) keep current driver" line match reality on
@@ -12833,7 +12832,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     Set-PendingRebootMarker -Ctx $Ctx -Source 'I02' `
         -Reason 'BCD testsigning was just set; reboot required for it to take effect.'
 
-    # r74: signal to the phase dispatcher that subsequent phases (I03,
+    # Signal to the phase dispatcher that subsequent phases (I03,
     # I04) MUST NOT run in this same execution. Earlier revisions
     # printed the "reboot then re-run" guidance above but then
     # proceeded to I03/I04 immediately, staging drivers that kernel
@@ -12863,7 +12862,7 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
     param($Ctx)
     Write-PhaseHeader 'I03' 'InstallDrivers' 'Inst'
 
-    # r74: I02 sets $Ctx.RebootRequiredBeforeI03 when it newly enables
+    # I02 sets $Ctx.RebootRequiredBeforeI03 when it newly enables
     # BCD testsigning. In that case the host's kernel CI cannot yet
     # admit self-signed drivers; staging them via pnputil would still
     # succeed at the trust-store layer (because I01 imported the cert
@@ -13221,7 +13220,7 @@ function Invoke-InstPhase04_PostInstallVerification {
     param($Ctx)
     Write-PhaseHeader 'I04' 'PostInstallVerification' 'Inst'
 
-    # r74: mirror the I03 halt - if I02 just enabled testsigning in
+    # Mirror the I03 halt - if I02 just enabled testsigning in
     # this run, I03 returned without staging drivers, so I04 has no
     # post-install state to verify. Halt cleanly rather than emit a
     # spurious "no I03 install results" warning. The operator's next

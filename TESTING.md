@@ -2247,3 +2247,106 @@ diff /tmp/npu-r18.sha256 /tmp/npu-r19.sha256
 
 ---
 
+
+## 18. r76: psa.py 4.0.0 LLM-governance baseline verification (PSAP0003 / PSAP0005)
+
+This section documents the verification procedures for the r76 / r42 / r24 / r20 release. r76 has no runtime behaviour changes (see §17 for the most recent functional regression suite); the verification is entirely about confirming the static-analysis posture.
+
+### TC18.1 — psa.py 4.0.0 against r76 sources (0 errors, strict baseline 0/0/0)
+
+**Purpose**: Confirm that `psa.py` 4.0.0 with the canonical `.psa.config.json` produces **0 errors / 0 warnings / 0 info** on all four scripts EXCEPT for PSAP0005 warnings (which are documented separately in TC18.3 as the migration baseline).
+
+**Procedure**:
+
+```bash
+# From the repository root with psa.py 4.0.0 on PATH or relative
+python3 path/to/psa.py --config .psa.config.json \
+    Deploy-AMDChipsetDriverOnWindowsServer.ps1 \
+    Deploy-AMDGraphicsDriverOnWindowsServer.ps1 \
+    Deploy-AMDNpuDriverOnWindowsServer.ps1 \
+    Deploy-MSBthPanInboxOnWindowsServer.ps1
+```
+
+**Pass criteria**: All four scripts report **0 errors**. Warnings are PSAP0005 only (no PSAP0003 / no PSA2001 / no PSA8001 / etc.).
+
+### TC18.2 — psa.py 4.0.0 PSAP0003 cleanup verification (the r74 inline-tag regression is gone)
+
+**Purpose**: Confirm that the nine `# NOTE (r74):` / `# r74:` inline revision-tag comments introduced by r74 have been cleaned up and do not regress.
+
+**Procedure**:
+
+```bash
+python3 path/to/psa.py --include PSAP0003 \
+    Deploy-AMDChipsetDriverOnWindowsServer.ps1 \
+    Deploy-AMDGraphicsDriverOnWindowsServer.ps1 \
+    Deploy-AMDNpuDriverOnWindowsServer.ps1 \
+    Deploy-MSBthPanInboxOnWindowsServer.ps1
+```
+
+**Pass criteria**: All four scripts report **0 PSAP0003 findings**. The r75 baseline reproduced 9 (7 Chipset, 1 Graphics, 1 BthPan); r76 reports 0.
+
+**Regression replay** (optional, run only on the r75 source if revisiting historic state):
+
+```bash
+git checkout <r75-commit> -- Deploy-AMD*.ps1 Deploy-MSBthPan*.ps1
+python3 path/to/psa.py --include PSAP0003 Deploy-*.ps1
+# Expected: 9 findings (7 Chipset / 1 Graphics / 1 BthPan)
+git checkout HEAD -- Deploy-AMD*.ps1 Deploy-MSBthPan*.ps1
+```
+
+### TC18.3 — psa.py 4.0.0 PSAP0005 migration-baseline counts
+
+**Purpose**: Confirm that the per-script PSAP0005 counts under `psap0005_relaxed_mode: true` match the documented migration baseline in SPEC §A.11.5.
+
+**Procedure**:
+
+```bash
+python3 path/to/psa.py --config .psa.config.json --include PSAP0005 \
+    Deploy-AMDChipsetDriverOnWindowsServer.ps1 \
+    Deploy-AMDGraphicsDriverOnWindowsServer.ps1 \
+    Deploy-AMDNpuDriverOnWindowsServer.ps1 \
+    Deploy-MSBthPanInboxOnWindowsServer.ps1
+```
+
+**Pass criteria** (initial migration baseline values; these will decrease across subsequent releases as cleanup phases complete per SPEC §A.13 Migration roadmap):
+
+| Script  | PSAP0005 (relaxed) |
+| ------- | -----------------: |
+| Chipset |                 22 |
+| Graphics |                24 |
+| NPU     |                  2 |
+| BthPan  |                 16 |
+
+A deviation in either direction requires investigation: a higher count means a new revision-anchored reference has been added (regression); a lower count means a cleanup happened without an accompanying SPEC §A.11.5 baseline update.
+
+### TC18.4 — psa.py 4.0.0 PSAP0005 relaxed-mode exemption verification (each pattern still works)
+
+**Purpose**: Confirm that the four relaxed-mode exemption patterns (SECTION header, SPEC cross-reference, Added-in-release phrasing, Earlier-revisions prose) are correctly applied and that disallowed forms ("As of rNN, ...") still fire even under relaxed mode.
+
+**Procedure**: Run the upstream `psa.py` test suite, which includes Section 2c (15 relaxed-mode test cases) and Section 2d (PSAP0003 + PSAP0005 dedupe).
+
+```bash
+cd path/to/ai-generated-artifacts/scripts/python/powershell-static-analyzer
+python3 test_psa_rules.py
+```
+
+**Pass criteria**: `Result: 213 passed, 0 failed`. The relevant cases are tagged `PSAP0005 relaxed: ...` in the output.
+
+### TC18.5 — r76 cross-script ScriptTag alignment (no functional change)
+
+**Purpose**: Confirm that r76 / r42 / r24 / r20 differs from r75 / r41 / r23 / r19 only in (a) inline-comment hygiene rewrites and (b) `$Script:ScriptVersion` / `$Script:ScriptTag` updates, with no runtime behaviour change.
+
+**Procedure**:
+
+```bash
+# Functional diff scope: ignore identity strings and pure-comment lines
+git diff <r75-commit> HEAD -- Deploy-AMD*.ps1 Deploy-MSBthPan*.ps1 \
+    | grep -E '^[+-]' \
+    | grep -vE '^[+-]\s*#' \
+    | grep -vE '\$Script:Script(Version|Tag)\s*='
+```
+
+**Pass criteria**: Empty output (zero non-comment, non-identity diff lines). The only differences are inline-comment text and the two `$Script:Script*` assignments.
+
+---
+

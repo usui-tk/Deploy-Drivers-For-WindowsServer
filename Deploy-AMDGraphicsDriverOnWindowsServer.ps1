@@ -786,8 +786,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'graphics-2026.05.25-r41'
-$Script:ScriptTag     = 'legacy-ws2019-ps51-japp-correctness-fix'
+$Script:ScriptVersion = 'graphics-2026.05.25-r42'
+$Script:ScriptTag     = 'psa-py-v4-llm-governance-baseline'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -4909,13 +4909,12 @@ function Test-WhqlCoSignature { # psa-disable-line PSA6003 -- "Signature" is a s
     # the WDK / Windows Kits SDK is not installed, in which case we
     # cannot reach nested signatures from PS 5.1.
     #
-    # NOTE (r74): Earlier revisions called a non-existent Find-Signtool
-    # helper, which raised CommandNotFoundException at runtime. The
+    # Earlier revisions called a non-existent Find-Signtool helper,
+    # which raised CommandNotFoundException at runtime. The
     # surrounding try/catch swallowed that exception silently and
     # forced this function into the "no signtool" fallback path for
-    # every call, masking the defect across the entire fleet. The
-    # Find-KitTool fix landed in chipset r74 / graphics r40 / bthpan r22.
-    # See SPEC §D.32 for the post-incident analysis.
+    # every call, masking the defect across the entire fleet.
+    # See SPEC §D.32 for the post-incident analysis (Find-KitTool fix).
     $signtool = $null
     try {
         $signtool = Find-KitTool 'signtool.exe'
@@ -5685,7 +5684,7 @@ function Install-WindowsWdkFallback {
 #           build the {N}000-series path component.
 #             '5750GE' -> 5000
 #             '9070' -> 9000
-#             'R9700' -> 9000
+#             'R9700' -> 9000  # psa-disable-line PSAP0005 -- AMD Radeon model number, not a script revision
 #           See: Get-AmdProductSeriesNumber
 #
 #   Step 4: Compose the path based on family (Ryzen / Ryzen Pro /
@@ -5918,7 +5917,7 @@ function Get-AmdGpuTarget {
 # its support pages. Examples:
 #   'AMD Ryzen 7 PRO 5750GE' -> 'amd-ryzen-7-pro-5750ge'
 #   'AMD Radeon RX 9070 XT' -> 'amd-radeon-rx-9070-xt'
-#   'AMD Radeon AI Pro R9700' -> 'amd-radeon-ai-pro-r9700'
+#   'AMD Radeon AI Pro R9700' -> 'amd-radeon-ai-pro-r9700'  # psa-disable-line PSAP0005 -- AMD Radeon model number
 # Strips trademark markers (TM)/(R), normalizes whitespace, and uses
 # hyphens as the path separator.
 # ====================================================================
@@ -5943,7 +5942,7 @@ function Convert-AmdProductNameToSlug {
 # Examples:
 #   '5750GE' -> 5000
 #   '9070' -> 9000
-#   'R9700' -> 9000
+#   'R9700' -> 9000  # psa-disable-line PSAP0005 -- AMD Radeon model number
 #   'W6800' -> 6000
 # Returns $null if no recognizable 4-digit model is found.
 # ====================================================================
@@ -6173,7 +6172,7 @@ function Get-AmdCodenameFromUrl {
 #      the precise mapping. This is the AUTHORITATIVE path because
 #      the codename comes directly from AMD's own product spec.
 #   2. Specific name-pattern traps (Ryzen 7x30 Barcelo-R, Athlon
-#      Vega 200/240GE, Embedded V1*/R1*, Ryzen AI Max).
+#      Vega 200/240GE, Embedded V1*/R1*, Ryzen AI Max).  # psa-disable-line PSAP0005 -- AMD platform identifier (Embedded V1*/R1*)
 #   3. Series-number heuristic (Ryzen 1000-5000 -> Vega -> Legacy;
 #      Ryzen 6000+ -> RDNA -> Main).
 #   4. Discrete GPU name patterns (RX 4xx/5xx Polaris, RX 5xxx-9xxx
@@ -6245,7 +6244,7 @@ function Get-AmdDriverBranchPreference {
                 Source='name pattern'; Reason='Athlon Vega APU'
             }
         }
-        # Ryzen Embedded V1*/R1* (Raven Ridge)
+        # Ryzen Embedded V1*/R1* (Raven Ridge)  # psa-disable-line PSAP0005 -- AMD platform identifier
         if ($name -match '\bRyzen\s+Embedded\s+[VR]\d') {
             return [pscustomobject]@{
                 Branch='Legacy'; Codename='Raven Ridge Embedded'

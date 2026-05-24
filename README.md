@@ -118,11 +118,58 @@ All four PowerShell scripts share the same 21-phase architecture, the same self-
 
 ## What's new
 
-**Latest release: `2026-05-25` — Chipset r75 / Graphics r41 / BthPan r23 / NPU r19** (`legacy-ws2019-ps51-japp-correctness-fix`).
-This release fixes three defects revealed by a follow-up diagnostic on
-the same WS2019 ja-JP + Renoir bench host that the r74 release
-investigated, and **honestly corrects the proximate-cause diagnosis of
-two of the r74 defects**:
+**Latest release: `2026-05-25` — Chipset r76 / Graphics r42 / BthPan r24 / NPU r20** (`psa-py-v4-llm-governance-baseline`).
+This release is the **LLM-governance baseline**: it adopts `psa.py`
+4.0.0, cleans up the nine inline revision-tag references introduced
+by r74, and opts in to the new `PSAP0005` rule (revision reference in
+comment body) with `psap0005_relaxed_mode: true` as the migration
+baseline.
+
+Key changes (no runtime behaviour changes — see CHANGELOG for the
+full list):
+
+- **`psa.py` 4.0.0** adds the new `PSAP0005` rule — the broader
+  LLM-assisted-maintenance guardrail companion of `PSAP0003`. Where
+  PSAP0003 catches only the five structured tag forms
+  (`# r42:`, `# (r42)`, etc.), PSAP0005 catches ANY `rNN` reference
+  inside a comment body, including descriptive prose anchors like
+  "Added in the r71 release", "As of r74, …", "Before r74, …".
+  See [SPEC §A.13](./SPEC.md#a13-development-workflow) for this
+  repository's enforcement matrix.
+
+- **Nine `PSAP0003` violations cleaned up.** The r74 release left 9
+  inline revision-tag comments (`# NOTE (r74):` × 3 byte-identical
+  cross-script sites + `# r74:` × 5 Chipset-only + `# NOTE (r74):`
+  × 1 Chipset-only). r76 rewrites all 9 with timeless wording per
+  SPEC §A.13. PSA8001 byte-identity of the cross-script-shared
+  comment block is preserved.
+
+- **`PSAP0005` migration baseline established.** The
+  `.psa.config.json` opts in to `PSAP0005` with `psap0005_relaxed_mode:
+  true`, which exempts four established prose patterns (SECTION
+  header, SPEC cross-reference, Added-in-release phrasing,
+  Earlier-revisions prose). The current relaxed-mode count is the
+  migration baseline; the end-state goal is to flip to strict
+  mode (`false`) by completing the four-phase cleanup in SPEC §A.13
+  Migration roadmap.
+
+- **`$Script:ScriptTag` updated to `psa-py-v4-llm-governance-baseline`**
+  across all four scripts. **All four scripts pass `psa.py 4.0.0
+  --severity error` with 0 errors at the r76 baseline.**
+
+See [SPEC §A.13](./SPEC.md#a13-development-workflow) for the
+LLM-governance philosophy, the per-policy-item enforcement matrix,
+allowed / disallowed prose examples, and the multi-cycle cleanup
+roadmap.
+
+### Previous release notes
+
+The **`2026-05-25` Chipset r75 / Graphics r41 / BthPan r23 / NPU r19**
+release (`legacy-ws2019-ps51-japp-correctness-fix`) fixed three
+defects revealed by a follow-up diagnostic on the same WS2019 ja-JP
++ Renoir bench host that the r74 release investigated, and
+**honestly corrected the proximate-cause diagnosis of two of the r74
+defects**:
 
 - **Defect A** — `Split-Path -LiteralPath ... -Parent` triggers
   `AmbiguousParameterSet` on Windows PowerShell 5.1 ja-JP. This was the
@@ -139,8 +186,8 @@ two of the r74 defects**:
   `$ourInfSet` without building it (latent since r74). Fix: mirror the
   V06 build pattern at the start of I00's per-device loop.
 
-The release also lands two new `psa.py` v3.9.0 static-analysis rules
-(**PSA2010** — undefined-function call detection; **PSA2011** —
+The r75 release also landed two new `psa.py` v3.9.0 static-analysis
+rules (**PSA2010** — undefined-function call detection; **PSA2011** —
 Split-Path -LiteralPath -Parent detection) that would have caught the
 corresponding defects at static-analysis time. The four scripts pass
 `psa.py 3.9.0 --severity error` with 0 errors at the r75 baseline.
@@ -1207,7 +1254,7 @@ In the rest of this document and in `SPEC.md` / `TESTING.md` / `CONTRIBUTING.md`
 
 #### Checks performed
 
-`psa.py` (latest mainline) ships with a **45-rule** check set spanning `PSA1001`..`PSA9002` for generic rules plus `PSAP0001`..`PSAP0004` for project / pipeline convention rules. The 45-rule count includes `PSA2009` (PSCustomObject property assigned without prior declaration), introduced in `psa.py` v3.8.0 alongside the Chipset r73 / Graphics r39 / BthPan r21 release — this rule is the static-analysis counterpart of the runtime defect that caused `Chipset r72 P05 -> FAILED with "WhqlCoSignAnalysis" property-not-found exception` on a Japanese-locale Windows Server 2019 host. The count also includes `PSA2010` (call to undefined function, error) and `PSA2011` (`Split-Path -LiteralPath ... -Parent` triggers AmbiguousParameterSet on PS 5.1 ja-JP, error), both introduced in `psa.py` v3.9.0 alongside the Chipset r75 / Graphics r41 / BthPan r23 / NPU r19 release — these rules would have caught the r75 §D.33 Defect A (`Split-Path` binder bug) and the §D.32.2 `Find-Signtool` family of typos at static-analysis time. See `SPEC.md` §A.11.5c / §A.11.5d / §A.11.5e for the three rules' detailed semantics. This repository validates its scripts against the latest mainline `psa.py` (no fixed-version pinning); see `SPEC.md` §A.11 *Version policy* for the rationale and the LLM / AI workflow for adopting a new version. The 45 rules are grouped into nine categories:
+`psa.py` (latest mainline) ships with a **46-rule** check set spanning `PSA1001`..`PSA9002` for generic rules plus `PSAP0001`..`PSAP0005` for project / pipeline convention rules. The 46-rule count includes `PSA2009` (PSCustomObject property assigned without prior declaration), introduced in `psa.py` v3.8.0 alongside the Chipset r73 / Graphics r39 / BthPan r21 release — this rule is the static-analysis counterpart of the runtime defect that caused `Chipset r72 P05 -> FAILED with "WhqlCoSignAnalysis" property-not-found exception` on a Japanese-locale Windows Server 2019 host. The count also includes `PSA2010` (call to undefined function, error) and `PSA2011` (`Split-Path -LiteralPath ... -Parent` triggers AmbiguousParameterSet on PS 5.1 ja-JP, error), both introduced in `psa.py` v3.9.0 alongside the Chipset r75 / Graphics r41 / BthPan r23 / NPU r19 release — these rules would have caught the r75 §D.33 Defect A (`Split-Path` binder bug) and the §D.32.2 `Find-Signtool` family of typos at static-analysis time. **The 46th rule, `PSAP0005` (revision reference in comment body), is the new LLM-assisted-maintenance guardrail added in `psa.py` v4.0.0 alongside this Chipset r76 / Graphics r42 / BthPan r24 / NPU r20 release** — it catches any `rNN` reference inside a comment body, broader than `PSAP0003`'s structured tag forms; this repository opts in with `psap0005_relaxed_mode: true` as the migration baseline (see SPEC §A.13 *Migration roadmap*). See `SPEC.md` §A.11.5c / §A.11.5d / §A.11.5e for PSA2009/2010/2011 detailed semantics, and `SPEC.md` §A.13 for PSAP0005's repository-side policy. This repository validates its scripts against the latest mainline `psa.py` (no fixed-version pinning); see `SPEC.md` §A.11 *Version policy* for the rationale and the LLM / AI workflow for adopting a new version. The 46 rules are grouped into nine categories:
 
 | Category                       | Code range                | Examples                                                                                                                                                                                                                                       |
 | ---                            | ---                       | ---                                                                                                                                                                                                                                            |

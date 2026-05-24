@@ -20,6 +20,192 @@ independently.
 
 ---
 
+## [2026-05-25] `psa-py-v4-llm-governance-baseline` — Chipset r76 / Graphics r42 / BthPan r24 / NPU r20
+
+This release is the **LLM-governance baseline** for the four
+pipeline scripts. It adopts `psa.py` 4.0.0, which introduces the
+new `PSAP0005` rule (Revision reference in comment body) as the
+broader companion of `PSAP0003`. The release cleans up the nine
+`PSAP0003`-flagged inline revision-tag comments introduced by r74,
+opts in to `PSAP0005` with `psap0005_relaxed_mode: true` as the
+migration baseline, and documents the multi-cycle cleanup plan in
+SPEC §A.13 ("Where revision history lives" / "Enforcement matrix" /
+"Migration roadmap").
+
+No runtime behaviour changes in this release. All changes are
+either:
+
+1. **Comment hygiene** — removal of inline revision-tag annotations
+   (`# r74:` and `# NOTE (r74):` forms) introduced by r74. The
+   accompanying technical explanations remain in the script bodies
+   with timeless wording per SPEC §A.13. Where the same comment
+   block exists byte-identically in the Chipset / Graphics / BthPan
+   sister scripts, the rewritten block is also kept byte-identical
+   to preserve PSA8001 cross-file parity.
+
+2. **`psa.py` version uplift** — `.psa.config.json` opts in to
+   `PSAP0005` (in addition to the pre-existing `PSAP0001..0004`)
+   and adds `psap0005_relaxed_mode: true`. The strict-baseline
+   (everything except `PSAP0005`) remains **0 / 0 / 0** on all
+   four scripts.
+
+3. **Identity bump** — `$Script:ScriptVersion` and
+   `$Script:ScriptTag` bumps across all four scripts. The new
+   `ScriptTag` is `psa-py-v4-llm-governance-baseline`, reflecting
+   the LLM-governance position of this release-line.
+
+4. **Per-script revision bumps** — Chipset r75 → r76, Graphics
+   r41 → r42, BthPan r23 → r24, NPU r19 → r20. The NPU bump is a
+   continuation of the §D.33.10 exception (no NPU functional
+   change in this release either; the bump is for cross-script
+   ScriptTag alignment).
+
+### Changed
+
+- **`psa.py` validation now requires v4.0.0** (was v3.9.0). The
+  new version adds **`PSAP0005` — Revision reference in comment
+  body** (warning, default off, opt-in via `.psa.config.json`).
+  `PSAP0005` is the LLM-assisted-maintenance guardrail companion
+  of `PSAP0003`: where `PSAP0003` catches structured tag forms
+  (`# rNN:`, `# (rNN)`, etc.), `PSAP0005` catches the broader
+  pattern of ANY `rNN` reference inside a comment body, including
+  descriptive prose anchors. See the upstream `psa.py` `SPEC.md`
+  §4.37 and this repository's SPEC §A.13 ("Enforcement matrix")
+  for the detailed rule contract.
+
+- **`PSAP0005` opt-in with `psap0005_relaxed_mode: true`.** The
+  `.psa.config.json` enables PSAP0005 in relaxed mode, which
+  exempts four established prose patterns:
+  - **A.** SECTION header (`# SECTION r71: ...`)
+  - **B.** SPEC cross-reference (`(rNN, SPEC §D.YY)`)
+  - **C.** Added-in-release phrasing (`(added with the r71 release)`)
+  - **D.** Earlier-revisions prose (`# Earlier revisions ... before r74`)
+
+  These four are the prose patterns established by SPEC §D.31 (r71
+  refactor) and used throughout the four scripts. Relaxed mode is
+  the **migration baseline**; the documented end-state is
+  `psap0005_relaxed_mode: false` (strict), achieved by completing
+  the four-phase cleanup roadmap in SPEC §A.13.
+
+- **`$Script:ScriptTag` uniformly updated to
+  `psa-py-v4-llm-governance-baseline`** across all four scripts.
+
+- **All four scripts bumped to their new revision number:**
+  Chipset r75 → r76, Graphics r41 → r42, BthPan r23 → r24, NPU
+  r19 → r20.
+
+### Fixed
+
+- **Nine `PSAP0003` inline revision-tag comments introduced by
+  r74 — removed.** The r74 release introduced 9 instances of
+  `# NOTE (r74):` and `# r74:` comments (7 in Chipset, 1 in
+  Graphics, 1 in BthPan). r76 rewrites all 9 with timeless wording
+  per SPEC §A.13, in three categories:
+
+  - **Category 1 — cross-script identical block** (Chipset L4776 /
+    Graphics L4912 / BthPan L4563, byte-identical 7-line block):
+    The opening `# NOTE (r74):` line and the closing
+    `chipset r74 / graphics r40 / bthpan r22` line are dropped;
+    the design-intent narrative is rewritten as "Earlier revisions
+    called a non-existent Find-Signtool helper, ... See SPEC §D.32
+    for the post-incident analysis (Find-KitTool fix)." PSA8001
+    byte-identity is preserved across all three sister scripts.
+
+  - **Category 2 — Chipset-only `# NOTE (r74):` block opening**
+    (Chipset L11699 for V06's OEM-name-lookup-set build): The
+    `# NOTE (r74): V06 now builds ...` line is rewritten as
+    `# V06 now builds ...` (rNN removed; rest of the multi-line
+    explanation is unchanged).
+
+  - **Category 3 — Chipset-only `# r74:` inline tags** (Chipset
+    L11733, L12284, L12836, L12866, L13224): The leading `r74:`
+    is removed and the first word is capitalised, e.g.
+    `# r74: build the OEM-name lookup set once.` →
+    `# Build the OEM-name lookup set once.` No content changes
+    other than the rNN removal.
+
+### Suppressed (PSAP0005)
+
+- **Five Radeon GPU model-number references in Graphics**
+  (L5688, L5921, L5946, L6176, L6248). These reference AMD
+  product names — `R9700` (Radeon AI Pro R9700), `R1*` and `V1*`
+  (Ryzen Embedded R1*/V1*) — which are hardware-platform
+  identifiers, not script revision numbers. They are suppressed
+  in-place with `# psa-disable-line PSAP0005 -- AMD ... identifier`
+  rather than reworded, because they are part of the comment's
+  semantic content and rewriting would distort the meaning.
+
+### Documentation
+
+- **SPEC.md §A.13** — expanded with four new subsections:
+
+  - **"Why this matters — LLM-assisted maintenance hazard"**:
+    explicit framing of the three-way split as a defence against
+    LLM revision-anchor accumulation.
+
+  - **"Enforcement matrix"**: per-policy-item mapping to the
+    `psa.py` rule that enforces it (PSAP0003, PSAP0004,
+    PSAP0005), with explicit residual-human-review responsibility
+    annotations for items outside `psa.py`'s scanner scope (e.g.,
+    block comments `<# ... #>`).
+
+  - **"Allowed / disallowed prose examples"**: concrete examples
+    of timeless wording (allowed), the four relaxed-mode
+    exemption patterns (allowed under migration baseline), forms
+    that fire PSAP0003 (disallowed), and forms that fire PSAP0005
+    even under relaxed mode (e.g., `# As of rNN, ...`).
+
+  - **"Migration roadmap (`PSAP0005` relaxed → strict)"**: the
+    four-phase cleanup plan (Exemption B → A → D → C), per-cycle
+    steps (rewrite, re-verify, version bump, CHANGELOG entry),
+    and the final strict-mode flip.
+
+- **SPEC.md §A.11.5** — baseline table restructured into a
+  strict-baseline table (PSAP0001..PSAP0004 plus everything else,
+  still 0 / 0 / 0 on all four scripts) and a PSAP0005 migration-
+  baseline table (per-script PSAP0005 count under relaxed mode,
+  marked as the migration target).
+
+- **SPEC.md §A.11 "Rule coverage"** — rule-count updated from
+  **45** to **46** to reflect PSAP0005. The version-attribution
+  prose now mentions "PSAP0005 was added in 4.0.0 — the
+  LLM-assisted maintenance guardrail companion of PSAP0003".
+
+- **SPEC.md §D.33.8** — text amended to remove the misleading
+  phrase "accepted warning baseline (PSAP0003 inline-revision-tag
+  historical references)". The r74-introduced PSAP0003 references
+  are no longer an "accepted historical baseline"; they are
+  cleaned up by this release. The amended text points readers at
+  the new §A.11.5 strict-baseline / PSAP0005-migration-baseline
+  separation and at §A.13 for the migration roadmap.
+
+- **README.md / README.ja.md** — "What's new" section points to
+  r76 / r42 / r24 / r20, the new `ScriptTag`
+  (`psa-py-v4-llm-governance-baseline`), and the PSAP0005 /
+  §A.13 documentation additions. Rule-count references updated
+  from "45-rule" to "46-rule" wherever they appear.
+
+- **TESTING.md** — new §18 (TC18.1 — TC18.x) documenting the
+  procedures for verifying PSAP0003 0/0/0 and PSAP0005 relaxed-
+  mode baseline.
+
+### Known limitations
+
+- The PSAP0005 migration baseline (~64 references across the four
+  scripts) is intentionally accepted as the starting point of a
+  multi-release cleanup. Each subsequent release should reduce
+  the baseline by addressing one or more of the four exemption
+  categories per SPEC §A.13 "Migration roadmap". The end-state
+  release will flip `psap0005_relaxed_mode` to `false` and ship a
+  fully clean strict-mode baseline.
+
+- This release has no runtime behaviour changes. The r75
+  bench-cycle verification (TESTING.md §17, TC17.1 — TC17.9)
+  remains the most recent functional verification; r76 does not
+  re-run them because no functional change was introduced.
+
+---
+
 ## [2026-05-25] `legacy-ws2019-ps51-japp-correctness-fix` — Chipset r75 / Graphics r41 / BthPan r23 / NPU r19
 
 This release closes the three defects surfaced during a follow-up

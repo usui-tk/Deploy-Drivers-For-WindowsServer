@@ -325,8 +325,8 @@ $Script:CertValidityYears       = $CertValidityYears
 # =============================================================================
 # Script-scope state
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.05.25-r19'
-$Script:ScriptTag           = 'legacy-ws2019-ps51-japp-correctness-fix'
+$Script:ScriptVersion       = 'npu-2026.05.25-r20'
+$Script:ScriptTag           = 'psa-py-v4-llm-governance-baseline'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 $Script:CertSubjectCn       = 'AMD NPU Driver Self-Sign (WS2025 Lab, At Own Risk)'
