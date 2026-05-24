@@ -118,51 +118,60 @@ All four PowerShell scripts share the same 21-phase architecture, the same self-
 
 ## What's new
 
-**Latest release: `2026-05-25` — Chipset r76 / Graphics r42 / BthPan r24 / NPU r20** (`psa-py-v4-llm-governance-baseline`).
-This release is the **LLM-governance baseline**: it adopts `psa.py`
-4.0.0, cleans up the nine inline revision-tag references introduced
-by r74, and opts in to the new `PSAP0005` rule (revision reference in
-comment body) with `psap0005_relaxed_mode: true` as the migration
-baseline.
+**Latest release: `2026-05-24` — Chipset r80 / Graphics r46 / BthPan r28 / NPU r24** (`psa-py-v4-llm-governance-strict`).
+This release **completes the LLM-governance migration** that began
+at r76 / r42 / r24 / r20. All four sister scripts now pass `psa.py`
+4.0.2 in **strict mode** (`psap0005_relaxed_mode` removed from
+`.psa.config.json`) with a **0 / 0 / 0 / 0 baseline** on every rule
+in the analyzer's 46-rule set.
 
 Key changes (no runtime behaviour changes — see CHANGELOG for the
-full list):
+full per-rewrite list):
 
-- **`psa.py` 4.0.0** adds the new `PSAP0005` rule — the broader
-  LLM-assisted-maintenance guardrail companion of `PSAP0003`. Where
-  PSAP0003 catches only the five structured tag forms
-  (`# r42:`, `# (r42)`, etc.), PSAP0005 catches ANY `rNN` reference
-  inside a comment body, including descriptive prose anchors like
-  "Added in the r71 release", "As of r74, …", "Before r74, …".
-  See [SPEC §A.13](./SPEC.md#a13-development-workflow) for this
-  repository's enforcement matrix.
+- **`psa.py` 4.0.2 (upstream) — `PSAP0005` relaxed-mode coverage uplift.**
+  Nine new exempt patterns (E1-E9) plus a comment-block-level
+  exempt heuristic were added upstream to handle the empirical prose
+  patterns observed in this repository's r76 baseline (`(rNN / SPEC D.YY)`,
+  `(Q-X1, rNN)`, `# rNN (graphics):`, `predates rNN`, `r71 adds ...`,
+  etc.). Under the new analyzer the four-script relaxed-mode count
+  dropped from 64 to 1.
 
-- **Nine `PSAP0003` violations cleaned up.** The r74 release left 9
-  inline revision-tag comments (`# NOTE (r74):` × 3 byte-identical
-  cross-script sites + `# r74:` × 5 Chipset-only + `# NOTE (r74):`
-  × 1 Chipset-only). r76 rewrites all 9 with timeless wording per
-  SPEC §A.13. PSA8001 byte-identity of the cross-script-shared
-  comment block is preserved.
+- **99 strict-mode-eligible `rNN` references rewritten.** A bulk
+  rewrite swept all four scripts in one consolidated change set,
+  shifting historical "added in rNN" / "before rNN" / "rNN
+  (graphics)" / etc. prose to **timeless wording** with cross-
+  references to `SPEC.md` Part D for design rationale. PSA8001
+  byte-identity on cross-script-shared helpers is preserved.
 
-- **`PSAP0005` migration baseline established.** The
-  `.psa.config.json` opts in to `PSAP0005` with `psap0005_relaxed_mode:
-  true`, which exempts four established prose patterns (SECTION
-  header, SPEC cross-reference, Added-in-release phrasing,
-  Earlier-revisions prose). The current relaxed-mode count is the
-  migration baseline; the end-state goal is to flip to strict
-  mode (`false`) by completing the four-phase cleanup in SPEC §A.13
-  Migration roadmap.
+- **`.psa.config.json` simplified.** The
+  `psap0005_relaxed_mode` key is now omitted (taking its default
+  `false` value). The PSAP0005 section in the config header is
+  rewritten to describe the strict-mode steady state rather than the
+  relaxed-mode migration baseline.
 
-- **`$Script:ScriptTag` updated to `psa-py-v4-llm-governance-baseline`**
-  across all four scripts. **All four scripts pass `psa.py 4.0.0
-  --severity error` with 0 errors at the r76 baseline.**
+- **`$Script:ScriptTag` updated to `psa-py-v4-llm-governance-strict`**
+  across all four scripts. **All four scripts pass `psa.py 4.0.2
+  --severity error` with 0 errors and 0 warnings at the r80
+  baseline.**
+
+- **SPEC.md §D.34 (new)** documents the full post-mortem: why the
+  four-cycle plan in the pre-r80 §A.13 was abandoned in favour of a
+  consolidated release, what `psa.py` 4.0.2's uplift contributed, the
+  per-category rewrite table, and lessons learned for similar future
+  migrations.
 
 See [SPEC §A.13](./SPEC.md#a13-development-workflow) for the
-LLM-governance philosophy, the per-policy-item enforcement matrix,
-allowed / disallowed prose examples, and the multi-cycle cleanup
-roadmap.
+LLM-governance steady-state policy and [SPEC §D.34](./SPEC.md#d34-psap0005-strict-mode-migration-r80--r46--r24--r28-2026-05-24) for the migration retrospective.
 
 ### Previous release notes
+
+The **`2026-05-25` Chipset r76 / Graphics r42 / BthPan r24 / NPU r20**
+release (`psa-py-v4-llm-governance-baseline`) was the **LLM-governance
+baseline**: it adopted `psa.py` 4.0.0, cleaned up the nine
+`PSAP0003`-flagged inline revision-tag comments introduced by r74,
+and opted in to the new `PSAP0005` rule with
+`psap0005_relaxed_mode: true` as the migration baseline. The r76
+release set up the migration target that r80 has now reached.
 
 The **`2026-05-25` Chipset r75 / Graphics r41 / BthPan r23 / NPU r19**
 release (`legacy-ws2019-ps51-japp-correctness-fix`) fixed three

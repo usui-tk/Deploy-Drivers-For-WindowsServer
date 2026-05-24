@@ -2350,3 +2350,139 @@ git diff <r75-commit> HEAD -- Deploy-AMD*.ps1 Deploy-MSBthPan*.ps1 \
 
 ---
 
+## 19. r80: psa.py 4.0.2 LLM-governance strict-mode flip verification (PSAP0005 strict)
+
+The 2026-05-24 r80 / r46 / r24 / r28 (`psa-py-v4-llm-governance-strict`)
+release completes the migration started at r76. This section
+documents the verification steps for the strict-mode flip.
+
+### TC19.1 — All four scripts pass psa.py 4.0.2 strict mode with 0/0/0
+
+The acceptance criterion of r80 is that all four sister scripts
+report `0 errors, 0 warnings, 0 info` under the default `psa.py`
+4.0.2 configuration (PSAP0001..PSAP0005 enabled, PSAP0005 in strict
+mode because `psap0005_relaxed_mode` is omitted from
+`.psa.config.json`).
+
+```bash
+# From the repository root with psa.py 4.0.2 on PATH or relative
+python3 /path/to/psa.py --config .psa.config.json \
+    Deploy-AMDChipsetDriverOnWindowsServer.ps1 \
+    Deploy-AMDGraphicsDriverOnWindowsServer.ps1 \
+    Deploy-AMDNpuDriverOnWindowsServer.ps1 \
+    Deploy-MSBthPanInboxOnWindowsServer.ps1
+```
+
+**Pass criteria** (verified at the r80 release):
+
+```text
+File   : Deploy-AMDChipsetDriverOnWindowsServer.ps1
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-AMDNpuDriverOnWindowsServer.ps1
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-MSBthPanInboxOnWindowsServer.ps1
+Issues : 0 errors, 0 warnings, 0 info
+```
+
+### TC19.2 — PSAP0005 strict-mode count is zero on all four scripts
+
+A targeted PSAP0005-only run confirms the strict-mode rewrite is
+complete:
+
+```bash
+python3 /path/to/psa.py --config .psa.config.json --include PSAP0005 \
+    Deploy-AMDChipsetDriverOnWindowsServer.ps1 \
+    Deploy-AMDGraphicsDriverOnWindowsServer.ps1 \
+    Deploy-AMDNpuDriverOnWindowsServer.ps1 \
+    Deploy-MSBthPanInboxOnWindowsServer.ps1
+```
+
+**Pass criteria**: No `[PSAP0005]` line in the output (the analyzer
+reports `(no issues found)` for each script).
+
+### TC19.3 — `psap0005_relaxed_mode` key is absent from `.psa.config.json`
+
+The flip is irreversible — removing the relaxed_mode key ensures any
+future regression fires immediately:
+
+```bash
+grep -E '"psap0005_relaxed_mode"' .psa.config.json
+```
+
+**Pass criteria**: No matching line (the key has been removed).
+
+### TC19.4 — `$Script:ScriptTag` is `psa-py-v4-llm-governance-strict` on all four scripts
+
+```bash
+grep -E '^\$Script:ScriptTag' Deploy-AMD*.ps1 Deploy-MSBthPan*.ps1
+```
+
+**Pass criteria**: All four matches show `'psa-py-v4-llm-governance-strict'`.
+
+### TC19.5 — File integrity preserved
+
+The bulk rewrite must not corrupt UTF-8 BOM or CRLF line endings
+(PSA7001 / PSA7002 invariants).
+
+```bash
+# UTF-8 BOM check (first 3 bytes must be 0xef 0xbb 0xbf)
+for f in Deploy-AMD*.ps1 Deploy-MSBthPan*.ps1; do
+    head -c 3 "$f" | od -An -tx1 -N3
+done
+
+# CRLF line-ending check (CR count == LF count)
+for f in Deploy-AMD*.ps1 Deploy-MSBthPan*.ps1; do
+    cr=$(tr -cd '\r' < "$f" | wc -c)
+    lf=$(tr -cd '\n' < "$f" | wc -c)
+    echo "$f: CR=$cr LF=$lf"
+done
+```
+
+**Pass criteria**:
+- All four BOM checks show `ef bb bf`.
+- All four scripts have equal CR and LF counts (CRLF intact).
+
+### TC19.6 — PSA8001 cross-script byte-identity preserved on shared helpers
+
+The bulk rewrite must not introduce drift on cross-script-shared
+helpers. PSA8001 enforces this automatically; a clean PSA8001 run
+under TC19.1 is sufficient evidence. To verify a specific helper
+manually (illustrative example):
+
+```bash
+# Compare the byte-identical New-WhqlCoSignAnalysis declaration
+# block across Chipset / Graphics / BthPan
+for f in Deploy-AMDChipsetDriverOnWindowsServer.ps1 \
+         Deploy-AMDGraphicsDriverOnWindowsServer.ps1 \
+         Deploy-MSBthPanInboxOnWindowsServer.ps1; do
+    awk '/# WHQL co-signature analysis \(see SPEC §D.31\)/,/^    }/' "$f" \
+        | sha256sum | awk -v f="$f" '{print $1, f}'
+done
+```
+
+**Pass criteria**: All three SHA-256 hashes are identical (the
+helper body is byte-for-byte the same across the three scripts).
+
+### TC19.7 — No regression of historical AMD hardware suppressions
+
+Five `# psa-disable-line PSAP0005 -- AMD ... identifier` suppression
+directives exist in Graphics for hardware identifiers that
+grammatically match `rNN` (`R9700`, `R1*`, `V1*`). These must remain
+in place after the r80 rewrite.
+
+```bash
+grep -cE 'psa-disable-line PSAP0005 -- AMD' Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+```
+
+**Pass criteria**: Returns `5` (the count is unchanged from r42).
+
+### Reference: how the r80 rewrite was executed
+
+The bulk-rewrite Python script (one-shot, all four files) is recorded
+in SPEC.md §D.34 ("D.34.3 Rewrite patterns by category" table) and
+in the CHANGELOG.md r80 entry. The script preserves UTF-8 BOM,
+CRLF line endings, and applies the same set of regex / literal
+replacements to all four `.ps1` files in one pass.
+

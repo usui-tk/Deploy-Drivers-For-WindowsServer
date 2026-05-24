@@ -20,6 +20,205 @@ independently.
 
 ---
 
+## [2026-05-24] `psa-py-v4-llm-governance-strict` — Chipset r80 / Graphics r46 / BthPan r28 / NPU r24
+
+This release **completes the LLM-governance migration** that began
+at r76 / r42 / r24 / r20. The four sister scripts now pass
+`psa.py` 4.0.2 **strict mode** with a 0 / 0 / 0 / 0 baseline across
+all rules. The `psap0005_relaxed_mode` flag has been removed from
+`.psa.config.json` (taking its default `false` value).
+
+> **What changed**: The 99 strict-mode-eligible `rNN` references in
+> the four script bodies (mostly historical anchors that
+> documented when a particular block was added) have been
+> rewritten to **timeless wording** with cross-references to
+> `SPEC.md` Part D for design rationale. The release vehicle is a
+> single consolidated release rather than the four-cycle plan
+> originally documented in pre-r80 SPEC §A.13; see SPEC §D.34 for
+> the post-mortem.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.25-r76` → `chipset-2026.05.24-r80`
+  - Graphics: `graphics-2026.05.25-r42` → `graphics-2026.05.24-r46`
+  - NPU: `npu-2026.05.25-r20` → `npu-2026.05.24-r24`
+  - BthPan: `msbthpan-2026.05.25-r24` → `msbthpan-2026.05.24-r28`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `psa-py-v4-llm-governance-baseline` → `psa-py-v4-llm-governance-strict`
+- `.psa.config.json` updated:
+  - `psap0005_relaxed_mode` key removed (now defaults to `false`).
+  - Header documentation rewritten to describe strict-mode steady
+    state rather than relaxed-mode migration baseline.
+  - Trailing `,` after `"severity": "info"` removed (correct JSON).
+- `psa.py` upgraded upstream from 4.0.1 → 4.0.2 (PSAP0005 relaxed-
+  mode coverage uplift; not a config change but the baseline numbers
+  in §A.11.5 are based on this version).
+
+### Cycle B (SPEC cross-reference cleanup) — consolidated into this release
+
+The original plan was to ship this as `r77 / r43 / r21 / r25`. The
+empirical analysis (SPEC §D.34) led to consolidating the four cycles
+into this single r80 release. The rewrites that would have been
+Cycle B:
+
+- Chipset: 14 sites of `(r65, SPEC D.24)` / `(r66, SPEC D.24)` →
+  `(see SPEC §D.24)` — Phantom file reference helpers in P09.
+- Chipset: `Orphan catalog cleanup (r66 / SPEC D.24):` (slash separator)
+  → `Orphan catalog cleanup (see SPEC §D.24):`
+- Chipset / Graphics: `(r75 - SPEC D.33):` (dash separator) →
+  `(see SPEC §D.33):`
+- Chipset: `r68 (SPEC §D.26): LOADED honesty gate.` (reversed parens) →
+  `(see SPEC §D.26): LOADED honesty gate.`
+- Graphics: `r34 (SPEC §D.26): LOADED honesty gate.` (reversed parens, cross-port) →
+  `(see SPEC §D.26): LOADED honesty gate (cross-port from Chipset).`
+- 3 scripts byte-identical: `See SPEC SS D.31 for the full r71 design contract; SPEC SS D.31.11` →
+  `See SPEC §D.31 for the full design contract; SPEC §D.31.11`
+
+### Cycle A (SECTION header cleanup) — consolidated
+
+- 3 scripts byte-identical: `# SECTION r71: WHQL co-sign pre-detection + Path B prerequisite check` →
+  `# SECTION: WHQL co-sign pre-detection + Path B prerequisite check`
+- 3 scripts byte-identical: `# SECTION (r69, QI-6): CRITICAL severity acknowledgement helpers` →
+  `# SECTION (QI-6): CRITICAL severity acknowledgement helpers`
+- 3 scripts byte-identical: `# SECTION (r69, QI-9): System Restore status helpers` →
+  `# SECTION (QI-9): System Restore status helpers`
+- 3 scripts byte-identical (Pre-check semi-section): `# r71 Pre-check: Path B prerequisite check (Secure Boot firmware state)` →
+  `# Pre-check: Path B prerequisite check (Secure Boot firmware state)`
+
+### Cycle D (Earlier-revisions prose cleanup) — consolidated
+
+- Chipset: `# CSV is also absent (e.g. very old workspace prior to r65),` →
+  `# CSV is also absent (e.g. very old workspaces),`
+- Chipset: `# when no inventory is available, when the inventory predates r65` →
+  `# when no inventory is available, when the inventory predates the inf_inventory introduction`
+- Chipset: `# - If the CSV is also missing or predates r65 (no` →
+  `# - If the CSV is also missing or predates the inf_inventory introduction (no`
+- Chipset: `# workspace recovered from an r65 run, or a future code path` →
+  `# workspace recovered from an older inventory-less run, or a future code path`
+- Graphics: `# See SPEC SS D.31. Until r39, Graphics shipped the consumer code (I00 C6,` →
+  `# See SPEC §D.31. Earlier Graphics revisions shipped the consumer code (I00 C6,`
+
+### Cycle C (Added-in-release phrasing cleanup) — consolidated
+
+The most extensive category. Pattern: shift the rationale anchor
+from `(added with the rNN release)` to `(see SPEC §D.YY)`.
+
+- 3 scripts byte-identical: `# WHQL co-signature analysis (added with the r71 release).` →
+  `# WHQL co-signature analysis (see SPEC §D.31).`
+- Chipset: `(added with the r71 release) from the patch-eligible subset` →
+  `(see SPEC §D.31) from the patch-eligible subset`
+- Graphics (cross-port narrative): `(added with the r71 release; ported into Graphics by r39)` →
+  `(see SPEC §D.31; cross-script port to Graphics)`
+- 3 scripts byte-identical (I02 short-circuit): `(added with the r72 release) for all-WHQL trimmed install plans.` →
+  `(see SPEC §D.31.11) for all-WHQL trimmed install plans.`
+- BthPan: `(added in the r71 release). BthPan deploys the` →
+  `(see SPEC §D.31). BthPan deploys the`
+- Chipset / Graphics narrative: `The original r74 release threaded` →
+  `Earlier revisions threaded`
+- 3 scripts byte-identical: `# r71 adds two operator-protection mechanisms that the now-removed Path C` →
+  `# Two operator-protection mechanisms (see SPEC §D.31) that the now-removed Path C`
+- 3 scripts byte-identical: `# the /all addition in r74.` →
+  `# the /all flag (see SPEC §D.32).`
+- 3 scripts byte-identical: `documents the r72 follow-on I02 short-circuit that consumes the` →
+  `documents the I02 short-circuit (see SPEC §D.31.11) that consumes the`
+
+### NPU-specific rewrite (Q-X1 + r17 + date)
+
+NPU L5352, L5398. NPU's `Generic OS-version predicate retained after the r70 Path C deprecation.` →
+`Generic OS-version predicate retained after the Path C deprecation.`
+NPU's `# r17 (Q-X1, 2026-05-23): refuse NPU Install / All on legacy Windows Server` →
+`# (Q-X1; legacy WS2019): refuse NPU Install / All on legacy Windows Server`
+
+### Cross-port markers (Graphics-only and BthPan-only)
+
+- Graphics: 5 sites of `# r40 (graphics): ...` → `# (graphics-specific): ...`
+- BthPan: 3 sites of `# r22 (bthpan): ...` → `# (bthpan-specific): ...`
+
+### Follow-up sentences (rNN: this declaration)
+
+3 scripts: `). rNN: this declaration was ...` → `). This declaration was ...`
+- Chipset: r73
+- Graphics: r39
+- BthPan: r21
+
+### Phase-marker tri-state inline tag (Chipset only)
+
+- Chipset L9553: `Phase marker + summary (r66 tri-state:` →
+  `Phase marker + summary (tri-state form:`
+
+### Prose-internal rNN in multi-line PSCustomObject blocks (3 scripts)
+
+The `New-WhqlCoSignAnalysis` declaration block in each of Chipset /
+Graphics / BthPan had a `rNN: this declaration` follow-up plus the
+`I02 (r72 short-circuit ...)` inline reference. Both forms were
+rewritten:
+- `and I02 (r72 short-circuit for` → `and I02 (short-circuit (SPEC §D.31.11) for`
+- `(-SkipNonCosignedDrivers trim, I02 r72 short-circuit)` (Graphics L8635) →
+  `(-SkipNonCosignedDrivers trim, I02 short-circuit (SPEC §D.31.11))`
+- `missing in r71/r72 and caused P05 to throw` → `missing in earlier revisions and caused P05 to throw`
+- `P05 analysis block itself were both missing in r38;` → `... in earlier revisions;`
+
+### Documentation
+
+- `SPEC.md` §A.11.5 (Documented baseline) updated. The "Strict
+  baseline" table now includes PSAP0005; the "PSAP0005 migration
+  baseline" table renamed to "Historical migration baseline" with
+  per-`psa.py`-version comparison columns (4.0.0 / 4.0.2 relaxed /
+  4.0.2 strict).
+- `SPEC.md` §A.13 (Migration roadmap) rewritten as a "completed"
+  retrospective. The pre-r80 four-cycle plan is summarised; the
+  consolidated implementation is documented.
+- `SPEC.md` §D.34 (new) — full post-mortem of the strict-mode-flip
+  release: why the four-cycle plan was abandoned, what `psa.py`
+  4.0.2's uplift contributed, the per-category rewrite table, and
+  lessons learned for similar future migrations.
+- `SPEC.md` §A.11 footnote updated to reflect the new strict-mode
+  validation history.
+
+### Verification
+
+```text
+$ python3 psa.py --config .psa.config.json \
+    Deploy-AMDChipsetDriverOnWindowsServer.ps1 \
+    Deploy-AMDGraphicsDriverOnWindowsServer.ps1 \
+    Deploy-AMDNpuDriverOnWindowsServer.ps1 \
+    Deploy-MSBthPanInboxOnWindowsServer.ps1
+
+File   : Deploy-AMDChipsetDriverOnWindowsServer.ps1
+Lines  : 14278
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+Lines  : 14045
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-AMDNpuDriverOnWindowsServer.ps1
+Lines  : 7017
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-MSBthPanInboxOnWindowsServer.ps1
+Lines  : 11280
+Issues : 0 errors, 0 warnings, 0 info
+```
+
+### File integrity preserved
+
+- All four `.ps1` files retain UTF-8 BOM (PSA7001) and CRLF line
+  endings (PSA7002).
+- PSA8001 byte-identity verified on all shared helpers (no shared
+  helper was rewritten in only some sister scripts).
+- 5 existing `# psa-disable-line PSAP0005 -- AMD ... identifier`
+  suppression directives in Graphics (for `R9700`, `R1*`, `V1*`
+  hardware platform identifiers) are preserved unchanged.
+
+### Runtime behaviour
+
+**No runtime behaviour changes.** This is a pure documentation /
+comment-prose / configuration release. The only executable change
+is the `$Script:ScriptVersion` / `$Script:ScriptTag` constants
+themselves, which are displayed in banners and recorded in
+`DebugTrace JSONL` output but do not affect any code path.
+
+---
+
 ## [2026-05-25] `psa-py-v4-llm-governance-baseline` — Chipset r76 / Graphics r42 / BthPan r24 / NPU r20
 
 This release is the **LLM-governance baseline** for the four

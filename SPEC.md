@@ -928,7 +928,7 @@ This repository has the following **accepted** warning / info baseline
 Any deviation from these counts must be explained in the commit message
 and either added here or fixed.
 
-**Strict baseline** (all rules except `PSAP0005`):
+**Strict baseline** (all rules including `PSAP0005` in strict mode, since the r80 / r46 / r24 / r28 release):
 
 | Script                                          | Errors | Warnings | Info | Total |
 | ----------------------------------------------- | -----: | -------: | ---: | ----: |
@@ -937,25 +937,32 @@ and either added here or fixed.
 | `Deploy-AMDNpuDriverOnWindowsServer.ps1`        |  **0** |    **0** |  **0** |   **0** |
 | `Deploy-MSBthPanInboxOnWindowsServer.ps1`       |  **0** |    **0** |  **0** |   **0** |
 
-**`PSAP0005` migration baseline** (relaxed mode, `psap0005_relaxed_mode: true`, introduced at the r76 / r42 / r24 / r20 release):
+The r80 / r46 / r24 / r28 release (`psa-py-v4-llm-governance-strict`)
+**completes the PSAP0005 migration**: all four scripts pass strict mode
+(`psap0005_relaxed_mode` is now omitted from `.psa.config.json`, taking
+its default value of `false`). The 99 strict-mode PSAP0005 detections
+that existed at the prior `psa-py-v4-llm-governance-baseline` r76 / r42
+/ r24 / r20 release have all been rewritten to timeless wording.
 
-| Script                                          | PSAP0005 (relaxed) | Note |
-| ----------------------------------------------- | ------------------: | ----- |
-| `Deploy-AMDChipsetDriverOnWindowsServer.ps1`    |              **22** | Migration target. See §A.13 "Migration roadmap". |
-| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1`   |              **24** | Migration target. Five `R9700` / `R1*` AMD hardware-platform-identifier sites are suppressed via `# psa-disable-line PSAP0005 -- AMD ... identifier`. |
-| `Deploy-AMDNpuDriverOnWindowsServer.ps1`        |               **2** | Migration target. |
-| `Deploy-MSBthPanInboxOnWindowsServer.ps1`       |              **16** | Migration target. |
+**Historical migration baseline** (relaxed mode, `psap0005_relaxed_mode: true`, the prior r76 / r42 / r24 / r20 release):
 
-The PSAP0005 totals shown above are the warning counts reported under
-`psap0005_relaxed_mode: true`. They are accepted as the
-**`psa-py-v4-llm-governance-baseline` migration baseline** for the
-r76 / r42 / r24 / r20 release; the end-state goal is to drop them to
-**0** by completing the four-step migration documented in §A.13. The
-strict-mode baseline (i.e., `psap0005_relaxed_mode: false`) would be
-significantly higher (the four relaxed-mode exemptions catch the
-established prose patterns from SPEC §D.31 et al.); SPEC §A.13
-"Allowed / disallowed prose examples" and "Migration roadmap"
-describe the cleanup plan.
+| Script                                          | PSAP0005 (relaxed, psa.py 4.0.0) | PSAP0005 (relaxed, psa.py 4.0.2) | PSAP0005 (strict, psa.py 4.0.2) |
+| ----------------------------------------------- | ---------------------------------: | ---------------------------------: | -------------------------------: |
+| `Deploy-AMDChipsetDriverOnWindowsServer.ps1`    |                             **22** |                              **1** |                          **43** |
+| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1`   |                             **24** |                              **0** |                          **31** |
+| `Deploy-AMDNpuDriverOnWindowsServer.ps1`        |                              **2** |                              **0** |                           **2** |
+| `Deploy-MSBthPanInboxOnWindowsServer.ps1`       |                             **16** |                              **0** |                          **23** |
+| **Total**                                       |                             **64** |                              **1** |                          **99** |
+
+The "psa.py 4.0.0" column reflects the relaxed-mode baseline that was
+documented at the r76 / r42 / r24 / r20 release with the four original
+A/B/C/D exempt patterns. The "psa.py 4.0.2" column shows the same
+baseline after the relaxed-mode exempt coverage was uplifted with the
+E1-E9 extension + comment-block-level exempt (see SPEC §D.34); the
+remaining 1 Chipset detection (Phase marker tri-state inline tag) was
+not covered by any exempt pattern. The "strict" column shows what was
+actually rewritten to timeless wording in the r80 release. All four
+counts collapsed to 0 / 0 / 0 / 0 after the bulk-rewrite migration.
 
 PSA8001 byte-identity of the affected cross-script helpers is
 preserved throughout the migration (any cleanup that touches a
@@ -1450,60 +1457,98 @@ the description to a specific historical release.
 
 #### Migration roadmap (`PSAP0005` relaxed → strict)
 
-The r76 / r42 / r24 / r20 release adopts `psa.py` 4.0.0's `PSAP0005`
-with `psap0005_relaxed_mode: true`. This means the four exemption
-patterns above are tolerated as the migration baseline. The
-documented end-state is `psap0005_relaxed_mode: false` (strict), at
-which point all `rNN` references in comment bodies are reported.
+> **Status: COMPLETED at r80 / r46 / r24 / r28 (the
+> `psa-py-v4-llm-governance-strict` release line).** All four scripts
+> now pass `psa.py` strict mode (`psap0005_relaxed_mode` is omitted
+> from `.psa.config.json`, taking its default `false` value). The
+> retrospective below is kept for historical reference and as
+> guidance for similar future migrations.
 
-The migration is intentionally phased so that no single release has
-to absorb the full ~60 prose rewrites at once. Each rewrite is
-literal text editing that does not affect runtime behaviour, but
-each one is also a PSA8001 byte-identity hazard if applied
-inconsistently across sister scripts (Chipset / Graphics / BthPan).
-Phasing the migration also lets each release CHANGELOG entry stay
-small and reviewable.
+The r76 / r42 / r24 / r20 release (`psa-py-v4-llm-governance-baseline`)
+opted in to `psa.py` 4.0.0's `PSAP0005` with `psap0005_relaxed_mode:
+true`. The four original exemption patterns (A SECTION header, B SPEC
+cross-reference, C Added-in-release phrasing, D Earlier-revisions
+prose) were accepted as the migration baseline. The original plan was
+to clean up the ~60 anchored prose occurrences in four release cycles
+(one exemption category per release), then flip the flag to `false`.
 
-Per-cycle migration steps:
+The migration **completed in one consolidated release** (r80 / r46 /
+r24 / r28) rather than four separate ones, because the empirical
+prose patterns turned out to be more varied than the four-category
+classification anticipated. See §D.34 for the post-mortem and the
+decision to consolidate.
 
-1. **Pick one exemption category** (A / B / C / D) per cycle (the
-   smallest-impact category is recommended first).
-2. **Rewrite occurrences across all four scripts** with timeless
-   wording, taking care to preserve byte-identity on any function
-   listed in `psa8001_ignore_functions` exceptions and on
-   cross-script-shared helpers.
-3. **Re-run `psa.py --config .psa.config.json`** to confirm the
-   per-script PSAP0005 count has dropped by the expected amount.
-4. **Bump the per-script revision number** (Chipset → r77,
-   Graphics → r43, etc.). The new release-line `ScriptTag` is the
-   same `psa-py-v4-llm-governance-baseline` until the entire
-   migration is complete; the migration-progress ScriptTag is
-   reserved for the eventual strict-mode flip.
-5. **CHANGELOG entry** lists exactly which exemption category was
-   addressed in this cycle and the resulting PSAP0005 count.
+##### What changed in r80 / r46 / r24 / r28
 
-The order of categories is at the maintainer's discretion. A
-suggested order, easiest first:
+- **psa.py 4.0.2 uplift** (upstream): Nine new relaxed-mode exempt
+  patterns (E1-E9) plus a comment-block-level exempt heuristic
+  were added to cover real-world prose patterns observed in this
+  repository's r76 baseline. Under psa.py 4.0.2 + relaxed mode,
+  the four-script PSAP0005 detection count dropped from 64 to 1.
+  See SPEC.md §4.37 (upstream) and CHANGELOG.md (upstream) [4.0.2]
+  for the per-pattern detail.
 
-1. **Exemption B (SPEC cross-reference)** — rewrite `(rNN, SPEC §D.YY)`
-   into `(see SPEC §D.YY)`. The `rNN` is redundant: SPEC §D.YY
-   itself is anchored to a single release.
-2. **Exemption A (SECTION header)** — rewrite `# SECTION r71: ...`
-   into `# SECTION: ...`. The `r71` is redundant: the SECTION block
-   itself is anchored to the current line set of the file.
-3. **Exemption D (Earlier-revisions prose)** — drop the `rNN`
-   suffix from `... before r74` style sentences, leaving the
-   "Earlier revisions" narrative intact.
-4. **Exemption C (Added-in-release phrasing)** — most invasive,
-   because the "added in the r71 release" phrasing often carries
-   important rationale ("here is the design intent of this code
-   block"). Rewrite to "This block was originally introduced to
-   address ... See SPEC §D.NN for the design rationale." without
-   the `rNN`.
+- **Bulk rewrite of script bodies**: All 99 strict-mode-eligible rNN
+  references across the four scripts were rewritten to timeless
+  wording. The rewrite collapsed into 63 unique replacement patterns
+  (many helpers are byte-identical across Chipset / Graphics /
+  BthPan, so one rewrite served three scripts). Categories
+  addressed:
 
-Once all four categories have been cleaned up across all four
-scripts, flip `psap0005_relaxed_mode` from `true` to `false` in
-`.psa.config.json` and ship the strict-mode-baseline release.
+  | Original category (planned)               | Implemented as                                                                                                                            |
+  | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+  | A SECTION header                          | `# SECTION rNN: ...` → `# SECTION: ...`                                                                                                  |
+  | B SPEC cross-reference                    | `(rNN, SPEC §D.YY)` and slash/dash variants → `(see SPEC §D.YY)`                                                                          |
+  | C Added-in-release phrasing               | `(added with the rNN release)` → `(see SPEC §D.YY)` with the SPEC ref carrying the rationale                                              |
+  | D Earlier-revisions prose                 | `prior to rNN`, `predates rNN`, `from an rNN run`, etc. → timeless descriptors ("very old workspaces", "predates the inf_inventory introduction") |
+  | (new) Q-Reference                         | `(rNN, QI-X):`, `rNN (QI-X):`, `(Q-X1, rNN)` → `(QI-X):`, `(Q-X1; legacy WS2019)`                                                          |
+  | (new) Cross-port marker                   | `# rNN (graphics): ...`, `# rNN (bthpan): ...` → `# (graphics-specific): ...`, `# (bthpan-specific): ...`                                  |
+  | (new) Follow-up sentence                  | `). rNN: this declaration was ...` → `). This declaration was ...`                                                                        |
+  | (new) Semi-section header                 | `# rNN Pre-check: ...` → `# Pre-check: ...`                                                                                              |
+  | (new) Phase-marker tri-state              | `(r66 tri-state:` → `(tri-state form:`                                                                                                    |
+  | (new) Prose-internal rNN in multi-line blocks | `... I02 (r72 short-circuit ...)` → `... I02 (short-circuit (see SPEC §D.31.11) ...)`                                                  |
+
+- **ScriptTag transition**: `psa-py-v4-llm-governance-baseline` →
+  `psa-py-v4-llm-governance-strict` on all four scripts.
+
+- **`.psa.config.json` cleanup**: the `psap0005_relaxed_mode` key
+  was removed entirely (taking its default `false` value). The
+  PSAP0005 comment block in the config file now describes the
+  strict-mode steady state rather than the relaxed-mode migration
+  baseline.
+
+##### Verification at r80
+
+```text
+$ python3 psa.py --config .psa.config.json \
+    Deploy-AMDChipsetDriverOnWindowsServer.ps1 \
+    Deploy-AMDGraphicsDriverOnWindowsServer.ps1 \
+    Deploy-AMDNpuDriverOnWindowsServer.ps1 \
+    Deploy-MSBthPanInboxOnWindowsServer.ps1
+
+File   : Deploy-AMDChipsetDriverOnWindowsServer.ps1
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-AMDNpuDriverOnWindowsServer.ps1
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-MSBthPanInboxOnWindowsServer.ps1
+Issues : 0 errors, 0 warnings, 0 info
+```
+
+##### Steady state (post-r80)
+
+- `PSAP0005` runs in strict mode. Any future `rNN` reference in a
+  comment body fires immediately and must be either rewritten to
+  timeless wording, suppressed with `# psa-disable-line PSAP0005 -- <justification>`
+  (rare, used for AMD hardware identifiers like `R9700` / `R1*`),
+  or moved to `CHANGELOG.md` / `SPEC.md` Part D.
+- New per-revision design intent is **always** captured in `CHANGELOG.md`
+  and referenced from comments by `# See SPEC §D.NN`, never by `rNN`.
+- `# psa-disable-line PSAP0005` directives are reserved for the rare
+  case where the `rNN`-like token is a hardware platform identifier
+  (e.g., AMD Radeon `R9700`, AMD Ryzen embedded `V1*`) and is not a
+  release reference at all.
 
 ### Reuse before invention
 
@@ -4096,7 +4141,7 @@ The r75 release lands **two new psa.py rules** (v3.9.0) that close the static-an
 
 - **PSA2011 (error)** — `Split-Path -LiteralPath ... -Parent` triggers AmbiguousParameterSet on PowerShell 5.1 ja-JP. Would have caught Defect A (§D.33.2) at static-analysis time. PSA2011 is file-local; it walks each line (joining backtick continuations) and flags any `Split-Path` invocation containing both `-LiteralPath` and `-Parent` (in either order). Suggested remediations: `[System.IO.Path]::GetDirectoryName($path)` (the .NET method has no PS-binder ambiguity) or `Split-Path -Path $path -Parent` (without `-LiteralPath`).
 
-The four scripts under this repository pass `psa.py 3.9.0 --severity error` with **0 errors** under `.psa.config.json` opt-ins (PSAP0001..PSAP0004 enabled). At the r75 baseline, PSAP0003 reported 9 warnings (the r74-introduced inline-revision-tag references). The subsequent **r76 / r42 / r24 / r20** release adopts `psa.py` 4.0.0, cleans up those 9 PSAP0003 references in line with the SPEC §A.13 policy, and opts in to the new PSAP0005 rule with `psap0005_relaxed_mode: true` as the migration baseline. The strict baseline (everything except PSAP0005) is **0 / 0 / 0** on all four scripts; the PSAP0005 migration baseline is documented separately in §A.11.5 and the cleanup roadmap lives in §A.13. See TESTING.md §17 (TC17.6, TC17.7, TC17.8) for the r75 verification procedures and TESTING.md §18 (TC18.x) for the r76 PSAP0003/PSAP0005 verification additions.
+The four scripts under this repository pass `psa.py 4.0.2 --severity error` with **0 errors** under `.psa.config.json` opt-ins (PSAP0001..PSAP0005 enabled, strict mode). At the r75 baseline, PSAP0003 reported 9 warnings (the r74-introduced inline-revision-tag references). The subsequent **r76 / r42 / r24 / r20** release (`psa-py-v4-llm-governance-baseline`) adopted `psa.py` 4.0.0, cleaned up those 9 PSAP0003 references in line with the SPEC §A.13 policy, and opted in to the new PSAP0005 rule with `psap0005_relaxed_mode: true` as the migration baseline (64 PSAP0005 relaxed-mode detections across the 4 scripts; see the §A.11.5 "Historical migration baseline" table). The current **r80 / r46 / r24 / r28** release (`psa-py-v4-llm-governance-strict`) completes the migration: `psa.py` 4.0.2's relaxed-mode coverage uplift (E1-E9 + comment-block-level exempt) plus a bulk rewrite of 99 strict-mode-eligible rNN references collapsed the count to **0 / 0 / 0 / 0** on all four scripts. PSAP0005 now runs in strict mode (no `psap0005_relaxed_mode` key in `.psa.config.json`). See §D.34 for the consolidated-release post-mortem and §A.13 for the steady-state policy. See TESTING.md §17 (TC17.6, TC17.7, TC17.8) for the r75 verification procedures and TESTING.md §18 (TC18.x) for the r76 PSAP0003/PSAP0005 verification additions; TESTING.md §19 (TC19.x) covers the r80 strict-mode-flip verification.
 
 ### D.33.9 Lessons learned (additions to §15.5 and §16.5)
 
@@ -4121,6 +4166,207 @@ The exception is therefore: **a cross-script ScriptTag alignment may bump a scri
 The 2026-05-25 r75 release uses this exception. The previous instance was the 2026-05-23 r70 release (Path C deprecation; see §D.30) which used a similar argument; that release predated the explicit §A.7 wording.
 
 If a fourth instance of this exception is needed in the future, the maintainer SHOULD propose tightening §A.7 to enumerate the permitted exception classes rather than relying on per-release narrative.
+
+
+## D.34 PSAP0005 strict-mode migration (`r80 / r46 / r24 / r28`, 2026-05-24)
+
+Closing chapter of the LLM-governance migration that began at r76 /
+r42 / r24 / r20 with the adoption of `PSAP0005` in relaxed mode. The
+2026-05-24 `psa-py-v4-llm-governance-strict` release flips the four
+sister scripts to **strict mode** (`psap0005_relaxed_mode` removed
+from `.psa.config.json`, taking the default `false`) and ships a
+0 / 0 / 0 / 0 baseline across all rules.
+
+### D.34.1 What forced the consolidated release (instead of 4 cycles)
+
+The original migration plan (§A.13 "Migration roadmap", pre-r80
+text) was to do four releases (`r77` → `r78` → `r79` → `r80`) each
+cleaning up one of the four exemption categories (B SPEC
+cross-reference, A SECTION header, D Earlier-revisions prose,
+C Added-in-release phrasing). When the first cycle was attempted on
+the r76 baseline using `psa.py` 4.0.0, an unexpected behaviour
+surfaced:
+
+- The 22 PSAP0005 detections reported on Chipset under relaxed mode
+  did **not** match the four exemption categories A/B/C/D.
+- Rewriting category-B sites (`(rNN, SPEC §D.YY)` → `(see SPEC §D.YY)`)
+  was a no-op for the detection count: those sites were **already
+  exempt** by the relaxed-mode patterns. They were not what PSAP0005
+  was firing on.
+- The 22 detections were instead a mix of close-but-not-matching
+  variants: `(rNN, QI-X)` Q-references, `(rNN / SPEC D.YY)` slash
+  separators, `# rNN (graphics):` cross-port markers,
+  `predates rNN` / `prior to rNN` variants of Exemption D, etc. The
+  original SPEC §A.13 wording had implicitly assumed the regex
+  authors and the script authors had used the same forms — they had
+  not.
+
+This invalidated the per-cycle plan: rewriting the four
+"exemption categories" did not reduce the detection count. The
+question became: how do we honestly account for the 64 (Chipset 22
++ Graphics 24 + NPU 2 + BthPan 16) detections that were leaking
+through relaxed mode, and how do we get to a clean strict-mode
+baseline?
+
+### D.34.2 Decision: uplift `psa.py` and rewrite scripts simultaneously
+
+Two complementary changes were applied in one consolidated release:
+
+#### Upstream: `psa.py` 4.0.2 (relaxed-mode coverage uplift)
+
+Nine new exempt patterns E1-E9 were added to relaxed mode, covering
+the established prose variants observed in this repository's r76
+baseline that the original A/B/C/D set did not catch:
+
+- E1 Semi-section header: `# r71 Pre-check:`
+- E2 SPEC cross-reference with slash/dash separator: `(r66 / SPEC D.24)`
+- E3 SPEC cross-reference with reversed parens: `r68 (SPEC §D.26):`
+- E4 SPEC ref + rNN co-occurrence: `See SPEC SS D.31 ... r71 design contract`
+- E5 Added-in-release variants: `r71 adds`, `the /all addition in r74`, `Until r39, Graphics shipped`
+- E6 Earlier-revisions variants: `prior to r65`, `predates r65`, `from an r65 run`
+- E7 Q-Reference patterns: `r69 (QI-6)`, `(Q-X1, r17)`, `QI-9 (r69, 2026-05-23)`
+- E8 Cross-port marker: `r40 (graphics):`, `r22 (bthpan):`
+- E9 Follow-up sentence: `r73: this declaration`
+
+Additionally, **comment-block-level exempt** was introduced: if any
+line of a contiguous comment block (consecutive `#`-prefixed lines)
+matches an exempt pattern, the whole block is exempt. This handles
+multi-line narrative blocks where the exempt trigger appears on the
+opening line but subsequent lines mention `rNN` without repeating
+the trigger.
+
+Under `psa.py` 4.0.2 relaxed mode, the four-script detection count
+dropped from 64 → 1 (only Chipset L9553 `(r66 tri-state:` survived,
+because it was a single-line independent inline tag not covered by
+any exempt pattern).
+
+See upstream `psa.py` SPEC.md §4.37 and CHANGELOG.md [4.0.2] for
+the upstream-side detail.
+
+#### Downstream: script-body rewrite (this repository)
+
+Running `psa.py` 4.0.2 in **strict mode** (the target end-state)
+against the r76 baseline produced 99 detections — the union of the
+original 64 plus the 35 multi-line block-continuation lines that
+relaxed-mode block-level exempt collapsed but strict mode counts
+individually. These 99 detections collapsed into 63 unique
+text-content patterns (many cross-script-identical helpers map one
+rewrite to three scripts).
+
+All 99 detections were rewritten in one Python bulk-rewrite sweep.
+The rewrite preserved:
+
+- CRLF line endings + UTF-8 BOM on every `.ps1` file (PSA7001 / PSA7002).
+- PSA8001 cross-script byte-identity on all shared helpers
+  (Chipset / Graphics / BthPan helpers that were byte-identical
+  before the rewrite remain byte-identical after).
+- All five `# psa-disable-line PSAP0005 -- AMD ... identifier`
+  suppression sites for AMD hardware platform identifiers
+  (`R9700`, `R1*`, `V1*` etc., which are not release references).
+
+### D.34.3 Rewrite patterns by category
+
+| Category                                       | Before (representative)                                                | After                                                                       |
+| ---------------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| SPEC cross-reference (B + variants)            | `(r65, SPEC D.24)`, `(r66 / SPEC D.24)`, `(r75 - SPEC D.33)`            | `(see SPEC §D.24)`, `(see SPEC §D.33)`                                       |
+| SPEC ref reversed parens                       | `r68 (SPEC §D.26):`                                                    | `(see SPEC §D.26):`                                                          |
+| Added-in-release (C)                           | `(added with the r71 release)`, `(added in the r71 release)`           | `(see SPEC §D.31)`                                                           |
+| Added-in-release with cross-port               | `(added with the r71 release; ported into Graphics by r39)`             | `(see SPEC §D.31; cross-script port to Graphics)`                            |
+| SECTION header (A)                             | `# SECTION r71: ...`                                                   | `# SECTION: ...`                                                             |
+| SECTION header with Q-Reference               | `# SECTION (r69, QI-6): ...`                                            | `# SECTION (QI-6): ...`                                                      |
+| Semi-section header                            | `# r71 Pre-check: ...`                                                 | `# Pre-check: ...`                                                           |
+| Earlier-revisions prose (D)                    | `prior to r65`, `predates r65`, `from an r65 run`                       | `very old workspaces`, `predates the inf_inventory introduction`, `older inventory-less run` |
+| Added-in-release variant (`rNN adds`)         | `# r71 adds two operator-protection mechanisms`                        | `# Two operator-protection mechanisms (see SPEC §D.31)`                       |
+| Added-in-release variant (`the X addition`)   | `# the /all addition in r74.`                                          | `# the /all flag (see SPEC §D.32).`                                          |
+| Q-Reference (rNN-prefix)                       | `# r69 (QI-6): bypass the CRITICAL ...`                                 | `# (QI-6): bypass the CRITICAL ...`                                          |
+| Q-Reference (rNN-suffix, ASCII WS2019)         | `# Install on legacy Windows Server (Q-X1, r17).`                       | `# Install on legacy Windows Server (Q-X1; legacy WS2019).`                  |
+| Q-Reference (date-anchored)                    | `# QI-9 (r69, 2026-05-23): System Restore status check.`                | `# QI-9: System Restore status check.`                                       |
+| NPU-specific Q-Reference                       | `# r17 (Q-X1, 2026-05-23): refuse NPU Install ...`                     | `# (Q-X1; legacy WS2019): refuse NPU Install ...`                            |
+| Cross-port marker (Graphics)                   | `# r40 (graphics): ...`                                                | `# (graphics-specific): ...`                                                 |
+| Cross-port marker (BthPan)                     | `# r22 (bthpan): ...`                                                  | `# (bthpan-specific): ...`                                                   |
+| Follow-up sentence                             | `). r73: this declaration was`                                          | `). This declaration was`                                                    |
+| Phase-marker tri-state inline tag              | `(r66 tri-state:`                                                       | `(tri-state form:`                                                           |
+| Prose-internal rNN in multi-line block         | `... I02 (r72 short-circuit ...)`                                       | `... I02 (short-circuit (see SPEC §D.31.11) ...)`                            |
+| Sister-script narrative                        | `Until r39, Graphics shipped the consumer code`                         | `Earlier Graphics revisions shipped the consumer code`                       |
+| Generic prose                                  | `after the r70 Path C deprecation`                                      | `after the Path C deprecation`                                               |
+| `missing in r71/r72`                          | `missing in r71/r72 and caused P05 to throw`                            | `missing in earlier revisions and caused P05 to throw`                       |
+
+### D.34.4 Why one release instead of four
+
+The original four-cycle plan assumed (i) the exempt-pattern set was
+complete and (ii) detection counts would drop by the expected amount
+per cycle. Neither assumption held against the empirical r76
+baseline:
+
+1. Per-cycle counts would have been near-zero for the originally-
+   planned categories (those sites were already exempt), and
+   surprisingly large for the actual detection categories (which
+   the plan did not enumerate).
+2. The PSA8001 cross-script byte-identity constraint meant that
+   nearly every per-script rewrite had to land in 3 or 4 scripts
+   atomically; the natural unit of change was the cross-script
+   helper, not the exemption category.
+3. The Python bulk-rewrite tooling (one regex sweep across all 4
+   scripts) was simpler and safer than four separate hand-applied
+   rewrites, and it preserved CRLF / BOM mechanically rather than
+   per-edit.
+
+The consolidated release does record the original four-category
+intent: the §A.13 retrospective above lists the rewrites grouped by
+the categories the original plan would have walked through, so the
+release intent is auditable even though the release vehicle is
+singular.
+
+### D.34.5 Steady-state policy
+
+- `PSAP0005` runs in strict mode going forward. The
+  `psap0005_relaxed_mode` key is omitted from `.psa.config.json`.
+- New comment content must use timeless wording. Per-release
+  rationale is captured in `CHANGELOG.md` and `SPEC.md` Part D,
+  referenced from comments by `# See SPEC §D.NN` (no `rNN`).
+- `# psa-disable-line PSAP0005` directives are reserved for AMD
+  hardware identifiers that grammatically match `rNN` but are not
+  release references (e.g., AMD Radeon `R9700`).
+- The relaxed-mode exempt patterns (A/B/C/D + E1-E9) remain
+  documented in upstream `psa.py` SPEC.md §4.37 as a feature of
+  `psa.py`, but are not used by this repository.
+
+### D.34.6 Lessons learned
+
+1. **Empirical patterns drift from documented patterns over time.**
+   The four exemption categories A/B/C/D were correct for the prose
+   forms that existed when `psa.py` 4.0.0 was designed against the
+   SPEC §D.31 conventions. By the time the r76 baseline was
+   measured, those forms had quietly co-existed with seven
+   additional variants. A future-proof guardrail design would
+   include a periodic "harvest the actual detections, compare
+   against the documented exempt list" exercise.
+
+2. **Migration baselines should be measured before being
+   committed to.** The original §A.13 wording committed to a
+   four-cycle plan before measuring what was actually in the
+   r76 baseline. The right order is: opt in to the rule, measure
+   what fires, then write the migration plan against the measured
+   reality.
+
+3. **Cross-script byte-identity favours consolidated releases over
+   per-category cycles.** When PSA8001 enforces byte-identity on
+   shared helpers, the natural unit of change is the helper (which
+   often touches 3-4 scripts at once), not the rewrite-category
+   (which often touches 1 line at a time across many helpers).
+   Per-cycle releases would have created many "partial" PSA8001
+   states during the migration; consolidated releases avoid that.
+
+4. **A small upstream uplift can dwarf large downstream rewrites
+   when the upstream rule's coverage is the binding constraint.**
+   `psa.py` 4.0.2 added 9 regex patterns + a block-level heuristic
+   (≈100 lines of Python) and that alone dropped relaxed-mode
+   detection from 64 to 1. The downstream rewrite was still
+   necessary for strict mode, but the upstream change rebalanced
+   the cost: 99 strict-mode-eligible sites became visible as a
+   tractable bulk-rewrite job rather than as a sprawling 4-cycle
+   tour. When a static-analysis rule has a relaxed/strict mode
+   pair, it pays to invest in the relaxed-mode coverage first.
 
 
 ## Appendix: How to seed a new sister script from this SPEC

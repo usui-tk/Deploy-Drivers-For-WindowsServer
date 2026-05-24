@@ -325,8 +325,8 @@ $Script:CertValidityYears       = $CertValidityYears
 # =============================================================================
 # Script-scope state
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.05.25-r20'
-$Script:ScriptTag           = 'psa-py-v4-llm-governance-baseline'
+$Script:ScriptVersion       = 'npu-2026.05.24-r24'
+$Script:ScriptTag           = 'psa-py-v4-llm-governance-strict'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 $Script:CertSubjectCn       = 'AMD NPU Driver Self-Sign (WS2025 Lab, At Own Risk)'
@@ -5349,7 +5349,7 @@ function Compare-InfDriverVer {
 #####################################################################
 # SECTION 1h: Legacy Windows Server OS detection helper
 #####################################################################
-# Generic OS-version predicate retained after the r70 Path C deprecation.
+# Generic OS-version predicate retained after the Path C deprecation.
 # Used by the Q-X1 refuse check that prevents NPU -Action Install
 # / -Action All on WS2019 / WS2016 (no physical-NPU validation exists
 # on those OS versions yet). The function name keeps its historical
@@ -5395,7 +5395,7 @@ function Invoke-PrepPhase00_Initialize {
     $Script:DetectedPlatform.IsWorkstationOs = $os.IsWorkstationOs
     $Script:DetectedPlatform.IsServer2025    = $os.IsServer2025
 
-    # r17 (Q-X1, 2026-05-23): refuse NPU Install / All on legacy Windows Server
+    # (Q-X1; legacy WS2019): refuse NPU Install / All on legacy Windows Server
     # (WS2019 / WS2016) before any further initialization work runs. The
     # AMD NPU driver pipeline has not been validated on legacy Windows
     # Server SKUs that require the WDAC Single Policy Format (SPF) path,

@@ -382,7 +382,7 @@ param(
     # bug report, even when nothing actually failed.
     [switch]$ExportTraceOnExit,
 
-    # r69 (QI-6): bypass the CRITICAL acknowledgement checklist in
+    # (QI-6): bypass the CRITICAL acknowledgement checklist in
     # I00. Intended for CI/CD or controlled-lab automation where an
     # interactive Read-Host prompt is not possible. The bypass is
     # logged via Set-DebugStep in the run transcript so an audit can
@@ -437,8 +437,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-$Script:ScriptVersion = 'msbthpan-2026.05.25-r24'
-$Script:ScriptTag     = 'psa-py-v4-llm-governance-baseline'
+$Script:ScriptVersion = 'msbthpan-2026.05.24-r28'
+$Script:ScriptTag     = 'psa-py-v4-llm-governance-strict'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -4222,7 +4222,7 @@ function Resolve-PhaseSelection {
 
 
 #####################################################################
-# SECTION (r69, QI-6): CRITICAL severity acknowledgement helpers
+# SECTION (QI-6): CRITICAL severity acknowledgement helpers
 #####################################################################
 # Adds a CRITICAL severity level to the I00 PreInstallReview risk
 # summary. When any of conditions C1, C2, C5 (per Q6-A) hit,
@@ -4239,7 +4239,7 @@ function Resolve-PhaseSelection {
 #
 # Byte-identical across Chipset / Graphics / BthPan (PSA8001).
 # NPU is excluded via psa8001_ignore_functions because NPU refuses
-# Install on legacy Windows Server (Q-X1, r17).
+# Install on legacy Windows Server (Q-X1; legacy WS2019).
 #
 # Data contract for $Matched (B2 decision, 2026-05-23):
 #   [pscustomobject]@{
@@ -4447,9 +4447,9 @@ function Invoke-CriticalAcknowledgementChecklist {
 
 
 #####################################################################
-# SECTION r71: WHQL co-sign pre-detection + Path B prerequisite check
+# SECTION: WHQL co-sign pre-detection + Path B prerequisite check
 #####################################################################
-# r71 adds two operator-protection mechanisms that the now-removed Path C
+# Two operator-protection mechanisms (see SPEC §D.31) that the now-removed Path C
 # orchestrator was supposed to provide but did not:
 #
 #   1) Test-WhqlCoSignature: classify each candidate INF's accompanying
@@ -4481,8 +4481,8 @@ function Invoke-CriticalAcknowledgementChecklist {
 # legacy Server (Q-X1), so Path B prerequisite checking has no call
 # site there.
 #
-# See SPEC SS D.31 for the full r71 design contract; SPEC SS D.31.11
-# documents the r72 follow-on I02 short-circuit that consumes the
+# See SPEC §D.31 for the full design contract; SPEC §D.31.11
+# documents the I02 short-circuit (see SPEC §D.31.11) that consumes the
 # WHQL analysis produced here when -SkipNonCosignedDrivers is set.
 
 function Test-WhqlCoSignature { # psa-disable-line PSA6003 -- "Signature" is a singular noun; the function returns a single classification result per file
@@ -4592,7 +4592,7 @@ function Test-WhqlCoSignature { # psa-disable-line PSA6003 -- "Signature" is a s
     # play") chain, /v emits the per-signer "Issued to:" lines this
     # function parses. Output format is stable across signtool versions
     # 6.0..10.0.x. See SPEC §D.32 for the field evidence that motivated
-    # the /all addition in r74.
+    # the /all flag (see SPEC §D.32).
     $stdOut = ''
     try {
         $stdOut = & $signtool verify /all /pa /v $Path 2>&1 | Out-String
@@ -6714,7 +6714,7 @@ function Clear-PhaseMarker {
 #####################################################################
 
 #####################################################################
-# SECTION (r69, QI-9): System Restore status helpers
+# SECTION (QI-9): System Restore status helpers
 #####################################################################
 # Operator-facing warning about System Restore state. Called from
 # P01 (PrepareWorkspace) after the workspace is created. We DO NOT
@@ -6727,7 +6727,7 @@ function Clear-PhaseMarker {
 # These two functions are PSA8001-enforced byte-identical across
 # Chipset / Graphics / BthPan. NPU is excluded via
 # psa8001_ignore_functions because NPU refuses Install on legacy
-# Windows Server (Q-X1, r17).
+# Windows Server (Q-X1; legacy WS2019).
 
 function Get-SystemRestorePointStatus { # psa-disable-line PSA6003 -- "Status" is a Latin-origin singular noun (no plural form in PowerShell idiom); the -s suffix is morphological, not plural
     # Returns the current System Restore configuration for the
@@ -7074,7 +7074,7 @@ function Invoke-PrepPhase01_PrepareWorkspace {
     Assert-NoConcurrentRun -Ctx $Ctx
 
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'P01'
-    # QI-9 (r69, 2026-05-23): System Restore status check.
+    # QI-9: System Restore status check.
     # Workspace has been created; this is the natural place to remind
     # the operator that no Windows-managed rollback path exists for a
     # WDAC boot-policy regression. See SPEC SS D.27. Non-fatal and
@@ -7726,7 +7726,7 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     $Ctx.BthPanInfMetadata = $meta
     $Ctx.BthPanInfPath     = $infPath
 
-    # Build the WHQL co-sign analysis (added with the r71 release) for the single bthpan.inf and
+    # Build the WHQL co-sign analysis (see SPEC §D.31) for the single bthpan.inf and
     # attach to $Ctx so I00 / C6 / I03 (and -SkipNonCosignedDrivers
     # filtering) can read it. BthPan operates on the Microsoft inbox
     # bthpan.inf which is always WHQL co-signed; the analysis is
@@ -7989,7 +7989,7 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
         throw 'P06: BthPanInfPath not populated. Run P05 first.'
     }
 
-    # Acknowledge the -SkipNonCosignedDrivers switch for BthPan (added in the r71 release). BthPan deploys the
+    # Acknowledge the -SkipNonCosignedDrivers switch for BthPan (see SPEC §D.31). BthPan deploys the
     # Microsoft inbox bthpan.inf which is always WHQL co-signed by
     # Microsoft, so the filter would never trim anything. We still
     # acknowledge the flag in the run transcript when it is set so the
@@ -9702,7 +9702,7 @@ function Invoke-InstPhase00_PreInstallReview {
 
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'I00' -Metadata @{ Acknowledged = $true }
 
-    # r69 (QI-6): CRITICAL severity acknowledgement (Q6-A).
+    # (QI-6): CRITICAL severity acknowledgement (Q6-A).
     # C1/C2/C3/C5 may fire depending on host state + install plan;
     # if any item is returned, the operator must acknowledge each
     # via interactive y/N prompt before I01 begins. -ForceUnsafe
@@ -9819,7 +9819,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
         return
     }
 
-    # I02 short-circuit (added with the r72 release) for all-WHQL trimmed install plans.
+    # I02 short-circuit (see SPEC §D.31.11) for all-WHQL trimmed install plans.
     # When the operator passed -SkipNonCosignedDrivers and the post-P06
     # inventory is fully WHQL co-signed, no kernel-mode signer
     # authorization (WDAC supplemental policy or testsigning) is needed.
@@ -10022,7 +10022,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
         return
     }
 
-    # r71 Pre-check: Path B prerequisite check (Secure Boot firmware state)
+    # Pre-check: Path B prerequisite check (Secure Boot firmware state)
     # Microsoft Learn documents that bcdedit /set TESTSIGNING ON is REFUSED
     # AT COMMAND EXECUTION when UEFI Secure Boot is ON in firmware (it does
     # NOT silently drop at boot as the older comment implied). Catch this
@@ -10115,7 +10115,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     Set-PendingRebootMarker -Ctx $Ctx -Source 'I02' `
         -Reason 'BCD testsigning was just set; reboot required for it to take effect.'
 
-    # r22 (bthpan): signal to the phase dispatcher that subsequent
+    # (bthpan-specific): signal to the phase dispatcher that subsequent
     # phases (I03, I04) MUST NOT run in this same execution. Earlier
     # revisions printed the "reboot then re-run" guidance above but
     # then proceeded to I03/I04 immediately, staging the bthpan.inf
@@ -10150,7 +10150,7 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
     param($Ctx)
     Write-PhaseHeader 'I03' 'InstallDrivers' 'Inst'
 
-    # r22 (bthpan): I02 sets $Ctx.RebootRequiredBeforeI03 when it
+    # (bthpan-specific): I02 sets $Ctx.RebootRequiredBeforeI03 when it
     # newly enables BCD testsigning. In that case the host's kernel
     # CI cannot yet admit self-signed drivers; staging bthpan.inf via
     # pnputil would still succeed at the trust-store layer (because
@@ -10282,7 +10282,7 @@ function Invoke-InstPhase04_PostInstallVerification {
     param($Ctx)
     Write-PhaseHeader 'I04' 'PostInstallVerification' 'Inst'
 
-    # r22 (bthpan): mirror the I03 halt - if I02 just enabled
+    # (bthpan-specific): mirror the I03 halt - if I02 just enabled
     # testsigning in this run, I03 returned without staging bthpan.inf,
     # so I04 has no post-install state to verify.
     if ($Ctx.RebootRequiredBeforeI03) {
@@ -10996,13 +10996,13 @@ $Ctx = [pscustomobject]@{
     # (pre-check). Pre-declared as $null here so plain '.' assignment
     # works on the [pscustomobject] without requiring Add-Member.
     SecureBootBaseline = $null
-    # WHQL co-signature analysis (added with the r71 release).
+    # WHQL co-signature analysis (see SPEC §D.31).
     # Pre-declared as $null here so plain '.' assignment works on
     # the [pscustomobject] without requiring Add-Member. Populated
     # by P05 (New-WhqlCoSignAnalysis); consumed by I00 (C6 condition),
-    # P06 (-SkipNonCosignedDrivers trim), and I02 (r72 short-circuit
-    # for all-WHQL trimmed install plans). r21: this declaration was
-    # missing in r71/r72 and caused P05 to throw "WhqlCoSignAnalysis
+    # P06 (-SkipNonCosignedDrivers trim), and I02 (short-circuit (SPEC §D.31.11)
+    # for all-WHQL trimmed install plans). This declaration was
+    # missing in earlier revisions and caused P05 to throw "WhqlCoSignAnalysis
     # property cannot be found on this object" at the first
     # $Ctx.WhqlCoSignAnalysis = ... assignment site, even before the
     # WHQL analysis itself ran. See SPEC SS D.31 and PSA2009.

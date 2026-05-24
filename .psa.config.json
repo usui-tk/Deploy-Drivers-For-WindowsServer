@@ -22,13 +22,14 @@
 //        CHANGELOG.md, NOT in script bodies. PSAP0003 detects inline
 //        `# rNN:` revision-tag comments; PSAP0004 detects in-script
 //        REVISION HISTORY / CHANGELOG / VERSION HISTORY comment blocks.
-//      - PSAP0005 (added in psa.py 4.0.0) is the broader LLM-assisted-
-//        maintenance guardrail: it detects ANY rNN reference inside a
-//        comment body, beyond the structured tag forms caught by
-//        PSAP0003. This repository opts in with relaxed mode (see
-//        psap0005_relaxed_mode below) as a migration aid; the
-//        end-state goal is strict mode once the legacy SPEC §D.31-
-//        style prose has been cleaned up release-by-release.
+//      - PSAP0005 (added in psa.py 4.0.0, extended in 4.0.2) is the
+//        broader LLM-assisted-maintenance guardrail: it detects ANY
+//        rNN reference inside a comment body, beyond the structured
+//        tag forms caught by PSAP0003. This repository runs PSAP0005
+//        in its default strict mode since the r80 / r46 / r24 / r28
+//        release line (psa-py-v4-llm-governance-strict); the
+//        legacy SPEC §D.31-style prose was cleaned up via the
+//        Migration roadmap in SPEC.md §A.13.
 //
 //  2. Configures PSA8001 (cross-file function-body drift) so that
 //     pipeline-phase functions (which are intentionally different per
@@ -103,10 +104,11 @@
     // PSAP0005: detect ANY rNN reference inside a comment body (new
     // in psa.py 4.0.0). Broader than PSAP0003; catches descriptive
     // prose anchors ("Added in the rNN release", "As of rNN, ...",
-    // etc.) in addition to structured tag forms. Run together with
-    // psap0005_relaxed_mode=true below for the migration baseline.
-    // The end-state goal is to flip the flag to false and clean up
-    // all remaining exempted prose patterns release-by-release.
+    // etc.) in addition to structured tag forms. Run in strict mode
+    // (psap0005_relaxed_mode: false, the default) — the migration
+    // away from rNN-anchored prose was completed in r80 / r46 / r24
+    // / r28 (the psa-py-v4-llm-governance-strict release line).
+    // See SPEC.md §A.13 for the migration history.
     "PSAP0005"
   ],
 
@@ -303,34 +305,34 @@
   // "no errors" rather than "no warnings"; warnings serve as advisory
   // guidance. See SPEC.md A.11 "Static Analysis with psa.py".
 
-  "severity": "info",
+  "severity": "info"
 
 
   // ---------------------------------------------------------------------------
-  // PSAP0005 — relaxed-mode flag (psa.py 4.0.0+)
+  // PSAP0005 — strict mode (default since r80 / r46 / r24 / r28)
   // ---------------------------------------------------------------------------
   //
   // PSAP0005 detects ANY rNN reference inside a comment body, which is
-  // intentionally broader than PSAP0003's structured tag patterns. The
-  // four scripts in this repository historically use four prose patterns
-  // that contain rNN references but are NOT structured tags:
+  // intentionally broader than PSAP0003's structured tag patterns.
   //
-  //   A. SECTION header                 # SECTION r71: WHQL co-sign pre-detection
-  //   B. SPEC cross-reference           # ... (r65, SPEC D.24): inspect
-  //   C. Added-in-release phrasing      # ... (added with the r71 release)
-  //   D. Earlier-revisions prose        # Earlier revisions called X before r74
+  // History:
+  //   r76 / r42 / r24 / r20  (psa-py-v4-llm-governance-baseline)
+  //     Opted in to PSAP0005 with psap0005_relaxed_mode = true. The four
+  //     original prose patterns (A SECTION header, B SPEC cross-reference,
+  //     C Added-in-release phrasing, D Earlier-revisions prose) were
+  //     exempt to preserve the established SPEC §D.31-era conventions
+  //     during the LLM-governance migration.
   //
-  // These four patterns are codified in SPEC.md (Deploy-Drivers) §D.31
-  // (the r71 refactor) and §A.13 ("Where revision history lives"). The
-  // r76 / r42 / r24 / r20 release adopts the psa.py 4.0.0 baseline with
-  // psap0005_relaxed_mode = true to preserve these established patterns
-  // during the LLM-governance migration. SPEC.md §A.13 ("Migration
-  // roadmap") documents the cleanup plan that will eventually flip
-  // this flag to false.
+  //   r80 / r46 / r24 / r28  (psa-py-v4-llm-governance-strict, current)
+  //     Migration completed. All script bodies have been rewritten to
+  //     timeless wording (rNN references moved to CHANGELOG.md and SPEC.md
+  //     Part D cross-references). PSAP0005 now runs in its default strict
+  //     mode — the psap0005_relaxed_mode key is omitted, so any future
+  //     rNN-in-comment regression is caught immediately.
   //
-  // See SPEC.md §A.13 "Enforcement matrix" for the per-pattern
-  // disposition (currently exempt / target for cleanup).
-
-  "psap0005_relaxed_mode": true
+  // See SPEC.md §A.13 ("Where revision history lives") for the migration
+  // history and the steady-state policy. See SPEC.md §D.34 for the
+  // post-mortem of the relaxed-mode-coverage uplift (psa.py 4.0.2) that
+  // preceded the strict-mode flip.
 
 }

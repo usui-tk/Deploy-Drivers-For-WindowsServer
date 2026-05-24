@@ -597,7 +597,7 @@ param(
     # bug report, even when nothing actually failed.
     [switch]$ExportTraceOnExit,
 
-    # r69 (QI-6): bypass the CRITICAL acknowledgement checklist in
+    # (QI-6): bypass the CRITICAL acknowledgement checklist in
     # I00. Intended for CI/CD or controlled-lab automation where an
     # interactive Read-Host prompt is not possible. The bypass is
     # logged via Set-DebugStep in the run transcript so an audit can
@@ -651,8 +651,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.05.25-r76'
-$Script:ScriptTag     = 'psa-py-v4-llm-governance-baseline'
+$Script:ScriptVersion = 'chipset-2026.05.24-r80'
+$Script:ScriptTag     = 'psa-py-v4-llm-governance-strict'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -4435,7 +4435,7 @@ function Resolve-PhaseSelection {
 
 
 #####################################################################
-# SECTION (r69, QI-6): CRITICAL severity acknowledgement helpers
+# SECTION (QI-6): CRITICAL severity acknowledgement helpers
 #####################################################################
 # Adds a CRITICAL severity level to the I00 PreInstallReview risk
 # summary. When any of conditions C1, C2, C5 (per Q6-A) hit,
@@ -4452,7 +4452,7 @@ function Resolve-PhaseSelection {
 #
 # Byte-identical across Chipset / Graphics / BthPan (PSA8001).
 # NPU is excluded via psa8001_ignore_functions because NPU refuses
-# Install on legacy Windows Server (Q-X1, r17).
+# Install on legacy Windows Server (Q-X1; legacy WS2019).
 #
 # Data contract for $Matched (B2 decision, 2026-05-23):
 #   [pscustomobject]@{
@@ -4660,9 +4660,9 @@ function Invoke-CriticalAcknowledgementChecklist {
 
 
 #####################################################################
-# SECTION r71: WHQL co-sign pre-detection + Path B prerequisite check
+# SECTION: WHQL co-sign pre-detection + Path B prerequisite check
 #####################################################################
-# r71 adds two operator-protection mechanisms that the now-removed Path C
+# Two operator-protection mechanisms (see SPEC §D.31) that the now-removed Path C
 # orchestrator was supposed to provide but did not:
 #
 #   1) Test-WhqlCoSignature: classify each candidate INF's accompanying
@@ -4694,8 +4694,8 @@ function Invoke-CriticalAcknowledgementChecklist {
 # legacy Server (Q-X1), so Path B prerequisite checking has no call
 # site there.
 #
-# See SPEC SS D.31 for the full r71 design contract; SPEC SS D.31.11
-# documents the r72 follow-on I02 short-circuit that consumes the
+# See SPEC §D.31 for the full design contract; SPEC §D.31.11
+# documents the I02 short-circuit (see SPEC §D.31.11) that consumes the
 # WHQL analysis produced here when -SkipNonCosignedDrivers is set.
 
 function Test-WhqlCoSignature { # psa-disable-line PSA6003 -- "Signature" is a singular noun; the function returns a single classification result per file
@@ -4805,7 +4805,7 @@ function Test-WhqlCoSignature { # psa-disable-line PSA6003 -- "Signature" is a s
     # play") chain, /v emits the per-signer "Issued to:" lines this
     # function parses. Output format is stable across signtool versions
     # 6.0..10.0.x. See SPEC §D.32 for the field evidence that motivated
-    # the /all addition in r74.
+    # the /all flag (see SPEC §D.32).
     $stdOut = ''
     try {
         $stdOut = & $signtool verify /all /pa /v $Path 2>&1 | Out-String
@@ -7282,7 +7282,7 @@ function Clear-PhaseMarker {
 #####################################################################
 
 #####################################################################
-# SECTION (r69, QI-9): System Restore status helpers
+# SECTION (QI-9): System Restore status helpers
 #####################################################################
 # Operator-facing warning about System Restore state. Called from
 # P01 (PrepareWorkspace) after the workspace is created. We DO NOT
@@ -7295,7 +7295,7 @@ function Clear-PhaseMarker {
 # These two functions are PSA8001-enforced byte-identical across
 # Chipset / Graphics / BthPan. NPU is excluded via
 # psa8001_ignore_functions because NPU refuses Install on legacy
-# Windows Server (Q-X1, r17).
+# Windows Server (Q-X1; legacy WS2019).
 
 function Get-SystemRestorePointStatus { # psa-disable-line PSA6003 -- "Status" is a Latin-origin singular noun (no plural form in PowerShell idiom); the -s suffix is morphological, not plural
     # Returns the current System Restore configuration for the
@@ -7590,7 +7590,7 @@ function Invoke-PrepPhase01_PrepareWorkspace {
     Assert-NoConcurrentRun -Ctx $Ctx
 
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'P01'
-    # QI-9 (r69, 2026-05-23): System Restore status check.
+    # QI-9: System Restore status check.
     # Workspace has been created; this is the natural place to remind
     # the operator that no Windows-managed rollback path exists for a
     # WDAC boot-policy regression. See SPEC SS D.27. Non-fatal and
@@ -8317,7 +8317,7 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
         $meta = Get-InfMetadata -Content $infData.Content
         $relDir = if ($rel.Contains('\')) { Split-Path $rel -Parent } else { '' }
 
-        # Phantom file reference detection (r65, SPEC D.24): inspect
+        # Phantom file reference detection (see SPEC §D.24): inspect
         # the INF's [SourceDisksFiles*] declarations and check whether
         # each referenced file physically exists in the INF's own
         # directory. If any are missing, the INF is ineligible for
@@ -8357,7 +8357,7 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
             # Diagnostic fields (used by P05 display to detect parser/INF format mismatches):
             ManufacturerEntries   = $meta.ManufacturerEntries
             ModelsSectionsScanned = $meta.ModelsSectionsScanned
-            # Phantom file reference fields (r65, SPEC D.24):
+            # Phantom file reference fields (see SPEC §D.24):
             ReferencedFilesCount    = $refFiles.Count
             MissingReferencedFiles  = $missingRefsList   # ';'-joined; empty when none missing
             EligibleForCatalog      = $eligibleForCatalog
@@ -8391,7 +8391,7 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
             CatalogFile     = $_.CatalogFile
             Manufacturer    = $_.Manufacturer
             DeviceCount     = $_.DeviceCount
-            # Phantom file reference columns (r65, SPEC D.24). Position
+            # Phantom file reference columns (see SPEC §D.24). Position
             # before DeviceList so the typical CSV viewer column order
             # surfaces the new diagnostic data near the existing
             # eligibility-like columns (NeedsPatch / HasMfg).
@@ -8421,7 +8421,7 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     # ---- Per-variant detailed listing (human-readable) ----
     Write-InfInventorySummary -Detail $detailReport -PreferredVariants $preferredVariants
 
-    # ---- Phantom file reference summary (r65, SPEC D.24) ----
+    # ---- Phantom file reference summary (see SPEC §D.24) ----
     # Surface any INFs from the SELECTED variant that have missing
     # source files. These will be skipped by P06 copy / P08 inf2cat /
     # P09 sign / V03..V06 / I03. INFs from non-selected variants are
@@ -8462,7 +8462,7 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     Write-Ok "Inventory: $csvPath ($totalAll total / $totalSelected selected for patching from $($preferredVariants -join '+'))"
     Write-Ok "Detail   : $reportTxtPath"
 
-    # Build the WHQL co-sign analysis (added with the r71 release) from the patch-eligible subset
+    # Build the WHQL co-sign analysis (see SPEC §D.31) from the patch-eligible subset
     # and attach to $Ctx so I00 / C6 / I03 (and -SkipNonCosignedDrivers
     # filtering) can read it. The analysis is best-effort: when signtool
     # is not present the per-INF classification falls back to a
@@ -8505,7 +8505,7 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
         $Ctx.InfInventory = Import-Csv $csv
     }
 
-    # Apply the -SkipNonCosignedDrivers filter at P06 entry (added in the r71 release). Trimming
+    # Apply the -SkipNonCosignedDrivers filter at P06 entry (see SPEC §D.31). Trimming
     # $Ctx.InfInventory here propagates to every downstream phase
     # (P06 patch, P07 cert, P08 catalog, V03/V04/V05/V06, I03 install)
     # without any additional integration sites. The filter is a no-op
@@ -8568,7 +8568,7 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
         -not ($_.NeedsPatch -eq $true -or $_.NeedsPatch -eq 'True')
     })
 
-    # Phantom file reference notification (r65, SPEC D.24): identify
+    # Phantom file reference notification (see SPEC §D.24): identify
     # which of the copy-only INFs are ineligible for catalog generation.
     # These INFs are still physically copied to patched/ for diagnostic
     # traceability (per case alpha) and so that V04 / V06 can still
@@ -9039,7 +9039,7 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
     Write-Host ''
 
     # ============================================================
-    # PHANTOM FILE REFERENCE FILTER (r65, SPEC D.24)
+    # PHANTOM FILE REFERENCE FILTER (see SPEC §D.24)
     # ============================================================
     # Some legacy AMD INFs (notably AMDCIR.inf in Chipset Software
     # 8.05.04.516) declare files in [SourceDisksFiles] that are not
@@ -9053,7 +9053,7 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
     # Fallback: if -OnlyPhases P08 was used without re-running P05
     # in the same session, $Ctx.InfInventory may be unset; we then
     # try to read inf_inventory.csv from the workspace root. If the
-    # CSV is also absent (e.g. very old workspace prior to r65),
+    # CSV is also absent (e.g. very old workspaces),
     # this filter degrades to a no-op and the legacy behavior is
     # preserved.
     Set-DebugStep 'P08: load inventory for phantom file reference filtering'
@@ -9115,7 +9115,7 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
         }
         Write-Host ''
 
-        # Orphan catalog cleanup (r66 / SPEC D.24): the original
+        # Orphan catalog cleanup (see SPEC §D.24): the original
         # AMD-shipped .cat files that P06 copied alongside the INF
         # remain in patched/ even though P08 is about to skip
         # inf2cat for these directories. If we leave them, P09 will
@@ -9366,14 +9366,14 @@ function Invoke-PrepPhase09_SignCatalogs { # psa-disable-line PSA6003 -- compoun
         throw 'P09: no .cat files found - run P08 (GenerateCatalogs) first.'
     }
 
-    # Ineligible-directory filter (r66, SPEC D.24): exclude any
+    # Ineligible-directory filter (see SPEC §D.24): exclude any
     # .cat file whose parent directory was flagged ineligible by
     # P05 (phantom file references). Normally these directories
     # are .cat-free because P08's skip block deleted any orphans
     # before P09 runs (defense layer B). This P09-side filter
     # (defense layer C) handles edge cases where P08's cleanup
     # was bypassed: standalone P09 execution (-OnlyPhases P09),
-    # workspace recovered from an r65 run, or a future code path
+    # workspace recovered from an older inventory-less run, or a future code path
     # that resurrects the orphan .cat. Filtering here ensures
     # the signing loop never re-signs an orphan even if one
     # somehow reappears in patched/.
@@ -9550,7 +9550,7 @@ function Invoke-PrepPhase09_SignCatalogs { # psa-disable-line PSA6003 -- compoun
         }
     }
 
-    # Phase marker + summary (r66 tri-state: Skipped surfaces the
+    # Phase marker + summary (tri-state form: Skipped surfaces the
     # number of orphan .cat files filtered out at the top of P09).
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'P09' -Metadata @{ Ok=$okCount; Failed=$failCount; Skipped=$catsToSkip.Count }
     if ($catsToSkip.Count -gt 0) {
@@ -9704,7 +9704,7 @@ function Invoke-VerifyPhase03_VerifyCatalogs { # psa-disable-line PSA6003 -- com
         return
     }
 
-    # Phantom file reference notification (r65, SPEC D.24): if P05
+    # Phantom file reference notification (see SPEC §D.24): if P05
     # flagged any INFs as ineligible for catalog generation, P08
     # would not have produced a .cat for them. V03 enumerates .cat
     # files (not INFs), so those skipped INFs naturally don't appear
@@ -9988,7 +9988,7 @@ function Get-IneligibleInfLookup {
     # generation by P05 (phantom file references; SPEC D.24). The key is
     # the patched-root-relative path of the INF (lowercased), and the
     # value is the inventory row for that INF. Returns an empty hashtable
-    # when no inventory is available, when the inventory predates r65
+    # when no inventory is available, when the inventory predates the inf_inventory introduction
     # (no EligibleForCatalog column), or when no INFs are ineligible.
     #
     # WHY KEY BY RELATIVE PATH:
@@ -10006,7 +10006,7 @@ function Get-IneligibleInfLookup {
     #   inf_inventory.csv from the workspace root (handles
     #   -OnlyPhases V0n / I03 execution where P05 was not re-run in
     #   the same session).
-    # - If the CSV is also missing or predates r65 (no
+    # - If the CSV is also missing or predates the inf_inventory introduction (no
     #   EligibleForCatalog column), the lookup is empty and all INFs
     #   are treated as eligible (legacy behavior preserved).
     param([Parameter(Mandatory)] $Ctx)
@@ -10054,7 +10054,7 @@ function Get-IneligibleDirSet {
     # rather than by INF filename. Used by P09 to filter out orphan
     # .cat files left in skipped directories.
     #
-    # WHY A SEPARATE HELPER (r66, SPEC D.24):
+    # WHY A SEPARATE HELPER (see SPEC §D.24):
     # - Get-IneligibleInfLookup is keyed by RelativePath (the INF's
     #   full relative path including filename).
     # - P09 enumerates .cat files, not .inf files. A .cat's parent
@@ -10105,7 +10105,7 @@ function Invoke-VerifyPhase04_VerifyInfs { # psa-disable-line PSA6003 -- compoun
         throw 'V04: no patched INFs to verify - run P06 (PatchInfs) first.'
     }
 
-    # Phantom file reference filter (r65, SPEC D.24): exclude INFs that
+    # Phantom file reference filter (see SPEC §D.24): exclude INFs that
     # P05 flagged as ineligible. They are physically present in patched/
     # (P06 copies them for traceability) but should not be subjected to
     # the ProductType=3 decoration check because they were never on the
@@ -10265,7 +10265,7 @@ function Invoke-VerifyPhase05_DryRunInstall {
         $infs = Get-ChildItem -Path $Ctx.Paths.Patched -Recurse -Filter *.inf -ErrorAction SilentlyContinue
     }
 
-    # Phantom file reference filter (r65, SPEC D.24): exclude
+    # Phantom file reference filter (see SPEC §D.24): exclude
     # ineligible INFs from the dry-run install plan. These INFs have
     # no associated .cat (P08 skipped) and would fail pnputil at
     # install time. Filtering them out of the dry-run keeps its
@@ -10958,7 +10958,7 @@ function Build-PatchedInfHwidIndex {
     # claims that hardware ID. The same key may map to multiple INFs
     # (rare, but possible in AMD's package - e.g. variants per SKU).
     #
-    # PHANTOM FILE REFERENCE FILTER (r65, SPEC D.24): INFs flagged by
+    # PHANTOM FILE REFERENCE FILTER (see SPEC §D.24): INFs flagged by
     # P05 as ineligible are excluded from this index so the V06
     # AS-IS / TO-BE comparison does not propose them as TO-BE
     # candidates for any matched device. The INFs remain physically
@@ -11109,7 +11109,7 @@ function Get-OurSignedOemInfSet {
     # the per-device disk I/O that Step 0a otherwise pays when the
     # post-install snapshot enumerates dozens of devices.
     #
-    # The set is built in three passes (r75 - SPEC D.33):
+    # The set is built in three passes (see SPEC §D.33):
     #   1a. Direct scan of the system catalog database
     #       (C:\Windows\System32\CatRoot\{F750E6C3-38EE-11D1-85E5-
     #       00C04FC295EE}\oem*.cat). The GUID is the well-known
@@ -11665,7 +11665,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     param($Ctx)
     Write-PhaseHeader 'V06' 'HardwareImpactAnalysis' 'Verify'
 
-    # Phantom file reference notification (r65, SPEC D.24): if P05
+    # Phantom file reference notification (see SPEC §D.24): if P05
     # flagged any INFs as ineligible, surface the count here so the
     # operator understands why the AS-IS / TO-BE comparison below
     # does not list those INFs as candidates for any device. The
@@ -12262,7 +12262,7 @@ function Invoke-InstPhase00_PreInstallReview {
     $infIndex = Build-PatchedInfHwidIndex -Ctx $Ctx
     # SPEC §D.33.3 (Defect C): build $ourInfSet locally in I00.
     # The V06 build at line ~11742 lives in a different function scope
-    # and is not visible here. The original r74 release threaded
+    # and is not visible here. Earlier revisions threaded
     # -KnownOurInfSet through Get-DriverSourceCategory without also
     # rebuilding the set per-function, leaving an undefined-variable
     # reference latent in this phase. Rebuilding it here matches
@@ -12417,7 +12417,7 @@ function Invoke-InstPhase00_PreInstallReview {
 
     Write-Ok 'I00 review complete. The next phases (I01-I04) will modify the system.'
 
-    # r69 (QI-6): CRITICAL severity acknowledgement (Q6-A).
+    # (QI-6): CRITICAL severity acknowledgement (Q6-A).
     # C1/C2/C3/C5 may fire depending on host state + install plan;
     # if any item is returned, the operator must acknowledge each
     # via interactive y/N prompt before I01 begins. -ForceUnsafe
@@ -12536,7 +12536,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
         return
     }
 
-    # I02 short-circuit (added with the r72 release) for all-WHQL trimmed install plans.
+    # I02 short-circuit (see SPEC §D.31.11) for all-WHQL trimmed install plans.
     # When the operator passed -SkipNonCosignedDrivers and the post-P06
     # inventory is fully WHQL co-signed, no kernel-mode signer
     # authorization (WDAC supplemental policy or testsigning) is needed.
@@ -12739,7 +12739,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
         return
     }
 
-    # r71 Pre-check: Path B prerequisite check (Secure Boot firmware state)
+    # Pre-check: Path B prerequisite check (Secure Boot firmware state)
     # Microsoft Learn documents that bcdedit /set TESTSIGNING ON is REFUSED
     # AT COMMAND EXECUTION when UEFI Secure Boot is ON in firmware (it does
     # NOT silently drop at boot as the older comment implied). Catch this
@@ -12894,7 +12894,7 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
         throw 'I03: no patched INFs to install - run P06 (PatchInfs) first.'
     }
 
-    # Phantom file reference filter (r65, SPEC D.24): exclude INFs
+    # Phantom file reference filter (see SPEC §D.24): exclude INFs
     # that P05 flagged as ineligible. P08 produced no .cat for these,
     # so pnputil /add-driver would fail with a signature error. Skip
     # them at the enumeration stage so the entire install loop sees
@@ -13363,7 +13363,7 @@ function Invoke-InstPhase04_PostInstallVerification {
             $disposition = 'REBOOT_NEEDED'
         }
 
-        # r68 (SPEC §D.26): LOADED honesty gate. The two LOADED branches
+        # (see SPEC §D.26): LOADED honesty gate. The two LOADED branches
         # above classify a device as LOADED whenever Win32_PnPSignedDriver
         # reports a new INF binding, but that table is updated by Setup
         # API as part of the install transaction REGARDLESS of whether
@@ -14108,13 +14108,13 @@ $Ctx = [pscustomobject]@{
     # (pre-check). Pre-declared as $null here so plain '.' assignment
     # works on the [pscustomobject] without requiring Add-Member.
     SecureBootBaseline = $null
-    # WHQL co-signature analysis (added with the r71 release).
+    # WHQL co-signature analysis (see SPEC §D.31).
     # Pre-declared as $null here so plain '.' assignment works on
     # the [pscustomobject] without requiring Add-Member. Populated
     # by P05 (New-WhqlCoSignAnalysis); consumed by I00 (C6 condition),
-    # P06 (-SkipNonCosignedDrivers trim), and I02 (r72 short-circuit
-    # for all-WHQL trimmed install plans). r73: this declaration was
-    # missing in r71/r72 and caused P05 to throw "WhqlCoSignAnalysis
+    # P06 (-SkipNonCosignedDrivers trim), and I02 (short-circuit (SPEC §D.31.11)
+    # for all-WHQL trimmed install plans). This declaration was
+    # missing in earlier revisions and caused P05 to throw "WhqlCoSignAnalysis
     # property cannot be found on this object" at the first
     # $Ctx.WhqlCoSignAnalysis = ... assignment site, even before the
     # WHQL analysis itself ran. See SPEC SS D.31 and PSA2009.
