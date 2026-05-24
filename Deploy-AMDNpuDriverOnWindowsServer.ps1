@@ -325,8 +325,8 @@ $Script:CertValidityYears       = $CertValidityYears
 # =============================================================================
 # Script-scope state
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.05.23-r18'
-$Script:ScriptTag           = 'legacy-ws2019-wdac-spf-integration'
+$Script:ScriptVersion       = 'npu-2026.05.25-r19'
+$Script:ScriptTag           = 'legacy-ws2019-ps51-japp-correctness-fix'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 $Script:CertSubjectCn       = 'AMD NPU Driver Self-Sign (WS2025 Lab, At Own Risk)'

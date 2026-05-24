@@ -98,7 +98,7 @@ When extending these scripts, **copy these helpers verbatim** from the most rece
 psa.py  (obtained from the canonical artifact repository — see A.11)
 ```
 
-`psa.py` is a **pure Python** static analyzer (no PowerShell installation required) with a **37-rule** check set spanning `PSA1001`..`PSA9002` plus the project-convention family `PSAP0001`..`PSAP0004`. The repository policy is to validate against the **latest mainline** `psa.py` from the canonical repository (see §A.11 for the rationale and workflow). It is **not** bundled in this repository. It is maintained as a single canonical artifact at:
+`psa.py` is a **pure Python** static analyzer (no PowerShell installation required) with a **45-rule** check set spanning `PSA1001`..`PSA9002` plus the project-convention family `PSAP0001`..`PSAP0004`. The repository policy is to validate against the **latest mainline** `psa.py` from the canonical repository (see §A.11 for the rationale and workflow). It is **not** bundled in this repository. It is maintained as a single canonical artifact at:
 
 ```
 https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/python/powershell-static-analyzer/psa.py
@@ -873,9 +873,9 @@ python3 psa.py --severity error Deploy-AMDChipsetDriverOnWindowsServer.ps1
 # Exit code 0 = no errors. Warnings and info do not gate the build.
 ```
 
-### Rule coverage (36 rules)
+### Rule coverage (45 rules)
 
-`psa.py` ships with a **36-rule** check set grouped into **nine categories**. The PSA8xxx, PSA9xxx, and PSAPxxxx families were added in 3.2.0; PSAP0003 and PSAP0004 were added in 3.3.0. The older PSA1xxx–PSA7xxx families are unchanged in scope. (See the canonical [psa.py `CHANGELOG.md`](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/CHANGELOG.md) for the full per-version history; this repository validates against the latest mainline — see the Version policy subsection above.)
+`psa.py` ships with a **45-rule** check set grouped into **nine categories**. The PSA8xxx, PSA9xxx, and PSAPxxxx families were added in 3.2.0; PSAP0003 and PSAP0004 were added in 3.3.0; PSA2007 / PSA2008 were added in 3.6.0; PSA3005 was added in 3.2.0 and PSA3006 in 3.7.0; PSA7002 was added in 3.7.0; PSA2009 was added in 3.8.0; PSA2010 and PSA2011 were added in 3.9.0 (this release; see §D.33.8 for the motivation). The older PSA1xxx–PSA7xxx families are otherwise unchanged in scope. (See the canonical [psa.py `CHANGELOG.md`](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/CHANGELOG.md) for the full per-version history; this repository validates against the latest mainline — see the Version policy subsection above.)
 
 | Category                                  | Code range            | Examples                                                                                                                                                                                                                                                              |
 | ----------------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -1062,6 +1062,46 @@ python3 /tmp/psa-3.8.0.py --include PSA2009 Deploy-AMDChipsetDriverOnWindowsServ
 python3 /tmp/psa-3.8.0.py --include PSA2009 Deploy-AMDChipsetDriverOnWindowsServer.ps1
 # Expected output: 0 warnings.
 ```
+
+### A.11.5d PSA2010 — Call to undefined function (added in `psa.py` v3.9.0)
+
+**Rule code**: PSA2010.
+
+**Severity**: error.
+
+**Default**: enabled.
+
+**Introduced**: `psa.py` v3.9.0 (Chipset r75 / Graphics r41 / NPU r19 / BthPan r23 release).
+
+PSA2010 was added to close the static-analysis gap that allowed the `Find-Signtool` typo (documented in §D.32.2) to live undetected in the source through r71–r74. The rule walks the union of `function <Name>` definitions across every file in the scan set and flags any command-position Verb-Noun call whose name is neither in that union nor in `psa.py`'s built-in `KNOWN_CMDLETS` whitelist. The verb segment of the call name must be in `APPROVED_VERBS` for the call to be considered (false-positive defense against hyphenated domain-specific tokens like `Phantom-OK`, `Multi-OS`, `Chipset-Driver-CodeSign` that survive the string-stripping pass).
+
+The `KNOWN_CMDLETS` whitelist ships with ≈200 entries covering Microsoft.PowerShell.Core / Management / Security / Utility / Diagnostics, CimCmdlets, PKI, PnpDevice, Defender, BitLocker, NetTCPIP / NetAdapter, SecureBoot, ScheduledTasks, Storage, Archive, WindowsCapability, ConfigCI, International, and WSMan. Consumers extend the whitelist via the new `.psa.config.json` field `psa2010_known_cmdlets` (a list of strings, an optional `Module\Name` prefix is permitted and stripped before lookup).
+
+The four scripts in this repository pass PSA2010 at the r75 baseline with **0 findings**. Running `psa.py 3.9.0 --include PSA2010` against the four scripts at the r74 baseline reproduces 0 findings as well: the `Find-Signtool` typo had already been corrected in r74, so the only pre-existing PSA2010 target was already gone. PSA2010's value is forward-looking — it prevents the *next* `Find-Signtool`-class defect from shipping.
+
+**Inline suppression**: `# psa-disable-line PSA2010 -- <reason>` on the call line. Use sparingly; the rule fires on real defects and most suppression sites should instead define the missing function or extend `psa2010_known_cmdlets`.
+
+See the upstream [psa.py SPEC.md §4.9d](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md#49d-psa2010--call-to-undefined-function) for the formal specification.
+
+### A.11.5e PSA2011 — `Split-Path -LiteralPath ... -Parent` triggers AmbiguousParameterSet (added in `psa.py` v3.9.0)
+
+**Rule code**: PSA2011.
+
+**Severity**: error.
+
+**Default**: enabled.
+
+**Introduced**: `psa.py` v3.9.0 (Chipset r75 / Graphics r41 / NPU r19 / BthPan r23 release).
+
+PSA2011 is the static-analysis counterpart of the runtime defect documented in §D.33.2 (Defect A). The rule walks each line (joining backtick continuations) and flags any `Split-Path` invocation containing BOTH the `-LiteralPath` switch AND the `-Parent` switch (in either order). On Windows PowerShell 5.1 ja-JP, this combination raises `AmbiguousParameterSet, Microsoft.PowerShell.Commands.SplitPathCommand` at runtime; the fix is to use `[System.IO.Path]::GetDirectoryName($path)` or `Split-Path -Path $path -Parent` (without `-LiteralPath`).
+
+The four scripts in this repository pass PSA2011 at the r75 baseline with **0 findings**. Running `psa.py 3.9.0 --include PSA2011` against the same four scripts at the r74 baseline reproduces **3 findings** — one each on Chipset, Graphics, and BthPan, all at the `Split-Path -LiteralPath $InfPath -Parent` line at the head of `Get-InfDriverFileList` (the PSA8001-byte-identical sister site). NPU has 0 findings at both baselines because it does not define `Get-InfDriverFileList`. This reproduction is the gold-standard verification that PSA2011 catches the exact form of defect that surfaced in the 2026-05-25 bench cycle.
+
+**Differences from PSA3005**: PSA3005 is the inverse pattern for `Start-Transcript -Path` (where `-Path` expands wildcards and breaks on special characters, so `-LiteralPath` is preferred at the cmdlet's own design level). PSA2011 is the opposite — for `Split-Path -Parent` on PS 5.1 ja-JP, `-LiteralPath` triggers the runtime parameter-binder bug, so `-Path` (or the .NET method) is preferred. The two rules apply to different cmdlets with different parameter-set ambiguities and are not contradictory.
+
+**Inline suppression**: `# psa-disable-line PSA2011 -- <reason>` on the call line. Use sparingly; the rule fires on a real ja-JP runtime defect.
+
+See the upstream [psa.py SPEC.md §4.9e](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md#49e-psa2011--split-path--literalpath---parent) for the formal specification.
 
 ### A.11.6 Self-quality gates for `psa.py` (consumer-side usage)
 
@@ -3741,6 +3781,187 @@ See TESTING.md §16 for the full step-by-step procedures.
 The four defects above are not detectable by any rule in `psa.py` v3.8.0 because they are integration defects, not local-form defects. A new rule **PSA2010** (defined in `psa.py` v3.9.0, planned) would walk the AST and flag invocation of any function name that has zero `function <Name>` definition in any of the loaded scripts. PSA2010 would have caught Defect 1 at static-analysis time. The other three defects need integration-level detection (call-graph for Defect 3, control-flow for Defect 4, external-binary semantics for Defect 2) which is out of scope for `psa.py`.
 
 Until PSA2010 lands, the project relies on the field-incident handover documents (this section, TESTING.md §16) to prevent regression by checklist rather than by static-analysis gate.
+
+
+## D.33 Honest correction of D.32 and additional defects from the 2026-05-25 WS2019 + Renoir bench cycle (`r75`)
+
+### D.33.1 Why this section exists
+
+§D.32 was written as a post-incident analysis of the 2026-05-24 bench cycle and shipped with the r74 release. A subsequent diagnostic pass on 2026-05-25 — running a purpose-built `Diagnose-r40-Bench-Followup-v2.ps1` script against the same Renoir + WS2019 host, after a `-Action PrepareVerify -CleanWorkRoot` followed by `-Action Install` followed by the reboot followed by `-OnlyPhases V06` cycle — revealed two facts that contradict the r74 narrative:
+
+1. **§D.32.2 misdiagnosed Defect 1.** The operator-visible Japanese `指定された名前のパラメーターを使用してパラメーター セットを解決できません。` warning was attributed in §D.32.2 to the typo `Find-Signtool` → should be `Find-KitTool 'signtool.exe'`. While that typo is real (the `Find-Signtool` helper does not exist) and fixing it is correct, **it is not the actual source of the runtime warning.** The v2 diagnostic Step 1.7 captured the `[System.Management.Automation.ParameterBindingException]` with `FullyQualifiedErrorId: AmbiguousParameterSet, Microsoft.PowerShell.Commands.SplitPathCommand` directly, against the `Split-Path -LiteralPath $InfPath -Parent` call site at the head of `Get-InfDriverFileList`. The r74 fix to `Test-WhqlCoSignature` (renaming `Find-Signtool` → `Find-KitTool`) silenced a *different* (and harmless on this host) latent defect, but did not address the warning the operator observed in the field. Both the typo and the `Split-Path` defect were present in r71–r74 simultaneously; the r74 fix happened to land on the typo because of a code-review heuristic ("does this function name exist?") rather than on the AmbiguousParameterSet because of a runtime-binder reading.
+
+2. **A second defect (Defect B) was already partly mitigated but never fully fixed in r74.** The `Get-OurSignedOemInfSet` helper's Pass 1 scanned `C:\Windows\INF\oem*.cat` looking for catalog files signed with the script's self-signed cert. On WS2019 ja-JP, this directory contains 0 oem*.cat files; the catalogs land in `C:\Windows\System32\CatRoot\{F750E6C3-38EE-11D1-85E5-00C04FC295EE}\` (the Microsoft Code Verification Root catalog database, well-known fixed GUID across Windows XP through Server 2025) and additionally in the per-driver `C:\Windows\System32\DriverStore\FileRepository\<inf>_amd64_<hash>\` bundle. Pass 1 therefore returned 0 matches and triggered the early-exit at the `if ($matchedOemBases.Count -eq 0) { return $set }` line, skipping Pass 2 (the pnputil cross-reference that was correctly designed but never got the chance to run). V06's threading of `$ourInfSet` into `Get-DriverSourceCategory` — the r74 fix for Defect 3 — therefore continued to receive an empty hashtable on this build family, leaving the operator-visible `[B] 9 / [C] 0` misclassification intact even after the r74 release.
+
+The r75 release closes both of these along with a third defect that surfaced during static analysis of the resulting `$ourInfSet` topology.
+
+This section is the post-incident correction of §D.32 and the design contract for r75. §D.32 is preserved verbatim because the misdiagnosis itself is a lesson worth keeping in the record.
+
+### D.33.2 Defect A: `Split-Path -LiteralPath ... -Parent` triggers AmbiguousParameterSet on PS 5.1 ja-JP
+
+**Symptom (operator-visible).** Identical to §D.32.2: P05 emitted `r71: WHQL co-sign analysis failed: 指定された名前のパラメーターを使用してパラメーター セットを解決できません。` followed by `r71: I00 C6 condition and -SkipNonCosignedDrivers will operate on an empty analysis.` The downstream effect of an empty WHQL analysis is identical to what §D.32.2 described.
+
+**Smoking-gun evidence from v2 diagnostic Step 1.7**.
+
+```
+Form 1: Split-Path -LiteralPath $p -Parent
+[FAIL]   FAILED <-- proves the PS 5.1 ja-JP bug
+   Exception type      : System.Management.Automation.ParameterBindingException
+   Exception message   : 指定された名前のパラメーターを使用してパラメーター セットを解決できません。
+   FullyQualifiedErrId : AmbiguousParameterSet,
+                         Microsoft.PowerShell.Commands.SplitPathCommand
+   Category            : InvalidArgument: (:) [Split-Path]、ParameterBindingException
+
+Form 2: Split-Path -Path $p -Parent                  → [OK] result: C:\Windows\System32
+Form 3: [System.IO.Path]::GetDirectoryName($p)       → [OK] result: C:\Windows\System32
+```
+
+The diagnostic ran against `C:\Windows\System32\notepad.exe` (a known-good path), so the failure cannot be attributed to file-not-found, permission, or wildcard-expansion issues. The exception's `FullyQualifiedErrorId` directly names the cmdlet and the failure mode (`AmbiguousParameterSet`, `SplitPathCommand`). The two alternative forms (`-Path` positional, `[System.IO.Path]::GetDirectoryName`) both succeed on the same host with the same input.
+
+**Root cause.** On Windows PowerShell 5.1.17763.8755 ja-JP, the `Split-Path` cmdlet's parameter-set resolution table places `-LiteralPath` in the path-decomposition set and `-Parent` in the qualifier-projection set. The two sets are tagged as incompatible by the ja-JP help table for this build, and the binder cannot resolve the operator's intent when both switches are supplied. This is a locale- AND build-specific defect: the same code runs without error on PowerShell 7.x, on PowerShell 5.1 en-US, and on some other PS 5.1 ja-JP builds. The defect is documented in the same family as Microsoft's published `Start-Transcript -Path` quirks (which PSA3005 already covers), but at a different cmdlet and with the inverse remediation (`-Path` is preferred here, while `-LiteralPath` is preferred for `Start-Transcript`).
+
+**Affected call sites.** A single canonical line:
+
+```powershell
+$infDir = Split-Path -LiteralPath $InfPath -Parent
+```
+
+at the head of `Get-InfDriverFileList`, byte-identical (PSA8001 contract) across `Deploy-AMDChipsetDriverOnWindowsServer.ps1`, `Deploy-AMDGraphicsDriverOnWindowsServer.ps1`, and `Deploy-MSBthPanInboxOnWindowsServer.ps1`. NPU does not define `Get-InfDriverFileList`; the NPU pipeline's INF surface is small enough that the per-INF helper was not factored out, so NPU is structurally immune.
+
+**Fix (r75).** Replace with `[System.IO.Path]::GetDirectoryName($InfPath)`:
+
+```powershell
+$infDir = [System.IO.Path]::GetDirectoryName($InfPath)
+```
+
+The .NET method has no PowerShell-binder ambiguity and returns the same string as `Split-Path -Path $InfPath -Parent` (both functions return the canonical directory path without trailing separator). The change is byte-identical across the 3 affected scripts (PSA8001-compliant).
+
+**Note on the r74 narrative.** The r74 fix to `Test-WhqlCoSignature` (renaming a non-existent `Find-Signtool` to `Find-KitTool 'signtool.exe'`) does not affect this defect's behaviour. Both the typo and the AmbiguousParameterSet bug were present together from r71 through r74; the operator-visible message was always the `Split-Path` `AmbiguousParameterSet` raised inside `Get-InfDriverFileList` (called from `New-WhqlCoSignAnalysis`, called from `Test-WhqlCoSignature`), which then propagated through the outer `try/catch` and surfaced via the `r71: WHQL co-sign analysis failed:` log line. The r74 release closed an unrelated latent typo but did not change this user-visible behaviour. r75 closes the actual cause.
+
+### D.33.3 Defect B: `Get-OurSignedOemInfSet` Pass 1 scans the wrong directory
+
+**Symptom (operator-visible).** Identical to §D.32.4: V06 reported every script-installed driver as `[B]` (vendor-signed) rather than `[C]` (self-signed), causing the "Match summary" line to report N>0 device(s) `WILL be replaced` on a post-install + post-reboot host where N should be 0 (idempotency). The r74 fix to V06 (threading `-KnownOurInfSet $ourInfSet` into `Get-DriverSourceCategory`) correctly addressed the consumer side; the producer side (`Get-OurSignedOemInfSet`) was the missing link.
+
+**Smoking-gun evidence from v2 diagnostic Steps 2.8a/b/c.**
+
+| Location | oem*.cat count signed by our cert |
+|---|---|
+| `C:\Windows\INF\oem*.cat` (what r74's Pass 1 scanned) | **0** |
+| `C:\Windows\System32\CatRoot\{F750E6C3-38EE-11D1-85E5-00C04FC295EE}\oem*.cat` | **18 of 18 expected** |
+| `C:\Windows\System32\DriverStore\FileRepository\<inf>_amd64_<hash>\*.cat` | **18 of 18 expected** |
+
+The pre-reinstall snapshot taken after the MSBthPan installation additionally confirmed that BthPan's `oem115.cat` (signed with the **different** BthPan cert thumbprint `A0B563EAB490458B9CD4A920974C5EF27915E103`) was also resident in the same `{F750E6C3-...}\` folder, alongside the Graphics catalogs signed with `9FEB313999B8314D5B38744255A20C0A15648E2E`. This proves that the CatRoot location is the correct landing place for **any** self-signed catalog from this pipeline, regardless of which sister script staged it — a single code path covers both Graphics and BthPan.
+
+**Root cause.** `C:\Windows\INF\` historically (Windows XP / Server 2003 era) was the OEM catalog directory, but in modern Windows the OEM catalog lifecycle moved into `C:\Windows\System32\CatRoot\{F750E6C3-38EE-11D1-85E5-00C04FC295EE}\` (the Microsoft Code Verification Root catalog database — the GUID is well-known and stable from Windows XP through Server 2025). The `C:\Windows\INF\` directory continues to host the per-driver `oem<N>.inf` files but the matching `oem<N>.cat` files live exclusively under `CatRoot`. On the 2026-05-25 bench host, `C:\Windows\INF\` had 0 oem*.cat files but the corresponding oem<N>.inf files were present, indicating that the Windows installer-side machinery had moved the catalogs to CatRoot at install time and either deleted or never created the INF-side copies.
+
+The r74 `Get-OurSignedOemInfSet` Pass 1 logic was therefore correct in algorithm (enumerate, signature-check, harvest) but wrong in location (`$infDir = Join-Path $env:windir 'INF'`). The Pass 2 fallback (pnputil /enum-drivers cross-reference) was structured to map oem<N>.inf to Original Name names — useful — but never reached on this host because the `if ($matchedOemBases.Count -eq 0) { return $set }` early-exit ran first.
+
+**Fix (r75).** Two layers, chosen for robustness against CatRoot itself being unreachable or empty:
+
+1. **Pass 1a (primary): scan `C:\Windows\System32\CatRoot\{F750E6C3-38EE-11D1-85E5-00C04FC295EE}\oem*.cat`.** Same algorithm as the r74 Pass 1, only the directory changes. On the 2026-05-25 bench host this resolves all 18 Graphics + 1 BthPan catalogs correctly. The GUID is hard-coded in the script source because it is a well-known Microsoft constant — extracting it to a parameter would invite errors. (For documentation on the GUID's origin and stability, see the `CatRoot` shell-extension comments in `winbase.h`; the same value has been used since the original Windows XP release.)
+
+2. **Pass 1b (fallback): pnputil `/enum-drivers` Signer Name match.** If Pass 1a finds 0 matches (e.g., the CatRoot directory is unreadable due to filesystem state, or the host is using a custom catalog store), look up the cert subject CN by thumbprint in `LocalMachine\Root` + `LocalMachine\TrustedPublisher`, then walk `pnputil /enum-drivers` output for entries whose Signer Name matches. The Published Name (`oem<N>.inf`) of each match becomes the seed for `$matchedOemBases`, after which Pass 2 (the existing OEM-name → Original-Name mapping) runs unchanged. This second layer protects against future CatRoot path changes without re-introducing the r74 silent-empty-set behaviour.
+
+3. **Pass 2 (unchanged): pnputil OEM-name to Original-Name mapping.** This was already correctly designed in r74; the r75 fix just makes sure it actually runs by ensuring Pass 1a or 1b populates `$matchedOemBases`.
+
+The change is byte-identical across `Deploy-AMDChipsetDriverOnWindowsServer.ps1` and `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` (PSA8001-compliant). BthPan's V06 does not call `Get-DriverSourceCategory` (see §D.32.4's note) so its `Get-OurSignedOemInfSet` is structurally absent and not affected.
+
+### D.33.4 Defect C: I00 references `$ourInfSet` without building it (latent since r74)
+
+**Symptom (static-analysis).** When `psa.py` v3.9.0 (with the new PSA2001 cross-file lookup of definitions surveyed via the new PSA2010 rule's definition collection logic — see §A.11.6) was run against the r74 sources, both Chipset and Graphics emitted a single `PSA2001 — undefined variable $ourinfset in function Invoke-InstPhase00_PreInstallReview` error. The variable is referenced inside the `-KnownOurInfSet $ourInfSet` argument at the head of I00's "AMD HARDWARE on MS-generic" pre-install review section, but the binding is only created inside `Invoke-VerifyPhase06_HardwareImpactAnalysis` (function-scope local). PowerShell scope rules mean the I00 reference resolves to `$null`, which `Get-DriverSourceCategory` accepts but treats as "no fast-path lookup" — silently degrading the classification path back to Step 0a / 1 / 2 / 3 cascade for I00's display.
+
+**Runtime impact.** Subtle and host-dependent. Before the Defect B fix, this had no observable effect because Step 0a / 1 / 2 / 3 cascade itself was returning the wrong classification on WS2019 ja-JP (the same misclassification that V06 also exhibited). With r75's Defect B fix in place, the Step 0a / 1 / 2 / 3 cascade does produce the correct `[C]` classification at I00, so the missing `-KnownOurInfSet` argument becomes a pure performance pessimisation rather than a correctness issue. But the PSA2001 error is real and the project's `0 errors` gate must hold.
+
+**Root cause.** When r74 added the V06 `$ourInfSet` build (and the matching I04 build that was already in place pre-r74), the I00 phase was overlooked. The "Lessons learned 7" entry in TESTING.md §16.5 specifically calls out "V06 / I04 share the `Get-DriverSourceCategory` consumer surface" but does not mention I00, which has its own independent consumer surface in the AMD-hardware-on-MS-generic review loop.
+
+**Fix (r75).** Mirror the V06 build pattern at the start of I00's per-device loop block:
+
+```powershell
+$infIndex = Build-PatchedInfHwidIndex -Ctx $Ctx
+# SPEC §D.33.3 (Defect C): build $ourInfSet locally in I00.
+# The V06 build at line ~11742 lives in a different function scope
+# and is not visible here. The original r74 release threaded
+# -KnownOurInfSet through Get-DriverSourceCategory without also
+# rebuilding the set per-function, leaving an undefined-variable
+# reference latent in this phase. Rebuilding it here matches
+# V06's pattern exactly.
+$ourInfSet = if ($Ctx.CertThumbprint) {
+    Get-OurSignedOemInfSet -ExpectedThumbprint $Ctx.CertThumbprint
+} else {
+    @{}
+}
+$matched   = @()
+```
+
+This change is byte-identical across Chipset and Graphics. BthPan I00 does not have the AMD-hardware-on-MS-generic loop (single-INF / single-HWID flow) and is not affected.
+
+### D.33.5 Defect 2 (signtool `/all`) and Defect 4 (I02→I03 halt) are unchanged
+
+§D.32.3 and §D.32.5 are validated as correct by the 2026-05-25 bench:
+
+- **§D.32.3 (signtool `/all` flag)**. The v2 diagnostic Step 1.5 ran `Test-WhqlCoSignature` against a known-WHQL-co-signed `AMDRyzenMasterDriver.sys` and returned `Reason='cosigned'`, `IsCoSigned=True`, `SignerCount=12` with the "Microsoft Windows Hardware Compatibility Publisher" signer present. The r74 fix (`signtool verify /all /pa /v`) works correctly. r75 inherits the fix unchanged.
+
+- **§D.32.5 (I02→I03 halt with reboot)**. The 2026-05-25 BthPan Install run reported `I02 -> CACHED  elapsed: 0.50s` followed by `I03 -> DONE  elapsed: 2.29s` (no halt, no `halted-pending-reboot` footer). This is the expected post-reboot behaviour: I02 cached because testsigning was already ON from the prior Graphics install, so `$Ctx.RebootRequiredBeforeI03` stayed `$false`. The r74 fix works correctly. r75 inherits the fix unchanged.
+
+### D.33.6 Release version contract for r75
+
+| Script | Old | New | Reason for bump |
+|---|---|---|---|
+| Chipset | `chipset-2026.05.24-r74` | `chipset-2026.05.25-r75` | Defects A, B, C |
+| Graphics | `graphics-2026.05.24-r40` | `graphics-2026.05.25-r41` | Defects A, B, C |
+| BthPan | `msbthpan-2026.05.24-r22` | `msbthpan-2026.05.25-r23` | Defect A only (BthPan has no `Get-OurSignedOemInfSet`; I00 has no AMD-hardware loop) |
+| NPU | `npu-2026.05.23-r18` | `npu-2026.05.25-r19` | **Cross-script ScriptTag alignment**, not a code-change bump. NPU's helper surface does not include `Get-InfDriverFileList`, `Get-OurSignedOemInfSet`, or the I00 / V06 `$ourInfSet` pattern, so no source-code change applies. This is a documented exception to SPEC §A.7 *no empty revisions* — see §D.33.10 below for the rationale. |
+| `$Script:ScriptTag` (all four) | `legacy-ws2019-runtime-correctness-fix` (Chipset/Graphics/BthPan) / `legacy-ws2019-wdac-spf-integration` (NPU) | `legacy-ws2019-ps51-japp-correctness-fix` | r75 release-line identity reflecting the PS 5.1 ja-JP locus of both Defect A (Split-Path binder) and Defect B (CatRoot path stability across ja-JP / en-US WS2019 builds) |
+
+Sister-script PSA8001 byte-identity is preserved across Chipset r75 / Graphics r41 / BthPan r23 for `Get-InfDriverFileList` (the Defect A fix site), and across Chipset r75 / Graphics r41 for `Get-OurSignedOemInfSet` (the Defect B fix site). The I00 `$ourInfSet` build (the Defect C fix) is byte-identical between Chipset and Graphics.
+
+### D.33.7 Test scenarios captured in TESTING.md §17
+
+TC17.1 — Defect A direct probe: `Split-Path -LiteralPath $p -Parent` fails on a clean WS2019 ja-JP host; `Split-Path -Path $p -Parent` and `[System.IO.Path]::GetDirectoryName($p)` succeed.
+TC17.2 — Defect A consumer-side: `Get-InfDriverFileList` returns the expected `.sys` file list after the r75 fix (whereas r74 returned an empty array on the same host).
+TC17.3 — Defect B Pass 1a: `Get-OurSignedOemInfSet` enumerates the expected `oem<N>.{inf,cat}` set from `C:\Windows\System32\CatRoot\{F750E6C3-...}\` on a clean WS2019 ja-JP host that has the script's drivers installed.
+TC17.4 — Defect B Pass 1b: `Get-OurSignedOemInfSet` falls back to pnputil Signer Name when CatRoot is empty (simulated by symlinking the directory to a temp location). The fallback finds the same set via `pnputil /enum-drivers`.
+TC17.5 — V06 idempotency: `-Action Install` followed by reboot followed by `-OnlyPhases V06` reports `0 device(s) WILL be replaced` for all script-installed drivers (the goal that r74's incomplete Defect B fix could not deliver).
+TC17.6 — I00 PSA2001 regression: `psa.py 3.9.0 --severity error` against r75 sources reports 0 errors (specifically, no PSA2001 firing on the I00 `$ourInfSet` reference).
+TC17.7 — psa.py PSA2010 sanity: a synthetic script containing `Find-Signtool` (undefined) plus `Find-KitTool` (defined) fires PSA2010 once on the typo and does NOT fire on the correct call. This is the static-analysis counterpart that r75 introduces for catching future typos of the §D.32.2 family.
+TC17.8 — psa.py PSA2011 sanity: a synthetic script containing `Split-Path -LiteralPath $p -Parent` fires PSA2011 once; the same script with `[System.IO.Path]::GetDirectoryName($p)` or `Split-Path -Path $p -Parent` fires 0 times.
+TC17.9 — NPU r19 no-op identity: NPU r19 differs from NPU r18 only in `$Script:ScriptVersion` and `$Script:ScriptTag`. All other bytes are identical (verified by SHA256 of the stripped-trio source). This documents the cross-script ScriptTag alignment rationale per §D.33.10.
+
+See TESTING.md §17 for the full step-by-step procedures.
+
+### D.33.8 Static analysis posture for r75
+
+The r75 release lands **two new psa.py rules** (v3.9.0) that close the static-analysis gaps from r74:
+
+- **PSA2010 (error)** — Call to function not defined in any scanned file or known cmdlet whitelist. Would have caught Defect 1's `Find-Signtool` typo from §D.32.2 directly. PSA2010 is dispatched at the cross-file level (like PSA8001); the union of `function <Name>` definitions across all scanned files becomes the "defined" set, against which every command-position Verb-Noun call is checked. False-positive defense: the verb must be in `APPROVED_VERBS`, the call site must be in command position, and known PowerShell built-in cmdlets are pre-whitelisted (≈200 entries covering Microsoft.PowerShell.Core / Management / Security / Utility / Diagnostics, CimCmdlets, PKI, PnpDevice, Defender, BitLocker, NetTCPIP / NetAdapter, SecureBoot, ScheduledTasks, Storage, Archive, WindowsCapability, ConfigCI, International, WSMan). Consumers extend the whitelist via the new `.psa.config.json` field `psa2010_known_cmdlets`.
+
+- **PSA2011 (error)** — `Split-Path -LiteralPath ... -Parent` triggers AmbiguousParameterSet on PowerShell 5.1 ja-JP. Would have caught Defect A (§D.33.2) at static-analysis time. PSA2011 is file-local; it walks each line (joining backtick continuations) and flags any `Split-Path` invocation containing both `-LiteralPath` and `-Parent` (in either order). Suggested remediations: `[System.IO.Path]::GetDirectoryName($path)` (the .NET method has no PS-binder ambiguity) or `Split-Path -Path $path -Parent` (without `-LiteralPath`).
+
+The four scripts under this repository now pass `psa.py 3.9.0 --severity error` with **0 errors** under `.psa.config.json` opt-ins (PSAP0001..PSAP0004 enabled). The accepted warning baseline (PSAP0003 inline-revision-tag historical references) is documented in §A.11.5; r75 itself adds no new warnings to the baseline. See TESTING.md §17 (TC17.6, TC17.7, TC17.8) for the verification procedures.
+
+### D.33.9 Lessons learned (additions to §15.5 and §16.5)
+
+8. **A failing test's *reproduction transcript* is more authoritative than its *root-cause hypothesis*.** §D.32.2 read the operator's `指定された名前のパラメーターを使用してパラメーター セットを解決できません。` warning and pattern-matched to "must be a parameter-binding issue, look for typos in helper calls". The actual cmdlet that raised the exception was named in the `FullyQualifiedErrorId` field of the exception object (`AmbiguousParameterSet, Microsoft.PowerShell.Commands.SplitPathCommand`), which the §D.32.2 author did not capture or examine. The v2 diagnostic's Step 1.7 surfaced this directly. For future field-incident analysis, prefer capturing the exception object's `FullyQualifiedErrorId` over the exception message text — the latter is locale- and host-dependent, the former names the cmdlet and failure mode in a machine-grade way.
+
+9. **Sister-script byte-identity is necessary but not sufficient.** PSA8001's coverage of `Get-InfDriverFileList` ensured that the Defect A `Split-Path` bug appeared in all 3 sister scripts simultaneously (and could not "drift" to fix or worsen in just one of them). This is a good property — it bounds the scope of the defect. But it also means a bug, once introduced, propagates across all sister scripts as a copy-paste replica. PSA2011 closes the gap by catching the *form* of the bug at static-analysis time, regardless of how many sisters carry it.
+
+10. **A "no-op revision bump" can be the correct call when ScriptTag identity matters more than source-byte identity.** The r74 release explicitly chose not to bump NPU (per the "no empty revisions" wording in SPEC §A.7) because NPU had no source-code changes. r75 chooses to bump NPU r18 → r19 for the opposite reason: NPU's ScriptTag was at `legacy-ws2019-wdac-spf-integration` while the other three sisters were at `legacy-ws2019-runtime-correctness-fix`, and r75 aligns all four to the new `legacy-ws2019-ps51-japp-correctness-fix` tag in a single release. The trade-off is articulated in §D.33.10.
+
+### D.33.10 Exception to SPEC §A.7 *no empty revisions*: cross-script ScriptTag alignment
+
+SPEC §A.7 states that a script must not be bumped (rNN → rNN+1) unless its source code changes meaningfully. The r75 NPU bump (r18 → r19) is a documented exception to this rule:
+
+- NPU's `Get-InfDriverFileList` does not exist (the NPU pipeline has a single INF and does not factor out the per-INF helper), so Defect A does not apply.
+- NPU's `Get-OurSignedOemInfSet` does not exist (NPU uses a different post-install verification flow), so Defect B does not apply.
+- NPU's I00 phase does not enumerate AMD hardware against the patched INF set in the same way Chipset / Graphics do, so Defect C does not apply.
+
+Under the strict §A.7 reading, NPU should stay at r18. However, the release is also a ScriptTag-alignment release: the four sister scripts ship a coherent identity (`legacy-ws2019-ps51-japp-correctness-fix`) and the operator-visible banner of each script should read the same release line. Leaving NPU at r18 with the old ScriptTag (`legacy-ws2019-wdac-spf-integration`) would create a confusing "which release am I running?" experience.
+
+The exception is therefore: **a cross-script ScriptTag alignment may bump a script's revision number even if its source code does not change**, provided that (a) the ScriptTag itself does change in the same release, (b) the per-script CHANGELOG.md entry explicitly identifies the bump as "ScriptTag alignment only, no source-code change", and (c) a one-byte version-string change accompanies the bump (so that `$Script:ScriptVersion` reflects the new release line).
+
+The 2026-05-25 r75 release uses this exception. The previous instance was the 2026-05-23 r70 release (Path C deprecation; see §D.30) which used a similar argument; that release predated the explicit §A.7 wording.
+
+If a fourth instance of this exception is needed in the future, the maintainer SHOULD propose tightening §A.7 to enumerate the permitted exception classes rather than relying on per-release narrative.
 
 
 ## Appendix: How to seed a new sister script from this SPEC

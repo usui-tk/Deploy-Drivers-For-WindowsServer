@@ -437,8 +437,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-$Script:ScriptVersion = 'msbthpan-2026.05.24-r22'
-$Script:ScriptTag     = 'legacy-ws2019-runtime-correctness-fix'
+$Script:ScriptVersion = 'msbthpan-2026.05.25-r23'
+$Script:ScriptTag     = 'legacy-ws2019-ps51-japp-correctness-fix'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -4640,7 +4640,7 @@ function Get-InfDriverFileList { # psa-disable-line PSA6003 -- compound noun (e.
     if (-not (Test-Path -LiteralPath $InfPath)) {
         return @()
     }
-    $infDir = Split-Path -LiteralPath $InfPath -Parent
+    $infDir = [System.IO.Path]::GetDirectoryName($InfPath)
     $result = New-Object System.Collections.Generic.List[string]
     $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
     # Pass 1: extract referenced .sys filenames from the INF text body.

@@ -118,17 +118,42 @@ All four PowerShell scripts share the same 21-phase architecture, the same self-
 
 ## What's new
 
-**Latest release: `2026-05-24` — Chipset r74 / Graphics r40 / BthPan r22 / NPU r18 (unchanged)** (`legacy-ws2019-runtime-correctness-fix`).
-This release closes four runtime defects surfaced during a clean-installed
-WS2019 + Renoir bench cycle: (1) `Test-WhqlCoSignature` called a non-
-existent `Find-Signtool` helper (the actual helper is `Find-KitTool 'signtool.exe'`);
-(2) `signtool verify` was invoked without the `/all` flag, hiding nested
-WHQL signatures; (3) V06 misclassified script-installed drivers as `[B]`
-instead of `[C]` due to a missing `-KnownOurInfSet` argument; (4) I02→I03
-ran in the same execution despite the "reboot then re-run" message. See
-[SPEC §D.32](./SPEC.md#d32-runtime-correctness-fixes-from-the-2026-05-24-ws2019--renoir-bench-cycle-r74)
-for the full post-incident analysis and [TESTING §16](./TESTING.md#16-r74--r40--r22-release-validation-2026-05-24-renoir--ws2019)
-for the regression scenarios.
+**Latest release: `2026-05-25` — Chipset r75 / Graphics r41 / BthPan r23 / NPU r19** (`legacy-ws2019-ps51-japp-correctness-fix`).
+This release fixes three defects revealed by a follow-up diagnostic on
+the same WS2019 ja-JP + Renoir bench host that the r74 release
+investigated, and **honestly corrects the proximate-cause diagnosis of
+two of the r74 defects**:
+
+- **Defect A** — `Split-Path -LiteralPath ... -Parent` triggers
+  `AmbiguousParameterSet` on Windows PowerShell 5.1 ja-JP. This was the
+  actual source of the `指定された名前のパラメーターを使用してパラメーター セットを解決できません。`
+  warning that r74 misattributed to a `Find-Signtool` typo. Fix: use
+  `[System.IO.Path]::GetDirectoryName($path)`.
+- **Defect B** — `Get-OurSignedOemInfSet` Pass 1 scanned
+  `C:\Windows\INF\` (empty on WS2019 ja-JP) instead of
+  `C:\Windows\System32\CatRoot\{F750E6C3-...}\` (where catalogs
+  actually live). Pass 2 (pnputil cross-reference) therefore never ran
+  and V06's `-KnownOurInfSet` argument received an empty hashtable. Fix:
+  scan CatRoot directly + pnputil Signer Name fallback.
+- **Defect C** — `Invoke-InstPhase00_PreInstallReview` referenced
+  `$ourInfSet` without building it (latent since r74). Fix: mirror the
+  V06 build pattern at the start of I00's per-device loop.
+
+The release also lands two new `psa.py` v3.9.0 static-analysis rules
+(**PSA2010** — undefined-function call detection; **PSA2011** —
+Split-Path -LiteralPath -Parent detection) that would have caught the
+corresponding defects at static-analysis time. The four scripts pass
+`psa.py 3.9.0 --severity error` with 0 errors at the r75 baseline.
+
+See [SPEC §D.33](./SPEC.md#d33-honest-correction-of-d32-and-additional-defects-from-the-2026-05-25-ws2019--renoir-bench-cycle-r75)
+for the full post-incident analysis and
+[TESTING §17](./TESTING.md#17-r75-2026-05-25-ws2019-ja-jp--renoir-test-scenarios-defect-a--b--c)
+for the regression scenarios (TC17.1 — TC17.9).
+
+The r74 release ([2026-05-24] `legacy-ws2019-runtime-correctness-fix`)
+remains the previous reference for §D.32's defect taxonomy; the r74
+fixes for r74 Defect 2 (`signtool /all`) and r74 Defect 4 (I02→I03
+halt) are validated unchanged by the r75 bench cycle.
 
 See [CHANGELOG.md](./CHANGELOG.md) for the chronological per-release entry log
 organised by date and by script — this is the single source of truth for
@@ -1182,12 +1207,12 @@ In the rest of this document and in `SPEC.md` / `TESTING.md` / `CONTRIBUTING.md`
 
 #### Checks performed
 
-`psa.py` (latest mainline) ships with a **37-rule** check set spanning `PSA1001`..`PSA9002` for generic rules plus `PSAP0001`..`PSAP0004` for project / pipeline convention rules. The 37-rule count includes `PSA2009` (PSCustomObject property assigned without prior declaration), introduced in `psa.py` v3.8.0 alongside the Chipset r73 / Graphics r39 / BthPan r21 release — this rule is the static-analysis counterpart of the runtime defect that caused `Chipset r72 P05 -> FAILED with "WhqlCoSignAnalysis" property-not-found exception` on a Japanese-locale Windows Server 2019 host. See `SPEC.md` §A.11.5c for the rule's detailed semantics. This repository validates its scripts against the latest mainline `psa.py` (no fixed-version pinning); see `SPEC.md` §A.11 *Version policy* for the rationale and the LLM / AI workflow for adopting a new version. The 37 rules are grouped into nine categories:
+`psa.py` (latest mainline) ships with a **45-rule** check set spanning `PSA1001`..`PSA9002` for generic rules plus `PSAP0001`..`PSAP0004` for project / pipeline convention rules. The 45-rule count includes `PSA2009` (PSCustomObject property assigned without prior declaration), introduced in `psa.py` v3.8.0 alongside the Chipset r73 / Graphics r39 / BthPan r21 release — this rule is the static-analysis counterpart of the runtime defect that caused `Chipset r72 P05 -> FAILED with "WhqlCoSignAnalysis" property-not-found exception` on a Japanese-locale Windows Server 2019 host. The count also includes `PSA2010` (call to undefined function, error) and `PSA2011` (`Split-Path -LiteralPath ... -Parent` triggers AmbiguousParameterSet on PS 5.1 ja-JP, error), both introduced in `psa.py` v3.9.0 alongside the Chipset r75 / Graphics r41 / BthPan r23 / NPU r19 release — these rules would have caught the r75 §D.33 Defect A (`Split-Path` binder bug) and the §D.32.2 `Find-Signtool` family of typos at static-analysis time. See `SPEC.md` §A.11.5c / §A.11.5d / §A.11.5e for the three rules' detailed semantics. This repository validates its scripts against the latest mainline `psa.py` (no fixed-version pinning); see `SPEC.md` §A.11 *Version policy* for the rationale and the LLM / AI workflow for adopting a new version. The 45 rules are grouped into nine categories:
 
 | Category                       | Code range                | Examples                                                                                                                                                                                                                                       |
 | ---                            | ---                       | ---                                                                                                                                                                                                                                            |
 | Syntax balance                 | `PSA1001`..`PSA1003`      | brace / paren / bracket balance                                                                                                                                                                                                                |
-| Semantics                      | `PSA2001`..`PSA2009`      | undefined variable, auto-variable shadowing, `-match` against bare variable, `$null` on the right of `-eq`/`-ne`, assignment / redirection inside conditional, parameter shadows auto-variable (`PSA2007`), `$Script:Foo++` without init (`PSA2008`), **new in v3.8.0:** PSCustomObject property assigned without prior declaration (`PSA2009`) |
+| Semantics                      | `PSA2001`..`PSA2011`      | undefined variable, auto-variable shadowing, `-match` against bare variable, `$null` on the right of `-eq`/`-ne`, assignment / redirection inside conditional, parameter shadows auto-variable (`PSA2007`), `$Script:Foo++` without init (`PSA2008`), **new in v3.8.0:** PSCustomObject property assigned without prior declaration (`PSA2009`), **new in v3.9.0:** call to undefined function (`PSA2010`, error) and `Split-Path -LiteralPath ... -Parent` triggers AmbiguousParameterSet on PS 5.1 ja-JP (`PSA2011`, error) |
 | Coding pattern                 | `PSA3001`..`PSA3006`      | `Start-Process -ArgumentList`, trailing backtick before empty line, `-match` against empty string, empty `catch` block, `Start-Transcript -Path` should be `-LiteralPath`, `Get-WmiObject` / `Invoke-WmiMethod` etc. (prefer CIM cmdlets)        |
 | Hygiene                        | `PSA4001`..`PSA4004`      | unfinished markers (TODO / FIXME / XXX / HACK), trailing whitespace, long line, trailing semicolon                                                                                                                                             |
 | Security                       | `PSA5001`..`PSA5004`      | plain-text password parameter, `Invoke-Expression`, broken hash algorithm, hardcoded `ComputerName`                                                                                                                                            |

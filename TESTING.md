@@ -1970,3 +1970,280 @@ The r74 release adds no new `psa.py` rule. The four r74 defects (per SPEC §D.32
 
 ---
 
+## 17. r75: 2026-05-25 WS2019 ja-JP + Renoir test scenarios (Defect A / B / C)
+
+This section is the test-scenario counterpart of SPEC.md §D.33. The r75 release fixes three defects revealed by a clean-bench cycle on 2026-05-24/25 against a Windows Server 2019 Datacenter ja-JP host (build 17763.8755, PowerShell 5.1.17763.8755) with AMD Ryzen 5 PRO 4650U "Renoir" silicon. The diagnostic evidence captured during that cycle lives in two operator-side logs that this section references throughout:
+
+- `diag-r40-followup-v2-20260524-111804.log` (347 lines) — the v2 diagnostic with Step 1.7 (Split-Path direct probe) and Steps 2.8a/b/c (CatRoot enumeration).
+- `pre-reinstall-snapshot-20260524-113102.log` — the final state snapshot taken after the MSBthPan installation but before the next bench-cycle clean-install.
+
+Both logs are kept in the bench's operator archive (not committed to this repository); the relevant excerpts are reproduced inline in each TC below.
+
+### TC17.1 — Defect A direct probe (Split-Path -LiteralPath -Parent fails on PS 5.1 ja-JP)
+
+**Purpose**: Confirm that the operator-visible warning `指定された名前のパラメーターを使用してパラメーター セットを解決できません。` from r71–r74 P05 was the `Split-Path` AmbiguousParameterSet bug, independent of the `Find-Signtool` typo that §D.32.2 misdiagnosed as the cause.
+
+**Setup**: A clean-installed Windows Server 2019 Datacenter ja-JP host, build 17763.8755, with PowerShell 5.1.17763.8755 (the in-box `powershell.exe`, not pwsh 7.x). Any directory path is fine for the probe; `C:\Windows\System32\notepad.exe` is recommended for being a known-good file with a known parent.
+
+**Procedure**:
+
+```powershell
+$p = 'C:\Windows\System32\notepad.exe'
+
+# Form 1 — the r74 form (expected to fail on PS 5.1 ja-JP)
+try {
+    $r1 = Split-Path -LiteralPath $p -Parent
+    Write-Host "[OK] Form 1: $r1"
+} catch {
+    Write-Host "[FAIL] Form 1: $($_.FullyQualifiedErrorId)"
+}
+
+# Form 2 — the r75 alternative (Split-Path -Path positional)
+$r2 = Split-Path -Path $p -Parent
+Write-Host "[OK] Form 2: $r2"
+
+# Form 3 — the r75 chosen fix (.NET method, no PS binder)
+$r3 = [System.IO.Path]::GetDirectoryName($p)
+Write-Host "[OK] Form 3: $r3"
+```
+
+**Expected output (on a failing PS 5.1 ja-JP host)**:
+
+```
+[FAIL] Form 1: AmbiguousParameterSet,Microsoft.PowerShell.Commands.SplitPathCommand
+[OK] Form 2: C:\Windows\System32
+[OK] Form 3: C:\Windows\System32
+```
+
+**Reference**: `diag-r40-followup-v2-20260524-111804.log` Step 1.7 captured this exact pattern; Form 1's `FullyQualifiedErrorId` field reads `AmbiguousParameterSet, Microsoft.PowerShell.Commands.SplitPathCommand` (cmdlet identified directly by the binder).
+
+**Pass criteria**: Form 1 fails with `AmbiguousParameterSet`. Forms 2 and 3 succeed and return the same string. On PowerShell 7.x or PS 5.1 en-US, Form 1 may succeed — this is expected (the defect is locale-and-build-specific) and does NOT contradict the r75 fix being necessary for ja-JP.
+
+### TC17.2 — Defect A consumer-side (Get-InfDriverFileList returns non-empty after the fix)
+
+**Purpose**: Confirm that `Get-InfDriverFileList` — the consumer of the line fixed in TC17.1's Form 3 — returns the expected `.sys` file list at the r75 baseline.
+
+**Setup**: After installing Chipset r75 (or Graphics r41) with `-Action PrepareVerify`, the patched INF and `.sys` files are present in `<workspace>\patched\<InfBase>\`. Pick any one INF that has been patched.
+
+**Procedure**:
+
+```powershell
+# Load r75's Chipset script (without running its main entry point)
+. .\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -SkipMain
+
+$patchedInf = "<workspace>\patched\<InfBase>\AMD_Chipset_Drivers.inf"  # adjust path
+$result = Get-InfDriverFileList -InfPath $patchedInf
+Write-Host "Returned $($result.Count) file(s):"
+$result | ForEach-Object { Write-Host "  $_" }
+```
+
+**Pass criteria**: At least one `.sys` file is returned. At the r74 baseline (without the Defect A fix), this same procedure returns an empty array on PS 5.1 ja-JP because `Get-InfDriverFileList`'s outer `try/catch` swallows the AmbiguousParameterSet exception silently. At the r75 baseline, the array contains the actual driver binaries.
+
+### TC17.3 — Defect B Pass 1a (CatRoot scan finds the expected catalog set)
+
+**Purpose**: Confirm that `Get-OurSignedOemInfSet` Pass 1a successfully enumerates `oem*.cat` files signed with the script's self-signed cert from `C:\Windows\System32\CatRoot\{F750E6C3-38EE-11D1-85E5-00C04FC295EE}\`.
+
+**Setup**: A clean-installed WS2019 host with Chipset r75 or Graphics r41 freshly installed (the script's cert thumbprint is recorded in the workspace `.psd1` and the catalogs are physically present on disk).
+
+**Procedure**:
+
+```powershell
+# Pre-check: how many oem*.cat files exist at the new CatRoot location?
+$catRoot = 'C:\Windows\System32\CatRoot\{F750E6C3-38EE-11D1-85E5-00C04FC295EE}'
+Write-Host "CatRoot oem*.cat count: $(@(Get-ChildItem -LiteralPath $catRoot -Filter 'oem*.cat').Count)"
+
+# Pre-check: how many oem*.cat files exist at the r74 (wrong) location?
+$infDir = "$env:windir\INF"
+Write-Host "C:\Windows\INF oem*.cat count: $(@(Get-ChildItem -LiteralPath $infDir -Filter 'oem*.cat' -ErrorAction SilentlyContinue).Count)"
+
+# Run the r75 helper directly
+. .\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -SkipMain
+$ctx = Get-WorkspaceContext  # or however the script exposes it
+$set = Get-OurSignedOemInfSet -ExpectedThumbprint $ctx.CertThumbprint
+Write-Host "Helper returned $($set.Count) entries:"
+$set.Keys | Sort-Object | ForEach-Object { Write-Host "  $_" }
+```
+
+**Pass criteria**: On a host that has Graphics r41 installed with the v2-diagnostic cert thumbprint `9FEB313999B8314D5B38744255A20C0A15648E2E`, the CatRoot pre-check reports **18 of 18 expected Graphics catalogs**, the `C:\Windows\INF\` pre-check reports **0**, and the helper's return-set count is non-zero (the exact size depends on how many INFs and OEM-aliases the cert covers). On a host that has additionally been through MSBthPan r23 (cert thumbprint `A0B563EAB490458B9CD4A920974C5EF27915E103`), the BthPan-cert call returns at least 1 entry.
+
+**Reference**: `diag-r40-followup-v2-20260524-111804.log` Steps 2.8a/b/c performed exactly this enumeration on the bench host and recorded the 0 / 18 / 18 split (`C:\Windows\INF\` empty, CatRoot full, DriverStore\FileRepository full).
+
+### TC17.4 — Defect B Pass 1b (pnputil Signer Name fallback when CatRoot is unreachable)
+
+**Purpose**: Confirm that when Pass 1a finds 0 matches (CatRoot unreadable or empty), the new Pass 1b — pnputil `/enum-drivers` Signer Name lookup — populates the same set via the cert's Subject CN.
+
+**Setup**: A clean-installed WS2019 host with Graphics r41 installed. To simulate "CatRoot unreachable", temporarily rename the CatRoot subfolder:
+
+```powershell
+# WARNING: This is invasive — only run on a disposable bench VM, then revert.
+$catRoot = 'C:\Windows\System32\CatRoot\{F750E6C3-38EE-11D1-85E5-00C04FC295EE}'
+$tempBak = $catRoot + '.tc17-4-bak'
+Rename-Item -LiteralPath $catRoot -NewName ($tempBak | Split-Path -Leaf)
+# ... run the test below ...
+# Then restore:
+Rename-Item -LiteralPath $tempBak -NewName ($catRoot | Split-Path -Leaf)
+```
+
+**Procedure**:
+
+```powershell
+. .\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -SkipMain
+$ctx = Get-WorkspaceContext
+$set = Get-OurSignedOemInfSet -ExpectedThumbprint $ctx.CertThumbprint
+Write-Host "Pass 1b returned $($set.Count) entries:"
+```
+
+**Pass criteria**: Even though Pass 1a found 0 (CatRoot renamed), the helper's return-set count is non-zero. The pnputil-side lookup of the cert's Subject CN against the Signer Name field in `pnputil /enum-drivers` output populates the set.
+
+**Important**: Restore the CatRoot folder immediately after this test — running other scripts with the folder renamed will cause silent driver verification failures elsewhere in Windows.
+
+### TC17.5 — V06 idempotency (the goal of Defect 3 + Defect B)
+
+**Purpose**: Confirm that the combined r74 Defect 3 fix + r75 Defect B fix delivers the originally-promised V06 idempotency: after a successful install and reboot, running `-OnlyPhases V06` reports `0 device(s) WILL be replaced` for all script-installed drivers.
+
+**Setup**: A clean-installed WS2019 host. Run the full r75 install cycle: `-Action PrepareVerify -CleanWorkRoot`, then `-Action Install`, then reboot the host, then `-Action Install -OnlyPhases V06`.
+
+**Expected V06 output excerpt (Graphics)**:
+
+```
+--- AMD HARDWARE that this script can affect ---
+  Driver-source: [A]Microsoft  [B]Vendor  [C]Self-signed  [?]Unknown
+  ...
+  Match summary:
+    0 device(s) WILL be replaced
+    9 device(s) keep current driver
+```
+
+**Pass criteria**: The V06 "Match summary" line reports `0 device(s) WILL be replaced` and a non-zero count of `device(s) keep current driver` matching the number of AMD devices that the script targets. At the r74 baseline, this same procedure reported N>0 `WILL be replaced` on a freshly-installed-and-rebooted host (the original Defect 3 symptom that r74's V06 fix could not fully close because Get-OurSignedOemInfSet returned an empty set). At the r75 baseline, the count is 0.
+
+**Reference**: `pre-reinstall-snapshot-20260524-113102.log` documents the pre-r75 state where V06 reported N>0 despite a clean install + reboot.
+
+### TC17.6 — psa.py 3.9.0 against r75 sources (0 errors, including no PSA2001 regression)
+
+**Purpose**: Confirm that the r75 release passes the `0 errors` gate under psa.py 3.9.0 with the project's standard `.psa.config.json` opt-ins enabled (PSAP0001..PSAP0004 on, severity floor at `error`).
+
+**Procedure**:
+
+```bash
+# From the repository root:
+curl -sSL https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py -o /tmp/psa-3.9.0.py
+python3 /tmp/psa-3.9.0.py \
+    --config .psa.config.json \
+    --severity error \
+    Deploy-AMDChipsetDriverOnWindowsServer.ps1 \
+    Deploy-AMDGraphicsDriverOnWindowsServer.ps1 \
+    Deploy-AMDNpuDriverOnWindowsServer.ps1 \
+    Deploy-MSBthPanInboxOnWindowsServer.ps1
+echo "Exit code: $?"
+```
+
+**Expected output**: Each file reports `Issues : 0 errors, 0 warnings, 0 info` and the overall exit code is `0`.
+
+**Pass criteria**: Exit code is `0` AND every file reports 0 errors. Specifically, no PSA2001 firing on `$ourInfSet` inside `Invoke-InstPhase00_PreInstallReview` (this was the latent defect that the r75 Defect C fix closed).
+
+**Negative-baseline reference**: Running the same command against the r74 sources reports 1 PSA2001 error each on Chipset and Graphics (`undefined variable $ourinfset in function Invoke-InstPhase00_PreInstallReview`), demonstrating that r75's Defect C fix is observable at static-analysis time as well as runtime.
+
+### TC17.7 — psa.py PSA2010 sanity (catches the §D.32.2 family of typos at static-analysis time)
+
+**Purpose**: Confirm that PSA2010 (the rule that, had it existed, would have caught the §D.32.2 `Find-Signtool` typo before r71 shipped) actually fires on its target pattern and does not fire on the correct call form.
+
+**Procedure**:
+
+```powershell
+# Create a synthetic test file
+$ScriptContent = @'
+function Find-KitTool {
+    param([string]$Name)
+    # returns path to the Windows Kit tool
+}
+
+function Test-Foo {
+    # Correct call — should NOT fire PSA2010
+    $kit = Find-KitTool 'signtool.exe'
+
+    # Typo — SHOULD fire PSA2010
+    $sig = Find-Signtool
+}
+'@
+$ScriptContent | Set-Content -Encoding utf8 -Path .\test-psa2010.ps1
+```
+
+```bash
+python3 /tmp/psa-3.9.0.py --include PSA2010 --severity error ./test-psa2010.ps1
+# Expected output: 1 error at the Find-Signtool line
+```
+
+**Pass criteria**: Exactly 1 PSA2010 error is reported, on the `Find-Signtool` call. The `Find-KitTool` call is not flagged because the function is defined in the same file. If `--include PSA2010` does not fire at all, the rule is broken — escalate before proceeding with releases.
+
+### TC17.8 — psa.py PSA2011 sanity (catches the Defect A pattern at static-analysis time)
+
+**Purpose**: Confirm that PSA2011 fires on `Split-Path -LiteralPath ... -Parent` and does not fire on the two recommended fix forms.
+
+**Procedure**:
+
+```powershell
+$ScriptContent = @'
+$p = "C:\Windows\System32\notepad.exe"
+
+# Should fire PSA2011
+$a = Split-Path -LiteralPath $p -Parent
+
+# Should NOT fire (different switch order is still positive — also should fire)
+$b = Split-Path -Parent -LiteralPath $p
+
+# Should NOT fire — recommended fix 1
+$c = [System.IO.Path]::GetDirectoryName($p)
+
+# Should NOT fire — recommended fix 2
+$d = Split-Path -Path $p -Parent
+'@
+$ScriptContent | Set-Content -Encoding utf8 -Path .\test-psa2011.ps1
+```
+
+```bash
+python3 /tmp/psa-3.9.0.py --include PSA2011 --severity error ./test-psa2011.ps1
+# Expected: 2 errors (both -LiteralPath + -Parent forms), 0 errors for fixes
+```
+
+**Pass criteria**: Exactly 2 PSA2011 errors are reported, one for each `-LiteralPath` + `-Parent` form. The `[System.IO.Path]::GetDirectoryName` call and the `Split-Path -Path` call are not flagged.
+
+**Additional verification — historical reproduction**: Run PSA2011 against the r74 sources to confirm it would have caught Defect A in r71:
+
+```bash
+git checkout <commit-at-r74>
+python3 /tmp/psa-3.9.0.py --include PSA2011 --severity error \
+    Deploy-AMDChipsetDriverOnWindowsServer.ps1 \
+    Deploy-AMDGraphicsDriverOnWindowsServer.ps1 \
+    Deploy-MSBthPanInboxOnWindowsServer.ps1 \
+    Deploy-AMDNpuDriverOnWindowsServer.ps1
+# Expected: 3 errors (Chipset, Graphics, BthPan all have the same line in Get-InfDriverFileList)
+# Expected: NPU reports 0 errors (no Get-InfDriverFileList helper)
+```
+
+This reproduction is the gold-standard verification that PSA2011 catches the *form* of the defect that surfaced in the 2026-05-25 bench cycle.
+
+### TC17.9 — NPU r19 no-op identity (cross-script ScriptTag alignment)
+
+**Purpose**: Confirm that NPU r19 differs from NPU r18 only in `$Script:ScriptVersion` and `$Script:ScriptTag`, validating the §D.33.10 documented exception to SPEC §A.7 ("no empty revisions").
+
+**Procedure**:
+
+```bash
+# Extract just the source-meaningful bytes (excluding ScriptVersion / ScriptTag lines)
+git show <r18-commit>:Deploy-AMDNpuDriverOnWindowsServer.ps1 \
+    | grep -v '\$Script:ScriptVersion\s*=\|\$Script:ScriptTag\s*=' \
+    | sha256sum > /tmp/npu-r18.sha256
+
+git show HEAD:Deploy-AMDNpuDriverOnWindowsServer.ps1 \
+    | grep -v '\$Script:ScriptVersion\s*=\|\$Script:ScriptTag\s*=' \
+    | sha256sum > /tmp/npu-r19.sha256
+
+diff /tmp/npu-r18.sha256 /tmp/npu-r19.sha256
+```
+
+**Pass criteria**: The two `sha256sum` outputs are identical (zero diff). Any non-empty diff fails this TC and means the NPU bump was not actually a clean ScriptTag-alignment; investigate the source-code change that snuck in.
+
+**Pass criteria (positive verification)**: `git diff <r18-commit> HEAD -- Deploy-AMDNpuDriverOnWindowsServer.ps1` shows exactly two changed lines (the `$Script:ScriptVersion` assignment and the `$Script:ScriptTag` assignment).
+
+---
+

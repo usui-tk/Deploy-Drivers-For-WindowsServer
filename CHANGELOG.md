@@ -20,6 +20,165 @@ independently.
 
 ---
 
+## [2026-05-25] `legacy-ws2019-ps51-japp-correctness-fix` — Chipset r75 / Graphics r41 / BthPan r23 / NPU r19
+
+This release closes the three defects surfaced during a follow-up
+diagnostic cycle on 2026-05-25 against the same Windows Server 2019
+Datacenter ja-JP + AMD Ryzen 5 PRO 4650U (Renoir) bench host that the
+[r74 release](#2026-05-24-legacy-ws2019-runtime-correctness-fix--chipset-r74--graphics-r40--bthpan-r22--npu-r18-unchanged)
+investigated. The 2026-05-24 release correctly identified four
+defects but, as r75 revealed, **misdiagnosed the proximate cause of
+two of them**. r75 documents the honest correction (SPEC §D.33) and
+ships both the corrected source-code fixes and two new `psa.py` v3.9.0
+static-analysis rules that would have caught the defects at
+static-analysis time. Full post-incident analysis lives in
+[SPEC §D.33](./SPEC.md#d33-honest-correction-of-d32-and-additional-defects-from-the-2026-05-25-ws2019--renoir-bench-cycle-r75);
+test scenarios live in
+[TESTING §17](./TESTING.md#17-r75-2026-05-25-ws2019-ja-jp--renoir-test-scenarios-defect-a--b--c).
+
+### Fixed
+
+- **Defect A — `Split-Path -LiteralPath ... -Parent` triggers
+  `AmbiguousParameterSet` on Windows PowerShell 5.1 ja-JP.** The line
+  `$infDir = Split-Path -LiteralPath $InfPath -Parent` at the head of
+  `Get-InfDriverFileList` was the actual source of the
+  `指定された名前のパラメーターを使用してパラメーター セットを解決できません。`
+  warning that surfaced as the WHQL co-sign analysis failure in r71–r74.
+  The r74 release attributed this warning to the `Find-Signtool` typo
+  in `Test-WhqlCoSignature` (see r74 §D.32.2), but that diagnosis was
+  wrong — the typo is real but harmless on this host, while the
+  `Split-Path` AmbiguousParameterSet bug is what propagated the
+  `ParameterBindingException` through `Test-WhqlCoSignature`'s outer
+  `try/catch` and forced every WHQL classification into the conservative
+  `'self-only'` fallback. The r75 fix replaces the line with
+  `$infDir = [System.IO.Path]::GetDirectoryName($InfPath)`, which has no
+  PowerShell binder ambiguity. Byte-identical change across Chipset
+  r75 / Graphics r41 / BthPan r23 (PSA8001-compliant). NPU has no
+  `Get-InfDriverFileList` helper and is structurally immune.
+  See SPEC §D.33.2 for the diagnostic evidence (v2 probe Step 1.7).
+
+- **Defect B — `Get-OurSignedOemInfSet` Pass 1 scanned the wrong
+  directory.** Pass 1 scanned `C:\Windows\INF\oem*.cat`, which is empty
+  on WS2019 ja-JP. The catalogs actually live in
+  `C:\Windows\System32\CatRoot\{F750E6C3-38EE-11D1-85E5-00C04FC295EE}\`
+  (the Microsoft Code Verification Root catalog database — a well-known
+  GUID stable from Windows XP through Server 2025). Pass 1 therefore
+  returned an empty set, the `if ($matchedOemBases.Count -eq 0)` early
+  exit skipped Pass 2 (the pnputil cross-reference), and V06's threading
+  of `$ourInfSet` into `Get-DriverSourceCategory` — the r74 fix for r74
+  Defect 3 — silently received an empty hashtable. The script-installed
+  drivers continued to classify as `[B]` (vendor-signed) instead of `[C]`
+  (self-signed) after the r74 release, leaving the V06 idempotency goal
+  unmet despite r74's apparent fix. The r75 fix introduces a three-pass
+  design:
+  - Pass 1a (primary): scan the CatRoot location directly.
+  - Pass 1b (fallback): when Pass 1a finds 0 matches, look up the cert
+    Subject CN by thumbprint and walk `pnputil /enum-drivers` output
+    for entries whose Signer Name matches. This protects against
+    future CatRoot path changes without re-introducing the silent-
+    empty-set behaviour.
+  - Pass 2 (unchanged): pnputil OEM-name → Original-Name mapping,
+    which was correctly designed in r74 and now actually runs.
+  Byte-identical change across Chipset r75 and Graphics r41
+  (PSA8001-compliant). BthPan's V06 has no `Get-DriverSourceCategory`
+  call so its `Get-OurSignedOemInfSet` is structurally absent and not
+  affected. See SPEC §D.33.3 for the diagnostic evidence (v2 probe
+  Steps 2.8a/b/c).
+
+- **Defect C — `Invoke-InstPhase00_PreInstallReview` referenced
+  `$ourInfSet` without building it (latent since r74).** When r74 added
+  the V06 `$ourInfSet` build (and the matching I04 build that was
+  already in place pre-r74), the I00 phase was overlooked. The I00
+  pre-install review section references `$ourInfSet` inside a
+  `-KnownOurInfSet $ourInfSet` argument, but the variable is only
+  defined inside `Invoke-VerifyPhase06_HardwareImpactAnalysis`. The
+  reference resolves to `$null` at runtime — silently degrading the
+  classification path back to the Step 0a / 1 / 2 / 3 cascade — and the
+  symptom became visible only at static-analysis time as a `psa.py`
+  PSA2001 error once Defect A and Defect B were addressed. The r75 fix
+  mirrors the V06 build pattern at the start of I00's per-device loop.
+  Byte-identical change across Chipset r75 and Graphics r41. BthPan
+  I00 does not have the AMD-hardware-on-MS-generic loop and is not
+  affected. See SPEC §D.33.4 for the analysis.
+
+- **Honest correction of r74 §D.32.2.** The r74 release attributed the
+  `指定された名前のパラメーターを使用してパラメーター セットを解決できません。`
+  warning to the `Find-Signtool` typo. r75 corrects this attribution:
+  the typo is real but harmless on this host, while the actual cause
+  was the `Split-Path -LiteralPath -Parent` bug (Defect A above). The
+  r74 §D.32 section is preserved verbatim in SPEC.md to keep the
+  misdiagnosis in the historical record; r75 §D.33 is the corrected
+  narrative. See SPEC §D.33.1 for the rationale.
+
+### Changed
+
+- `$Script:ScriptTag` updated across all four scripts from
+  `legacy-ws2019-runtime-correctness-fix` (Chipset / Graphics / BthPan)
+  and `legacy-ws2019-wdac-spf-integration` (NPU) to
+  `legacy-ws2019-ps51-japp-correctness-fix` (uniform across all four
+  scripts). This is the new release-line identity reflecting the
+  PowerShell 5.1 ja-JP locus of the r75 defects.
+- All four scripts bumped to their new revision number:
+  Chipset r74 → r75, Graphics r40 → r41, BthPan r22 → r23, NPU r18 →
+  r19. The NPU bump is a documented exception to SPEC §A.7 *no empty
+  revisions* — the NPU pipeline has none of the three defect surfaces
+  (no `Get-InfDriverFileList`, no `Get-OurSignedOemInfSet`, no I00
+  AMD-hardware loop), so r19 differs from r18 only in the two version-
+  string lines. The exception is justified by cross-script ScriptTag
+  alignment — running all four sister scripts under the same
+  `legacy-ws2019-ps51-japp-correctness-fix` ScriptTag is more valuable
+  to operators than the strict "no empty revisions" reading. See
+  SPEC §D.33.10 for the full rationale.
+- `psa.py` validation now requires v3.9.0 (was v3.8.0). The new
+  version adds **PSA2010** (undefined-function call detection, error)
+  and **PSA2011** (Split-Path -LiteralPath -Parent detection, error).
+  Both rules would have caught the corresponding r75 defects at
+  static-analysis time. The four scripts in this repository pass
+  `psa.py 3.9.0 --severity error` with 0 errors at the r75 baseline.
+  The accepted warning baseline is unchanged from r74 (PSAP0003
+  historical inline-revision-tag references).
+
+### Documentation
+
+- **SPEC.md** gains §D.33 (≈280 lines) with subsections covering:
+  the rationale for an honest correction of §D.32 (§D.33.1), per-
+  defect post-incident analysis with diagnostic evidence (§D.33.2 /
+  §D.33.3 / §D.33.4), validation that §D.32.3 and §D.32.5 are
+  unchanged (§D.33.5), the release version contract (§D.33.6), test
+  scenario index (§D.33.7), static-analysis posture (§D.33.8),
+  additions to Lessons learned (§D.33.9), and the exception to §A.7
+  for cross-script ScriptTag alignment (§D.33.10).
+- **SPEC.md §A.11** rule-count text updated from "37-rule check set"
+  to "45-rule check set" (line 101 forward-looking blurb), and the
+  "Rule coverage (36 rules)" subsection header updated to
+  "Rule coverage (45 rules)" (line 876) with the added-version
+  attributions extended to mention 3.9.0's PSA2010 and PSA2011.
+- **SPEC.md** gains §A.11.5d (PSA2010 specification) and §A.11.5e
+  (PSA2011 specification) under the existing §A.11.5* family.
+- **TESTING.md §17** new (TC17.1 — TC17.9) documenting the
+  procedures for verifying each r75 defect fix, including the
+  diagnostic-log references (`diag-r40-followup-v2-20260524-111804.log`
+  Step 1.7 for Defect A, Steps 2.8a/b/c for Defect B,
+  `pre-reinstall-snapshot-20260524-113102.log` for V06 idempotency).
+- **README.md / README.ja.md** "What's new" section points to r75,
+  §D.33, and TESTING §17. Rule-count references updated from "37-rule"
+  to "45-rule" in the Development tools section.
+
+### Known limitations
+
+- The bench cycle was run against a single host (WS2019 Datacenter
+  ja-JP build 17763.8755, AMD Ryzen 5 PRO 4650U "Renoir") and the
+  Defect A / B verifications inherit that scope. Defect A is locale-
+  and-build-specific (PS 5.1 ja-JP), so en-US WS2019 hosts may have
+  observed the bug differently — but the fix (use
+  `[System.IO.Path]::GetDirectoryName`) is locale-independent and is
+  unambiguously safer than the original form on every supported
+  build. Defect B is build-version-dependent (the catalog landing
+  directory has been stable since Windows XP, so the fix should apply
+  across WS2016 / 2019 / 2022 / 2025).
+
+---
+
 ## [2026-05-24] `legacy-ws2019-runtime-correctness-fix` — Chipset r74 / Graphics r40 / BthPan r22 / NPU r18 (unchanged)
 
 This release closes four runtime defects surfaced during a clean-installed

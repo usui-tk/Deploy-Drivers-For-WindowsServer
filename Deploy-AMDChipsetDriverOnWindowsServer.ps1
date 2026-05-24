@@ -651,8 +651,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.05.24-r74'
-$Script:ScriptTag     = 'legacy-ws2019-runtime-correctness-fix'
+$Script:ScriptVersion = 'chipset-2026.05.25-r75'
+$Script:ScriptTag     = 'legacy-ws2019-ps51-japp-correctness-fix'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -4853,7 +4853,7 @@ function Get-InfDriverFileList { # psa-disable-line PSA6003 -- compound noun (e.
     if (-not (Test-Path -LiteralPath $InfPath)) {
         return @()
     }
-    $infDir = Split-Path -LiteralPath $InfPath -Parent
+    $infDir = [System.IO.Path]::GetDirectoryName($InfPath)
     $result = New-Object System.Collections.Generic.List[string]
     $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
     # Pass 1: extract referenced .sys filenames from the INF text body.
@@ -11110,20 +11110,39 @@ function Get-OurSignedOemInfSet {
     # the per-device disk I/O that Step 0a otherwise pays when the
     # post-install snapshot enumerates dozens of devices.
     #
-    # The set is built in two passes:
-    #   1. Direct scan of C:\Windows\INF\oem*.cat - for each catalog
-    #      file whose signer thumbprint matches $ExpectedThumbprint, add
-    #      both 'oem<N>.inf' and 'oem<N>.cat' to the set.
-    #   2. pnputil /enum-drivers cross-reference - the pnputil output
-    #      maps each OEM-published name to its Original Name (e.g.,
-    #      oem45.inf -> u0201039.inf). For every match found in pass 1,
-    #      also add the Original Name to the set. This handles cases
-    #      where Win32_PnPSignedDriver.InfName returns the original
-    #      short name instead of the OEM-numbered form. The pnputil
-    #      label-line regex matches both English ("Published Name",
-    #      "Original Name") and Japanese ("公開名" / "発行された名前",
-    #      "元の名前" / "元のファイル名") variants observed across
-    #      WS2016 / WS2019 / WS2022 / WS2025 builds.
+    # The set is built in three passes (r75 - SPEC D.33):
+    #   1a. Direct scan of the system catalog database
+    #       (C:\Windows\System32\CatRoot\{F750E6C3-38EE-11D1-85E5-
+    #       00C04FC295EE}\oem*.cat). The GUID is the well-known
+    #       Microsoft Code Verification Root catalog database
+    #       identifier, stable across Windows XP through 2025. For
+    #       each .cat file signed with $ExpectedThumbprint, add both
+    #       'oem<N>.inf' and 'oem<N>.cat' to the set. This replaces
+    #       the pre-r75 scan of C:\Windows\INF\oem*.cat, which is
+    #       empty on WS2019 ja-JP (catalogs land only in CatRoot and
+    #       in the per-driver DriverStore\FileRepository\ bundle on
+    #       that build) and caused Defect B in the 2026-05-24 bench
+    #       cycle.
+    #   1b. pnputil Signer Name fallback. If Pass 1a finds 0 matching
+    #       catalogs (CatRoot is unreadable, or the host's pnputil
+    #       stages catalogs in a different location), look up the
+    #       cert's Subject CN by thumbprint in LocalMachine\Root +
+    #       LocalMachine\TrustedPublisher and then walk pnputil
+    #       /enum-drivers output for entries whose Signer Name
+    #       matches. The Published Name (oem<N>.inf) of each match
+    #       becomes the seed for $matchedOemBases. The pnputil output
+    #       is also reused by Pass 2 below.
+    #   2.  pnputil /enum-drivers cross-reference - the pnputil
+    #       output maps each OEM-published name to its Original Name
+    #       (e.g., oem45.inf -> u0201039.inf). For every match found
+    #       in pass 1a or 1b, also add the Original Name to the set.
+    #       This handles cases where Win32_PnPSignedDriver.InfName
+    #       returns the original short name instead of the OEM-
+    #       numbered form. The pnputil label-line regex matches both
+    #       English ("Published Name", "Original Name") and Japanese
+    #       ("公開名" / "発行された名前", "元の名前" /
+    #       "元のファイル名") variants observed across WS2016 / 2019
+    #       / 2022 / 2025 builds.
     #
     # Keys are stored lower-case; callers MUST use ToLowerInvariant
     # before lookup.
@@ -11135,34 +11154,40 @@ function Get-OurSignedOemInfSet {
     $set = @{}
     if ([string]::IsNullOrWhiteSpace($ExpectedThumbprint)) { return $set }
 
-    # ---- Pass 1: scan C:\Windows\INF\oem*.cat ----
-    $infDir = Join-Path $env:windir 'INF'
-    if (-not (Test-Path -LiteralPath $infDir)) { return $set }
+    # ---- Pass 1a: scan the system catalog database under CatRoot ----
+    # The {F750E6C3-38EE-11D1-85E5-00C04FC295EE} subfolder under
+    # C:\Windows\System32\CatRoot is the Microsoft Code Verification
+    # Root catalog database - the canonical resting place for every
+    # oem*.cat published by pnputil since Windows XP. Direct scan of
+    # this location reliably surfaces our self-signed catalogs across
+    # WS2016 / 2019 / 2022 / 2025.
+    $catRootGuid = 'F750E6C3-38EE-11D1-85E5-00C04FC295EE'
+    $catRootDir = Join-Path $env:windir ('System32\CatRoot\{' + $catRootGuid + '}')
     $matchedOemBases = @{}
-    try {
-        $catFiles = @(Get-ChildItem -LiteralPath $infDir -Filter 'oem*.cat' -ErrorAction SilentlyContinue)
-        foreach ($cat in $catFiles) {
-            try {
-                $sig = Get-AuthenticodeSignature -LiteralPath $cat.FullName -ErrorAction Stop
-                if ($sig -and $sig.SignerCertificate -and
-                    $sig.SignerCertificate.Thumbprint -eq $ExpectedThumbprint) {
-                    $oemBase = [System.IO.Path]::GetFileNameWithoutExtension($cat.Name).ToLowerInvariant()
-                    $matchedOemBases[$oemBase] = $true
-                    $set[$oemBase + '.inf'] = $true
-                    $set[$oemBase + '.cat'] = $true
-                }
-            } catch {} # psa-disable-line PSA3004 -- best-effort; one unreadable catalog must not abort the scan
-        }
-    } catch {} # psa-disable-line PSA3004 -- best-effort; INF dir enumeration failure leaves set unchanged
+    if (Test-Path -LiteralPath $catRootDir) {
+        try {
+            $catFiles = @(Get-ChildItem -LiteralPath $catRootDir -Filter 'oem*.cat' -ErrorAction SilentlyContinue)
+            foreach ($cat in $catFiles) {
+                try {
+                    $sig = Get-AuthenticodeSignature -LiteralPath $cat.FullName -ErrorAction Stop
+                    if ($sig -and $sig.SignerCertificate -and
+                        $sig.SignerCertificate.Thumbprint -eq $ExpectedThumbprint) {
+                        $oemBase = [System.IO.Path]::GetFileNameWithoutExtension($cat.Name).ToLowerInvariant()
+                        $matchedOemBases[$oemBase] = $true
+                        $set[$oemBase + '.inf'] = $true
+                        $set[$oemBase + '.cat'] = $true
+                    }
+                } catch {} # psa-disable-line PSA3004 -- best-effort; one unreadable catalog must not abort the scan
+            }
+        } catch {} # psa-disable-line PSA3004 -- best-effort; CatRoot enumeration failure leaves set unchanged
+    }
 
-    if ($matchedOemBases.Count -eq 0) { return $set }
-
-    # ---- Pass 2: pnputil /enum-drivers cross-reference ----
+    # ---- Acquire pnputil /enum-drivers output (used by Pass 1b and Pass 2) ----
     # Parse text output rather than relying on pnputil /format:csv,
     # because /format support varies across WS2016 / 2019 / 2022 / 2025
     # builds. Label regexes accept both English and Japanese variants;
-    # other locales degrade gracefully (Pass 1 oem<N>.inf entries are
-    # still in the set).
+    # other locales degrade gracefully (Pass 1 oem<N>.inf entries
+    # remain in the set).
     $stdout = $null
     try {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -11179,6 +11204,62 @@ function Get-OurSignedOemInfSet {
         $proc.Dispose()
     } catch {} # psa-disable-line PSA3004 -- pnputil unavailable: degrade gracefully
 
+    # ---- Pass 1b: pnputil Signer Name fallback (only when Pass 1a found 0) ----
+    # Look up the certificate subject CN by thumbprint from the local
+    # cert stores (LocalMachine\Root or LocalMachine\TrustedPublisher,
+    # whichever the install populated), then match pnputil entries by
+    # Signer Name. Subject CN is the form pnputil reports in its
+    # "Signer Name" / "署名者名" field.
+    if ($matchedOemBases.Count -eq 0 -and $stdout) {
+        $expectedSignerCn = $null
+        foreach ($storePath in @('Cert:\LocalMachine\Root', 'Cert:\LocalMachine\TrustedPublisher')) {
+            try {
+                $certs = @(Get-ChildItem -LiteralPath $storePath -ErrorAction SilentlyContinue |
+                           Where-Object { $_.Thumbprint -eq $ExpectedThumbprint })
+                if ($certs.Count -gt 0) {
+                    $subj = $certs[0].Subject
+                    # Subject format: 'CN="...", O=..., ...' or 'CN=...'. Capture CN value.
+                    if ($subj -match '^CN\s*=\s*"?([^",]+)"?') {
+                        $expectedSignerCn = $matches[1].Trim()
+                        break
+                    }
+                }
+            } catch {} # psa-disable-line PSA3004 -- best-effort cert store lookup
+        }
+
+        if ($expectedSignerCn) {
+            $currentPub = $null
+            $currentSigner = $null
+            $commitSignerRecord = {
+                param($pub, $signer)
+                if ($pub -and $signer -and ($signer.Trim() -eq $expectedSignerCn)) {
+                    $pubBase = [System.IO.Path]::GetFileNameWithoutExtension($pub).ToLowerInvariant()
+                    $matchedOemBases[$pubBase] = $true
+                    $set[$pubBase + '.inf'] = $true
+                    $set[$pubBase + '.cat'] = $true
+                }
+            }
+            foreach ($line in ($stdout -split "`r?`n")) {
+                $t = $line.Trim()
+                if ([string]::IsNullOrWhiteSpace($t)) {
+                    & $commitSignerRecord $currentPub $currentSigner
+                    $currentPub = $null
+                    $currentSigner = $null
+                    continue
+                }
+                if ($t -match '^(?:Published Name|Published name|公開名|発行された名前)\s*[:：]\s*(.+?)\s*$') {
+                    $currentPub = $matches[1]
+                } elseif ($t -match '^(?:Signer Name|Signer name|署名者名)\s*[:：]\s*(.+?)\s*$') {
+                    $currentSigner = $matches[1]
+                }
+            }
+            & $commitSignerRecord $currentPub $currentSigner
+        }
+    }
+
+    if ($matchedOemBases.Count -eq 0) { return $set }
+
+    # ---- Pass 2: pnputil /enum-drivers cross-reference (OEM -> Original) ----
     if (-not $stdout) { return $set }
 
     $currentPublished = $null
@@ -12180,6 +12261,18 @@ function Invoke-InstPhase00_PreInstallReview {
         Write-Warn2 'No AMD HARDWARE detected. I03 will still register the drivers in the driver store.'
     }
     $infIndex = Build-PatchedInfHwidIndex -Ctx $Ctx
+    # SPEC §D.33.3 (Defect C): build $ourInfSet locally in I00.
+    # The V06 build at line ~11742 lives in a different function scope
+    # and is not visible here. The original r74 release threaded
+    # -KnownOurInfSet through Get-DriverSourceCategory without also
+    # rebuilding the set per-function, leaving an undefined-variable
+    # reference latent in this phase. Rebuilding it here matches
+    # V06's pattern exactly.
+    $ourInfSet = if ($Ctx.CertThumbprint) {
+        Get-OurSignedOemInfSet -ExpectedThumbprint $Ctx.CertThumbprint
+    } else {
+        @{}
+    }
     $matched   = @()
     $unmatched = @()
     foreach ($d in $hw) {
