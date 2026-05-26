@@ -1295,6 +1295,44 @@ When applying a shared-helper change from Chipset to Graphics / NPU / BthPan:
 
 This checklist is informational, not enforced by any static rule. The static-analysis gate (`psa.py --config .psa.config.json`) is the *hard* requirement; this checklist surfaces the additional decisions a human reviewer SHOULD weigh when copy-pasting.
 
+##### Cross-repo shared utility canon (5-way: AMD 4 siblings + Download-SpeakerDeck.ps1)
+
+A subset of the Tier A shared helpers is also maintained as a **5-way canon** that spans this repository and a sibling repository (`usui-tk/ai-generated-artifacts`, the `Download-SpeakerDeck.ps1` script under `scripts/powershell/download-speakerdeck-oracle4engineer/`). The cross-repo canon is bidirectional best-of-both: each function's implementation is the version that incorporates the strongest design from either repo, propagated to all five scripts so a copy-paste from any one of the five to a new sister script lands a known-good baseline.
+
+The 5-way canon is **not enforced by PSA8001** because PSA8001 is a single-repo cross-file rule (the analyzer only sees files passed in a single invocation, and the two repos are validated independently). Instead, the 5-way canon is enforced by:
+
+1. **Per-function bidirectional code review** at the time of any change to a 5-way canon function. Any change to one of the five scripts MUST be evaluated for propagation to the other four before being merged.
+2. **Bi-repo audit at release time.** When either repo cuts a release that touches one of the 5-way canon functions, the maintainer SHOULD diff the function against the other repo and confirm byte-identity (modulo any per-repo differences explicitly carved out below).
+
+###### Functions in the 5-way canon (as of the `cross-repo-shared-utility-canon-write-caution` release)
+
+The following 28 helper functions are byte-identical across all five scripts (Chipset / Graphics / NPU / BthPan / SpeakerDeck) and any future drift will be flagged at bi-repo review time:
+
+- **Identity / debug-trace seq primitives (5)**: `_DebugTrace_NextSeq`, `_DebugTrace_Now`, `Disable-DebugTraceFileOutput`, `Get-DebugTraceFileOutputStatus`, `Set-DebugStep`
+- **Logging primitives (8)**: `_LogLine`, `Get-PhaseElapsedTag`, `Format-Elapsed`, `Write-Ok`, `Write-Fail`, `Write-Skip`, `Write-Step`, `Write-Caution` (renamed from `Write-Warn2` / `Write-Warn` at this release)
+- **Continuation/detail helper (1)**: `Write-Detail` (defined in all five scripts; AMD scripts use it heavily, SpeakerDeck currently has 0 callsites — see per-repo carve-out below)
+- **Phase banners (2)**: `Write-PhaseHeader`, `Write-PhaseFooter`
+- **Environment / preflight (3)**: `Set-Tls12`, `Set-ConsoleUtf8`, `Assert-PowerShellCompatibility`
+- **DebugTrace framework (9)**: `Start-DebugTrace`, `Stop-DebugTrace`, `_DebugTrace_RetireFrame`, `_DebugTrace_WriteJsonlLine`, `Enable-DebugTraceFileOutput`, `Enable-AutoExportOnPhaseFailure`, `Export-DebugTraceJson`, `Format-DebugFailure`, `Write-DebugFailureReport`
+
+###### Per-repo differences explicitly carved out
+
+The following functions are **shared by name** but their bodies legitimately differ between the two repos because the repos serve different domains:
+
+- **`Show-PowerShellEnvironment`**: The AMD canon implementation references AMD-driver-specific helpers (`Get-BootSigningEnvironment`, `Show-BootSigningEnvironment`, `Show-DriverInstallationOrderNotice`) that do not exist in the SpeakerDeck repo. As a result, this function is maintained as **AMD 4-way canon (Chipset / Graphics / NPU / BthPan byte-identical)** but the SpeakerDeck script keeps its own simpler implementation that omits the driver-specific sections. The two implementations are semantically equivalent for the parts they share (PowerShell host info, OS detection, encoding/TLS reporting) but the AMD version is richer for driver-relevant context. PSA8001 enforces 4-way invariant in the AMD repo; cross-repo drift on this function is expected and explicitly NOT flagged.
+- **`Write-Detail`**: Defined in all five scripts as a no-marker continuation-line helper. The body IS 5-way byte-identical, but **callsite counts differ by design**: the AMD scripts use it heavily (~100 callsites per script) for the multi-row `Show-PowerShellEnvironment` / `Show-OperatingSystemDetail` / `Show-SecureBootBaselineSnapshot` tables; the SpeakerDeck script defines it as a placeholder helper for future table-style output but currently has 0 callsites. Keeping the body byte-identical means a future SpeakerDeck change that adopts table-style output can immediately re-use the AMD callsite patterns without re-importing the helper.
+- **`Write-SubSection`**: Defined in the SpeakerDeck script only (4 callsites). Functionally equivalent to the AMD scripts' `Write-SubHeader` family, but the SpeakerDeck pipeline does not require the level-1 / level-2 split, so the simpler single-level form is sufficient. `Write-SubSection` and `Write-SubHeader` are **not** in the 5-way canon and are not expected to converge.
+
+###### The `Write-Warn` / `Write-Warn2` → `Write-Caution` rename
+
+Prior to the `cross-repo-shared-utility-canon-write-caution` release, the AMD scripts used `Write-Warn2` (a workaround for the visual collision with the built-in `Write-Warning` cmdlet) while the SpeakerDeck script used `Write-Warn` (a shorter form that retained the collision risk). The two names were renamed in lockstep across all five scripts to `Write-Caution`, which:
+
+- avoids any visual or autocomplete collision with `Write-Warning`,
+- matches the noun-form convention of the other one-line helpers (`Write-Ok` / `Write-Fail` / `Write-Skip` / `Write-Step`),
+- semantically matches the `[!]` marker's "operator must take notice, processing continues" intent.
+
+The rename touched all five scripts' definitions and ~520 callsites total (Chipset 109, Graphics 103, NPU 119, BthPan 95, SpeakerDeck 47). Per the repository's revision-history policy, the full callsite count and the history of why two names existed in the first place is captured in `CHANGELOG.md` for the release; the script bodies themselves carry no `Write-Warn` / `Write-Warn2` references after the rename.
+
 ### A.11.6 Self-quality gates for `psa.py` (consumer-side usage)
 
 Since `psa.py` 3.5.0 the canonical analyzer ships three built-in

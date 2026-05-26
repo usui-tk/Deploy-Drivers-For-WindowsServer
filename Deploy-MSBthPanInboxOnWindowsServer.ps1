@@ -437,8 +437,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-$Script:ScriptVersion = 'msbthpan-2026.05.26-r33'
-$Script:ScriptTag     = 'npu-state-model-refactor-step-3-tier-b4-helper-canon'
+$Script:ScriptVersion = 'msbthpan-2026.05.26-r34'
+$Script:ScriptTag     = 'cross-repo-shared-utility-canon-write-caution'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -847,6 +847,8 @@ $Script:WdacBasePolicyGuid = if (-not [string]::IsNullOrWhiteSpace($WdacBasePoli
 # SECTION 1: Logging helpers
 #####################################################################
 function Format-Elapsed {
+    # Render a TimeSpan in a compact human-readable form.
+    # Examples: '0.45s', '12.3s', '5m12.4s', '1h05m12s'
     param([TimeSpan]$Span)
     if ($null -eq $Span) { return '0.00s' }
     if ($Span.TotalSeconds -lt 60) {
@@ -859,32 +861,29 @@ function Format-Elapsed {
         $h = [int][math]::Floor($Span.TotalHours)
         $m = $Span.Minutes
         $s = $Span.Seconds
-        return ('{0}h{1}m{2}s' -f $h, $m, $s)
+        return ('{0}h{1:D2}m{2:D2}s' -f $h, $m, $s)
     }
 }
-
 function Get-PhaseElapsedTag {
-    # Returns elapsed-since-current-phase-start as "[+X.XXs]" or empty.
+    # Returns elapsed-since-current-phase-start as '[+X.XXs]' or empty.
     if ($null -eq $Script:CurrentPhaseStart) { return '' }
     $span = (Get-Date) - $Script:CurrentPhaseStart
     return ('[+{0}]' -f (Format-Elapsed $span))
 }
-
 function _LogLine {
-    # Internal: emits "[HH:mm:ss] [+X.XXs] [marker] message"
+    # Internal: emits '[HH:mm:ss] [+X.XXs]   [marker] message'
     param([string]$Marker, [string]$Msg, [string]$Color)
     $ts  = Get-Date -Format 'HH:mm:ss'
     $tag = Get-PhaseElapsedTag
     if ($tag) {
-        Write-Host ("[{0}] {1,-10} {2} {3}" -f $ts, $tag, $Marker, $Msg) -ForegroundColor $Color
+        Write-Host ("[{0}] {1,-12} {2} {3}" -f $ts, $tag, $Marker, $Msg) -ForegroundColor $Color
     } else {
-        Write-Host ("[{0}]            {1} {2}" -f $ts, $Marker, $Msg) -ForegroundColor $Color
+        Write-Host ("[{0}] {1,-12} {2} {3}" -f $ts, '', $Marker, $Msg) -ForegroundColor $Color
     }
 }
-
 function Write-Step  { param($Msg) _LogLine '[*]' $Msg 'Cyan'     }
 function Write-Ok    { param($Msg) _LogLine '[+]' $Msg 'Green'    }
-function Write-Warn2 { param($Msg) _LogLine '[!]' $Msg 'Yellow'   }
+function Write-Caution { param($Msg) _LogLine '[!]' $Msg 'Yellow'   }
 function Write-Fail  { param($Msg) _LogLine '[X]' $Msg 'Red'      }
 function Write-Skip  { param($Msg) _LogLine '[~]' $Msg 'DarkGray' }
 
@@ -923,18 +922,28 @@ function Write-Detail {
 }
 
 function Write-PhaseHeader {
-    param($Id, $Name, $Group)
+    # Prints a magenta banner that opens a phase. Records phase start
+    # time so subsequent log lines can show '[+elapsed]'.
+    #
+    # Params:
+    #   Id    : short identifier (e.g. 'P01', 'P06', etc; always two digits)
+    #   Name  : human-readable phase name (e.g. 'Listing-Collection')
+    #   Group : phase group (e.g. 'Setup', 'Scan', 'Fetch', 'Report')
+    param(
+        [Parameter(Mandatory)] [string]$Id,
+        [Parameter(Mandatory)] [string]$Name,
+        [Parameter(Mandatory)] [string]$Group
+    )
     $Script:CurrentPhaseStart = Get-Date
     $Script:CurrentPhaseId    = $Id
     $startStr = $Script:CurrentPhaseStart.ToString('HH:mm:ss')
     $line = '=' * 72
     Write-Host ''
     Write-Host $line -ForegroundColor Magenta
-    Write-Host (" PHASE {0} - {1,-23} ({2,-6})  start: {3}" -f $Id, $Name, $Group, $startStr) -ForegroundColor Magenta
-    Write-Host (" script: {0}" -f $Script:ScriptShortTag) -ForegroundColor DarkGray
+    Write-Host (' PHASE {0,-4} - {1,-22} ({2,-7}) start: {3}' -f $Id, $Name, $Group, $startStr) -ForegroundColor Magenta
+    Write-Host (' script: {0}' -f $Script:ScriptShortTag) -ForegroundColor DarkGray
     Write-Host $line -ForegroundColor Magenta
 }
-
 function Write-SubHeader {
     <#
     .SYNOPSIS
@@ -960,15 +969,24 @@ function Write-SubHeader {
 }
 
 function Write-PhaseFooter {
-    param($Id, [ValidateSet('done','cached','skipped','failed')]$Status)
-
-    # Idempotency: ignore duplicate calls for the same Id within one run.
-    # Phases that emit their own footer before throwing would otherwise
-    # be double-counted when the dispatcher's catch also calls us.
+    # Closes a phase started by Write-PhaseHeader. Records the elapsed
+    # duration in $Script:PhaseTimings (used by run-summary helpers).
+    #
+    # Idempotent: a second call with the same Id is ignored, so wrapping
+    # try/finally blocks do not double-count.
+    #
+    # Status values:
+    #   done    - phase completed successfully
+    #   cached  - phase was a no-op because the target state was already met
+    #   skipped - phase was intentionally skipped (e.g. -OnlyPhases filter)
+    #   failed  - phase threw an exception
+    param(
+        [Parameter(Mandatory)] [string]$Id,
+        [Parameter(Mandatory)] [ValidateSet('done','cached','skipped','failed')] [string]$Status
+    )
     foreach ($t in $Script:PhaseTimings) {
         if ($t.Id -eq $Id) { return }
     }
-
     $color = switch ($Status) {
         'done'    { 'Green' }
         'cached'  { 'DarkGray' }
@@ -985,15 +1003,13 @@ function Write-PhaseFooter {
         EndedAt = Get-Date
     }) | Out-Null
 
-    Write-Host (" PHASE {0} -> {1,-7}  elapsed: {2}" -f $Id, $Status.ToUpper(), $elapsedStr) -ForegroundColor $color
-    Write-Host ''
+    Write-Host (' PHASE {0,-4} -> {1,-7}  elapsed: {2}' -f $Id, $Status.ToUpper(), $elapsedStr) -ForegroundColor $color
 
     # Reset so any stray Write-Step/Ok between phases doesn't show a
     # misleading [+X.XXs] tag inherited from the previous phase.
     $Script:CurrentPhaseStart = $null
     $Script:CurrentPhaseId    = $null
 }
-
 function Show-PowerShellEnvironment {
     # ====================================================================
     # Display the PowerShell execution environment for diagnostics.
@@ -1169,12 +1185,27 @@ function Show-PowerShellEnvironment {
 }
 
 function Assert-PowerShellCompatibility {
-    # ====================================================================
-    # Hard-fail the script early if we cannot safely run.
-    # ====================================================================
-    # Conditions checked here are *fatal* (the script cannot proceed).
-    # Soft warnings (e.g. unknown OS build) live in
-    # Show-PowerShellEnvironment instead.
+    <#
+    .SYNOPSIS
+        Hard-fail the script early when running on an unsupported host.
+
+    .DESCRIPTION
+        Refuses to proceed when:
+          - PowerShell version is below 5.1, or
+          - The current process is 32-bit.
+
+        Both conditions are categorical incompatibilities (not soft
+        warnings): the script's runspace-based concurrency, .NET regex
+        Unicode escapes, and large-file handling have all been validated
+        only on 5.1+ / 64-bit hosts. Running on a 32-bit host or a
+        pre-5.1 engine will produce silent miscompilations or hangs
+        rather than honest errors, so we stop here with a clear message.
+
+        Throws a terminating error so the script exits with non-zero
+        status; downstream phases never run.
+    #>
+    param()
+
     $pv    = $PSVersionTable.PSVersion
     $minPs = [Version]'5.1'
     if ($pv -lt $minPs) {
@@ -1182,21 +1213,23 @@ function Assert-PowerShellCompatibility {
 This script requires PowerShell $minPs or later.
 Detected: $pv
 
-This script targets the default PowerShell included with Windows
-Server 2016 / 2019 / 2022 / 2025, which is PowerShell 5.1.
-PowerShell 7+ is NOT required, but PowerShell 5.1 is the minimum.
+This script targets the default PowerShell included with Windows 10 /
+11 and Windows Server 2016 / 2019 / 2022 / 2025, which is
+PowerShell 5.1. PowerShell 7+ is NOT required, but PowerShell 5.1 is
+the minimum.
 
-If you are on Windows Server 2012 R2 or earlier, install Windows
-Management Framework 5.1: https://aka.ms/wmf51
+If you are on Windows 7 / Windows Server 2012 R2 or earlier, install
+the Windows Management Framework 5.1 update: https://aka.ms/wmf51
 "@
     }
     if (-not [Environment]::Is64BitProcess) {
         throw @'
 This script requires a 64-bit PowerShell process. Detected 32-bit.
 
-On a 64-bit Windows Server, launch from "Windows PowerShell"
-(NOT "Windows PowerShell (x86)"). The driver / signtool tooling
-will not work correctly inside a 32-bit host.
+On a 64-bit Windows, launch from "Windows PowerShell" (NOT "Windows
+PowerShell (x86)"). 32-bit hosts may hit issues with concurrent
+runspace pools and large file path operations that have only been
+validated under 64-bit PowerShell.
 '@
     }
 }
@@ -1244,25 +1277,23 @@ function Show-DriverInstallationOrderNotice {
 
 function Set-Tls12 {
     # ====================================================================
-    # Enable modern TLS for Invoke-WebRequest / Invoke-RestMethod.
+    # Enable TLS for outbound HTTPS calls with best-effort multi-version
+    # fallback. Tls12 is the baseline (required by most modern endpoints
+    # including AMD/Microsoft download servers and Speaker Deck CDN).
+    # Tls13 is added when the running .NET supports it (Framework 4.8+,
+    # PowerShell 7+, WS2022 / WS2025). Tls11 and Tls (1.0) are added as
+    # a defensive fallback for very old environments (WS2016 / WS2019
+    # with stock .NET); modern hosts will negotiate Tls13/Tls12 and the
+    # legacy bits are ignored by the server. Each enum lookup is wrapped
+    # in try/catch because older .NET runtimes raise an enum-value error
+    # for protocols they don't recognise.
     # ====================================================================
-    # Tls12 is the must-have (some download endpoints require it).
-    # Tls13 is added if the running.NET supports it (Framework 4.8+,
-    # WS2022+ ships with it; WS2016/WS2019 may not). Tls11 and below
-    # are intentionally NOT requested - they are deprecated and removed
-    # from many endpoints.
     $protos = [Net.SecurityProtocolType]::Tls12
-    try {
-        $tls13 = [Net.SecurityProtocolType]::Tls13
-        $protos = $protos -bor $tls13
-    } catch {
-        # Tls13 enum value not present in this.NET runtime; that is
-        # fine - Tls12 alone is sufficient for everything this script
-        # downloads.
-    }
+    try { $protos = $protos -bor [Net.SecurityProtocolType]::Tls13 } catch { } # psa-disable-line PSA3004 -- Tls13 enum may not exist on older .NET
+    try { $protos = $protos -bor [Net.SecurityProtocolType]::Tls11 } catch { } # psa-disable-line PSA3004 -- defensive legacy fallback for very old environments
+    try { $protos = $protos -bor [Net.SecurityProtocolType]::Tls   } catch { } # psa-disable-line PSA3004 -- defensive legacy fallback for very old environments
     [Net.ServicePointManager]::SecurityProtocol = $protos
 }
-
 function Set-ConsoleUtf8 {
     # ====================================================================
     # SPEC A.5 / D.5: enforce UTF-8 console encoding so ja-JP Japanese
@@ -1518,16 +1549,18 @@ function _DebugTrace_RetireFrame {
 function Start-DebugTrace {
     <#
     .SYNOPSIS
-        Push a new debug trace frame onto the stack. Call at function entry.
+        Push a new debug trace frame onto the stack. Call at function
+        entry.
     .PARAMETER Context
-        Human-readable name for this frame, typically the function name.
+        Human-readable name for this frame, typically the function name
+        or 'phase.PNN.<Name>' for phase-level frames.
     .PARAMETER Echo
         If set, every Set-DebugStep call also writes a live [trace] line
         to the console. Default off.
     .PARAMETER PhaseId
         Optional phase identifier (e.g. 'P05'). When set, the frame is
-        registered in the per-phase trace registry. Used by the phase
-        dispatcher; do not set manually inside phase function bodies.
+        registered in the per-phase trace registry so Export-DebugTraceJson
+        can build a per-phase summary.
     #>
     [CmdletBinding()]
     param(
@@ -1658,21 +1691,19 @@ function Format-DebugFailure {
     .PARAMETER ErrorRecord
         The $_ inside a catch block.
     .OUTPUTS
-        pscustomobject with: Context, FailedStep, Elapsed, ExType,
-        ExMessage, InnerType, InnerMessage, FullyQualifiedId,
-        ScriptStackTrace, StepHistory (object[]).
+        pscustomobject with: Context, FailedStep, Elapsed, ElapsedMs,
+        PhaseId, ExType, ExMessage, InnerType, InnerMessage,
+        FullyQualifiedId, ScriptStackTrace, StepHistory (object[]).
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
-    param(
-        [Parameter(Mandatory)] $ErrorRecord
-    )
+    param([Parameter(Mandatory)] $ErrorRecord)
     $ex = $ErrorRecord.Exception
     if ($Script:DebugTraceStack.Count -gt 0) {
         $frame       = $Script:DebugTraceStack.Peek()
         $context     = $frame.Context
         $failedStep  = $frame.Step
-        # PS 5.1 ja-JP bug workaround: use.ToArray not @($list).
+        # PS 5.1 ja-JP bug workaround: use .ToArray(), not @($list).
         $stepHistory = $frame.Steps.ToArray()
         $elapsed     = (Get-Date) - $frame.StartTime
         $phaseId     = $frame.PhaseId
@@ -1684,25 +1715,25 @@ function Format-DebugFailure {
         $phaseId     = $null
     }
     return [pscustomobject]@{
-        Context           = $context
-        FailedStep        = $failedStep
-        Elapsed           = $elapsed
-        ElapsedMs         = [int]$elapsed.TotalMilliseconds
-        PhaseId           = $phaseId
-        ExType            = $ex.GetType().FullName
-        ExMessage         = $ex.Message
-        InnerType         = if ($ex.InnerException) { $ex.InnerException.GetType().FullName } else { $null }
-        InnerMessage      = if ($ex.InnerException) { $ex.InnerException.Message } else { $null }
-        FullyQualifiedId  = $ErrorRecord.FullyQualifiedErrorId
-        ScriptStackTrace  = $ErrorRecord.ScriptStackTrace
-        StepHistory       = $stepHistory
+        Context          = $context
+        FailedStep       = $failedStep
+        Elapsed          = $elapsed
+        ElapsedMs        = [int]$elapsed.TotalMilliseconds
+        PhaseId          = $phaseId
+        ExType           = $ex.GetType().FullName
+        ExMessage        = $ex.Message
+        InnerType        = if ($ex.InnerException) { $ex.InnerException.GetType().FullName } else { $null }
+        InnerMessage     = if ($ex.InnerException) { $ex.InnerException.Message } else { $null }
+        FullyQualifiedId = $ErrorRecord.FullyQualifiedErrorId
+        ScriptStackTrace = $ErrorRecord.ScriptStackTrace
+        StepHistory      = $stepHistory
     }
 }
 
 function Write-DebugFailureReport {
     <#
     .SYNOPSIS
-        Emit a formatted failure report via Write-Warn2 + log the
+        Emit a formatted failure report via Write-Caution + log the
         failure event to JSONL. Call from a catch block. Also marks
         the active phase's registry entry as 'failure' if applicable.
     .PARAMETER ErrorRecord
@@ -1728,29 +1759,29 @@ function Write-DebugFailureReport {
         $reg.FailureRef = $r
     }
 
-    Write-Warn2 ("{0}: FAILED at step '{1}' (elapsed {2:F2}s)" -f $r.Context, $r.FailedStep, $r.Elapsed.TotalSeconds)
-    Write-Warn2 ("  ExType   : {0}" -f $r.ExType)
-    Write-Warn2 ("  Message  : {0}" -f $r.ExMessage)
+    Write-Caution ("{0}: FAILED at step '{1}' (elapsed {2:F2}s)" -f $r.Context, $r.FailedStep, $r.Elapsed.TotalSeconds)
+    Write-Caution ("  ExType   : {0}" -f $r.ExType)
+    Write-Caution ("  Message  : {0}" -f $r.ExMessage)
     if ($r.InnerType) {
-        Write-Warn2 ("  Inner    : {0} - {1}" -f $r.InnerType, $r.InnerMessage)
+        Write-Caution ("  Inner    : {0} - {1}" -f $r.InnerType, $r.InnerMessage)
     }
     if ($r.FullyQualifiedId) {
-        Write-Warn2 ("  FQErrId  : {0}" -f $r.FullyQualifiedId)
+        Write-Caution ("  FQErrId  : {0}" -f $r.FullyQualifiedId)
     }
     if ($r.ScriptStackTrace) {
         $stackLines = $r.ScriptStackTrace -split "`r?`n"
-        Write-Warn2 ("  Stack    : {0}" -f $stackLines[0])
+        Write-Caution ("  Stack    : {0}" -f $stackLines[0])
         $maxStack = [Math]::Min(3, $stackLines.Count)
         for ($i = 1; $i -lt $maxStack; $i++) {
-            Write-Warn2 ("             {0}" -f $stackLines[$i])
+            Write-Caution ("             {0}" -f $stackLines[$i])
         }
     }
     if ($IncludeStepHistory -and $r.StepHistory.Count -gt 0) {
-        Write-Warn2 ("  Steps    : {0} recorded" -f $r.StepHistory.Count)
+        Write-Caution ("  Steps    : {0} recorded" -f $r.StepHistory.Count)
         $firstAt = $r.StepHistory[0].At
         foreach ($h in $r.StepHistory) {
             $rel = ($h.At - $firstAt).TotalMilliseconds
-            Write-Warn2 ('    +{0,7:F0}ms  {1}' -f $rel, $h.Step)
+            Write-Caution ('    +{0,7:F0}ms  {1}' -f $rel, $h.Step)
         }
     }
 
@@ -1776,10 +1807,10 @@ function Write-DebugFailureReport {
             $tag = if ($r.PhaseId) { $r.PhaseId } else { 'top' }
             $exportPath = Join-Path $Script:DebugTraceAutoExportDir ("debugtrace_export_{0}_{1}.json" -f $tag, $ts)
             Export-DebugTraceJson -Path $exportPath -IncludeEvents:$false | Out-Null
-            Write-Warn2 ("  TraceJson: {0}" -f $exportPath)
+            Write-Caution ("  TraceJson: {0}" -f $exportPath)
         } catch {
             # Don't let auto-export failures hide the original error.
-            Write-Warn2 ("  TraceJson: auto-export failed: {0}" -f $_.Exception.Message)
+            Write-Caution ("  TraceJson: auto-export failed: {0}" -f $_.Exception.Message)
         }
     }
 }
@@ -2890,7 +2921,7 @@ function Get-OrEnsureSecureBootBaseline {
         try {
             $Ctx.SecureBootBaseline = Get-SecureBootBaselineSnapshot -WorkRoot $Ctx.WorkRoot
         } catch {
-            Write-Warn2 ("Secure Boot baseline (re-)capture failed: {0}" -f $_.Exception.Message)
+            Write-Caution ("Secure Boot baseline (re-)capture failed: {0}" -f $_.Exception.Message)
         }
     }
 
@@ -4062,7 +4093,7 @@ function Assert-NoConcurrentRun {
         if ($info.SelfPid) {
             Write-Host ('    [+] Reusing workspace lock from earlier run in this PowerShell session (PID {0}).' -f $info.Pid) -ForegroundColor DarkGray
         } else {
-            Write-Warn2 ('Found stale lock from PID {0} (process no longer running) - taking over.' -f $info.Pid)
+            Write-Caution ('Found stale lock from PID {0} (process no longer running) - taking over.' -f $info.Pid)
         }
         Clear-WorkspaceLock -Ctx $Ctx
     }
@@ -4427,8 +4458,8 @@ function Invoke-CriticalAcknowledgementChecklist {
     }
     Write-Host ''
     if ($ForceUnsafe) {
-        Write-Warn2 '  [!] -ForceUnsafe is set; CRITICAL acknowledgement checklist is BYPASSED.'
-        Write-Warn2 '  [!] This is recorded in the run transcript for audit purposes.'
+        Write-Caution '  [!] -ForceUnsafe is set; CRITICAL acknowledgement checklist is BYPASSED.'
+        Write-Caution '  [!] This is recorded in the run transcript for audit purposes.'
         Set-DebugStep ('CRITICAL bypass via -ForceUnsafe: items=' + (($Items | ForEach-Object { $_.Id }) -join ','))
         return $true
     }
@@ -5023,7 +5054,7 @@ function Get-OsContext {
     if (-not $ctx) {
         $closest = $matrix.Keys | Sort-Object | Where-Object { $_ -le $build } | Select-Object -Last 1
         if (-not $closest) { throw "Unsupported OS build: $build (need 14393 or higher)" }
-        Write-Warn2 "Build $build not in matrix; using $($matrix[$closest].Name) profile"
+        Write-Caution "Build $build not in matrix; using $($matrix[$closest].Name) profile"
         $ctx = $matrix[$closest]
     }
     $ctx | Add-Member -NotePropertyName ActualBuild -NotePropertyValue $build      -Force
@@ -5178,7 +5209,7 @@ function Get-LatestSevenZipUrl {
                 Source  = '7-zip.org (parsed)'
             }
         }
-    } catch { Write-Warn2 "7-zip.org parse failed: $($_.Exception.Message)" }
+    } catch { Write-Caution "7-zip.org parse failed: $($_.Exception.Message)" }
 
     # Tier 2: GitHub API
     try {
@@ -5188,10 +5219,10 @@ function Get-LatestSevenZipUrl {
         if ($msi) {
             return [pscustomobject]@{ Version=$api.tag_name; MsiUrl=$msi.browser_download_url; Source='GitHub Releases API' }
         }
-    } catch { Write-Warn2 "GitHub Releases API failed: $($_.Exception.Message)" }
+    } catch { Write-Caution "GitHub Releases API failed: $($_.Exception.Message)" }
 
     # Tier 3: pinned
-    Write-Warn2 'Both online lookups failed - using pinned URL.'
+    Write-Caution 'Both online lookups failed - using pinned URL.'
     return [pscustomobject]@{
         Version='26.01 (pinned)'
         MsiUrl='https://github.com/ip7z/7zip/releases/download/26.01/7z2601-x64.msi'
@@ -5229,7 +5260,7 @@ function Install-WindowsSdkFallback {
     # presence rather than trusting the exit code.
     if (Find-KitTool 'signtool.exe') {
         if ($proc.ExitCode -ne 0) {
-            Write-Warn2 "SDK installer exit code $($proc.ExitCode); signtool.exe is present, treating as already installed."
+            Write-Caution "SDK installer exit code $($proc.ExitCode); signtool.exe is present, treating as already installed."
         }
         return
     }
@@ -5249,7 +5280,7 @@ function Install-WindowsWdkFallback {
     # Same defensive check as the SDK fallback above.
     if (Find-KitTool 'inf2cat.exe') {
         if ($proc.ExitCode -ne 0) {
-            Write-Warn2 "WDK installer exit code $($proc.ExitCode); inf2cat.exe is present, treating as already installed."
+            Write-Caution "WDK installer exit code $($proc.ExitCode); inf2cat.exe is present, treating as already installed."
         }
         return
     }
@@ -5738,7 +5769,7 @@ function Invoke-BthPanSoftRebind {
         Start-Sleep -Seconds 2
         return $true
     } catch {
-        Write-Warn2 ('  [Attempt 1] Restart-PnpDevice failed: {0}' -f $_.Exception.Message)
+        Write-Caution ('  [Attempt 1] Restart-PnpDevice failed: {0}' -f $_.Exception.Message)
         return $false
     }
 }
@@ -5755,7 +5786,7 @@ function Invoke-BthPanDisableEnableRebind {
         Start-Sleep -Seconds 3
         return $true
     } catch {
-        Write-Warn2 ('  [Attempt 2] Disable/Enable-PnpDevice failed: {0}' -f $_.Exception.Message)
+        Write-Caution ('  [Attempt 2] Disable/Enable-PnpDevice failed: {0}' -f $_.Exception.Message)
         try { Enable-PnpDevice -InstanceId $InstanceId -Confirm:$false -ErrorAction SilentlyContinue } catch {} # psa-disable-line PSA3004 -- best-effort recovery
         return $false
     }
@@ -5815,7 +5846,7 @@ function Invoke-BthPanPnputilRebind {
         }
         return ($proc1.ExitCode -eq 0 -or $proc2.ExitCode -eq 0)
     } catch {
-        Write-Warn2 ('  [Attempt 3] pnputil rebind failed: {0}' -f $_.Exception.Message)
+        Write-Caution ('  [Attempt 3] pnputil rebind failed: {0}' -f $_.Exception.Message)
         return $false
     } finally {
         foreach ($f in @($out1, $err1, $out2, $err2)) {
@@ -5841,7 +5872,7 @@ function Invoke-BthPanServiceRestart {
     try {
         $svc = Get-Service -Name 'BthPan' -ErrorAction SilentlyContinue
         if (-not $svc) {
-            Write-Warn2 '  [Attempt 4] BthPan service not registered. Cannot restart.'
+            Write-Caution '  [Attempt 4] BthPan service not registered. Cannot restart.'
             return $false
         }
         Write-Detail '  [Attempt 4] Stop-Service BthPan -> Start-Service BthPan'
@@ -5853,7 +5884,7 @@ function Invoke-BthPanServiceRestart {
         Start-Sleep -Seconds 3
         return $true
     } catch {
-        Write-Warn2 ('  [Attempt 4] BthPan service restart failed: {0}' -f $_.Exception.Message)
+        Write-Caution ('  [Attempt 4] BthPan service restart failed: {0}' -f $_.Exception.Message)
         # Drill down for the actual Win32 error. Service.StartService surface
         # collapses everything into the outer Exception.Message; the real
         # NTSTATUS / Win32 code is usually in InnerException.
@@ -6953,7 +6984,7 @@ If you really need to install on this Workstation host, pass
         $Ctx.SecureBootBaseline = Get-SecureBootBaselineSnapshot -WorkRoot $Ctx.WorkRoot
         Show-SecureBootBaselineSnapshot -Snapshot $Ctx.SecureBootBaseline -Compact
     } catch {
-        Write-Warn2 ("Secure Boot baseline capture failed: {0}" -f $_.Exception.Message)
+        Write-Caution ("Secure Boot baseline capture failed: {0}" -f $_.Exception.Message)
     }
 
     Write-PhaseFooter 'P00' 'done'
@@ -7090,7 +7121,7 @@ function Invoke-PrepPhase01_PrepareWorkspace {
     } catch {
         # SR status is informational; failure here MUST NOT block
         # workspace preparation. Log and continue.
-        Write-Warn2 ('System Restore status check failed (non-fatal): {0}' -f $_.Exception.Message)
+        Write-Caution ('System Restore status check failed (non-fatal): {0}' -f $_.Exception.Message)
     }
 
     Write-PhaseFooter 'P01' 'done'
@@ -7243,7 +7274,7 @@ function Invoke-PrepPhase02_AcquireTools { # psa-disable-line PSA6003 -- compoun
             Write-PhaseFooter 'P02' 'cached'
             return
         }
-        Write-Warn2 'Marker present but tool missing - re-running.'
+        Write-Caution 'Marker present but tool missing - re-running.'
     }
 
     Set-DebugStep 'detect region for winget'
@@ -7262,7 +7293,7 @@ function Invoke-PrepPhase02_AcquireTools { # psa-disable-line PSA6003 -- compoun
             Write-Step '7-Zip: trying winget'
             try {
                 $null = Invoke-WingetSilently -PackageId '7zip.7zip'
-            } catch { Write-Warn2 "winget failed: $($_.Exception.Message)" }
+            } catch { Write-Caution "winget failed: $($_.Exception.Message)" }
         }
         if (-not (Get-SevenZipPath)) {
             Write-Step '7-Zip: direct MSI fallback'
@@ -7297,7 +7328,7 @@ function Invoke-PrepPhase02_AcquireTools { # psa-disable-line PSA6003 -- compoun
         $missing = @()
         if ($needsSdk) { $missing += 'Windows SDK (~5 min)' }
         if ($needsWdk) { $missing += 'Windows WDK (~3 min)' }
-        Write-Warn2 ('First-run install required for: {0}.' -f ($missing -join ', '))
+        Write-Caution ('First-run install required for: {0}.' -f ($missing -join ', '))
         Write-Host  '       Bootstrap EXEs are small (~1-2 MB) but each fetches several hundred MB'  -ForegroundColor DarkYellow
         Write-Host  '       to multi-GB of background payload from Microsoft Download CDN.'         -ForegroundColor DarkYellow
         Write-Host  '       Expected P02 elapsed on a clean host (JP): ~8-10 minutes.'              -ForegroundColor DarkYellow
@@ -7309,12 +7340,12 @@ function Invoke-PrepPhase02_AcquireTools { # psa-disable-line PSA6003 -- compoun
     if ($wingetWorks -and $Ctx.Os.WingetSdkId -and -not $signtool) {
         Write-Step "Windows SDK: winget ($($Ctx.Os.WingetSdkId))"
         try { $null = Invoke-WingetSilently -PackageId $Ctx.Os.WingetSdkId }
-        catch { Write-Warn2 "winget SDK failed: $($_.Exception.Message)" }
+        catch { Write-Caution "winget SDK failed: $($_.Exception.Message)" }
     }
     if ($wingetWorks -and $Ctx.Os.WingetWdkId -and -not $inf2cat) {
         Write-Step "Windows WDK: winget ($($Ctx.Os.WingetWdkId))"
         try { $null = Invoke-WingetSilently -PackageId $Ctx.Os.WingetWdkId }
-        catch { Write-Warn2 "winget WDK failed: $($_.Exception.Message)" }
+        catch { Write-Caution "winget WDK failed: $($_.Exception.Message)" }
     }
     if (-not (Find-KitTool 'signtool.exe')) {
         Write-Step "Windows SDK: direct EXE fallback for $($Ctx.Os.Name)"
@@ -7338,7 +7369,7 @@ function Invoke-PrepPhase02_AcquireTools { # psa-disable-line PSA6003 -- compoun
     if ($Ctx.Makecat) {
         Write-Ok "makecat : $($Ctx.Makecat)"
     } else {
-        Write-Warn2 'makecat.exe not found in Windows Kits. P08 inbox-driver fallback will fail if inf2cat refuses the package.'
+        Write-Caution 'makecat.exe not found in Windows Kits. P08 inbox-driver fallback will fail if inf2cat refuses the package.'
     }
     # InfVerif is the official Microsoft INF validator (replaces ChkInf).
     # Used by Invoke-InfVerifValidation to perform pre/post-patch INF
@@ -7349,7 +7380,7 @@ function Invoke-PrepPhase02_AcquireTools { # psa-disable-line PSA6003 -- compoun
     if ($Ctx.InfVerif) {
         Write-Ok "infverif: $($Ctx.InfVerif)"
     } else {
-        Write-Warn2 'infverif.exe not found in Windows Kits\Tools. Pre/post-patch INF validation will be skipped.'
+        Write-Caution 'infverif.exe not found in Windows Kits\Tools. Pre/post-patch INF validation will be skipped.'
     }
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'P02' -Metadata @{
         SevenZip = $Ctx.SevenZip
@@ -7415,7 +7446,7 @@ function Invoke-PrepPhase03_FetchInstaller {
     if ($inboxInf) {
         Write-Ok "Inbox INF present: $inboxInf"
     } else {
-        Write-Warn2 "Inbox INF not found at $env:WINDIR\INF\bthpan.inf"
+        Write-Caution "Inbox INF not found at $env:WINDIR\INF\bthpan.inf"
         Write-Detail 'On a fresh Windows install this is unusual. The DriverStore copy may still be present.'
     }
 
@@ -7700,7 +7731,7 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     } elseif ($meta.NeedsPatch) {
         Write-Ok 'INF needs ProductType=3 mirror (this is the expected state for inbox bthpan.inf).'
     } else {
-        Write-Warn2 'Neither Server-decoration present nor Workstation-decoration found. Unusual INF shape; P06 may no-op.'
+        Write-Caution 'Neither Server-decoration present nor Workstation-decoration found. Unusual INF shape; P06 may no-op.'
     }
 
     Set-DebugStep 'export inventory CSV'
@@ -7743,8 +7774,8 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
         $Ctx.WhqlCoSignAnalysis = New-WhqlCoSignAnalysis -InfRecords $whqlInfRecords
         Show-WhqlCoSignAnalysisReport -Analyses $Ctx.WhqlCoSignAnalysis
     } catch {
-        Write-Warn2 ('  r71: WHQL co-sign analysis failed: {0}' -f $_.Exception.Message)
-        Write-Warn2 '  r71: I00 C6 condition and -SkipNonCosignedDrivers will operate on an empty analysis.'
+        Write-Caution ('  r71: WHQL co-sign analysis failed: {0}' -f $_.Exception.Message)
+        Write-Caution '  r71: I00 C6 condition and -SkipNonCosignedDrivers will operate on an empty analysis.'
         $Ctx.WhqlCoSignAnalysis = @()
     }
 
@@ -7783,7 +7814,7 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     try {
         $v01Result = Invoke-InfVerifValidation @v01Params
     } catch {
-        Write-Warn2 ("V01: Invoke-InfVerifValidation threw {0}: {1}" -f $_.Exception.GetType().FullName, $_.Exception.Message)
+        Write-Caution ("V01: Invoke-InfVerifValidation threw {0}: {1}" -f $_.Exception.GetType().FullName, $_.Exception.Message)
         $v01Result = [pscustomobject]@{
             ToolMissing  = $true
             InfVerifPath = $null
@@ -7796,7 +7827,7 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     }
     $Ctx.InfVerifPrePatch = $v01Result
     if ($v01Result.ToolMissing) {
-        Write-Warn2 'V01: InfVerif not available - skipping pre-patch INF baseline. P06 will still attempt V02 (also no-op).'
+        Write-Caution 'V01: InfVerif not available - skipping pre-patch INF baseline. P06 will still attempt V02 (also no-op).'
     } else {
         Write-Detail ("V01: InfVerif baseline on source INF (exit {0}, {1} error(s), mode /{2})" -f $v01Result.ExitCode, $v01Result.Errors.Count, $v01Result.Mode)
         foreach ($e in $v01Result.Errors) {
@@ -7806,7 +7837,7 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
             $expectedCodes = @(1204, 1233)
             $unexpected = @($v01Result.Errors | Where-Object { $expectedCodes -notcontains $_.Code })
             if ($unexpected.Count -gt 0) {
-                Write-Warn2 ("V01: {0} unexpected InfVerif error(s) on source INF (codes outside 1204/1233 baseline). P06 patches may not be sufficient." -f $unexpected.Count)
+                Write-Caution ("V01: {0} unexpected InfVerif error(s) on source INF (codes outside 1204/1233 baseline). P06 patches may not be sufficient." -f $unexpected.Count)
             }
         }
     }
@@ -8004,9 +8035,9 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
             if ($bthPanAnalysis.IsFullyCoSigned) {
                 Write-Detail '  r71: -SkipNonCosignedDrivers set; bthpan.inf is WHQL co-signed by Microsoft. No trim needed.'
             } else {
-                Write-Warn2 '  r71: -SkipNonCosignedDrivers set, but the BthPan WHQL analysis reports a non-co-signed status.'
-                Write-Warn2 '       This is unexpected for the Microsoft inbox bthpan.inf. The install will continue;'
-                Write-Warn2 '       review the WHQL analysis output above for diagnostic detail.'
+                Write-Caution '  r71: -SkipNonCosignedDrivers set, but the BthPan WHQL analysis reports a non-co-signed status.'
+                Write-Caution '       This is unexpected for the Microsoft inbox bthpan.inf. The install will continue;'
+                Write-Caution '       review the WHQL analysis output above for diagnostic detail.'
             }
         }
     }
@@ -8132,7 +8163,7 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
     try {
         $infVerifResult = Invoke-InfVerifValidation @v02Params
     } catch {
-        Write-Warn2 ("V02: Invoke-InfVerifValidation threw {0}: {1}" -f $_.Exception.GetType().FullName, $_.Exception.Message)
+        Write-Caution ("V02: Invoke-InfVerifValidation threw {0}: {1}" -f $_.Exception.GetType().FullName, $_.Exception.Message)
         $infVerifResult = [pscustomobject]@{
             ToolMissing  = $true
             InfVerifPath = $null
@@ -8145,16 +8176,16 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
     }
     $Ctx.InfVerifPostPatch = $infVerifResult
     if ($infVerifResult.ToolMissing) {
-        Write-Warn2 'V02: InfVerif not available - skipping post-patch INF validation. P08 inf2cat will provide partial coverage.'
+        Write-Caution 'V02: InfVerif not available - skipping post-patch INF validation. P08 inf2cat will provide partial coverage.'
     } elseif ($infVerifResult.Validated) {
         Write-Ok ("V02: InfVerif accepts the patched INF (exit {0}, 0 errors, mode /{1})" -f $infVerifResult.ExitCode, $infVerifResult.Mode)
     } else {
         # Validation failed. Surface details and decide whether to fail
         # the phase. We treat ANY remaining error as a hard failure
         # because P08 will inevitably reject the INF too.
-        Write-Warn2 ("V02: InfVerif reports {0} error(s) on patched INF (exit {1}):" -f $infVerifResult.Errors.Count, $infVerifResult.ExitCode)
+        Write-Caution ("V02: InfVerif reports {0} error(s) on patched INF (exit {1}):" -f $infVerifResult.Errors.Count, $infVerifResult.ExitCode)
         foreach ($e in $infVerifResult.Errors) {
-            Write-Warn2 ("  ERROR({0}) line {1}: {2}" -f $e.Code, $e.Line, $e.Message)
+            Write-Caution ("  ERROR({0}) line {1}: {2}" -f $e.Code, $e.Line, $e.Message)
         }
         $infVerifLog = Join-Path $Ctx.Paths.Logs 'infverif_postpatch.log'
         throw ("P06/V02: InfVerif rejected the patched INF with {0} error(s). See {1} for the full output." -f $infVerifResult.Errors.Count, $infVerifLog)
@@ -8205,7 +8236,7 @@ function Invoke-PrepPhase07_CreateCertificate {
     $preexisting = @(Get-ChildItem Cert:\LocalMachine\My -ErrorAction SilentlyContinue |
         Where-Object { $_.Subject -eq $subject })
     if ($preexisting.Count -gt 0) {
-        Write-Warn2 ("Found {0} existing certificate(s) with same Subject - deleting before re-creation" -f $preexisting.Count)
+        Write-Caution ("Found {0} existing certificate(s) with same Subject - deleting before re-creation" -f $preexisting.Count)
         foreach ($oldCert in $preexisting) {
             Write-Detail ("Deleting thumbprint={0} not-after={1:yyyy-MM-dd}" -f $oldCert.Thumbprint, $oldCert.NotAfter)
             try {
@@ -8451,7 +8482,7 @@ function Invoke-InfVerifValidation {
                 $logHeader += "----- output -----`r`n"
                 [System.IO.File]::WriteAllText($LogPath, $logHeader + $rawOutput, [System.Text.UTF8Encoding]::new($false))
             } catch {
-                Write-Warn2 "Failed to write InfVerif log: $($_.Exception.Message)"
+                Write-Caution "Failed to write InfVerif log: $($_.Exception.Message)"
             }
         }
 
@@ -8751,7 +8782,7 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
     }
     $effective = @($allTargets | Where-Object { $supportedByThisInf2cat -contains $_ })
     if ($effective.Count -eq 0) {
-        Write-Warn2 'inf2cat reports support for none of the four Server SKUs; using primary host arg only.'
+        Write-Caution 'inf2cat reports support for none of the four Server SKUs; using primary host arg only.'
         $effective = @($Ctx.Os.Inf2catOsArg)
     }
     $osArg = $effective -join ','
@@ -8788,7 +8819,7 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
         if ($tail) { Write-Host $tail -ForegroundColor DarkGray }
         # Try fallback: drop Server2016 if it's the only failing entry
         if ($effective -contains 'Server2016_X64' -and $effective.Count -gt 1) {
-            Write-Warn2 'inf2cat failed with the full 4-SKU target list. Retrying without Server2016_X64...'
+            Write-Caution 'inf2cat failed with the full 4-SKU target list. Retrying without Server2016_X64...'
             $reduced = @($effective | Where-Object { $_ -ne 'Server2016_X64' })
             $args2 = @('/driver:' + $patchedDir, '/os:' + ($reduced -join ','), '/verbose')
             $procParams2 = @{
@@ -8819,8 +8850,8 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
         $isRedistribErr = ($logFull -match '(?i)file redistribution violation')
         if ($is22_9_8 -or $isRedistribErr) {
             Set-DebugStep 'F3: makecat fallback (inbox driver 22.9.8 workaround)'
-            Write-Warn2 'inf2cat refuses to catalog this driver due to inbox-binary redistribution rule 22.9.8.'
-            Write-Warn2 'This is expected for Microsoft inbox drivers (e.g. bthpan). Falling back to makecat...'
+            Write-Caution 'inf2cat refuses to catalog this driver due to inbox-binary redistribution rule 22.9.8.'
+            Write-Caution 'This is expected for Microsoft inbox drivers (e.g. bthpan). Falling back to makecat...'
 
             $catalogName = if ($Ctx.ExpectedCatalogName) { $Ctx.ExpectedCatalogName } else { 'bthpan.cat' }
             $makecatLog  = Join-Path $Ctx.Paths.Logs 'makecat_bthpan.log'
@@ -8994,7 +9025,7 @@ function Invoke-VerifyPhase01_VerifyArtifacts { # psa-disable-line PSA6003 -- co
     Set-DebugStep 'render verification result'
     foreach ($c in $checks) { Write-Host "  $c" }
     if ($issues.Count -gt 0) {
-        Write-Warn2 "$($issues.Count) artifact issue(s) detected"
+        Write-Caution "$($issues.Count) artifact issue(s) detected"
         throw "V01 found $($issues.Count) missing artifact(s) - run earlier phases first."
     }
     Write-Ok 'All preparation artifacts are present.'
@@ -9035,7 +9066,7 @@ function Invoke-VerifyPhase02_VerifyCertificate {
     if ($daysLeft -le 0) {
         $problems.Add("Certificate has EXPIRED ($daysLeft days)") | Out-Null
     } elseif ($daysLeft -le 30) {
-        Write-Warn2 "Certificate expires in $daysLeft days - consider renewal"
+        Write-Caution "Certificate expires in $daysLeft days - consider renewal"
     } else {
         Write-Ok "Certificate valid for $daysLeft more days"
     }
@@ -9053,7 +9084,7 @@ function Invoke-VerifyPhase02_VerifyCertificate {
     if ($hasCodeSigning) {
         Write-Ok 'Code Signing EKU (1.3.6.1.5.5.7.3.3) present'
     } else {
-        Write-Warn2 'Code Signing EKU NOT present - some signtool flows may reject'
+        Write-Caution 'Code Signing EKU NOT present - some signtool flows may reject'
     }
 
     if ($problems.Count -gt 0) {
@@ -9079,7 +9110,7 @@ function Invoke-VerifyPhase03_VerifyCatalogs { # psa-disable-line PSA6003 -- com
         $cats = Get-ChildItem -Path $Ctx.Paths.Patched -Recurse -Filter *.cat -ErrorAction SilentlyContinue
     }
     if ($cats.Count -eq 0) {
-        Write-Warn2 'No .cat files to verify (P08 + P09 not yet run?)'
+        Write-Caution 'No .cat files to verify (P08 + P09 not yet run?)'
         Write-PhaseFooter 'V03' 'skipped'
         return
     }
@@ -9110,7 +9141,7 @@ function Invoke-VerifyPhase03_VerifyCatalogs { # psa-disable-line PSA6003 -- com
     Write-Detail ("In TrustedPublisher: {0}" -f $certInTrustedPublisher) -Color $(if ($certInTrustedPublisher) { 'DarkGray' } else { 'Yellow' })
     if (-not $certTrusted) {
         Write-Host ''
-        Write-Warn2 '    NOTE: Certificate is NOT yet in trusted stores.'
+        Write-Caution '    NOTE: Certificate is NOT yet in trusted stores.'
         Write-Host  '          signtool verify /pa will fail with "untrusted root" for all'
         Write-Host  '          catalogs - this is EXPECTED at this stage of the pipeline.'
         Write-Host  '          To pass V03, run -Action Install -OnlyPhases I01 first to'
@@ -9240,7 +9271,7 @@ function Invoke-VerifyPhase03_VerifyCatalogs { # psa-disable-line PSA6003 -- com
                 }
             } else {
                 $failReal++
-                Write-Warn2 "  exit=$exitDisplay - $($cat.Name) - see $logFile"
+                Write-Caution "  exit=$exitDisplay - $($cat.Name) - see $logFile"
             }
 
             # Dump first failure log to screen for diagnosis
@@ -9271,7 +9302,7 @@ function Invoke-VerifyPhase03_VerifyCatalogs { # psa-disable-line PSA6003 -- com
     if ($failReal -eq 0 -and $failExpected -gt 0) {
         # All failures are due to cert-not-yet-trusted state.
         # This is informational, not an error. Phase passes with a warning.
-        Write-Warn2 "V03: $failExpected expected failure(s) - cert not yet imported by I01."
+        Write-Caution "V03: $failExpected expected failure(s) - cert not yet imported by I01."
         Write-Ok    "V03: no real verification failures. Re-run after I01 to confirm trust."
         Write-PhaseFooter 'V03' 'done'
         return
@@ -9381,7 +9412,7 @@ function Invoke-VerifyPhase04_VerifyInfs { # psa-disable-line PSA6003 -- compoun
             Write-Ok "  $($inf.Name) [$($infData.EncodingName)]"
         } else {
             $failCount++
-            Write-Warn2 "  $($inf.Name) (Mfg=$hasMfg ServerDeco=$hasServerDeco)"
+            Write-Caution "  $($inf.Name) (Mfg=$hasMfg ServerDeco=$hasServerDeco)"
 
             # On first failure, dump the [Manufacturer] section content
             # so the user can see what was actually written. This is the
@@ -9446,7 +9477,7 @@ function Invoke-VerifyPhase05_DryRunInstall {
     Write-SubHeader 'BTH\MS_BTHPAN device inventory'
     $devices = Get-MsBthPanDevice
     if ($devices.Count -eq 0) {
-        Write-Warn2 'No BTH\MS_BTHPAN device found on this host.'
+        Write-Caution 'No BTH\MS_BTHPAN device found on this host.'
         Write-Detail 'Either the host lacks a Bluetooth host controller, or the host'
         Write-Detail 'controller is not yet bound. Continue anyway: the patched driver'
         Write-Detail 'will be staged in the driver store and bind when a controller appears.'
@@ -9486,7 +9517,7 @@ function Invoke-VerifyPhase05_DryRunInstall {
         Write-Detail 'I03 will be effectively a no-op (driver store may receive an upgraded version, but device bindings will not change).'
         $planClass = 'AlreadyTrue'
     } elseif ($hasPhantom) {
-        Write-Warn2 'PHANTOM OK detected: bth.inf has proxy-matched. I03 will replace it with the patched bthpan.inf.'
+        Write-Caution 'PHANTOM OK detected: bth.inf has proxy-matched. I03 will replace it with the patched bthpan.inf.'
         Write-Detail 'Expected post-I03 state: Class transitions Bluetooth -> Net, Service becomes BthPan.'
         Write-Detail 'I03 will require pnputil /scan-devices to force the rebind.'
         $planClass = 'PhantomNeedsRebind'
@@ -9539,7 +9570,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     Write-SubHeader 'Section 1: BTH\MS_BTHPAN device state'
     $devices = Get-MsBthPanDevice
     if ($devices.Count -eq 0) {
-        Write-Warn2 'No BTH\MS_BTHPAN device present on this host.'
+        Write-Caution 'No BTH\MS_BTHPAN device present on this host.'
         Write-Detail 'A Bluetooth host controller is required for this device to be enumerated.'
     } else {
         Write-Ok ("Found {0} BTH\MS_BTHPAN device(s)." -f $devices.Count)
@@ -9569,10 +9600,10 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     Write-Detail ("BthPan service registered: {0}" -f $art.HasServiceKey)
     Write-Detail ("Bluetooth PAN NetAdapter : {0}" -f $art.HasNetAdapter)
     if (-not $art.HasSysFile) {
-        Write-Warn2 'bthpan.sys missing in System32\drivers — current state is Phantom OK or Unknown.'
+        Write-Caution 'bthpan.sys missing in System32\drivers — current state is Phantom OK or Unknown.'
     }
     if (-not $art.HasServiceKey) {
-        Write-Warn2 'BthPan service key missing — bthpan.inf has not been installed in registered form.'
+        Write-Caution 'BthPan service key missing — bthpan.inf has not been installed in registered form.'
     }
     $Ctx.V06RuntimeArtifacts = $art
 
@@ -9621,7 +9652,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
             Write-Detail 'Secure Boot baseline unavailable.'
         }
     } catch {
-        Write-Warn2 ("Secure Boot baseline capture failed: {0}" -f $_.Exception.Message)
+        Write-Caution ("Secure Boot baseline capture failed: {0}" -f $_.Exception.Message)
     }
 
     $Ctx.V06RiskClass = $riskClass
@@ -9680,7 +9711,7 @@ function Invoke-InstPhase00_PreInstallReview {
         $bootEnv = Update-BootSigningEnvironmentForCtx -Ctx $Ctx
         Show-BootSigningEnvironment -BootEnv $bootEnv
     } catch {
-        Write-Warn2 ("Boot signing snapshot failed: {0}" -f $_.Exception.Message)
+        Write-Caution ("Boot signing snapshot failed: {0}" -f $_.Exception.Message)
     }
 
     Set-DebugStep 'Section C: pending-reboot check'
@@ -9690,7 +9721,7 @@ function Invoke-InstPhase00_PreInstallReview {
         if ($pend.RebootedSince) {
             Write-Ok "Pending-reboot marker found, but reboot has occurred since it was written. OK to proceed."
         } else {
-            Write-Warn2 'Pending-reboot marker present from a previous run; a reboot may still be required to finalize.'
+            Write-Caution 'Pending-reboot marker present from a previous run; a reboot may still be required to finalize.'
         }
     } else {
         Write-Detail 'No pending-reboot marker.'
@@ -9890,18 +9921,18 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
             # WDAC path is planned but Secure Boot is OFF -> path is
             # overspecified (testsigning would suffice). Not a block.
             if (-not $Ctx.UseTestSigning -and $sbSnapshot.Embedded.SecureBootEnabled -eq $false) {
-                Write-Warn2 'WDAC path is planned, but Secure Boot is OFF. Code Integrity policy will still apply; testsigning would also suffice. Continuing.'
+                Write-Caution 'WDAC path is planned, but Secure Boot is OFF. Code Integrity policy will still apply; testsigning would also suffice. Continuing.'
             }
             # Surface UEFI rollout error state without blocking
             if ($sbSnapshot.Health -eq 'Critical') {
-                Write-Warn2 ('UEFI Secure Boot baseline health is Critical. Reasons: ' + ($sbSnapshot.Reasons -join '; '))
+                Write-Caution ('UEFI Secure Boot baseline health is Critical. Reasons: ' + ($sbSnapshot.Reasons -join '; '))
                 Write-Host '  This does NOT block I02 (different trust layer), but the operator should be aware.' -ForegroundColor Yellow
             } elseif ($sbSnapshot.Health -eq 'Warning') {
                 Write-Host ('  Baseline health: Warning. ' + ($sbSnapshot.Reasons -join '; ')) -ForegroundColor Yellow
             }
         }
     } catch {
-        Write-Warn2 ("UEFI Secure Boot baseline pre-check failed (non-fatal): {0}" -f $_.Exception.Message)
+        Write-Caution ("UEFI Secure Boot baseline pre-check failed (non-fatal): {0}" -f $_.Exception.Message)
     }
     Write-Host ''
 
@@ -9934,7 +9965,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
         if ($existing -and $Ctx.Force) {
             Write-Step ('Removing existing BthPan supplemental policy {0} (because -Force)...' -f $existing.PolicyId)
             $rm = Uninstall-MsBthPanWdacPolicy -PolicyId $existing.PolicyId
-            if ($rm.Removed) { Write-Ok 'Old policy removed.' } else { Write-Warn2 'Could not remove old policy; proceeding anyway.' }
+            if ($rm.Removed) { Write-Ok 'Old policy removed.' } else { Write-Caution 'Could not remove old policy; proceeding anyway.' }
         }
 
         # Need the.cer (P07 product). Allow -Force to skip the check.
@@ -9979,7 +10010,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
         Write-Host ''
 
         if ($deploy.RebootRequired) {
-            Write-Warn2 'CiTool was not available; a REBOOT is required to activate the supplemental policy.'
+            Write-Caution 'CiTool was not available; a REBOOT is required to activate the supplemental policy.'
         } else {
             Write-Ok 'Supplemental policy is active immediately. No reboot required.'
             Write-Host '  You can proceed to I03 (InstallDrivers) right away.' -ForegroundColor Green
@@ -10015,10 +10046,10 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     if ($bootEnvBefore.TestSigningEnabled -eq $true) {
         Write-Skip 'BCD testsigning is already ON.'
         if ($bootEnvBefore.SecureBootEnabled -eq $true) {
-            Write-Warn2 'However, Secure Boot is also ON - testsigning is being dropped at boot.'
-            Write-Warn2 'You MUST disable Secure Boot in firmware, or use the WDAC path (the default).'
+            Write-Caution 'However, Secure Boot is also ON - testsigning is being dropped at boot.'
+            Write-Caution 'You MUST disable Secure Boot in firmware, or use the WDAC path (the default).'
         } elseif ($bootEnvBefore.HvciRunning) {
-            Write-Warn2 'However, HVCI / Memory Integrity is RUNNING - it overrides testsigning.'
+            Write-Caution 'However, HVCI / Memory Integrity is RUNNING - it overrides testsigning.'
         } else {
             Write-Ok 'Legacy testsigning path is fully effective.'
         }
@@ -10042,7 +10073,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     }
     if ($pathBCheck.Reason -eq 'secure-boot-unknown') {
         foreach ($ln in $pathBCheck.GuidanceLines) {
-            Write-Warn2 $ln
+            Write-Caution $ln
         }
     }
 
@@ -10108,10 +10139,10 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     Show-BootSigningEnvironment -BootEnv $bootEnvAfter
     Write-Host ''
 
-    Write-Warn2 '*** A REBOOT IS REQUIRED FOR TESTSIGNING TO TAKE EFFECT ***'
-    Write-Warn2 'After reboot the desktop will display a "Test Mode" watermark.'
-    Write-Warn2 'Then run -Action Install AGAIN (same command). The script will'
-    Write-Warn2 'detect that I01/I02 are already done and continue with I03/I04.'
+    Write-Caution '*** A REBOOT IS REQUIRED FOR TESTSIGNING TO TAKE EFFECT ***'
+    Write-Caution 'After reboot the desktop will display a "Test Mode" watermark.'
+    Write-Caution 'Then run -Action Install AGAIN (same command). The script will'
+    Write-Caution 'detect that I01/I02 are already done and continue with I03/I04.'
 
     # Persist a "reboot pending" sentinel so a subsequent run can warn
     # the user if they re-execute without rebooting first. Cleared by
@@ -10167,7 +10198,7 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
     # starts as $false (the flag is per-process, not persisted), and
     # I03 / I04 proceed normally. See SPEC §D.32.3.
     if ($Ctx.RebootRequiredBeforeI03) {
-        Write-Warn2 'I03: halting because I02 just enabled testsigning in this run.'
+        Write-Caution 'I03: halting because I02 just enabled testsigning in this run.'
         Write-Host  '     The bthpan.inf catalog cannot be load-verified until the host reboots.' -ForegroundColor Yellow
         Write-Host  '     To proceed cleanly:' -ForegroundColor Yellow
         Write-Host  '       1) Reboot Windows now (Test Mode watermark will appear)'           -ForegroundColor Cyan
@@ -10261,7 +10292,7 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
     if ($scanProc.ExitCode -eq 0) {
         Write-Ok 'PnP rescan completed.'
     } else {
-        Write-Warn2 ("pnputil /scan-devices exit={0}. PnP rescan may not have effected re-bind; reboot may be needed." -f $scanProc.ExitCode)
+        Write-Caution ("pnputil /scan-devices exit={0}. PnP rescan may not have effected re-bind; reboot may be needed." -f $scanProc.ExitCode)
     }
 
     Write-Detail 'Summary: bthpan driver install: 1 ok / 0 failed'
@@ -10290,7 +10321,7 @@ function Invoke-InstPhase04_PostInstallVerification {
     # testsigning in this run, I03 returned without staging bthpan.inf,
     # so I04 has no post-install state to verify.
     if ($Ctx.RebootRequiredBeforeI03) {
-        Write-Warn2 'I04: halting because I03 was halted earlier (testsigning newly enabled in I02).'
+        Write-Caution 'I04: halting because I03 was halted earlier (testsigning newly enabled in I02).'
         Write-Host  '     There is no post-install state to verify yet. Reboot and re-run' -ForegroundColor Yellow
         Write-Host  '     -Action Install (same command); I03 / I04 will run automatically.' -ForegroundColor Yellow
         Write-PhaseFooter 'I04' 'halted-pending-reboot'
@@ -10301,7 +10332,7 @@ function Invoke-InstPhase04_PostInstallVerification {
     Write-SubHeader 'I04 Section 1: BTH\MS_BTHPAN device disposition'
     $devices = Get-MsBthPanDevice
     if ($devices.Count -eq 0) {
-        Write-Warn2 'No BTH\MS_BTHPAN device on host. Cannot verify device-bind outcome.'
+        Write-Caution 'No BTH\MS_BTHPAN device on host. Cannot verify device-bind outcome.'
         Write-Detail 'The driver is staged in the driver store and will bind when a Bluetooth host controller appears.'
         $Ctx.I04OverallResult = 'NoDevice'
     } else {
@@ -10337,7 +10368,7 @@ function Invoke-InstPhase04_PostInstallVerification {
                             $allTrue = $false }
                 'Unknown' { Write-Fail ("  [FAIL] Unknown device (code 28). Driver bind did not occur.")
                             $allTrue = $false }
-                default   { Write-Warn2 ("  [????] Unrecognised state: {0}" -f $st.Classification)
+                default   { Write-Caution ("  [????] Unrecognised state: {0}" -f $st.Classification)
                             $allTrue = $false }
             }
         }
@@ -10352,7 +10383,7 @@ function Invoke-InstPhase04_PostInstallVerification {
     if ($art.HasServiceKey)  { Write-Ok  'BthPan service key present in HKLM\SYSTEM\CurrentControlSet\Services' }
     else                      { Write-Fail 'BthPan service key NOT registered' }
     if ($art.HasNetAdapter)  { Write-Ok  'Bluetooth PAN NetAdapter present (Get-NetAdapter)' }
-    else                      { Write-Warn2 'No Bluetooth PAN NetAdapter (may be expected if no Bluetooth host controller; otherwise indicates bind incomplete)' }
+    else                      { Write-Caution 'No Bluetooth PAN NetAdapter (may be expected if no Bluetooth host controller; otherwise indicates bind incomplete)' }
     $Ctx.I04RuntimeArtifacts = $art
 
     Set-DebugStep 'Section 3: signtool verify catalog'
@@ -10374,7 +10405,7 @@ function Invoke-InstPhase04_PostInstallVerification {
         if ($proc.ExitCode -eq 0) {
             Write-Ok 'signtool verify /pa: catalog signature is valid + trusted.'
         } else {
-            Write-Warn2 ("signtool verify /pa exit={0}. Catalog may not be trusted in this context." -f $proc.ExitCode)
+            Write-Caution ("signtool verify /pa exit={0}. Catalog may not be trusted in this context." -f $proc.ExitCode)
         }
     } else {
         Write-Detail 'Skipped (signtool unavailable or no catalogs cached).'
@@ -10445,7 +10476,7 @@ function Invoke-InstPhase05_ForceRebind {
 
     Set-DebugStep 'I05 gate: inspect I04 outcome'
     if (-not $Ctx.I04OverallResult) {
-        Write-Warn2 'I05 requires I04 to have run first. Run with -Action Install. Skipping.'
+        Write-Caution 'I05 requires I04 to have run first. Run with -Action Install. Skipping.'
         Set-PhaseMarker -Ctx $Ctx -PhaseId 'I05' -Metadata @{ Skipped=$true; Reason='no I04 result' }
         Write-PhaseFooter 'I05' 'skipped'
         return
@@ -10606,7 +10637,7 @@ function Invoke-Cleanup {
             if ($rm.Removed) {
                 Write-Ok ('Removed deployed CI policy {0}' -f $policyId)
             } elseif ($rm.Existed) {
-                Write-Warn2 ('Could not remove CI policy {0} - inspect manually with CiTool.exe -lp' -f $policyId)
+                Write-Caution ('Could not remove CI policy {0} - inspect manually with CiTool.exe -lp' -f $policyId)
             } else {
                 Write-Skip 'WDAC supplemental policy was not currently deployed.'
             }

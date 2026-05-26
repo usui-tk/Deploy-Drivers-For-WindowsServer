@@ -322,8 +322,8 @@ param(
 #   * PhaseResults - per-phase outcome registry (write side from
 #     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.05.26-r29'
-$Script:ScriptTag           = 'npu-state-model-refactor-step-3-tier-b4-helper-canon'
+$Script:ScriptVersion       = 'npu-2026.05.26-r30'
+$Script:ScriptTag           = 'cross-repo-shared-utility-canon-write-caution'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the
@@ -758,6 +758,8 @@ $Script:PhaseResults = @{}
 # Sub-section: Write-SubHeader2 (DarkCyan '-' x72) - in-phase Level-2 banner
 # =============================================================================
 function Format-Elapsed {
+    # Render a TimeSpan in a compact human-readable form.
+    # Examples: '0.45s', '12.3s', '5m12.4s', '1h05m12s'
     param([TimeSpan]$Span)
     if ($null -eq $Span) { return '0.00s' }
     if ($Span.TotalSeconds -lt 60) {
@@ -770,32 +772,29 @@ function Format-Elapsed {
         $h = [int][math]::Floor($Span.TotalHours)
         $m = $Span.Minutes
         $s = $Span.Seconds
-        return ('{0}h{1}m{2}s' -f $h, $m, $s)
+        return ('{0}h{1:D2}m{2:D2}s' -f $h, $m, $s)
     }
 }
-
 function Get-PhaseElapsedTag {
-    # Returns elapsed-since-current-phase-start as "[+X.XXs]" or empty.
+    # Returns elapsed-since-current-phase-start as '[+X.XXs]' or empty.
     if ($null -eq $Script:CurrentPhaseStart) { return '' }
     $span = (Get-Date) - $Script:CurrentPhaseStart
     return ('[+{0}]' -f (Format-Elapsed $span))
 }
-
 function _LogLine {
-    # Internal: emits "[HH:mm:ss] [+X.XXs] [marker] message"
+    # Internal: emits '[HH:mm:ss] [+X.XXs]   [marker] message'
     param([string]$Marker, [string]$Msg, [string]$Color)
     $ts  = Get-Date -Format 'HH:mm:ss'
     $tag = Get-PhaseElapsedTag
     if ($tag) {
-        Write-Host ("[{0}] {1,-10} {2} {3}" -f $ts, $tag, $Marker, $Msg) -ForegroundColor $Color
+        Write-Host ("[{0}] {1,-12} {2} {3}" -f $ts, $tag, $Marker, $Msg) -ForegroundColor $Color
     } else {
-        Write-Host ("[{0}]            {1} {2}" -f $ts, $Marker, $Msg) -ForegroundColor $Color
+        Write-Host ("[{0}] {1,-12} {2} {3}" -f $ts, '', $Marker, $Msg) -ForegroundColor $Color
     }
 }
-
 function Write-Step  { param($Msg) _LogLine '[*]' $Msg 'Cyan'     }
 function Write-Ok    { param($Msg) _LogLine '[+]' $Msg 'Green'    }
-function Write-Warn2 { param($Msg) _LogLine '[!]' $Msg 'Yellow'   }
+function Write-Caution { param($Msg) _LogLine '[!]' $Msg 'Yellow'   }
 function Write-Fail  { param($Msg) _LogLine '[X]' $Msg 'Red'      }
 function Write-Skip  { param($Msg) _LogLine '[~]' $Msg 'DarkGray' }
 
@@ -807,19 +806,19 @@ function Write-Detail {
     # Renders 4-space-indented plain text with NO timestamp or marker
     # prefix, so it visually attaches to the preceding context.
     #
-    # ---- Ported from MSBthPan / AMD Chipset / AMD Graphics ----
-    # Previously the NPU script did NOT have this helper, leading to bare
-    # Write-Host calls with hard-coded 4-space indents. Routing those
-    # through a single helper makes future column-layout tweaks possible
-    # without touching every call site, and gives the SPEC-mandated
-    # marker pattern a single documented exception ("continuation row of
-    # a marker line").
+    # ---- Introduced to replace bare `Write-Host " XXX"` calls ----
+    # Previously the scripts emitted ~100 bare Write-Host calls with a
+    # hard-coded 4-space indent. Routing those through a single helper
+    # makes future column-layout tweaks possible without touching every
+    # call site, and gives the SPEC-mandated marker pattern a single
+    # documented exception ("continuation row of a marker line").
     #
     # The 4-space indent is intentional and matches the historical
     # column convention used inside section-banner tables.
     #
     # -NoNewline mirrors Write-Host's switch and is used by two-part
-    # lines that compose a label-then-value pair.
+    # lines that compose a label-then-value pair (e.g. P08's
+    # "-> Selected /os:" + colored value).
     # ====================================================================
     param(
         [Parameter(Position=0)][string]$Msg,
@@ -856,28 +855,47 @@ function Write-SubHeader2 {
 }
 
 function Write-PhaseHeader {
-    param($Id, $Name, $Group)
+    # Prints a magenta banner that opens a phase. Records phase start
+    # time so subsequent log lines can show '[+elapsed]'.
+    #
+    # Params:
+    #   Id    : short identifier (e.g. 'P01', 'P06', etc; always two digits)
+    #   Name  : human-readable phase name (e.g. 'Listing-Collection')
+    #   Group : phase group (e.g. 'Setup', 'Scan', 'Fetch', 'Report')
+    param(
+        [Parameter(Mandatory)] [string]$Id,
+        [Parameter(Mandatory)] [string]$Name,
+        [Parameter(Mandatory)] [string]$Group
+    )
     $Script:CurrentPhaseStart = Get-Date
     $Script:CurrentPhaseId    = $Id
     $startStr = $Script:CurrentPhaseStart.ToString('HH:mm:ss')
     $line = '=' * 72
     Write-Host ''
     Write-Host $line -ForegroundColor Magenta
-    Write-Host (" PHASE {0} - {1,-23} ({2,-6})  start: {3}" -f $Id, $Name, $Group, $startStr) -ForegroundColor Magenta
-    Write-Host (" script: {0}" -f $Script:ScriptShortTag) -ForegroundColor DarkGray
+    Write-Host (' PHASE {0,-4} - {1,-22} ({2,-7}) start: {3}' -f $Id, $Name, $Group, $startStr) -ForegroundColor Magenta
+    Write-Host (' script: {0}' -f $Script:ScriptShortTag) -ForegroundColor DarkGray
     Write-Host $line -ForegroundColor Magenta
 }
-
 function Write-PhaseFooter {
-    param($Id, [ValidateSet('done','cached','skipped','failed')]$Status)
-
-    # Idempotency: ignore duplicate calls for the same Id within one run.
-    # Phases that emit their own footer before throwing would otherwise
-    # be double-counted when the dispatcher's catch also calls us.
+    # Closes a phase started by Write-PhaseHeader. Records the elapsed
+    # duration in $Script:PhaseTimings (used by run-summary helpers).
+    #
+    # Idempotent: a second call with the same Id is ignored, so wrapping
+    # try/finally blocks do not double-count.
+    #
+    # Status values:
+    #   done    - phase completed successfully
+    #   cached  - phase was a no-op because the target state was already met
+    #   skipped - phase was intentionally skipped (e.g. -OnlyPhases filter)
+    #   failed  - phase threw an exception
+    param(
+        [Parameter(Mandatory)] [string]$Id,
+        [Parameter(Mandatory)] [ValidateSet('done','cached','skipped','failed')] [string]$Status
+    )
     foreach ($t in $Script:PhaseTimings) {
         if ($t.Id -eq $Id) { return }
     }
-
     $color = switch ($Status) {
         'done'    { 'Green' }
         'cached'  { 'DarkGray' }
@@ -894,15 +912,13 @@ function Write-PhaseFooter {
         EndedAt = Get-Date
     }) | Out-Null
 
-    Write-Host (" PHASE {0} -> {1,-7}  elapsed: {2}" -f $Id, $Status.ToUpper(), $elapsedStr) -ForegroundColor $color
-    Write-Host ''
+    Write-Host (' PHASE {0,-4} -> {1,-7}  elapsed: {2}' -f $Id, $Status.ToUpper(), $elapsedStr) -ForegroundColor $color
 
     # Reset so any stray Write-Step/Ok between phases doesn't show a
     # misleading [+X.XXs] tag inherited from the previous phase.
     $Script:CurrentPhaseStart = $null
     $Script:CurrentPhaseId    = $null
 }
-
 # =============================================================================
 # Environment detection helpers
 # =============================================================================
@@ -1157,20 +1173,27 @@ function Show-OperatingSystemDetail {
 }
 
 function Assert-PowerShellCompatibility {
-    # ====================================================================
-    # Hard-fail the script early if we cannot safely run.
-    # ====================================================================
-    # Conditions checked here are *fatal* (the script cannot proceed).
-    # Soft warnings (e.g. unknown OS build) live in
-    # Show-PowerShellEnvironment instead.
-    #
-    # ---- Ported from the sister scripts (Chipset / Graphics /
-    # MSBthPan). Previously the NPU script relied on the PS-version
-    # check embedded inside its stub Show-PowerShellEnvironment, which
-    # mixed display with hard-fail logic. Splitting the two into
-    # Show-PowerShellEnvironment (display) and
-    # Assert-PowerShellCompatibility (hard-fail) matches the sister
-    # scripts and lets P00 fail-fast before any banner output.
+    <#
+    .SYNOPSIS
+        Hard-fail the script early when running on an unsupported host.
+
+    .DESCRIPTION
+        Refuses to proceed when:
+          - PowerShell version is below 5.1, or
+          - The current process is 32-bit.
+
+        Both conditions are categorical incompatibilities (not soft
+        warnings): the script's runspace-based concurrency, .NET regex
+        Unicode escapes, and large-file handling have all been validated
+        only on 5.1+ / 64-bit hosts. Running on a 32-bit host or a
+        pre-5.1 engine will produce silent miscompilations or hangs
+        rather than honest errors, so we stop here with a clear message.
+
+        Throws a terminating error so the script exits with non-zero
+        status; downstream phases never run.
+    #>
+    param()
+
     $pv    = $PSVersionTable.PSVersion
     $minPs = [Version]'5.1'
     if ($pv -lt $minPs) {
@@ -1178,21 +1201,23 @@ function Assert-PowerShellCompatibility {
 This script requires PowerShell $minPs or later.
 Detected: $pv
 
-This script targets the default PowerShell included with Windows
-Server 2016 / 2019 / 2022 / 2025, which is PowerShell 5.1.
-PowerShell 7+ is NOT required, but PowerShell 5.1 is the minimum.
+This script targets the default PowerShell included with Windows 10 /
+11 and Windows Server 2016 / 2019 / 2022 / 2025, which is
+PowerShell 5.1. PowerShell 7+ is NOT required, but PowerShell 5.1 is
+the minimum.
 
-If you are on Windows Server 2012 R2 or earlier, install Windows
-Management Framework 5.1: https://aka.ms/wmf51
+If you are on Windows 7 / Windows Server 2012 R2 or earlier, install
+the Windows Management Framework 5.1 update: https://aka.ms/wmf51
 "@
     }
     if (-not [Environment]::Is64BitProcess) {
         throw @'
 This script requires a 64-bit PowerShell process. Detected 32-bit.
 
-On a 64-bit Windows Server, launch from "Windows PowerShell"
-(NOT "Windows PowerShell (x86)"). The driver / signtool tooling
-will not work correctly inside a 32-bit host.
+On a 64-bit Windows, launch from "Windows PowerShell" (NOT "Windows
+PowerShell (x86)"). 32-bit hosts may hit issues with concurrent
+runspace pools and large file path operations that have only been
+validated under 64-bit PowerShell.
 '@
     }
 }
@@ -1213,33 +1238,23 @@ function Assert-Admin {
 
 function Set-Tls12 {
     # ====================================================================
-    # Enable modern TLS for Invoke-WebRequest / Invoke-RestMethod.
+    # Enable TLS for outbound HTTPS calls with best-effort multi-version
+    # fallback. Tls12 is the baseline (required by most modern endpoints
+    # including AMD/Microsoft download servers and Speaker Deck CDN).
+    # Tls13 is added when the running .NET supports it (Framework 4.8+,
+    # PowerShell 7+, WS2022 / WS2025). Tls11 and Tls (1.0) are added as
+    # a defensive fallback for very old environments (WS2016 / WS2019
+    # with stock .NET); modern hosts will negotiate Tls13/Tls12 and the
+    # legacy bits are ignored by the server. Each enum lookup is wrapped
+    # in try/catch because older .NET runtimes raise an enum-value error
+    # for protocols they don't recognise.
     # ====================================================================
-    # Tls12 is the must-have (some download endpoints require it).
-    # Tls13 is added if the running.NET supports it (Framework 4.8+,
-    # WS2022+ ships with it; WS2016/WS2019 may not). Tls11 and below
-    # are intentionally NOT requested - they are deprecated and removed
-    # from many endpoints.
-    #
-    # ---- Renamed from Set-NetworkProtocol and replaced its body ----
-    # The previous AMDNpu-specific implementation explicitly enabled
-    # Tls10 and Tls11, which is a security regression vs the sister
-    # scripts (RFC 8996 deprecated TLS 1.0/1.1 in March 2021, and most
-    # AMD / Microsoft download endpoints have removed support). The
-    # canonical implementation in Chipset / Graphics / MSBthPan has been
-    # adopted here for cross-script consistency and stronger defaults.
     $protos = [Net.SecurityProtocolType]::Tls12
-    try {
-        $tls13 = [Net.SecurityProtocolType]::Tls13
-        $protos = $protos -bor $tls13
-    } catch {
-        # Tls13 enum value not present in this.NET runtime; that is
-        # fine - Tls12 alone is sufficient for everything this script
-        # downloads.
-    }
+    try { $protos = $protos -bor [Net.SecurityProtocolType]::Tls13 } catch { } # psa-disable-line PSA3004 -- Tls13 enum may not exist on older .NET
+    try { $protos = $protos -bor [Net.SecurityProtocolType]::Tls11 } catch { } # psa-disable-line PSA3004 -- defensive legacy fallback for very old environments
+    try { $protos = $protos -bor [Net.SecurityProtocolType]::Tls   } catch { } # psa-disable-line PSA3004 -- defensive legacy fallback for very old environments
     [Net.ServicePointManager]::SecurityProtocol = $protos
 }
-
 function Set-ConsoleUtf8 {
     # ====================================================================
     # SPEC A.5 / D.5: enforce UTF-8 console encoding so ja-JP Japanese
@@ -1261,6 +1276,11 @@ function Set-ConsoleUtf8 {
     #   - $OutputEncoding: how PS writes piped data to external
     #                                  tools (e.g. "$json | tool.exe")
     # All three must be UTF-8 for consistent round-trip behaviour.
+    #
+    # This is wrapped in try/catch because some pinned-redirected
+    # console hosts (e.g. CI runners writing to a file with no real
+    # console) may throw on the assignment; in that case the original
+    # encoding is preserved and we continue without UTF-8 enforcement.
     try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     try { [Console]::InputEncoding  = [System.Text.Encoding]::UTF8 } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     try { Set-Variable -Name OutputEncoding -Scope Global -Value ([System.Text.Encoding]::UTF8) -ErrorAction SilentlyContinue } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
@@ -2040,16 +2060,18 @@ function _DebugTrace_RetireFrame {
 function Start-DebugTrace {
     <#
     .SYNOPSIS
-        Push a new debug trace frame onto the stack. Call at function entry.
+        Push a new debug trace frame onto the stack. Call at function
+        entry.
     .PARAMETER Context
-        Human-readable name for this frame, typically the function name.
+        Human-readable name for this frame, typically the function name
+        or 'phase.PNN.<Name>' for phase-level frames.
     .PARAMETER Echo
         If set, every Set-DebugStep call also writes a live [trace] line
         to the console. Default off.
     .PARAMETER PhaseId
         Optional phase identifier (e.g. 'P05'). When set, the frame is
-        registered in the per-phase trace registry. Used by the phase
-        dispatcher; do not set manually inside phase function bodies.
+        registered in the per-phase trace registry so Export-DebugTraceJson
+        can build a per-phase summary.
     #>
     [CmdletBinding()]
     param(
@@ -2180,21 +2202,19 @@ function Format-DebugFailure {
     .PARAMETER ErrorRecord
         The $_ inside a catch block.
     .OUTPUTS
-        pscustomobject with: Context, FailedStep, Elapsed, ExType,
-        ExMessage, InnerType, InnerMessage, FullyQualifiedId,
-        ScriptStackTrace, StepHistory (object[]).
+        pscustomobject with: Context, FailedStep, Elapsed, ElapsedMs,
+        PhaseId, ExType, ExMessage, InnerType, InnerMessage,
+        FullyQualifiedId, ScriptStackTrace, StepHistory (object[]).
     #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
-    param(
-        [Parameter(Mandatory)] $ErrorRecord
-    )
+    param([Parameter(Mandatory)] $ErrorRecord)
     $ex = $ErrorRecord.Exception
     if ($Script:DebugTraceStack.Count -gt 0) {
         $frame       = $Script:DebugTraceStack.Peek()
         $context     = $frame.Context
         $failedStep  = $frame.Step
-        # PS 5.1 ja-JP bug workaround: use.ToArray not @($list).
+        # PS 5.1 ja-JP bug workaround: use .ToArray(), not @($list).
         $stepHistory = $frame.Steps.ToArray()
         $elapsed     = (Get-Date) - $frame.StartTime
         $phaseId     = $frame.PhaseId
@@ -2206,25 +2226,25 @@ function Format-DebugFailure {
         $phaseId     = $null
     }
     return [pscustomobject]@{
-        Context           = $context
-        FailedStep        = $failedStep
-        Elapsed           = $elapsed
-        ElapsedMs         = [int]$elapsed.TotalMilliseconds
-        PhaseId           = $phaseId
-        ExType            = $ex.GetType().FullName
-        ExMessage         = $ex.Message
-        InnerType         = if ($ex.InnerException) { $ex.InnerException.GetType().FullName } else { $null }
-        InnerMessage      = if ($ex.InnerException) { $ex.InnerException.Message } else { $null }
-        FullyQualifiedId  = $ErrorRecord.FullyQualifiedErrorId
-        ScriptStackTrace  = $ErrorRecord.ScriptStackTrace
-        StepHistory       = $stepHistory
+        Context          = $context
+        FailedStep       = $failedStep
+        Elapsed          = $elapsed
+        ElapsedMs        = [int]$elapsed.TotalMilliseconds
+        PhaseId          = $phaseId
+        ExType           = $ex.GetType().FullName
+        ExMessage        = $ex.Message
+        InnerType        = if ($ex.InnerException) { $ex.InnerException.GetType().FullName } else { $null }
+        InnerMessage     = if ($ex.InnerException) { $ex.InnerException.Message } else { $null }
+        FullyQualifiedId = $ErrorRecord.FullyQualifiedErrorId
+        ScriptStackTrace = $ErrorRecord.ScriptStackTrace
+        StepHistory      = $stepHistory
     }
 }
 
 function Write-DebugFailureReport {
     <#
     .SYNOPSIS
-        Emit a formatted failure report via Write-Warn2 + log the
+        Emit a formatted failure report via Write-Caution + log the
         failure event to JSONL. Call from a catch block. Also marks
         the active phase's registry entry as 'failure' if applicable.
     .PARAMETER ErrorRecord
@@ -2250,29 +2270,29 @@ function Write-DebugFailureReport {
         $reg.FailureRef = $r
     }
 
-    Write-Warn2 ("{0}: FAILED at step '{1}' (elapsed {2:F2}s)" -f $r.Context, $r.FailedStep, $r.Elapsed.TotalSeconds)
-    Write-Warn2 ("  ExType   : {0}" -f $r.ExType)
-    Write-Warn2 ("  Message  : {0}" -f $r.ExMessage)
+    Write-Caution ("{0}: FAILED at step '{1}' (elapsed {2:F2}s)" -f $r.Context, $r.FailedStep, $r.Elapsed.TotalSeconds)
+    Write-Caution ("  ExType   : {0}" -f $r.ExType)
+    Write-Caution ("  Message  : {0}" -f $r.ExMessage)
     if ($r.InnerType) {
-        Write-Warn2 ("  Inner    : {0} - {1}" -f $r.InnerType, $r.InnerMessage)
+        Write-Caution ("  Inner    : {0} - {1}" -f $r.InnerType, $r.InnerMessage)
     }
     if ($r.FullyQualifiedId) {
-        Write-Warn2 ("  FQErrId  : {0}" -f $r.FullyQualifiedId)
+        Write-Caution ("  FQErrId  : {0}" -f $r.FullyQualifiedId)
     }
     if ($r.ScriptStackTrace) {
         $stackLines = $r.ScriptStackTrace -split "`r?`n"
-        Write-Warn2 ("  Stack    : {0}" -f $stackLines[0])
+        Write-Caution ("  Stack    : {0}" -f $stackLines[0])
         $maxStack = [Math]::Min(3, $stackLines.Count)
         for ($i = 1; $i -lt $maxStack; $i++) {
-            Write-Warn2 ("             {0}" -f $stackLines[$i])
+            Write-Caution ("             {0}" -f $stackLines[$i])
         }
     }
     if ($IncludeStepHistory -and $r.StepHistory.Count -gt 0) {
-        Write-Warn2 ("  Steps    : {0} recorded" -f $r.StepHistory.Count)
+        Write-Caution ("  Steps    : {0} recorded" -f $r.StepHistory.Count)
         $firstAt = $r.StepHistory[0].At
         foreach ($h in $r.StepHistory) {
             $rel = ($h.At - $firstAt).TotalMilliseconds
-            Write-Warn2 ('    +{0,7:F0}ms  {1}' -f $rel, $h.Step)
+            Write-Caution ('    +{0,7:F0}ms  {1}' -f $rel, $h.Step)
         }
     }
 
@@ -2298,10 +2318,10 @@ function Write-DebugFailureReport {
             $tag = if ($r.PhaseId) { $r.PhaseId } else { 'top' }
             $exportPath = Join-Path $Script:DebugTraceAutoExportDir ("debugtrace_export_{0}_{1}.json" -f $tag, $ts)
             Export-DebugTraceJson -Path $exportPath -IncludeEvents:$false | Out-Null
-            Write-Warn2 ("  TraceJson: {0}" -f $exportPath)
+            Write-Caution ("  TraceJson: {0}" -f $exportPath)
         } catch {
             # Don't let auto-export failures hide the original error.
-            Write-Warn2 ("  TraceJson: auto-export failed: {0}" -f $_.Exception.Message)
+            Write-Caution ("  TraceJson: auto-export failed: {0}" -f $_.Exception.Message)
         }
     }
 }
@@ -3496,7 +3516,7 @@ function Get-OrEnsureSecureBootBaseline {
         try {
             $Ctx.SecureBootBaseline = Get-SecureBootBaselineSnapshot -WorkRoot $Ctx.WorkRoot
         } catch {
-            Write-Warn2 ("Secure Boot baseline (re-)capture failed: {0}" -f $_.Exception.Message)
+            Write-Caution ("Secure Boot baseline (re-)capture failed: {0}" -f $_.Exception.Message)
         }
     }
 
@@ -3555,13 +3575,13 @@ function Get-AmdNpuPlatform {
         $cpu = (Get-CimInstance Win32_Processor -ErrorAction Stop | Select-Object -First 1).Name
         $detected.CpuName = $cpu
     } catch {
-        Write-Warn2 ("Could not read Win32_Processor.Name: {0}" -f $_.Exception.Message)
+        Write-Caution ("Could not read Win32_Processor.Name: {0}" -f $_.Exception.Message)
         $cpu = ''
     }
 
     # Manual override path
     if ($Override) {
-        Write-Warn2 ("NPU override active: {0} (auto-detection skipped)" -f $Override)
+        Write-Caution ("NPU override active: {0} (auto-detection skipped)" -f $Override)
         $detected.NpuShortName = $Override
         $detected.DetectionSource = 'override'
         switch ($Override) {
@@ -3610,7 +3630,7 @@ function Get-AmdNpuPlatform {
         $pnpOutput = (& pnputil.exe /enum-devices /bus PCI /deviceids 2>&1) -join "`n"
         $detected.RawDeviceIds = $pnpOutput
     } catch {
-        Write-Warn2 ("pnputil enumeration failed: {0}" -f $_.Exception.Message)
+        Write-Caution ("pnputil enumeration failed: {0}" -f $_.Exception.Message)
         $pnpOutput = ''
     }
 
@@ -3653,7 +3673,7 @@ function Get-AmdNpuPlatform {
     }
     elseif ($AssumeIfMissing) {
         # Default - Strix Point + latest documented NPU driver + latest RAI Software
-        Write-Warn2 'No AMD NPU detected via pnputil. Using default profile (Strix Point + NPU driver 32.0.203.314 + RAI Software latest).'
+        Write-Caution 'No AMD NPU detected via pnputil. Using default profile (Strix Point + NPU driver 32.0.203.314 + RAI Software latest).'
         $detected.NpuCodename     = 'Strix Point (default - no NPU detected)'
         $detected.NpuShortName    = 'STX'
         $detected.HardwareId      = 'PCI\VEN_1022&DEV_17F0&REV_00'
@@ -3970,7 +3990,7 @@ function Resolve-AmdNpuDriverUrl {
         } catch {
             Write-Fail ("Tier 1 download failed: {0}" -f $_.Exception.Message)
         }
-        Write-Warn2 'Tier 1 failed. Falling through to next tier.'
+        Write-Caution 'Tier 1 failed. Falling through to next tier.'
     }
 
     # ------------------------------------------------------------------------
@@ -4003,9 +4023,9 @@ function Resolve-AmdNpuDriverUrl {
     if (-not [string]::IsNullOrEmpty($AmdAccountUser) -and $AmdAccountPassword) {
         Write-SubHeader 'Tier 2: AMD account auto-download'
         Write-Step ("Account user: {0}" -f $AmdAccountUser)
-        Write-Warn2 'NOTE: Tier 2 attempts to authenticate against account.amd.com,'
-        Write-Warn2 '      accept the Ryzen AI EULA, and fetch the ZIP via dynamic URL.'
-        Write-Warn2 '      AMD periodically changes form layouts; if this fails, use Tier 1 or 4.'
+        Write-Caution 'NOTE: Tier 2 attempts to authenticate against account.amd.com,'
+        Write-Caution '      accept the Ryzen AI EULA, and fetch the ZIP via dynamic URL.'
+        Write-Caution '      AMD periodically changes form layouts; if this fails, use Tier 1 or 4.'
         try {
             $authResult = Invoke-AmdAccountAuthentication -Ctx $Ctx `
                 -Username $AmdAccountUser `
@@ -4030,7 +4050,7 @@ function Resolve-AmdNpuDriverUrl {
         } catch {
             Write-Fail ("Tier 2 authenticated download failed: {0}" -f $_.Exception.Message)
         }
-        Write-Warn2 'Tier 2 failed. Falling through to next tier.'
+        Write-Caution 'Tier 2 failed. Falling through to next tier.'
     }
 
     # ------------------------------------------------------------------------
@@ -4103,8 +4123,8 @@ function Resolve-AmdNpuDriverUrl {
             Select-Object -First 1
         if ($patternMatch) {
             Write-Ok ("Found pattern match (newest): {0}" -f $patternMatch.FullName)
-            Write-Warn2 ("Note: filename does not match expected '{0}' for current platform." -f $expectedZipName)
-            Write-Warn2 '      Verify the version is compatible with your NPU codename before proceeding.'
+            Write-Caution ("Note: filename does not match expected '{0}' for current platform." -f $expectedZipName)
+            Write-Caution '      Verify the version is compatible with your NPU codename before proceeding.'
             $localZipPath = Join-Path $downloadDir $patternMatch.Name
             try {
                 if ($patternMatch.FullName -ne $localZipPath) {
@@ -4126,7 +4146,7 @@ function Resolve-AmdNpuDriverUrl {
     # ------------------------------------------------------------------------
     Write-Fail 'All 4 download tiers exhausted; no NPU driver ZIP could be obtained.'
     Write-Host ''
-    Write-Warn2 'How to obtain the NPU driver ZIP manually:'
+    Write-Caution 'How to obtain the NPU driver ZIP manually:'
     Write-Host ''
     Write-Host '  1. Visit AMD Ryzen AI installation guide:' -ForegroundColor White
     Write-Host '     https://ryzenai.docs.amd.com/en/latest/inst.html#install-npu-drivers' -ForegroundColor Cyan
@@ -4190,7 +4210,7 @@ function Invoke-NpuZipDownload {
 
     $size = (Get-Item $OutFile).Length
     if ($size -lt 1MB) {
-        Write-Warn2 ("Downloaded file is suspiciously small: {0} bytes" -f $size)
+        Write-Caution ("Downloaded file is suspiciously small: {0} bytes" -f $size)
         Write-Skip 'Inspecting first 256 bytes for HTML/error content...'
         $head = [System.IO.File]::ReadAllBytes($OutFile) | Select-Object -First 256
         $headText = -join ($head | ForEach-Object { [char]$_ })
@@ -4277,11 +4297,11 @@ function Invoke-AmdAccountAuthentication {
     )
 
     Write-Step 'Initiating AMD account authentication flow...'
-    Write-Warn2 '------------------------------------------------------------'
-    Write-Warn2 'VERIFIED 2026-05-10: account.amd.com is a JavaScript-driven SPA.'
-    Write-Warn2 'PowerShell HTTP form POST is highly unlikely to succeed against'
-    Write-Warn2 'this back-end. Tier 4 (-OfflineZip) is the recommended path.'
-    Write-Warn2 '------------------------------------------------------------'
+    Write-Caution '------------------------------------------------------------'
+    Write-Caution 'VERIFIED 2026-05-10: account.amd.com is a JavaScript-driven SPA.'
+    Write-Caution 'PowerShell HTTP form POST is highly unlikely to succeed against'
+    Write-Caution 'this back-end. Tier 4 (-OfflineZip) is the recommended path.'
+    Write-Caution '------------------------------------------------------------'
 
     if (-not $Ctx.ForceAmdAccountAuth) {
         Write-Fail 'Tier 2 (AMD account auto-download) is disabled by default since 2026-05-10.'
@@ -4290,7 +4310,7 @@ function Invoke-AmdAccountAuthentication {
         return $null
     }
 
-    Write-Warn2 '-ForceAmdAccountAuth specified; attempting form-based auth (will likely fail).'
+    Write-Caution '-ForceAmdAccountAuth specified; attempting form-based auth (will likely fail).'
 
     # Convert SecureString -> plaintext (necessary for HTTP form post)
     $cred = New-Object System.Net.NetworkCredential('', $Password)
@@ -4322,7 +4342,7 @@ function Invoke-AmdAccountAuthentication {
             Write-Skip 'No CSRF token in EULA page; proceeding without one'
         }
     } catch {
-        Write-Warn2 ("Step 1 failed: {0}" -f $_.Exception.Message)
+        Write-Caution ("Step 1 failed: {0}" -f $_.Exception.Message)
         return $null
     }
 
@@ -4378,7 +4398,7 @@ function Invoke-AmdAccountAuthentication {
         # Look for the EULA accept form action and any required fields
         $formActionMatch = [regex]::Match($eulaAuth.Content, '<form[^>]+action="([^"]+)"[^>]*>')
         if (-not $formActionMatch.Success) {
-            Write-Warn2 'Could not locate EULA acceptance form action.'
+            Write-Caution 'Could not locate EULA acceptance form action.'
             return $null
         }
         $formAction = $formActionMatch.Groups[1].Value
@@ -4426,7 +4446,7 @@ function Invoke-AmdAccountAuthentication {
         }
 
         if (-not $location) {
-            Write-Warn2 'Could not extract download URL from EULA acceptance response.'
+            Write-Caution 'Could not extract download URL from EULA acceptance response.'
             Write-Skip 'AMD may use JS-driven URL generation or has changed the response structure.'
             return $null
         }
@@ -4577,7 +4597,7 @@ function Install-RequiredTools { # psa-disable-line PSA6003 -- compound noun (e.
         $missing = @()
         if ($needsSdk) { $missing += 'Windows SDK (~5 min)' }
         if ($needsWdk) { $missing += 'Windows WDK (~3 min)' }
-        Write-Warn2 ('First-run install required for: {0}.' -f ($missing -join ', '))
+        Write-Caution ('First-run install required for: {0}.' -f ($missing -join ', '))
         Write-Host  '       Bootstrap EXEs are small (~1-2 MB) but each fetches several hundred MB'  -ForegroundColor DarkYellow
         Write-Host  '       to multi-GB of background payload from Microsoft Download CDN.'         -ForegroundColor DarkYellow
         Write-Host  '       Expected P02 elapsed on a clean host (JP): ~8-10 minutes.'              -ForegroundColor DarkYellow
@@ -4589,7 +4609,7 @@ function Install-RequiredTools { # psa-disable-line PSA6003 -- compound noun (e.
     if ($signtool) {
         Write-Ok ("signtool found: {0}" -f $signtool)
     } else {
-        Write-Warn2 'signtool not found. Installing Windows SDK via winget...'
+        Write-Caution 'signtool not found. Installing Windows SDK via winget...'
         try {
             $wingetCmd = Get-Command winget -ErrorAction Stop
             $procArgs = '--id Microsoft.WindowsSDK --silent --accept-package-agreements --accept-source-agreements --disable-interactivity'
@@ -4599,12 +4619,12 @@ function Install-RequiredTools { # psa-disable-line PSA6003 -- compound noun (e.
             if ($proc.ExitCode -eq 0) {
                 Write-Ok 'Windows SDK installed via winget.'
             } else {
-                Write-Warn2 ("winget exit code: {0}; checking for signtool again..." -f $proc.ExitCode)
+                Write-Caution ("winget exit code: {0}; checking for signtool again..." -f $proc.ExitCode)
             }
         } catch {
-            Write-Warn2 ("winget unavailable or failed: {0}" -f $_.Exception.Message)
-            Write-Warn2 'Manually install Windows 10/11 SDK from:'
-            Write-Warn2 '  https://learn.microsoft.com/en-us/windows-hardware/drivers/download-the-wdk'
+            Write-Caution ("winget unavailable or failed: {0}" -f $_.Exception.Message)
+            Write-Caution 'Manually install Windows 10/11 SDK from:'
+            Write-Caution '  https://learn.microsoft.com/en-us/windows-hardware/drivers/download-the-wdk'
         }
         $signtool = Find-SignToolPath
         if (-not $signtool) {
@@ -4618,7 +4638,7 @@ function Install-RequiredTools { # psa-disable-line PSA6003 -- compound noun (e.
     if ($inf2cat) {
         Write-Ok ("inf2cat found: {0}" -f $inf2cat)
     } else {
-        Write-Warn2 'inf2cat not found. Installing Windows WDK via winget (~2.5 GB)...'
+        Write-Caution 'inf2cat not found. Installing Windows WDK via winget (~2.5 GB)...'
         try {
             $wingetCmd = Get-Command winget -ErrorAction Stop
             $procArgs = '--id Microsoft.WindowsWDK --silent --accept-package-agreements --accept-source-agreements --disable-interactivity'
@@ -4628,12 +4648,12 @@ function Install-RequiredTools { # psa-disable-line PSA6003 -- compound noun (e.
             if ($proc.ExitCode -eq 0) {
                 Write-Ok 'Windows WDK installed via winget.'
             } else {
-                Write-Warn2 ("winget exit code: {0}; checking for inf2cat again..." -f $proc.ExitCode)
+                Write-Caution ("winget exit code: {0}; checking for inf2cat again..." -f $proc.ExitCode)
             }
         } catch {
-            Write-Warn2 ("winget unavailable or failed: {0}" -f $_.Exception.Message)
-            Write-Warn2 'Manually install Windows 10/11 WDK from:'
-            Write-Warn2 '  https://learn.microsoft.com/en-us/windows-hardware/drivers/download-the-wdk'
+            Write-Caution ("winget unavailable or failed: {0}" -f $_.Exception.Message)
+            Write-Caution 'Manually install Windows 10/11 WDK from:'
+            Write-Caution '  https://learn.microsoft.com/en-us/windows-hardware/drivers/download-the-wdk'
         }
         $inf2cat = Find-Inf2CatPath
         if (-not $inf2cat) {
@@ -4647,7 +4667,7 @@ function Install-RequiredTools { # psa-disable-line PSA6003 -- compound noun (e.
     if ($sevenZip) {
         Write-Ok ("7-Zip found: {0}" -f $sevenZip)
     } else {
-        Write-Warn2 '7-Zip not found. Installing via winget...'
+        Write-Caution '7-Zip not found. Installing via winget...'
         try {
             $wingetCmd = Get-Command winget -ErrorAction Stop
             $procArgs = '--id 7zip.7zip --silent --accept-package-agreements --accept-source-agreements --disable-interactivity'
@@ -4657,12 +4677,12 @@ function Install-RequiredTools { # psa-disable-line PSA6003 -- compound noun (e.
             if ($proc.ExitCode -eq 0) {
                 Write-Ok '7-Zip installed via winget.'
             } else {
-                Write-Warn2 ("winget exit code: {0}; checking for 7-Zip again..." -f $proc.ExitCode)
+                Write-Caution ("winget exit code: {0}; checking for 7-Zip again..." -f $proc.ExitCode)
             }
         } catch {
-            Write-Warn2 ("winget unavailable or failed: {0}" -f $_.Exception.Message)
-            Write-Warn2 'Manually install 7-Zip from:'
-            Write-Warn2 '  https://www.7-zip.org/'
+            Write-Caution ("winget unavailable or failed: {0}" -f $_.Exception.Message)
+            Write-Caution 'Manually install 7-Zip from:'
+            Write-Caution '  https://www.7-zip.org/'
         }
         $sevenZip = Find-SevenZipPath
         if (-not $sevenZip) {
@@ -4742,7 +4762,7 @@ function Expand-AmdNpuPackage {
 
     foreach ($line in $stdout) {
         if ($line -match '(?i)error|warning') {
-            Write-Warn2 ("    {0}" -f $line)
+            Write-Caution ("    {0}" -f $line)
         } else {
             Write-Skip ("    {0}" -f $line)
         }
@@ -4754,7 +4774,7 @@ function Expand-AmdNpuPackage {
     if ($exitCode -eq 0) {
         Write-Ok ("Initial extraction complete ({0:n1}s)." -f $duration)
     } elseif ($exitCode -eq 1) {
-        Write-Warn2 ("7-Zip reported non-fatal warnings (exit {0}); continuing." -f $exitCode)
+        Write-Caution ("7-Zip reported non-fatal warnings (exit {0}); continuing." -f $exitCode)
     } else {
         Write-Fail ("7-Zip extraction failed (exit code {0})." -f $exitCode)
         throw ("7-Zip extraction failed with exit code {0}" -f $exitCode)
@@ -4781,7 +4801,7 @@ function Expand-AmdNpuPackage {
             if ($nestedExit -le 1) {
                 Write-Skip ("Nested ZIP extracted to: {0}" -f $nestedDest)
             } else {
-                Write-Warn2 ("Nested ZIP extraction failed (exit {0}); continuing." -f $nestedExit)
+                Write-Caution ("Nested ZIP extraction failed (exit {0}); continuing." -f $nestedExit)
             }
         }
     }
@@ -4828,7 +4848,7 @@ function Read-InfFileLines { # psa-disable-line PSA6003 -- compound noun (e.g., 
         try {
             return [System.IO.File]::ReadAllLines($Path)
         } catch {
-            Write-Warn2 ("Could not read INF as UTF-8 or default: {0}" -f $Path)
+            Write-Caution ("Could not read INF as UTF-8 or default: {0}" -f $Path)
             return @()
         }
     }
@@ -5457,8 +5477,8 @@ function Install-WdacPolicy {
             }
         }
 
-        Write-Warn2 'CiTool not available; copied .cip to Active policy directory.'
-        Write-Warn2 'A reboot may be required for the policy to take effect.'
+        Write-Caution 'CiTool not available; copied .cip to Active policy directory.'
+        Write-Caution 'A reboot may be required for the policy to take effect.'
         if ($cimError) { Write-Detail ('  (WS2019 CIM bridge tried but failed: {0})' -f $cimError) }
         return @{
             ExitCode = 0
@@ -5488,7 +5508,7 @@ function Remove-WdacPolicy {
             Remove-Item -Path $activePath -Force
             Write-Ok ('Removed: {0}' -f $activePath)
         } catch {
-            Write-Warn2 ("Could not delete WDAC policy file: {0}" -f $_.Exception.Message)
+            Write-Caution ("Could not delete WDAC policy file: {0}" -f $_.Exception.Message)
         }
     }
 }
@@ -5521,7 +5541,7 @@ function Remove-CertFromTrustStore {
                 $cert | Remove-Item -Force
                 Write-Ok ('Removed cert from {0}' -f $store)
             } catch {
-                Write-Warn2 ("Could not remove cert from {0}: {1}" -f $store, $_.Exception.Message)
+                Write-Caution ("Could not remove cert from {0}: {1}" -f $store, $_.Exception.Message)
             }
         }
     }
@@ -5727,11 +5747,11 @@ function Invoke-PrepPhase00_Initialize {
     Write-Host ''
     Write-SubHeader2 'Ryzen AI Software OS support note'
     Set-DebugStep 'workstation install guard check'
-    Write-Warn2 'AMD officially supports Ryzen AI Software ONLY on Windows 11 (build >= 22621.3527).'
-    Write-Warn2 'Windows Server 2025 is NOT in AMD''s supported OS matrix.'
-    Write-Warn2 'This script patches the kernel-mode NPU driver to install on Server, but the'
-    Write-Warn2 'user-mode Ryzen AI Software stack (conda env, OGA, Vitis AI EP) will likely'
-    Write-Warn2 'not function on Server 2025 without unofficial workarounds.'
+    Write-Caution 'AMD officially supports Ryzen AI Software ONLY on Windows 11 (build >= 22621.3527).'
+    Write-Caution 'Windows Server 2025 is NOT in AMD''s supported OS matrix.'
+    Write-Caution 'This script patches the kernel-mode NPU driver to install on Server, but the'
+    Write-Caution 'user-mode Ryzen AI Software stack (conda env, OGA, Vitis AI EP) will likely'
+    Write-Caution 'not function on Server 2025 without unofficial workarounds.'
     Write-Host ''
 
     # ---- UEFI Secure Boot certificate baseline (port from chipset/graphics) ----
@@ -5748,7 +5768,7 @@ function Invoke-PrepPhase00_Initialize {
         $Ctx.DetectedPlatform.SecureBootBaseline = Get-SecureBootBaselineSnapshot -WorkRoot $Ctx.WorkRoot
         Show-SecureBootBaselineSnapshot -Snapshot $Ctx.DetectedPlatform.SecureBootBaseline -Compact
     } catch {
-        Write-Warn2 ("Secure Boot baseline capture failed: {0}" -f $_.Exception.Message)
+        Write-Caution ("Secure Boot baseline capture failed: {0}" -f $_.Exception.Message)
     }
 }
 
@@ -5934,17 +5954,17 @@ function Invoke-PrepPhase03_FetchInstaller {
     if ($npu.DriverSoftwareCompatible) {
         Write-Ok ('Compatibility        : OK')
     } else {
-        Write-Warn2 ('Compatibility        : MISMATCH')
+        Write-Caution ('Compatibility        : MISMATCH')
     }
     Write-Skip ('Note                 : {0}' -f $npu.DriverSoftwareCompatNote)
 
     if (-not $npu.IsDetected) {
         Write-Host ''
-        Write-Warn2 '------------------------------------------------------------------'
-        Write-Warn2 'NPU was NOT detected on the host (proceeding with default profile).'
-        Write-Warn2 'Driver Install (I03) will likely produce 0 device bindings here.'
-        Write-Warn2 'This run is useful for pipeline regression testing only.'
-        Write-Warn2 '------------------------------------------------------------------'
+        Write-Caution '------------------------------------------------------------------'
+        Write-Caution 'NPU was NOT detected on the host (proceeding with default profile).'
+        Write-Caution 'Driver Install (I03) will likely produce 0 device bindings here.'
+        Write-Caution 'This run is useful for pipeline regression testing only.'
+        Write-Caution '------------------------------------------------------------------'
         Write-Host ''
     }
 
@@ -6086,7 +6106,7 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     Write-Ok ('Need patch (Wstn) : {0}' -f (($inventory | Where-Object NeedsPatch).Count))
 
     if ($selected.Count -eq 0) {
-        Write-Warn2 'No INFs matched the target NPU codename. Pipeline will copy all INFs through anyway (will not bind).'
+        Write-Caution 'No INFs matched the target NPU codename. Pipeline will copy all INFs through anyway (will not bind).'
         # In that case, select all so they reach P06/P08/P09
         foreach ($e in $inventory) { $e.SelectedForPipeline = $true }
     }
@@ -6143,7 +6163,7 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
         Set-Content -LiteralPath $Ctx.InventoryReportPath -Value $sbReport.ToString() -Encoding UTF8
         Write-Skip ("Inventory text report: {0}" -f $Ctx.InventoryReportPath)
     } catch {
-        Write-Warn2 ("inf_inventory_report.txt generation failed (non-fatal): {0}" -f $_.Exception.Message)
+        Write-Caution ("inf_inventory_report.txt generation failed (non-fatal): {0}" -f $_.Exception.Message)
     }
 }
 
@@ -6175,7 +6195,7 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
                 Write-Skip ('  Already Server-compatible, copied to {0}' -f $outPath)
                 $copied++
             } else {
-                Write-Warn2 ('  No patch applied: {0}' -f $r.Reason)
+                Write-Caution ('  No patch applied: {0}' -f $r.Reason)
                 $failed++
             }
 
@@ -6354,7 +6374,7 @@ function Invoke-VerifyPhase02_VerifyCertificate {
             $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($Ctx.PfxPath, $PfxPassword, 'Exportable,PersistKeySet')
         }
     } catch {
-        Write-Warn2 ('Could not load with placeholder password; trying empty: {0}' -f $_.Exception.Message)
+        Write-Caution ('Could not load with placeholder password; trying empty: {0}' -f $_.Exception.Message)
         try {
             $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($Ctx.PfxPath)
         } catch {
@@ -6392,7 +6412,7 @@ function Invoke-VerifyPhase02_VerifyCertificate {
     if ($hasCodeSigningEku) {
         Write-Ok 'EKU         : Code Signing (1.3.6.1.5.5.7.3.3) PRESENT'
     } else {
-        Write-Warn2 'EKU         : Code Signing NOT present!'
+        Write-Caution 'EKU         : Code Signing NOT present!'
     }
 }
 
@@ -6443,7 +6463,7 @@ function Invoke-VerifyPhase04_VerifyInfs { # psa-disable-line PSA6003 -- compoun
         } else {
             $uncovered++
             if ($r.WorkstationOnly) {
-                Write-Warn2 ('  {0,-30}  Workstation-only (no .3 decoration)' -f $r.InfName)
+                Write-Caution ('  {0,-30}  Workstation-only (no .3 decoration)' -f $r.InfName)
             } else {
                 Write-Skip ('  {0,-30}  No build-{1} decoration (no Manufacturer entries?)' -f $r.InfName, $build)
             }
@@ -6476,7 +6496,7 @@ function Invoke-VerifyPhase05_DryRunInstall {
     $patched = Get-ChildItem -Path $Ctx.PatchedDir -Filter '*.inf' -File
     Set-DebugStep 'enumerate patched INFs for evaluation'
     if ($patched.Count -eq 0) {
-        Write-Warn2 'No patched INFs to evaluate.'
+        Write-Caution 'No patched INFs to evaluate.'
         return
     }
 
@@ -6604,7 +6624,7 @@ function Invoke-VerifyPhase05_DryRunInstall {
     Write-Ok ('Plan summary: {0} INF total -> [ADD] {1}  [UPGRADE] {2}  [KEEP] {3}  [DOWNGRADE] {4}' -f `
         $plan.Count, $cAdd, $cUpgrade, $cKeep, $cDowngrade)
     if ($cDowngrade -gt 0) {
-        Write-Warn2 ('{0} INF would attempt a downgrade; pnputil normally refuses these.' -f $cDowngrade)
+        Write-Caution ('{0} INF would attempt a downgrade; pnputil normally refuses these.' -f $cDowngrade)
     }
 
     # ---- Compact UEFI Secure Boot baseline readout (chipset/graphics parity) ----
@@ -6669,13 +6689,13 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
             Write-Ok ('AS-IS DriverDate   : {0}' -f $dateStr)
             Write-Ok ('AS-IS Provider     : {0}' -f $current.DriverProviderName)
         } else {
-            Write-Warn2 'AS-IS driver       : (none bound to NPU device, or device unbound)'
+            Write-Caution 'AS-IS driver       : (none bound to NPU device, or device unbound)'
             Write-Skip 'This is common on a freshly installed Windows Server 2025 - the NPU appears'
             Write-Skip 'as an unknown PCI device until the AMD / Microsoft driver is installed.'
         }
     } else {
-        Write-Warn2 'NPU was NOT detected on this host (running with -AssumeIfMissing default profile).'
-        Write-Warn2 'V06 cannot evaluate device-bind impact without a real NPU device present.'
+        Write-Caution 'NPU was NOT detected on this host (running with -AssumeIfMissing default profile).'
+        Write-Caution 'V06 cannot evaluate device-bind impact without a real NPU device present.'
     }
 
     # ------------------------------------------------------------------
@@ -6698,7 +6718,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
 
         # Group: WILL be replaced (UPGRADE)
         if ($willReplace.Count -gt 0) {
-            Write-Warn2 ('{0,3} device(s) WILL be replaced (TO-BE is newer or same-version-newer-date)' -f $willReplace.Count)
+            Write-Caution ('{0,3} device(s) WILL be replaced (TO-BE is newer or same-version-newer-date)' -f $willReplace.Count)
             foreach ($p in $willReplace) {
                 Write-Host ''
                 Write-Host ('    INF: {0}' -f $p.Inf) -ForegroundColor White
@@ -6737,7 +6757,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
             }
         }
     } else {
-        Write-Warn2 'No install plan available; run V05 (DryRunInstall) first.'
+        Write-Caution 'No install plan available; run V05 (DryRunInstall) first.'
     }
 
     # ------------------------------------------------------------------
@@ -6762,17 +6782,17 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
 
         Write-Host ''
         if ($adds.Count -gt 0) {
-            Write-Warn2 '[HIGH RISK]   Fresh install of NPU kernel-mode driver.'
-            Write-Warn2 '              Reason: An unbound device will be claimed by a self-signed driver.'
-            Write-Warn2 '                      Ryzen AI Software depends on the exact driver build version.'
+            Write-Caution '[HIGH RISK]   Fresh install of NPU kernel-mode driver.'
+            Write-Caution '              Reason: An unbound device will be claimed by a self-signed driver.'
+            Write-Caution '                      Ryzen AI Software depends on the exact driver build version.'
             foreach ($p in $adds) {
                 Write-Skip ('                - {0} ({1})' -f $p.Inf, $p.DriverVer)
             }
         }
         if ($upgrades.Count -gt 0) {
-            Write-Warn2 '[MEDIUM RISK] Upgrade of NPU driver.'
-            Write-Warn2 '              Reason: Cross-RAI-version upgrades may break Ryzen AI Software API.'
-            Write-Warn2 '                      e.g. RAI 1.5 -> 1.6+ broke OGA API (0.7 -> 0.9.2).'
+            Write-Caution '[MEDIUM RISK] Upgrade of NPU driver.'
+            Write-Caution '              Reason: Cross-RAI-version upgrades may break Ryzen AI Software API.'
+            Write-Caution '                      e.g. RAI 1.5 -> 1.6+ broke OGA API (0.7 -> 0.9.2).'
             foreach ($p in $upgrades) {
                 Write-Skip ('                - {0}: {1}' -f $p.Inf, $p.Notes)
             }
@@ -6787,9 +6807,9 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     # ------------------------------------------------------------------
     Write-Host ''
     Write-SubHeader2 'Section 4: Ryzen AI Software (user-mode stack) reminder'
-    Write-Warn2 'This script installs the kernel-mode NPU driver only. To actually USE the NPU,'
-    Write-Warn2 'you must separately install Ryzen AI Software, which is OFFICIALLY supported'
-    Write-Warn2 'on Windows 11 only (build >= 22621.3527).'
+    Write-Caution 'This script installs the kernel-mode NPU driver only. To actually USE the NPU,'
+    Write-Caution 'you must separately install Ryzen AI Software, which is OFFICIALLY supported'
+    Write-Caution 'on Windows 11 only (build >= 22621.3527).'
     Write-Skip 'NPU driver and Ryzen AI Software are versioned INDEPENDENTLY (per AMD docs).'
     Write-Skip 'See the I04 post-install guidance for installer download URLs.'
 
@@ -6811,7 +6831,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
             Show-SecureBootBaselineSnapshot -Snapshot $sbSnapshot
         }
     } catch {
-        Write-Warn2 ("Secure Boot baseline section failed: {0}" -f $_.Exception.Message)
+        Write-Caution ("Secure Boot baseline section failed: {0}" -f $_.Exception.Message)
     }
 }
 
@@ -6829,11 +6849,11 @@ function Invoke-InstPhase00_PreInstallReview {
 
     Set-DebugStep 'workstation OS install guard check'
     if ($Ctx.DetectedPlatform.IsWorkstationOs -and -not $Ctx.AllowWorkstationInstall) {
-        Write-Warn2 ''
-        Write-Warn2 'Install phases are blocked on Workstation OS by default.'
-        Write-Warn2 'Use -AllowWorkstationInstall to override (discouraged).'
-        Write-Warn2 'Skipping I00-I04.'
-        Write-Warn2 ''
+        Write-Caution ''
+        Write-Caution 'Install phases are blocked on Workstation OS by default.'
+        Write-Caution 'Use -AllowWorkstationInstall to override (discouraged).'
+        Write-Caution 'Skipping I00-I04.'
+        Write-Caution ''
         throw 'Install blocked on Workstation OS.'
     }
 
@@ -6905,25 +6925,25 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
             # WDAC path is planned but Secure Boot is OFF -> path is
             # overspecified (testsigning would suffice). Not a block.
             if (-not $Ctx.UseTestSigning -and $sbSnapshot.Embedded.SecureBootEnabled -eq $false) {
-                Write-Warn2 'WDAC path is planned, but Secure Boot is OFF. Code Integrity policy will still apply; testsigning would also suffice. Continuing.'
+                Write-Caution 'WDAC path is planned, but Secure Boot is OFF. Code Integrity policy will still apply; testsigning would also suffice. Continuing.'
             }
             # Surface UEFI rollout error state without blocking
             if ($sbSnapshot.Health -eq 'Critical') {
-                Write-Warn2 ('UEFI Secure Boot baseline health is Critical. Reasons: ' + ($sbSnapshot.Reasons -join '; '))
+                Write-Caution ('UEFI Secure Boot baseline health is Critical. Reasons: ' + ($sbSnapshot.Reasons -join '; '))
                 Write-Host '  This does NOT block I02 (different trust layer), but the operator should be aware.' -ForegroundColor Yellow
             } elseif ($sbSnapshot.Health -eq 'Warning') {
                 Write-Host ('  Baseline health: Warning. ' + ($sbSnapshot.Reasons -join '; ')) -ForegroundColor Yellow
             }
         }
     } catch {
-        Write-Warn2 ("UEFI Secure Boot baseline pre-check failed (non-fatal): {0}" -f $_.Exception.Message)
+        Write-Caution ("UEFI Secure Boot baseline pre-check failed (non-fatal): {0}" -f $_.Exception.Message)
     }
     Write-Host ''
 
     Set-DebugStep 'testsigning fallback or WDAC policy build'
     if ($Ctx.UseTestSigning) {
-        Write-Warn2 'UseTestSigning specified; falling back to bcdedit /set testsigning on'
-        Write-Warn2 'A reboot is required for testsigning mode to take effect.'
+        Write-Caution 'UseTestSigning specified; falling back to bcdedit /set testsigning on'
+        Write-Caution 'A reboot is required for testsigning mode to take effect.'
         & bcdedit /set testsigning on 2>&1 | ForEach-Object { Write-Skip ("    {0}" -f $_) }
         return
     }
@@ -6961,7 +6981,7 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
             Write-Ok ('  {0} OK (exit {1})' -f $inf.Name, $r.ExitCode)
         } else {
             $fail++
-            Write-Warn2 ('  {0} FAILED (exit {1})' -f $inf.Name, $r.ExitCode)
+            Write-Caution ('  {0} FAILED (exit {1})' -f $inf.Name, $r.ExitCode)
         }
     }
     Write-Ok ('Install OK: {0}; FAILED: {1}' -f $ok, $fail)
@@ -6998,11 +7018,11 @@ function Invoke-InstPhase04_PostInstallVerification {
             if ($bound.DriverProviderName -match 'AMD') {
                 Write-Ok '[C] Self-signed AMD NPU driver successfully bound.'
             } else {
-                Write-Warn2 'Driver provider is not AMD; check Device Manager for binding.'
+                Write-Caution 'Driver provider is not AMD; check Device Manager for binding.'
             }
         } else {
-            Write-Warn2 'No driver appears bound to the target NPU HWID yet.'
-            Write-Warn2 'Try: Device Manager -> rescan; or pnputil /scan-devices.'
+            Write-Caution 'No driver appears bound to the target NPU HWID yet.'
+            Write-Caution 'Try: Device Manager -> rescan; or pnputil /scan-devices.'
         }
     } else {
         Write-Skip 'NPU HWID not known; skipping post-install bind check.'
@@ -7028,7 +7048,7 @@ function Invoke-Cleanup {
             if ($rm.Removed) {
                 Write-Ok ('Removed deployed CI policy {0}' -f $policyId)
             } elseif ($rm.Existed) {
-                Write-Warn2 ('Could not remove CI policy {0} - inspect manually with CiTool.exe -lp' -f $policyId)
+                Write-Caution ('Could not remove CI policy {0} - inspect manually with CiTool.exe -lp' -f $policyId)
             } else {
                 Write-Skip 'WDAC supplemental policy was not currently deployed.'
             }
@@ -7381,7 +7401,7 @@ function Invoke-MainEntryPoint {
             }
         }
         $phaseIds = $phaseIds | Select-Object -Unique
-        Write-Warn2 ('-OnlyPhases override active: running {0} phase(s)' -f $phaseIds.Count)
+        Write-Caution ('-OnlyPhases override active: running {0} phase(s)' -f $phaseIds.Count)
         Write-Skip ('  Phases: {0}' -f ($phaseIds -join ', '))
     } else {
         $phaseIds = Get-PhaseListByAction -Action $Action
@@ -7401,13 +7421,13 @@ function Invoke-MainEntryPoint {
             $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
             $productType = [int]$os.ProductType
             if ($productType -eq 1 -and -not $Ctx.AllowWorkstationInstall) {
-                Write-Warn2 ''
-                Write-Warn2 '------------------------------------------------------------------'
-                Write-Warn2 ('Action={0} on Workstation OS detected.' -f $Action)
-                Write-Warn2 'I00 will block install phases. Use -AllowWorkstationInstall to'
-                Write-Warn2 'override (discouraged), or use Action=PrepareVerify on Win11 hosts.'
-                Write-Warn2 '------------------------------------------------------------------'
-                Write-Warn2 ''
+                Write-Caution ''
+                Write-Caution '------------------------------------------------------------------'
+                Write-Caution ('Action={0} on Workstation OS detected.' -f $Action)
+                Write-Caution 'I00 will block install phases. Use -AllowWorkstationInstall to'
+                Write-Caution 'override (discouraged), or use Action=PrepareVerify on Win11 hosts.'
+                Write-Caution '------------------------------------------------------------------'
+                Write-Caution ''
             }
         } catch {
             # Non-fatal: let phase runner handle it
@@ -7457,7 +7477,7 @@ finally {
         try {
             Show-RunSummary -Ctx $Ctx -Action $Action
         } catch {
-            Write-Warn2 ('Could not render run summary: {0}' -f $_.Exception.Message)
+            Write-Caution ('Could not render run summary: {0}' -f $_.Exception.Message)
         }
     }
 

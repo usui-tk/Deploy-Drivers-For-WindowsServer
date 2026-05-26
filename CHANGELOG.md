@@ -20,7 +20,162 @@ independently.
 
 ---
 
-## [2026-05-26] `npu-state-model-refactor-step-3-tier-b4-helper-canon` — Chipset r85 / Graphics r51 / BthPan r33 / NPU r29
+## [2026-05-27] `cross-repo-shared-utility-canon-write-caution` — Chipset r86 / Graphics r52 / BthPan r34 / NPU r30
+
+This release establishes the **5-way cross-repo shared utility canon** that
+spans the four AMD-family scripts in this repository and the
+`Download-SpeakerDeck.ps1` script in the sibling repository
+[`usui-tk/ai-generated-artifacts`](https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/powershell/download-speakerdeck-oracle4engineer).
+**28 shared helper functions are now byte-identical across all five scripts**, up from
+the 5 that were 5-way identical prior to the release. The bidirectional
+best-of-both pass also renamed `Write-Warn2` (AMD canon) and `Write-Warn`
+(SpeakerDeck canon) to a unified `Write-Caution` and resolved the three
+remaining NPU-vs-AMD-trio divergences (`Set-Tls12`, `Set-ConsoleUtf8`,
+`Assert-PowerShellCompatibility`).
+
+> **What changed**: 23 helper functions were uplifted to a single
+> bidirectional best-of-both canon. The selection of "best" was made
+> per-function based on the strongest design from either repo. Sources:
+>
+> - **From the SpeakerDeck script** (10 functions): `Get-PhaseElapsedTag`
+>   (single-quote comment convention), `_LogLine` (column-12 width with
+>   the format reused on the empty-tag branch), `Format-Elapsed` (zero-padded
+>   `'{0}h{1:D2}m{2:D2}s'` form with usage-example comment),
+>   `Write-PhaseHeader` (Mandatory + typed param block + format width),
+>   `Assert-PowerShellCompatibility` (richer `.SYNOPSIS` / `.DESCRIPTION`
+>   docstring covering 32-bit hosts and PS-5.1 baseline rationale),
+>   `Start-DebugTrace` (extended Context example with the
+>   `'phase.PNN.<Name>'` convention), `Format-DebugFailure` (added
+>   `ElapsedMs` + `PhaseId` fields for richer diagnostic JSONL output).
+>
+> - **From the AMD canon** (8 functions): `Set-ConsoleUtf8`,
+>   `Enable-AutoExportOnPhaseFailure`,
+>   `Enable-DebugTraceFileOutput`, `Export-DebugTraceJson`,
+>   `Stop-DebugTrace`, `_DebugTrace_RetireFrame`,
+>   `_DebugTrace_WriteJsonlLine`, `Write-DebugFailureReport`. These were
+>   already the more feature-rich implementation; the SpeakerDeck side
+>   adopts them verbatim.
+>
+> - **Hybrid (best-of-both merged)** (2 functions):
+>   - `Set-Tls12` — TLS 1.2 baseline, then best-effort TLS 1.3 (modern
+>     host), TLS 1.1 (legacy fallback), and TLS 1.0 (very-old fallback)
+>     all wrapped in `try/catch` so the function degrades gracefully on
+>     any .NET runtime. Combines the AMD canon's "prefer modern TLS"
+>     posture with the SpeakerDeck canon's "tolerate legacy hosts" posture.
+>   - `Write-PhaseFooter` — keeps the AMD canon's four-state status
+>     ValidateSet (`'done','cached','skipped','failed'`) and adds the
+>     SpeakerDeck canon's Mandatory + typed param block + format-width
+>     specifier. The phase-state reset at the end is also retained from
+>     the AMD canon so a stray `Write-Step` / `Write-Ok` between phases
+>     does not inherit a misleading `[+X.XXs]` tag from the previous phase.
+>
+> - **One-line helpers (`Write-Ok` / `Write-Fail` / `Write-Skip` /
+>   `Write-Step`)** — AMD canon `$Msg` param name (PowerShell-convention-ish);
+>   the SpeakerDeck `[string]$m` form is replaced verbatim. The
+>   `Write-Caution` (new name) one-liner follows the same pattern.
+>
+> - **Write-Detail propagation** (3 4-way drift cases resolved): Within
+>   the AMD repo, `Write-Detail` had three different bodies across the
+>   four scripts (Chipset/BthPan at 1575 bytes; Graphics at 1521 bytes;
+>   NPU at 1550 bytes) — small comment-style divergence accrued over
+>   previous releases. The Chipset body is now the AMD canon for
+>   `Write-Detail`, propagated to Graphics and NPU. The SpeakerDeck
+>   script adds `Write-Detail` as a 5-way byte-identical placeholder
+>   helper (0 callsites; reserved for future SpeakerDeck table-style
+>   output). See SPEC §A.11.7 per-repo carve-out for the callsite-count
+>   rationale.
+>
+> - **Per-repo carve-out** (1 function): `Show-PowerShellEnvironment`
+>   could not be made 5-way byte-identical because the AMD canon body
+>   references three AMD-driver-specific helpers (`Get-BootSigningEnvironment`,
+>   `Show-BootSigningEnvironment`, `Show-DriverInstallationOrderNotice`)
+>   that do not exist in the SpeakerDeck script. The function is therefore
+>   maintained as **AMD 4-way canon** (PSA8001-enforced byte-identity
+>   across the four AMD scripts) **plus a SpeakerDeck-side implementation
+>   that omits the driver-specific sections**. Cross-repo drift on
+>   `Show-PowerShellEnvironment` is expected and explicitly NOT flagged.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.26-r85` → `chipset-2026.05.26-r86`
+  - Graphics: `graphics-2026.05.26-r51` → `graphics-2026.05.26-r52`
+  - NPU: `npu-2026.05.26-r29` → `npu-2026.05.26-r30`
+  - BthPan: `msbthpan-2026.05.26-r33` → `msbthpan-2026.05.26-r34`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `npu-state-model-refactor-step-3-tier-b4-helper-canon` →
+    `cross-repo-shared-utility-canon-write-caution`
+
+### Function rename: `Write-Warn2` → `Write-Caution`
+
+Pre-release the AMD scripts used `Write-Warn2` (an ad-hoc workaround for
+the visual collision with the built-in `Write-Warning` cmdlet) and the
+SpeakerDeck script used `Write-Warn` (a shorter form that retained the
+collision risk). Both were renamed in lockstep to **`Write-Caution`**,
+which:
+
+- avoids any autocomplete or visual collision with `Write-Warning`,
+- matches the noun-form convention of the other marker-line helpers
+  (`Write-Ok` / `Write-Fail` / `Write-Skip` / `Write-Step`),
+- semantically matches the `[!]` marker's "operator must take notice,
+  processing continues" intent.
+
+Callsites rewritten on the AMD side: Chipset 109, Graphics 103, NPU 119,
+BthPan 95 (426 total across the four scripts). The SpeakerDeck-side
+rewrite (47 callsites) is in the matching release of the sibling repo.
+
+### NPU drift resolution (Set-Tls12 / Set-ConsoleUtf8 / Assert-PowerShellCompatibility)
+
+The three helpers that historically diverged in NPU (NPU had its own
+slightly different bodies for `Set-Tls12`, `Set-ConsoleUtf8`, and
+`Assert-PowerShellCompatibility`) are now byte-identical with Chipset /
+Graphics / BthPan. The three NPU bodies were each replaced with the
+best-of-both canon body for the corresponding function:
+
+- `Set-Tls12` → the new hybrid canon (TLS 1.3 + 1.2 + best-effort 1.1
+  + 1.0 fallback).
+- `Set-ConsoleUtf8` → the AMD canon (Chipset/Graphics/BthPan 3-way
+  byte-identity already, NPU now joins).
+- `Assert-PowerShellCompatibility` → the new SpeakerDeck-sourced canon
+  (richer `.SYNOPSIS` / `.DESCRIPTION` covering 32-bit hosts and
+  PS-5.1-baseline rationale).
+
+### Tier A roster expansion
+
+Tier A (helper functions enforced as 4-way byte-identical by PSA8001) grew
+significantly:
+
+- Pre-release: 39 functions (the post-r85 baseline).
+- Post-release: 39 + 23 newly 5-way canon functions, of which all 23 are
+  also 4-way byte-identical within the AMD repo by construction. PSA8001
+  treats them the same way it treats any 4-way byte-identical helper.
+
+The `psa8001_ignore_functions` list in `.psa.config.json` did not need
+to be modified — none of the 23 newly canon-ised functions had been
+explicitly listed there (the prior drift was tolerated implicitly).
+This release codifies the byte-identity that previously held only by
+convention.
+
+### Documentation changes
+
+- `SPEC.md` §A.11.7: new sub-section "Cross-repo shared utility canon
+  (5-way: AMD 4 siblings + Download-SpeakerDeck.ps1)" documenting the
+  28 canon functions, the per-repo carve-outs (`Write-Detail` /
+  `Write-SubSection`), and the `Write-Warn` / `Write-Warn2` → `Write-Caution`
+  rename rationale.
+- `README.md` / `README.ja.md`: "What's new" section updated; r85 moved to
+  "Previous release notes".
+- This `CHANGELOG.md` entry.
+
+### Verification
+
+All four scripts pass `psa.py 4.1.0` with `0 / 0 / 0 / 0` on the full
+latest-mainline rule set, including PSA8001 (cross-file drift) without
+adding any entries to `psa8001_ignore_functions`.
+
+---
+
+
 
 This is **stage 3 (the final stage) of the NPU state-model refactor**.
 Stage 1 (`npu-state-model-refactor-step-1-wdac-helpers`) ported the
