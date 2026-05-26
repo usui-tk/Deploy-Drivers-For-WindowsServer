@@ -651,8 +651,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.05.26-r81'
-$Script:ScriptTag     = 'psa-py-v410-three-new-error-rules-baseline'
+$Script:ScriptVersion = 'chipset-2026.05.26-r82'
+$Script:ScriptTag     = 'psa-py-v410-shared-helper-canon-uplift'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -2939,7 +2939,16 @@ function Get-SecureBootBaselineSnapshot {
         Embedded   = $emb
         Microsoft  = $ms
         Health     = $health
-        Reasons    = @($reasons)
+        # PS 5.1 ja-JP latent bug guard: when `Reasons` (a hashtable
+        # value here) is later cast to [pscustomobject] downstream,
+        # `@($list)` over a Generic.List[T] has been observed to raise
+        # System.ArgumentException in ja-JP locale builds (originally
+        # localised in the BthPan Invoke-InfVerifValidation
+        # investigation; see SPEC §D entry for the full post-mortem).
+        # .ToArray() materialises eagerly to string[] and side-steps
+        # the issue at near-zero cost; applied uniformly across all
+        # four sister scripts.
+        Reasons    = $reasons.ToArray()
     }
 }
 

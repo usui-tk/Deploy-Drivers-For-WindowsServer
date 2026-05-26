@@ -325,8 +325,8 @@ $Script:CertValidityYears       = $CertValidityYears
 # =============================================================================
 # Script-scope state
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.05.26-r25'
-$Script:ScriptTag           = 'psa-py-v410-three-new-error-rules-baseline'
+$Script:ScriptVersion       = 'npu-2026.05.26-r26'
+$Script:ScriptTag           = 'psa-py-v410-shared-helper-canon-uplift'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 $Script:CertSubjectCn       = 'AMD NPU Driver Self-Sign (WS2025 Lab, At Own Risk)'
@@ -2934,7 +2934,16 @@ function Get-SecureBootBaselineSnapshot {
         Embedded   = $emb
         Microsoft  = $ms
         Health     = $health
-        Reasons    = @($reasons)
+        # PS 5.1 ja-JP latent bug guard: when `Reasons` (a hashtable
+        # value here) is later cast to [pscustomobject] downstream,
+        # `@($list)` over a Generic.List[T] has been observed to raise
+        # System.ArgumentException in ja-JP locale builds (originally
+        # localised in the BthPan Invoke-InfVerifValidation
+        # investigation; see SPEC §D entry for the full post-mortem).
+        # .ToArray() materialises eagerly to string[] and side-steps
+        # the issue at near-zero cost; applied uniformly across all
+        # four sister scripts.
+        Reasons    = $reasons.ToArray()
     }
 }
 
@@ -2966,7 +2975,7 @@ function Show-SecureBootBaselineSnapshot {
         $msTag = if ($ms -and $ms.Available) { 'MS-sample=ok' }
                  elseif ($Snapshot.MsInfo.Present) { 'MS-sample=present(err)' }
                  else { 'MS-sample=absent' }
-        Write-Host ("    Secure Boot baseline: enabled={0,-5} UEFI-CA-2023={1,-12} health={2,-8} [{3}]" -f $sb, $u2023, $health, $msTag) -ForegroundColor $healthColor
+        Write-Detail ("Secure Boot baseline: enabled={0,-5} UEFI-CA-2023={1,-12} health={2,-8} [{3}]" -f $sb, $u2023, $health, $msTag) -Color $healthColor
         return
     }
 
@@ -2977,58 +2986,58 @@ function Show-SecureBootBaselineSnapshot {
     # banner that was visible in early releases.
     Write-Host ("  Overall health     : {0}" -f $health) -ForegroundColor $healthColor
     foreach ($r in $Snapshot.Reasons) {
-        Write-Host ("    - {0}" -f $r) -ForegroundColor $healthColor
+        Write-Detail ("- {0}" -f $r) -Color $healthColor
     }
     Write-Host ''
     Write-Host '  [Embedded inventory]'
-    Write-Host ("    Secure Boot enabled              : {0}" -f $(if ($null -eq $emb.SecureBootEnabled) { 'unknown' } else { $emb.SecureBootEnabled }))
+    Write-Detail ("Secure Boot enabled              : {0}" -f $(if ($null -eq $emb.SecureBootEnabled) { 'unknown' } else { $emb.SecureBootEnabled }))
     if ($emb.SecureBootDetectError) {
-        Write-Host ("      Detect error: {0}" -f $emb.SecureBootDetectError) -ForegroundColor DarkGray
+        Write-Detail ("  Detect error: {0}" -f $emb.SecureBootDetectError) -Color DarkGray
     }
-    Write-Host ("    Windows UEFI CA 2023 (db, 1P)    : {0}" -f $(if ($null -eq $emb.FirstPartyDB2023Updated)  { 'n/a' } elseif ($emb.FirstPartyDB2023Updated  -eq 1) { 'present'    } else { 'NOT present' }))
-    Write-Host ("    Microsoft KEK 2K CA 2023 (KEK,1P): {0}" -f $(if ($null -eq $emb.FirstPartyKEK2023Updated) { 'n/a' } elseif ($emb.FirstPartyKEK2023Updated -eq 1) { 'present'    } else { 'NOT present' }))
-    Write-Host ("    Microsoft UEFI CA 2011 (db, 3P)  : {0}" -f $(if ($null -eq $emb.ThirdParty2011CAPresent)  { 'n/a' } elseif ($emb.ThirdParty2011CAPresent  -eq 1) { 'present (3P trusted)' } else { 'not present (1P-only trust)' }))
+    Write-Detail ("Windows UEFI CA 2023 (db, 1P)    : {0}" -f $(if ($null -eq $emb.FirstPartyDB2023Updated)  { 'n/a' } elseif ($emb.FirstPartyDB2023Updated  -eq 1) { 'present'    } else { 'NOT present' }))
+    Write-Detail ("Microsoft KEK 2K CA 2023 (KEK,1P): {0}" -f $(if ($null -eq $emb.FirstPartyKEK2023Updated) { 'n/a' } elseif ($emb.FirstPartyKEK2023Updated -eq 1) { 'present'    } else { 'NOT present' }))
+    Write-Detail ("Microsoft UEFI CA 2011 (db, 3P)  : {0}" -f $(if ($null -eq $emb.ThirdParty2011CAPresent)  { 'n/a' } elseif ($emb.ThirdParty2011CAPresent  -eq 1) { 'present (3P trusted)' } else { 'not present (1P-only trust)' }))
     if ($emb.ThirdParty2023CertsRequired -eq 1) {
-        Write-Host ("    Microsoft UEFI CA 2023 (db, 3P)        : {0}" -f $(if ($null -eq $emb.ThirdParty2023CertUpdated)          { 'n/a' } elseif ($emb.ThirdParty2023CertUpdated          -eq 1) { 'present' } else { 'NOT present' }))
-        Write-Host ("    Microsoft Option ROM UEFI CA 2023 (3P) : {0}" -f $(if ($null -eq $emb.ThirdPartyOptionRom2023CertUpdated) { 'n/a' } elseif ($emb.ThirdPartyOptionRom2023CertUpdated -eq 1) { 'present' } else { 'NOT present' }))
+        Write-Detail ("Microsoft UEFI CA 2023 (db, 3P)        : {0}" -f $(if ($null -eq $emb.ThirdParty2023CertUpdated)          { 'n/a' } elseif ($emb.ThirdParty2023CertUpdated          -eq 1) { 'present' } else { 'NOT present' }))
+        Write-Detail ("Microsoft Option ROM UEFI CA 2023 (3P) : {0}" -f $(if ($null -eq $emb.ThirdPartyOptionRom2023CertUpdated) { 'n/a' } elseif ($emb.ThirdPartyOptionRom2023CertUpdated -eq 1) { 'present' } else { 'NOT present' }))
     }
-    Write-Host ("    UEFI CA 2023 status (registry)         : {0}" -f $(if ($emb.UEFICA2023Status)     { $emb.UEFICA2023Status     } else { 'n/a' }))
+    Write-Detail ("UEFI CA 2023 status (registry)         : {0}" -f $(if ($emb.UEFICA2023Status)     { $emb.UEFICA2023Status     } else { 'n/a' }))
     if ($emb.UEFICA2023Error) {
-        Write-Host ("    UEFI CA 2023 error code                : {0}" -f $emb.UEFICA2023Error) -ForegroundColor Yellow
+        Write-Detail ("UEFI CA 2023 error code                : {0}" -f $emb.UEFICA2023Error) -Color Yellow
     }
-    Write-Host ("    AvailableUpdates / Policy              : {0} / {1}" -f $(if ($emb.AvailableUpdatesHex)       { $emb.AvailableUpdatesHex       } else { 'n/a' }), $(if ($emb.AvailableUpdatesPolicyHex) { $emb.AvailableUpdatesPolicyHex } else { 'n/a' }))
-    Write-Host ("    Secure-Boot-Update scheduled task      : {0}" -f $(
+    Write-Detail ("AvailableUpdates / Policy              : {0} / {1}" -f $(if ($emb.AvailableUpdatesHex)       { $emb.AvailableUpdatesHex       } else { 'n/a' }), $(if ($emb.AvailableUpdatesPolicyHex) { $emb.AvailableUpdatesPolicyHex } else { 'n/a' }))
+    Write-Detail ("Secure-Boot-Update scheduled task      : {0}" -f $(
         if (-not $emb.SecureBootTaskExists) { 'task not present' }
         elseif ($null -eq $emb.SecureBootTaskEnabled) { "state=$($emb.SecureBootTaskStatus) (enabled-check skipped)" }
         elseif ($emb.SecureBootTaskEnabled) { "Ready/Running (state=$($emb.SecureBootTaskStatus))" }
         else { "Not running (state=$($emb.SecureBootTaskStatus))" }
     ))
     if ($emb.CanAttemptUpdateAfter) {
-        Write-Host ("    CanAttemptUpdateAfter (UTC)            : {0}" -f $emb.CanAttemptUpdateAfter) -ForegroundColor DarkGray
+        Write-Detail ("CanAttemptUpdateAfter (UTC)            : {0}" -f $emb.CanAttemptUpdateAfter) -Color DarkGray
     }
     Write-Host ''
     Write-Host '  [Microsoft sample script (KB5089549+ delivery)]'
     if (-not $Snapshot.MsInfo.Present) {
         Write-Host '    Not deployed on this host.' -ForegroundColor DarkGray
-        Write-Host ("    (Expected path: {0})" -f $Snapshot.MsInfo.RootPath) -ForegroundColor DarkGray
+        Write-Detail ("(Expected path: {0})" -f $Snapshot.MsInfo.RootPath) -Color DarkGray
         Write-Host '    Embedded inventory above is the sole source.' -ForegroundColor DarkGray
     } elseif (-not $ms -or -not $ms.Available) {
         Write-Host ('    Script present but invocation failed.') -ForegroundColor Yellow
         if ($ms -and $ms.ErrorMessage) {
-            Write-Host ("      Reason: {0}" -f $ms.ErrorMessage) -ForegroundColor Yellow
+            Write-Detail ("  Reason: {0}" -f $ms.ErrorMessage) -Color Yellow
         }
     } else {
         $d = $ms.Data
         Write-Host ('    Script invoked successfully.') -ForegroundColor Green
-        Write-Host ("    Script path  : {0}" -f $ms.ScriptPath) -ForegroundColor DarkGray
-        Write-Host ("    JSON path    : {0}" -f $ms.JsonPath) -ForegroundColor DarkGray
-        Write-Host ("    BucketId     : {0}" -f $(if ($d.BucketId) { $d.BucketId } else { 'n/a' }))
-        Write-Host ("    Confidence   : {0}" -f $(if ($d.Confidence) { $d.Confidence } else { 'n/a' }))
+        Write-Detail ("Script path  : {0}" -f $ms.ScriptPath) -Color DarkGray
+        Write-Detail ("JSON path    : {0}" -f $ms.JsonPath) -Color DarkGray
+        Write-Detail ("BucketId     : {0}" -f $(if ($d.BucketId) { $d.BucketId } else { 'n/a' }))
+        Write-Detail ("Confidence   : {0}" -f $(if ($d.Confidence) { $d.Confidence } else { 'n/a' }))
         if ($d.SkipReasonKnownIssue) {
-            Write-Host ("    SkipReason   : {0}" -f $d.SkipReasonKnownIssue) -ForegroundColor Yellow
+            Write-Detail ("SkipReason   : {0}" -f $d.SkipReasonKnownIssue) -Color Yellow
         }
         if ($d.KnownIssueId) {
-            Write-Host ("    KnownIssueId : {0}" -f $d.KnownIssueId) -ForegroundColor Yellow
+            Write-Detail ("KnownIssueId : {0}" -f $d.KnownIssueId) -Color Yellow
         }
         $evtFields = @('Event1801Count','Event1808Count','Event1795Count','Event1796Count','Event1800Count','Event1802Count','Event1803Count')
         $evtParts = foreach ($f in $evtFields) {
@@ -3036,7 +3045,7 @@ function Show-SecureBootBaselineSnapshot {
             if ($v -and ([int]$v -gt 0)) { ("{0}={1}" -f ($f -replace 'Count$',''), $v) }
         }
         if ($evtParts) {
-            Write-Host ("    Events       : {0}" -f ($evtParts -join '  '))
+            Write-Detail ("Events       : {0}" -f ($evtParts -join '  '))
         }
         if ($d.MissingKEK) {
             Write-Host '    MissingKEK   : TRUE (OEM needs to supply PK-signed KEK)' -ForegroundColor Yellow

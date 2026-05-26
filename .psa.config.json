@@ -132,10 +132,10 @@
   // script because each script handles a different driver family
   // (Chipset / Graphics / NPU / MSBthPan). Suppress those by name.
   //
-  // SHARED HELPER functions NOT listed here MUST stay in sync. As of
-  // r60 / r28 / r10 / r10, the following 34 functions are byte-for-byte
-  // identical across all 4 scripts and any future drift will be flagged
-  // by PSA8001:
+  // SHARED HELPER functions NOT listed here MUST stay in sync. As of the
+  // r82 / r48 / r30 / r26 release (psa-py-v410-shared-helper-canon-uplift),
+  // the following 36 functions are byte-for-byte identical across all 4
+  // scripts and any future drift will be flagged by PSA8001:
   //
   //   Logging primitives (12):
   //     Format-Elapsed, _LogLine, Write-Step, Write-Ok, Write-Warn2,
@@ -155,17 +155,21 @@
   //     Assert-Admin, Assert-PowerShellCompatibility,
   //     Show-PowerShellEnvironment
   //
-  //   Secure Boot baseline diagnostic trio (5):
+  //   Secure Boot baseline diagnostic helpers (7):
   //     Format-SecureBootBaselineForReport,
   //     Get-SecureBootCertificateInventory,
   //     Get-MsSecureBootExampleScriptPath,
   //     Invoke-MsSecureBootDetectScript,
-  //     Export-DebugTraceJson
+  //     Export-DebugTraceJson,
+  //     Get-SecureBootBaselineSnapshot         (new in r82, was Tier B)
+  //     Show-SecureBootBaselineSnapshot        (new in r82, was Tier B)
   //
   // Other helpers (Get-OrEnsureSecureBootBaseline, the boot-signing
   // environment family, the WDAC policy family, etc.) are identical in
   // 2-3 of the 4 scripts; their NPU variants are simplified and listed
   // below in psa8001_ignore_functions to allow that drift intentionally.
+  // These remaining NPU divergences are tracked as Tier B-4 backlog
+  // items in SPEC.md §A.11.7 (NPU state-model refactor).
 
   "psa8001_ignore_functions": [
     // ---- All 21 pipeline phase functions are script-specific by design ----
@@ -228,14 +232,18 @@
     "Build-PatchedInfHwidIndex",
 
     // ---- Secure Boot baseline helpers ----
-    // The Get-SecureBootBaselineSnapshot signature and certificate
-    // inventory schema is shared, but the script-revision header
-    // comments differ. The MSBthPan / AMD-family / NPU variants all
-    // have minor cosmetic deltas around log-message wording; flag a
-    // genuine drift here would require a full review pass, so the
-    // current policy is to allow these to differ. Tighten later.
-    "Get-SecureBootBaselineSnapshot",
-    "Show-SecureBootBaselineSnapshot",
+    // Get-SecureBootBaselineSnapshot and Show-SecureBootBaselineSnapshot
+    // are byte-identical across all four scripts since the
+    // psa-py-v410-shared-helper-canon-uplift release (r82 / r48 / r30 /
+    // r26); they are NO LONGER listed here and PSA8001 actively
+    // enforces their byte-identity invariant. Get-OrEnsureSecureBootBaseline
+    // is byte-identical across Chipset / Graphics / BthPan but differs
+    // intentionally in NPU because the NPU script keeps Secure Boot
+    // baseline state on a $Script:DetectedPlatform hashtable rather than
+    // passing $Ctx around. This entry remains in the ignore list as a
+    // documented Tier B-4 backlog item (NPU state-model refactor; see
+    // SPEC.md §A.11.7); the Get-OrEnsureSecureBootBaseline divergence
+    // will be removed when that refactor lands.
     "Get-OrEnsureSecureBootBaseline",
     "Format-SecureBootBaselineForReport",
     "Get-SecureBootCertificateInventory",

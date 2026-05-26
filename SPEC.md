@@ -1179,7 +1179,7 @@ When a shared helper is fixed in Graphics / NPU / BthPan instead of Chipset (e.g
 
 #### Tier A — byte-identical across all four scripts (PSA8001-enforced)
 
-These 34 helpers are inherited verbatim from Chipset by all three other scripts. PSA8001 fires on any drift; the gate has been continuously green since the r60 / r28 / r10 / r10 release. The canonical inventory below is grouped by functional family to make porting decisions easier:
+These 36 helpers are inherited verbatim from Chipset by all three other scripts. PSA8001 fires on any drift; the gate has been continuously green for the original 34 functions since the r60 / r28 / r10 / r10 release, and the two additions (`Get-SecureBootBaselineSnapshot`, `Show-SecureBootBaselineSnapshot`) graduated from Tier B to Tier A in the r82 / r48 / r30 / r26 release (`psa-py-v410-shared-helper-canon-uplift`). The canonical inventory below is grouped by functional family to make porting decisions easier:
 
 **Logging primitives (12)**
 `Format-Elapsed`, `_LogLine`, `Write-Step`, `Write-Ok`, `Write-Warn2`, `Write-Fail`, `Write-Skip`, `Write-Detail`, `Write-PhaseHeader`, `Write-PhaseFooter`, `Get-PhaseElapsedTag`, `Format-DebugFailure`
@@ -1190,28 +1190,60 @@ These 34 helpers are inherited verbatim from Chipset by all three other scripts.
 **Environment / preflight (5)**
 `Set-Tls12`, `Set-ConsoleUtf8`, `Assert-Admin`, `Assert-PowerShellCompatibility`, `Show-PowerShellEnvironment`
 
-**Secure Boot baseline diagnostic helpers (5)**
-`Format-SecureBootBaselineForReport`, `Get-SecureBootCertificateInventory`, `Get-MsSecureBootExampleScriptPath`, `Invoke-MsSecureBootDetectScript`, `Export-DebugTraceJson`
+**Secure Boot baseline diagnostic helpers (7)**
+`Format-SecureBootBaselineForReport`, `Get-SecureBootCertificateInventory`, `Get-MsSecureBootExampleScriptPath`, `Invoke-MsSecureBootDetectScript`, `Export-DebugTraceJson`, `Get-SecureBootBaselineSnapshot` (new in r82), `Show-SecureBootBaselineSnapshot` (new in r82)
 
 Adding a new helper to this tier: write it in Chipset first, paste it byte-for-byte into the other three scripts, run `python3 psa.py --include PSA8001 Deploy-*.ps1` to confirm no drift is reported, and do NOT add the new helper to `psa8001_ignore_functions`. The PSA8001 gate then permanently enforces the byte-identity invariant from that commit onward.
 
 #### Tier B — 4-script-shared but currently drift-tolerant (PSA8001-ignored)
 
-These 9 helpers exist in all four scripts but are currently listed in `psa8001_ignore_functions` because at least one sister script has a simplified or driver-family-flavoured variant. They are NOT phase functions (which are intentionally per-script — see Tier D); they are general-purpose helpers whose simplification was historically allowed during the NPU script's bring-up and never reconciled. **They are the active backlog for shared-helper unification work**; future quality cycles should walk them one by one and either (a) lift the NPU / BthPan / Graphics variant to match Chipset and remove the function from `psa8001_ignore_functions`, or (b) document a genuine driver-family asymmetry that justifies the divergence.
+Tier B previously listed 9 helpers that existed in all four scripts but had at least one simplified or driver-family-flavoured variant. The r82 / r48 / r30 / r26 release (`psa-py-v410-shared-helper-canon-uplift`) resolved **2 of those 9** by promoting `Get-SecureBootBaselineSnapshot` and `Show-SecureBootBaselineSnapshot` to Tier A; the remaining 7 are now categorised by the underlying *kind* of divergence (B-1 / B-2 / B-3 / B-4) so that future quality-cycle work can prioritise by complexity:
 
-| Function | Tier-B reason (current divergence) | Canonical (Chipset) shape |
+##### Tier B-2 — backlog: PS 5.1 ja-JP latent-bug guard
+
+`Get-SecureBootBaselineSnapshot` was the original Tier B-2 case: the BthPan port had a `Reasons = $reasons.ToArray()` defensive form (motivated by the `Invoke-InfVerifValidation` PS 5.1 ja-JP `[pscustomobject]` cast bug — see §D.35) while Chipset / Graphics / NPU used the plain `Reasons = @($reasons)` form. The r82 release back-ported the `.ToArray()` form to all four scripts uniformly and added the unified comment block referencing §D.35; the function is now Tier A. **There are currently no other Tier B-2 cases**; the category is documented here so that any future "BthPan-only defensive pattern" findings can be triaged with the same uniform-backport-plus-§D-cross-reference approach.
+
+##### Tier B-3 — already-acceptable per-family identifier differences (effectively Tier C)
+
+Two helpers were originally listed under Tier B but the only divergence is a legitimate per-family identifier substitution. The r82 release re-classifies them in the prose here while keeping them in `psa8001_ignore_functions` (their divergence is intentional, not backlog):
+
+| Function | Divergence kind | Why it's not real Tier B |
 |:---|:---|:---|
-| `Get-BootSigningEnvironment` | NPU ships a simplified variant that probes only Secure Boot + testsigning state; Chipset / Graphics / BthPan additionally enumerate the active WDAC supplemental policies via `CITool.exe` (or registry fallback). | Full WDAC enumeration. |
-| `Show-BootSigningEnvironment` | NPU renders a 2-line summary; the other three render the full multi-row table. | Full multi-row console output. |
-| `Get-OrEnsureSecureBootBaseline` | Cosmetic log-message wording differs across the 4; underlying logic is equivalent. | Chipset's wording is canonical. |
-| `Get-SecureBootBaselineSnapshot` | Same as above — wording-only divergence. | Chipset's wording is canonical. |
-| `Show-SecureBootBaselineSnapshot` | Same as above. | Chipset's wording is canonical. |
-| `Show-DriverInstallationOrderNotice` | Per-driver-family wording (Chipset / Graphics share verbatim; NPU and BthPan differ on the "expected order" sentence). | Chipset's wording is canonical for AMD-family scripts; the NPU / BthPan variants are family-specific and may legitimately stay divergent — assess case-by-case. |
-| `Show-PhaseList` | Per-driver-family phase descriptions (each script lists its own P00..I04). | NOT a true Tier B (legitimately per-script); listed here for awareness — should ultimately be moved to Tier D. |
-| `Invoke-Cleanup` | Per-driver-family cleanup paths (workspace path differs per family). | Chipset's structure is the canonical template; per-family paths are the only valid divergence. |
-| `Resume-CtxFromWorkspace` | Per-driver-family `$Ctx` schema (Chipset has WHQL co-sign analysis fields, NPU does not). | Chipset is canonical for the `$Ctx` skeleton; per-field omissions in simpler scripts are by design. |
+| `Resume-CtxFromWorkspace` | Chipset's `AMD-Chipset-Driver-CodeSign.pfx` becomes `AMD-Graphics-Driver-CodeSign.pfx` in Graphics, etc. NPU/BthPan also differ in `$Ctx` schema. | The cert-filename substitution is mandatory per-family — the canonical certificate name MUST encode the driver family for cross-script certificate trust isolation. |
+| `Invoke-Cleanup` | Chipset's `Get-AmdSuppPolicyMarkerPath` / `Uninstall-AmdWdacPolicy` becomes `Get-MsBthPanSuppPolicyMarkerPath` / `Uninstall-MsBthPanWdacPolicy` in BthPan. | The marker-path / WDAC helper names are family-prefixed by design (per SPEC §B isolation principle). |
 
-**NPU is not excluded from this canon.** Earlier policy granted NPU a permanent "simplified script" exemption; that exemption is hereby retired as a documented backlog item. NPU's three Tier B simplifications (`Get-BootSigningEnvironment`, `Show-BootSigningEnvironment`, and the cosmetic Secure Boot wording deltas) are intended to be reconciled to the Chipset canon in a future quality cycle, not left as a permanent asymmetry. The retirement does NOT block landing — the existing `psa8001_ignore_functions` entry continues to gate CI on the current baseline — but it marks each entry as a known debt rather than a closed design decision.
+These are formally Tier C (per-family identifier-only divergence) but are retained in `psa8001_ignore_functions` so that the global ignore list stays the single source of "what differs and why" rather than splitting across multiple subsystems. SPEC §A.11.7 now serves as the authoritative classification; `.psa.config.json` mirrors it for tooling.
+
+##### Tier B-4 — NPU state-model architectural divergence (large refactor backlog)
+
+The remaining **5 helpers** all diverge between Chipset (canon) and NPU because **the NPU script uses a fundamentally different state-passing model**:
+
+- Chipset / Graphics / BthPan thread a `$Ctx` PSCustomObject through every phase function. Helpers receive `[Parameter(Mandatory)] $Ctx` and read / write properties on that object.
+- NPU keeps runtime state on `$Script:` scope variables: `$Script:DetectedPlatform` (hashtable), `$Script:WorkRoot` (string), `$Script:PfxPath`, `$Script:CertSubjectCn`, etc. Helpers take `param()` (no `$Ctx`) and reference globals directly.
+
+This divergence is **not cosmetic**. Bringing NPU into Tier A requires refactoring the NPU script's entire state-passing model from `$Script:` globals to an explicit `$Ctx` object — comparable in scope to a multi-thousand-line restructuring. It is being tracked as a **dedicated future workstream** ("NPU state-model refactor"):
+
+| Function | NPU divergence | Refactor scope |
+|:---|:---|:---|
+| `Get-OrEnsureSecureBootBaseline` | NPU: `param()` + `$Script:DetectedPlatform.SecureBootBaseline` access. Chipset / Graphics / BthPan: `param([Parameter(Mandatory)] $Ctx)` + `$Ctx.SecureBootBaseline` access. | The function is byte-identical in 3 of 4 scripts (Chipset, Graphics, BthPan) since r82; only the NPU variant differs. Joining Tier A requires the full state-model refactor below. |
+| `Get-BootSigningEnvironment` | NPU: ~1.7 KB, probes only Secure Boot + testsigning. Canon: ~7.8 KB, additionally enumerates active WDAC supplemental policies via `CITool.exe` / registry fallback. | Functional addition to NPU (~6 KB of code). NPU does not currently use the returned WDAC inventory; the addition is for symmetry and future-proofing. |
+| `Show-BootSigningEnvironment` | NPU: 2-line summary. Canon: full multi-row table. | Display-only change; trivial once `Get-BootSigningEnvironment` returns the full snapshot. |
+| `Invoke-Cleanup` | NPU: cert-subject-CN-based removal via `Remove-CertFromTrustStore`, `Get-ChildItem Cert:\…`. Canon: marker-file-based removal via `Get-AmdSuppPolicyMarkerPath`. | NPU's approach is actually safer (does not rely on a marker file being present); arguably *NPU* is the canon and Chipset / Graphics / BthPan should adopt the cert-subject pattern. **Decision required during the refactor**: which direction is canon. |
+| `Resume-CtxFromWorkspace` | NPU: lightweight diagnostic-only scan (no state to rebuild because `$Script:` globals are recomputed at param-block time). Canon: rebuilds `$Ctx.CertPfxPath`, `$Ctx.CertThumbprint`, etc. from disk. | Becomes a no-op or trivially short after the state-model refactor (no `$Ctx` to repopulate); the current asymmetry is a direct symptom of NPU's `$Script:` model. |
+
+**Planning note for the NPU state-model refactor.** This is intentionally tracked here in normative SPEC text — not as an `// XXX: TODO` comment in any script — because the per-revision-history-in-CHANGELOG rule (PSAP0003 / PSAP0004) also forbids `TODO` markers from accumulating in script bodies. The refactor's eventual landing PR is expected to:
+
+1. Introduce `$Ctx` in the NPU script with the same property set as Chipset's canonical `$Ctx` (DetectedPlatform, WorkRoot, PfxPath, CertSubjectCn, CertThumbprint, Paths.* subtree, etc.).
+2. Migrate every NPU phase function (`Invoke-Prep*`, `Invoke-Verify*`, `Invoke-Inst*`) from `$Script:Foo` to `$Ctx.Foo` references — this is the bulk of the refactor (thousands of lines).
+3. Migrate the 5 Tier B-4 helpers above to the canonical `$Ctx`-taking signature.
+4. Verify with `psa.py --include PSA8001 Deploy-*.ps1` that the 5 helpers are now byte-identical to Chipset, and remove them from `psa8001_ignore_functions`.
+5. Decide for `Invoke-Cleanup` whether the cert-subject pattern (NPU current) or marker-file pattern (Chipset current) is canon, then propagate either Chipset → NPU or NPU → {Chipset, Graphics, BthPan}.
+
+Until the refactor lands, the 5 Tier B-4 helpers remain in `psa8001_ignore_functions`. The CI gate (0 errors / 0 warnings / 0 info on the canonical config) continues to be satisfied because PSA8001 skips them; the policy debt is documented here and via this entry's existence in the SPEC.
+
+##### Tier B-1 — cosmetic-only divergence (no remaining items)
+
+The r82 release resolved both original Tier B-1 entries: the `Get-OrEnsureSecureBootBaseline` Graphics-only comment-prefix drift and the `Show-SecureBootBaselineSnapshot` NPU `Write-Host`-vs-`Write-Detail` output-helper drift. Both functions are now Tier A. **There are currently no Tier B-1 cases**; the category is documented here so that any future "cosmetic-only" findings can be batched into an analogous low-risk release.
 
 #### Tier C — partial-sibling helpers (subset of scripts only)
 
@@ -4468,6 +4500,74 @@ singular.
    tractable bulk-rewrite job rather than as a sprawling 4-cycle
    tour. When a static-analysis rule has a relaxed/strict mode
    pair, it pays to invest in the relaxed-mode coverage first.
+
+
+## D.35 PS 5.1 ja-JP `[pscustomobject]@{ ... = @(List<T>) }` ArgumentException — `Reasons = $reasons.ToArray()` guard (`r82 / r48 / r30 / r26`, 2026-05-26)
+
+### D.35.1 Symptom
+
+On Windows PowerShell 5.1 with a Japanese-locale system (CLR culture `ja-JP`, OS UI language Japanese), constructing a `[pscustomobject]` whose hashtable initialiser contains a value of the form `@($genericList)` — where `$genericList` is a `System.Collections.Generic.List[T]` instance — has been observed to raise `System.ArgumentException` at evaluation time. The exception surfaces during the `[pscustomobject]@{ ... }` cast (or during the function `return` that emits such an object), not at the `@()` operator itself. The exact message text is locale-dependent and not always informative; the stack trace identifies the enclosing function but typically not the line.
+
+The root cause is a PowerShell 5.1 engine interaction between the `@(...)` array-subexpression operator's coercion path for `Generic.List[T]` operands and the `[pscustomobject]` hashtable-to-property assignment path under the ja-JP culture. The same input does NOT throw under en-US on equivalent OS / PS builds, which makes the defect locale-bound and easy to miss in CI environments configured with the invariant or en-US culture. The behaviour is not reproducible against PowerShell 7.x (which uses a different conversion path).
+
+### D.35.2 Where it was originally localised
+
+The defect was first observed during the development of `Invoke-InfVerifValidation` (BthPan script, used to drive `infverif.exe` and parse its output into a structured result). The function returned a `[pscustomobject]@{ ... ; Errors = @($errList) ; ... }` where `$errList` was a `System.Collections.Generic.List[pscustomobject]`. On the ja-JP bench host the function reliably raised `System.ArgumentException` somewhere inside the `return` statement. The exception was not raised on the en-US developer host. Investigation required wiring up explicit checkpoint instrumentation (the seed of the now-canonical SPEC §A.5 DebugTrace facility — `Start-DebugTrace` / `Set-DebugStep` / `Format-DebugFailure`) before the failure could be attributed to the `return` line.
+
+The fix in `Invoke-InfVerifValidation` was to replace `@($errList)` with `$errList.ToArray()`, which materialises the generic list to a native `T[]` array via the `List<T>.ToArray()` instance method instead of going through PowerShell's `@()` coercion. PowerShell then sees a CLR array as the hashtable value and the `[pscustomobject]` cast path takes a different (working) branch.
+
+### D.35.3 The latent risk in `Get-SecureBootBaselineSnapshot`
+
+`Get-SecureBootBaselineSnapshot` builds a `Reasons` list of the same shape (`Generic.List[string]`), and emits a `[pscustomobject]@{ ... ; Reasons = @($reasons) ; ... }`. The function existed in all four sister scripts. Pre-r82, only the BthPan script had defensively replaced `@($reasons)` with `$reasons.ToArray()`; Chipset / Graphics / NPU still used the original `@($reasons)` form.
+
+No `Get-SecureBootBaselineSnapshot`-specific ArgumentException had ever been reported in the wild. The pattern is identical to the one that broke `Invoke-InfVerifValidation`, however, and the `List<string>` content is not categorically safer than `List<pscustomobject>` — empirical reports from the broader PowerShell community suggest `List<string>` is *less likely* to trigger the defect but not immune. Until the latent path was eliminated, a ja-JP host running any of the three AMD scripts on a future Windows / PS build that tightens the conversion path could hit the exception during P00 phase initialisation (a place where it would be especially confusing to diagnose).
+
+### D.35.4 Fix (`r82 / r48 / r30 / r26`)
+
+The `psa-py-v410-shared-helper-canon-uplift` release back-ported the `.ToArray()` form to all four sister scripts uniformly, and added a unified comment block referencing this §D.35 entry so that future maintainers see the rationale immediately:
+
+```powershell
+return [pscustomobject]@{
+    Emb        = $emb
+    Health     = $health
+    # PS 5.1 ja-JP latent bug guard: when `Reasons` (a hashtable
+    # value here) is later cast to [pscustomobject] downstream,
+    # `@($list)` over a Generic.List[T] has been observed to raise
+    # System.ArgumentException in ja-JP locale builds (originally
+    # localised in the BthPan Invoke-InfVerifValidation
+    # investigation; see SPEC §D entry for the full post-mortem).
+    # .ToArray() materialises eagerly to string[] and side-steps
+    # the issue at near-zero cost; applied uniformly across all
+    # four sister scripts.
+    Reasons    = $reasons.ToArray()
+    # ... (other properties unchanged)
+}
+```
+
+With this in place the function became byte-identical across all four scripts and was promoted from Tier B to Tier A (PSA8001-enforced); see [SPEC §A.11.7](#a117-shared-helper-canon-and-porting-checklist-chipset--canon). The change is a no-op on en-US hosts and on PowerShell 7.x; on PS 5.1 ja-JP it eliminates a latent defect class.
+
+### D.35.5 General coding rule for sister scripts
+
+When constructing a `[pscustomobject]` (or any hashtable that will later be cast to `[pscustomobject]`) whose value is the contents of a `System.Collections.Generic.List[T]`:
+
+- **Do NOT use `@($list)`** unless you have proven (via end-to-end testing on a ja-JP PS 5.1 host) that the specific call site does not trigger the ArgumentException. The cost of getting this wrong is a latent locale-dependent defect.
+- **DO use `$list.ToArray()`** as the default form. It is one character longer, has identical runtime semantics for downstream consumers (both produce a `T[]` array), is faster (no PowerShell coercion overhead), and is defensively safe across locales and PS versions.
+
+This rule applies to all four sister scripts uniformly. New shared helpers introduced in any of the four scripts should follow it.
+
+### D.35.6 Why the guard is uniform across all four scripts
+
+A natural alternative would have been "only fix BthPan since that's where the bug was observed; leave the other three alone since they have not been observed to fail". This was rejected for three reasons:
+
+1. **PSA8001 byte-identity is more valuable than micro-optimising one branch.** Keeping all four scripts on the canonical form means PSA8001 can promote `Get-SecureBootBaselineSnapshot` to Tier A and enforce against future drift. Splitting the four into "fixed" and "not-fixed" variants would have required a Tier B entry forever.
+
+2. **The defect's locale-dependence makes "we haven't seen it" weak evidence.** The ja-JP bench cycles run regularly but not exclusively; an en-US developer host running CI against an en-US Windows Server would not exercise the failing path. Defensive uniformity is the appropriate posture for latent locale defects.
+
+3. **The cost is symbolic.** One character per call site (`@(` → `$reasons.ToA…`), wrapped in a unified 8-line comment block that documents the rationale. The maintenance cost over a 5+ year horizon is dominated by the comment block, not the substitution itself.
+
+### D.35.7 Static-analysis posture
+
+`psa.py` does not currently have a rule that flags `@(<List<T>>)` patterns inside `[pscustomobject]` initialisers — the heuristic to recognise the pattern reliably (variable typed as `Generic.List`, value position inside a hashtable initialiser, downstream `[pscustomobject]` cast) is non-trivial and would need careful false-positive engineering. If the pattern is observed in a third sister-script site in the future, the upstream `psa.py` SPEC adding such a rule (in the PSA2xxx variable/scope or PSA3xxx coding-pattern family) becomes a reasonable proposal. Until then, this §D.35 entry plus the unified in-function comment block are the policy carriers.
 
 
 ## Appendix: How to seed a new sister script from this SPEC

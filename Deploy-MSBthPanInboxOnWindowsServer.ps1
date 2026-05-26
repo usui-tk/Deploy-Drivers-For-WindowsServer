@@ -437,8 +437,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-$Script:ScriptVersion = 'msbthpan-2026.05.26-r29'
-$Script:ScriptTag     = 'psa-py-v410-three-new-error-rules-baseline'
+$Script:ScriptVersion = 'msbthpan-2026.05.26-r30'
+$Script:ScriptTag     = 'psa-py-v410-shared-helper-canon-uplift'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -2720,11 +2720,15 @@ function Get-SecureBootBaselineSnapshot {
         Embedded   = $emb
         Microsoft  = $ms
         Health     = $health
-        # an earlier fix: use.ToArray instead of @($reasons) to avoid a PS 5.1
-        # ja-JP bug where @(Generic.List<T>) as a hashtable value being cast
-        # to [pscustomobject] raises ArgumentException. List[string] is less
-        # affected than List[object], but applied here for consistency.
-        # See Invoke-InfVerifValidation comment for the full investigation.
+        # PS 5.1 ja-JP latent bug guard: when `Reasons` (a hashtable
+        # value here) is later cast to [pscustomobject] downstream,
+        # `@($list)` over a Generic.List[T] has been observed to raise
+        # System.ArgumentException in ja-JP locale builds (originally
+        # localised in the BthPan Invoke-InfVerifValidation
+        # investigation; see SPEC §D entry for the full post-mortem).
+        # .ToArray() materialises eagerly to string[] and side-steps
+        # the issue at near-zero cost; applied uniformly across all
+        # four sister scripts.
         Reasons    = $reasons.ToArray()
     }
 }

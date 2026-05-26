@@ -20,7 +20,94 @@ independently.
 
 ---
 
-## [2026-05-26] `psa-py-v410-three-new-error-rules-baseline` — Chipset r81 / Graphics r47 / BthPan r29 / NPU r25
+## [2026-05-26] `psa-py-v410-shared-helper-canon-uplift` — Chipset r82 / Graphics r48 / BthPan r30 / NPU r26
+
+This release advances the **shared helper canon** workflow introduced
+in r81 (`psa-py-v410-three-new-error-rules-baseline`). Three Tier B
+functions — `Get-SecureBootBaselineSnapshot`, `Show-SecureBootBaselineSnapshot`,
+and (partially) `Get-OrEnsureSecureBootBaseline` — are reconciled to
+the Chipset canon, raising the PSA8001-enforced Tier A roster from
+34 to **36 functions**. The release also back-ports the BthPan
+`Invoke-InfVerifValidation`-era `$reasons.ToArray()` defensive form
+to all four scripts uniformly, eliminating a latent PS 5.1 ja-JP
+`[pscustomobject]` cast bug that had been guarded only in BthPan.
+
+> **What changed**: (1) Tier B-1 (pure cosmetic) consolidations:
+> `Show-SecureBootBaselineSnapshot` on NPU replaced `Write-Host` +
+> 4-space-indent literals with the shared `Write-Detail` helper that
+> the other three scripts already use; `Get-OrEnsureSecureBootBaseline`
+> on Graphics dropped a vestigial `# Port from chipset:` comment
+> prefix. (2) Tier B-2 (PS 5.1 ja-JP latent bug guard) uniformity:
+> `Get-SecureBootBaselineSnapshot` on Chipset / Graphics / NPU
+> changed `Reasons = @($reasons)` to `Reasons = $reasons.ToArray()`,
+> matching BthPan's defensive form; a unified comment block now
+> references the new SPEC §D.35 post-mortem. (3) SPEC §A.11.7 is
+> reorganised to expose four Tier B sub-categories (B-1 / B-2 / B-3
+> / B-4) and a dedicated **NPU state-model refactor backlog**
+> (Tier B-4) tracks the 5 remaining NPU divergences that require
+> the major `$Script:` → `$Ctx` restructuring.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.26-r81` → `chipset-2026.05.26-r82`
+  - Graphics: `graphics-2026.05.26-r47` → `graphics-2026.05.26-r48`
+  - NPU: `npu-2026.05.26-r25` → `npu-2026.05.26-r26`
+  - BthPan: `msbthpan-2026.05.26-r29` → `msbthpan-2026.05.26-r30`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `psa-py-v410-three-new-error-rules-baseline` → `psa-py-v410-shared-helper-canon-uplift`
+
+### Tier B-1 — pure cosmetic consolidation (2 functions, NOW Tier A)
+
+- **`Show-SecureBootBaselineSnapshot` (NPU)**: replaced 14 `Write-Host` + 4-space-indent literal lines with `Write-Detail` calls, matching the canonical form used by Chipset / Graphics / BthPan. No behaviour change — `Write-Detail` is the established shared helper that emits the same 4-space-indented continuation rows with optional `-Color` and is byte-identical across the 4 scripts (Tier A). After this change, `Show-SecureBootBaselineSnapshot` is byte-identical across all four scripts and is promoted from Tier B to **Tier A** (PSA8001-enforced).
+- **`Get-OrEnsureSecureBootBaseline` (Graphics)**: dropped the vestigial `# Port from chipset:` comment prefix that had been left in place during an earlier back-port. The function is now byte-identical to the Chipset canon for Chipset / Graphics / BthPan. The NPU variant still differs structurally (uses `$Script:DetectedPlatform` globals instead of a `$Ctx` parameter) and is tracked as Tier B-4 (NPU state-model refactor); see SPEC §A.11.7 *Tier B-4*.
+
+### Tier B-2 — PS 5.1 ja-JP latent bug guard, uniformly applied (1 function, NOW Tier A)
+
+- **`Get-SecureBootBaselineSnapshot` (Chipset / Graphics / NPU)**: replaced `Reasons = @($reasons)` with `Reasons = $reasons.ToArray()`, matching the defensive form that BthPan had carried since the `Invoke-InfVerifValidation` PS 5.1 ja-JP investigation. A unified 8-line comment block now references the new SPEC §D.35 post-mortem. After this change, `Get-SecureBootBaselineSnapshot` is byte-identical across all four scripts and is promoted from Tier B to **Tier A** (PSA8001-enforced).
+- **No runtime behaviour change on en-US hosts or PS 7.x.** The change is a no-op everywhere except on a PowerShell 5.1 ja-JP host that would otherwise have hit the latent ArgumentException (which had not been observed in `Get-SecureBootBaselineSnapshot` specifically, but had been observed in the structurally-identical `Invoke-InfVerifValidation` BthPan-only helper). The fix is defensive and uniform; see SPEC §D.35 for the full post-mortem and the general coding rule "when emitting a `[pscustomobject]@{ ... = $list ... }`, use `$list.ToArray()`, not `@($list)`".
+
+### Tier A roster: 34 → 36 functions
+
+The PSA8001-enforced byte-identity canon now covers **36 shared helpers** (logging primitives ×12, DebugTrace framework ×12, environment / preflight ×5, Secure Boot baseline diagnostic helpers ×7). The full inventory is documented in [SPEC §A.11.7](./SPEC.md#a117-shared-helper-canon-and-porting-checklist-chipset--canon) *Tier A*.
+
+### Tier B reorganisation (SPEC §A.11.7)
+
+The Tier B section is reorganised into four sub-categories that classify by the *kind* of divergence rather than the function family:
+
+- **Tier B-1** (pure cosmetic): empty after r82.
+- **Tier B-2** (PS 5.1 ja-JP latent-bug guard): empty after r82.
+- **Tier B-3** (per-family identifier substitution, effectively Tier C): `Resume-CtxFromWorkspace` and `Invoke-Cleanup` are re-classified here. They remain in `psa8001_ignore_functions` because their divergence (cert filename / WDAC helper name) is mandated by the per-family isolation principle — they are NOT backlog.
+- **Tier B-4** (NPU state-model architectural divergence): the 5 remaining NPU divergences (`Get-OrEnsureSecureBootBaseline`, `Get-BootSigningEnvironment`, `Show-BootSigningEnvironment`, `Invoke-Cleanup`, `Resume-CtxFromWorkspace` — note the latter two appear in both B-3 and B-4 because the NPU variant has BOTH per-family AND state-model divergence) are tracked as a single dedicated **future workstream**: the **NPU state-model refactor** (`$Script:` globals → `$Ctx` PSCustomObject). This is a multi-thousand-line restructuring expected to consume one major refactor PR plus follow-ups. SPEC §A.11.7 *Tier B-4* documents the scope, the 5 affected functions, and the open canon-direction question for `Invoke-Cleanup` (NPU's cert-subject-CN-based removal vs the AMD-family marker-file-based removal — which is canon).
+
+### Documentation
+
+- **`SPEC.md` §A.11.7 (`Shared helper canon and porting checklist`)**: Tier A roster updated to 36 functions with the new entries called out; Tier B section rewritten with B-1 / B-2 / B-3 / B-4 sub-categories; Tier B-4 NPU state-model refactor backlog documented in detail (function inventory, refactor scope, open canon-direction question).
+- **`SPEC.md` §D.35 (new — `PS 5.1 ja-JP [pscustomobject]@{ ... = @(List<T>) } ArgumentException`)**: full post-mortem of the original `Invoke-InfVerifValidation` defect localisation, the latent risk in `Get-SecureBootBaselineSnapshot`, the r82 uniform fix, the general coding rule, and the rationale for uniform application across all four sister scripts.
+- **`.psa.config.json`**: the `psa8001_ignore_functions` Secure Boot baseline helpers block is updated — `Get-SecureBootBaselineSnapshot` and `Show-SecureBootBaselineSnapshot` are removed (now Tier A); `Get-OrEnsureSecureBootBaseline` remains (Tier B-4 backlog) with a documented NPU-state-model-refactor cross-reference. The Tier A roster comment block at the top of the file is updated from "34 functions" to "36 functions" with the two new entries listed in the Secure Boot baseline diagnostic helpers family.
+- **`README.md` / `README.ja.md`**: `What's new` carries an r82 entry summarising the Tier B-1 / B-2 consolidations and the new SPEC §D.35; r81 is demoted to `Previous release notes`.
+- **`CONTRIBUTING.md`**: implicit pass — the PR checklist already references SPEC §A.11.7 *via* the previous release's update, so the canon workflow points at the updated SPEC by transitivity.
+
+### Out of scope for this release
+
+- **NPU state-model refactor (Tier B-4)**: explicitly tracked as a *future* workstream. The 5 affected functions (`Get-OrEnsureSecureBootBaseline`, `Get-BootSigningEnvironment`, `Show-BootSigningEnvironment`, `Invoke-Cleanup`, `Resume-CtxFromWorkspace`) remain in `psa8001_ignore_functions` with their current divergences. The work is too large to bundle with the cosmetic / latent-bug-guard uplift in this release; it will be sequenced separately.
+- **Tier C reclassification of phase functions**: `Show-PhaseList` was previously noted as "should ultimately be moved to Tier D" in SPEC §A.11.7. The move is deferred to a future docs-only revision; nothing materially changes in this release.
+- **No PowerShell behaviour change.** Phase semantics, install-decision logic, output format on en-US hosts, parameter sets, and the workspace conventions are all identical to r81.
+
+### Verification (run before commit)
+
+```bash
+python3 path/to/psa.py --config-check .psa.config.json                      # 0 issues
+python3 path/to/psa.py --config .psa.config.json Deploy-*.ps1               # 0 errors / 0 warnings / 0 info on all 4
+python3 path/to/psa.py --config .psa.config.json --include PSA8001 \
+    Deploy-*.ps1                                                            # 0 errors (36 Tier A functions enforced)
+```
+
+### Version policy
+
+This release is **a shared-helper-canon uplift** — three Tier B functions are promoted to Tier A and the PS 5.1 ja-JP `[pscustomobject]` latent bug is uniformly guarded. The `$Script:ScriptVersion` bump is justified because the new `$Script:ScriptTag` (`psa-py-v410-shared-helper-canon-uplift`) becomes the value emitted in phase banners and DebugTrace JSONL output. Per the repository convention (see SPEC §A.13 *Development Workflow*), the per-script revision counter advances accordingly so log archives map unambiguously.
+
+
 
 This release adopts `psa.py` 4.1.0 — the upstream minor release that
 adds three new error-severity, default-on static-analysis rules
