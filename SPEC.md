@@ -1179,7 +1179,7 @@ When a shared helper is fixed in Graphics / NPU / BthPan instead of Chipset (e.g
 
 #### Tier A — byte-identical across all four scripts (PSA8001-enforced)
 
-These 36 helpers are inherited verbatim from Chipset by all three other scripts. PSA8001 fires on any drift; the gate has been continuously green for the original 34 functions since the r60 / r28 / r10 / r10 release, and the two additions (`Get-SecureBootBaselineSnapshot`, `Show-SecureBootBaselineSnapshot`) graduated from Tier B to Tier A in the r82 / r48 / r30 / r26 release (`psa-py-v410-shared-helper-canon-uplift`). The canonical inventory below is grouped by functional family to make porting decisions easier:
+These 38 helpers are inherited verbatim from Chipset by all three other scripts. PSA8001 fires on any drift; the gate has been continuously green for the original 34 functions since the r60 / r28 / r10 / r10 release. The first uplift (`Get-SecureBootBaselineSnapshot`, `Show-SecureBootBaselineSnapshot`) graduated from Tier B to Tier A in the `psa-py-v410-shared-helper-canon-uplift` release; the second uplift (`Test-WdacToolsAvailable`, `Get-ActiveCodeIntegrityPolicies`) joined Tier A in the `npu-state-model-refactor-step-1-wdac-helpers` release when these two universal WDAC tooling preflight helpers were ported from Chipset / Graphics / BthPan into NPU as part of the NPU state-model refactor's first stage. The canonical inventory below is grouped by functional family to make porting decisions easier:
 
 **Logging primitives (12)**
 `Format-Elapsed`, `_LogLine`, `Write-Step`, `Write-Ok`, `Write-Warn2`, `Write-Fail`, `Write-Skip`, `Write-Detail`, `Write-PhaseHeader`, `Write-PhaseFooter`, `Get-PhaseElapsedTag`, `Format-DebugFailure`
@@ -1191,7 +1191,10 @@ These 36 helpers are inherited verbatim from Chipset by all three other scripts.
 `Set-Tls12`, `Set-ConsoleUtf8`, `Assert-Admin`, `Assert-PowerShellCompatibility`, `Show-PowerShellEnvironment`
 
 **Secure Boot baseline diagnostic helpers (7)**
-`Format-SecureBootBaselineForReport`, `Get-SecureBootCertificateInventory`, `Get-MsSecureBootExampleScriptPath`, `Invoke-MsSecureBootDetectScript`, `Export-DebugTraceJson`, `Get-SecureBootBaselineSnapshot` (new in r82), `Show-SecureBootBaselineSnapshot` (new in r82)
+`Format-SecureBootBaselineForReport`, `Get-SecureBootCertificateInventory`, `Get-MsSecureBootExampleScriptPath`, `Invoke-MsSecureBootDetectScript`, `Export-DebugTraceJson`, `Get-SecureBootBaselineSnapshot`, `Show-SecureBootBaselineSnapshot`
+
+**WDAC tooling preflight helpers (2)**
+`Test-WdacToolsAvailable`, `Get-ActiveCodeIntegrityPolicies` — universal helpers (no AMD / MS-BthPan prefix); both probe the host's CodeIntegrity tooling availability and enumerate the active CI policy inventory, with no driver-family-specific behaviour. Newly arrived in Tier A as a deliberate by-product of the NPU state-model refactor's first stage (the canonical `Get-BootSigningEnvironment` consumes both, so porting it into NPU required porting these dependencies first).
 
 Adding a new helper to this tier: write it in Chipset first, paste it byte-for-byte into the other three scripts, run `python3 psa.py --include PSA8001 Deploy-*.ps1` to confirm no drift is reported, and do NOT add the new helper to `psa8001_ignore_functions`. The PSA8001 gate then permanently enforces the byte-identity invariant from that commit onward.
 
@@ -1205,12 +1208,15 @@ Tier B previously listed 9 helpers that existed in all four scripts but had at l
 
 ##### Tier B-3 — already-acceptable per-family identifier differences (effectively Tier C)
 
-Two helpers were originally listed under Tier B but the only divergence is a legitimate per-family identifier substitution. The r82 release re-classifies them in the prose here while keeping them in `psa8001_ignore_functions` (their divergence is intentional, not backlog):
+Two helper families fall under Tier B-3: the original `Resume-CtxFromWorkspace` / `Invoke-Cleanup` per-family path divergence (documented since the `psa-py-v410-shared-helper-canon-uplift` release), and the AMD-prefix WDAC helper family ported into NPU in the `npu-state-model-refactor-step-1-wdac-helpers` release. They remain in `psa8001_ignore_functions` while their divergence is intentional, not backlog:
 
 | Function | Divergence kind | Why it's not real Tier B |
 |:---|:---|:---|
 | `Resume-CtxFromWorkspace` | Chipset's `AMD-Chipset-Driver-CodeSign.pfx` becomes `AMD-Graphics-Driver-CodeSign.pfx` in Graphics, etc. NPU/BthPan also differ in `$Ctx` schema. | The cert-filename substitution is mandatory per-family — the canonical certificate name MUST encode the driver family for cross-script certificate trust isolation. |
 | `Invoke-Cleanup` | Chipset's `Get-AmdSuppPolicyMarkerPath` / `Uninstall-AmdWdacPolicy` becomes `Get-MsBthPanSuppPolicyMarkerPath` / `Uninstall-MsBthPanWdacPolicy` in BthPan. | The marker-path / WDAC helper names are family-prefixed by design (per SPEC §B isolation principle). |
+| `Get-AmdSuppPolicyMarkerPath` | Three-way byte-identical across Chipset / Graphics / NPU (after the NPU port); BthPan ships `Get-MsBthPanSuppPolicyMarkerPath` as the family-prefixed counterpart. | Family-prefixed helper pair (AMD-* and MsBthPan-*) by design. PSA8001 groups by name only, so the three AMD-family scripts are already byte-identical for this name — the ignore entry exists because Tier A requires 4-way identity which the helper-pair design cannot satisfy. |
+| `Test-AmdWdacPolicyDeployed` | Same as `Get-AmdSuppPolicyMarkerPath` — three-way byte-identical, BthPan has `Test-MsBthPanWdacPolicyDeployed` counterpart. | Same as above. |
+| `Uninstall-AmdWdacPolicy` | Same as `Get-AmdSuppPolicyMarkerPath` — three-way byte-identical, no BthPan counterpart (BthPan uses `Uninstall-MsBthPanWdacPolicy` for the family-prefixed equivalent). | Same as above. |
 
 These are formally Tier C (per-family identifier-only divergence) but are retained in `psa8001_ignore_functions` so that the global ignore list stays the single source of "what differs and why" rather than splitting across multiple subsystems. SPEC §A.11.7 now serves as the authoritative classification; `.psa.config.json` mirrors it for tooling.
 
@@ -1221,25 +1227,27 @@ The remaining **5 helpers** all diverge between Chipset (canon) and NPU because 
 - Chipset / Graphics / BthPan thread a `$Ctx` PSCustomObject through every phase function. Helpers receive `[Parameter(Mandatory)] $Ctx` and read / write properties on that object.
 - NPU keeps runtime state on `$Script:` scope variables: `$Script:DetectedPlatform` (hashtable), `$Script:WorkRoot` (string), `$Script:PfxPath`, `$Script:CertSubjectCn`, etc. Helpers take `param()` (no `$Ctx`) and reference globals directly.
 
-This divergence is **not cosmetic**. Bringing NPU into Tier A requires refactoring the NPU script's entire state-passing model from `$Script:` globals to an explicit `$Ctx` object — comparable in scope to a multi-thousand-line restructuring. It is being tracked as a **dedicated future workstream** ("NPU state-model refactor"):
+This divergence is **not cosmetic**. Bringing NPU into Tier A requires refactoring the NPU script's entire state-passing model from `$Script:` globals to an explicit `$Ctx` object — comparable in scope to a multi-thousand-line restructuring. It is being executed as a **multi-stage workstream** ("NPU state-model refactor") to keep each stage's `psa.py` baseline at 0 / 0 / 0:
+
+###### Stage progress
+
+| Stage | Release tag | Scope | Status |
+|:---|:---|:---|:---|
+| 1 | `npu-state-model-refactor-step-1-wdac-helpers` | Port the WDAC tooling preflight helpers (`Test-WdacToolsAvailable`, `Get-ActiveCodeIntegrityPolicies`) and the AMD-prefix WDAC policy helpers (`Get-AmdSuppPolicyMarkerPath`, `Test-AmdWdacPolicyDeployed`, `Uninstall-AmdWdacPolicy`) from Chipset to NPU. Construct the canonical `$Ctx` skeleton in NPU's `Invoke-MainEntryPoint` (currently unused; placeholder for stage 2 consumers). | ✅ Complete |
+| 2 | (TBD; planned) | Migrate every NPU phase function (`Invoke-Prep*`, `Invoke-Verify*`, `Invoke-Inst*`) and the 8 non-phase state-touching helpers (`Resolve-AmdNpuDriverUrl`, `Invoke-AmdAccountAuthentication`, `Show-RyzenAiSoftwareGuidance`, `Show-RunSummary`, `Invoke-MainEntryPoint`, plus the 3 Tier B-4 helpers below that take state) from `$Script:Foo` to `$Ctx.Foo` references and from `param()` to `param([Parameter(Mandatory)] $Ctx)` signatures. The bulk of the refactor (≈ 2 000 lines). | Planned |
+| 3 | (TBD; planned) | Migrate the 5 Tier B-4 helpers (`Get-OrEnsureSecureBootBaseline`, `Get-BootSigningEnvironment`, `Show-BootSigningEnvironment`, `Invoke-Cleanup`, `Resume-CtxFromWorkspace`) to the canonical `$Ctx`-taking signature by replacing the NPU bodies verbatim from Chipset. Resolve the open canon-direction question for `Invoke-Cleanup` (marker-file pattern is the canon, per the C2 decision recorded for this refactor). Remove the 5 helpers from `psa8001_ignore_functions`. PSA8001 then enforces 41-way Tier A. | Planned |
+
+###### Function-level scope (across all three stages)
 
 | Function | NPU divergence | Refactor scope |
 |:---|:---|:---|
-| `Get-OrEnsureSecureBootBaseline` | NPU: `param()` + `$Script:DetectedPlatform.SecureBootBaseline` access. Chipset / Graphics / BthPan: `param([Parameter(Mandatory)] $Ctx)` + `$Ctx.SecureBootBaseline` access. | The function is byte-identical in 3 of 4 scripts (Chipset, Graphics, BthPan) since r82; only the NPU variant differs. Joining Tier A requires the full state-model refactor below. |
-| `Get-BootSigningEnvironment` | NPU: ~1.7 KB, probes only Secure Boot + testsigning. Canon: ~7.8 KB, additionally enumerates active WDAC supplemental policies via `CITool.exe` / registry fallback. | Functional addition to NPU (~6 KB of code). NPU does not currently use the returned WDAC inventory; the addition is for symmetry and future-proofing. |
+| `Get-OrEnsureSecureBootBaseline` | NPU: `param()` + `$Script:DetectedPlatform.SecureBootBaseline` access. Chipset / Graphics / BthPan: `param([Parameter(Mandatory)] $Ctx)` + `$Ctx.SecureBootBaseline` access. | The function is byte-identical in 3 of 4 scripts (Chipset, Graphics, BthPan) since the `psa-py-v410-shared-helper-canon-uplift` release; only the NPU variant differs. Joining Tier A requires the full state-model refactor below (stage 3 of the workstream). |
+| `Get-BootSigningEnvironment` | NPU: ~1.7 KB, probes only Secure Boot + testsigning. Canon: ~7.8 KB, additionally enumerates active WDAC supplemental policies via `CITool.exe` / registry fallback. | Functional addition to NPU (~6 KB of code). The supporting helpers (`Test-WdacToolsAvailable`, `Get-ActiveCodeIntegrityPolicies`, `Test-AmdWdacPolicyDeployed`) have already been ported into NPU (stage 1), so stage 3's body replacement is a pure copy-paste from Chipset. |
 | `Show-BootSigningEnvironment` | NPU: 2-line summary. Canon: full multi-row table. | Display-only change; trivial once `Get-BootSigningEnvironment` returns the full snapshot. |
-| `Invoke-Cleanup` | NPU: cert-subject-CN-based removal via `Remove-CertFromTrustStore`, `Get-ChildItem Cert:\…`. Canon: marker-file-based removal via `Get-AmdSuppPolicyMarkerPath`. | NPU's approach is actually safer (does not rely on a marker file being present); arguably *NPU* is the canon and Chipset / Graphics / BthPan should adopt the cert-subject pattern. **Decision required during the refactor**: which direction is canon. |
+| `Invoke-Cleanup` | NPU: cert-subject-CN-based removal via `Remove-CertFromTrustStore`, `Get-ChildItem Cert:\…`. Canon: marker-file-based removal via `Get-AmdSuppPolicyMarkerPath` + `Uninstall-AmdWdacPolicy`. | The supporting helpers (`Get-AmdSuppPolicyMarkerPath`, `Uninstall-AmdWdacPolicy`) have already been ported into NPU (stage 1). The canon direction has been decided: the Chipset marker-file pattern is canon; NPU's cert-subject pattern will be dropped in favour of the marker-file form. The cert-subject removal logic from NPU's current `Invoke-Cleanup` is preserved as a documented post-mortem reference in CHANGELOG / SPEC §D rather than as a fall-back in the new canon — the marker-file pattern is the only reliable Policy-Id source. |
 | `Resume-CtxFromWorkspace` | NPU: lightweight diagnostic-only scan (no state to rebuild because `$Script:` globals are recomputed at param-block time). Canon: rebuilds `$Ctx.CertPfxPath`, `$Ctx.CertThumbprint`, etc. from disk. | Becomes a no-op or trivially short after the state-model refactor (no `$Ctx` to repopulate); the current asymmetry is a direct symptom of NPU's `$Script:` model. |
 
-**Planning note for the NPU state-model refactor.** This is intentionally tracked here in normative SPEC text — not as an `// XXX: TODO` comment in any script — because the per-revision-history-in-CHANGELOG rule (PSAP0003 / PSAP0004) also forbids `TODO` markers from accumulating in script bodies. The refactor's eventual landing PR is expected to:
-
-1. Introduce `$Ctx` in the NPU script with the same property set as Chipset's canonical `$Ctx` (DetectedPlatform, WorkRoot, PfxPath, CertSubjectCn, CertThumbprint, Paths.* subtree, etc.).
-2. Migrate every NPU phase function (`Invoke-Prep*`, `Invoke-Verify*`, `Invoke-Inst*`) from `$Script:Foo` to `$Ctx.Foo` references — this is the bulk of the refactor (thousands of lines).
-3. Migrate the 5 Tier B-4 helpers above to the canonical `$Ctx`-taking signature.
-4. Verify with `psa.py --include PSA8001 Deploy-*.ps1` that the 5 helpers are now byte-identical to Chipset, and remove them from `psa8001_ignore_functions`.
-5. Decide for `Invoke-Cleanup` whether the cert-subject pattern (NPU current) or marker-file pattern (Chipset current) is canon, then propagate either Chipset → NPU or NPU → {Chipset, Graphics, BthPan}.
-
-Until the refactor lands, the 5 Tier B-4 helpers remain in `psa8001_ignore_functions`. The CI gate (0 errors / 0 warnings / 0 info on the canonical config) continues to be satisfied because PSA8001 skips them; the policy debt is documented here and via this entry's existence in the SPEC.
+**Planning note for the NPU state-model refactor.** This is intentionally tracked here in normative SPEC text — not as an `// XXX: TODO` comment in any script — because the per-revision-history-in-CHANGELOG rule (PSAP0003 / PSAP0004) also forbids `TODO` markers from accumulating in script bodies. Stage 1 completed with `psa.py 0/0/0` maintained across all four scripts; stages 2 and 3 are expected to preserve the same baseline at each stage boundary, with intermediate states explicitly accepted as transitional (duplicate `$Script:` + `$Ctx` state carriage during stage 2, partial Tier B-4 byte-identity during stage 3).
 
 ##### Tier B-1 — cosmetic-only divergence (no remaining items)
 

@@ -325,8 +325,8 @@ $Script:CertValidityYears       = $CertValidityYears
 # =============================================================================
 # Script-scope state
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.05.26-r26'
-$Script:ScriptTag           = 'psa-py-v410-shared-helper-canon-uplift'
+$Script:ScriptVersion       = 'npu-2026.05.26-r27'
+$Script:ScriptTag           = 'npu-state-model-refactor-step-1-wdac-helpers'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 $Script:CertSubjectCn       = 'AMD NPU Driver Self-Sign (WS2025 Lab, At Own Risk)'
@@ -1358,6 +1358,170 @@ function Show-DriverInstallationOrderNotice {
     Write-Host '      3. AFTERWARDS, install Ryzen AI Software separately if you need'
     Write-Host '         user-mode inference (out of scope here, and unsupported on Server).'
     Write-Host ''
+}
+
+function Test-WdacToolsAvailable {
+    # Inspect the platform for the prerequisites needed to build &
+    # deploy a WDAC supplemental policy. Returns a structured report
+    # so callers can present a precise error if something is missing.
+    $caps = [pscustomobject]@{
+        ConfigCiModule        = $false
+        CiToolExe             = $false
+        AllowAllTemplate      = $false
+        ActivePoliciesDir     = $false
+        AnyUsable             = $false
+        ImmediateActivation   = $false
+        Detail                = @()
+    }
+
+    if (Get-Module -ListAvailable -Name 'ConfigCI' -ErrorAction SilentlyContinue) {
+        $caps.ConfigCiModule = $true
+    } else {
+        $caps.Detail += 'ConfigCI PowerShell module is not installed (cmdlets Add-SignerRule, ConvertFrom-CIPolicy, etc. unavailable)'
+    }
+
+    $citool = Get-Command CiTool.exe -ErrorAction SilentlyContinue
+    if ($citool) {
+        $caps.CiToolExe = $true
+        $caps.ImmediateActivation = $true
+    } else {
+        $caps.Detail += 'CiTool.exe not found - policy deployment will require a reboot'
+    }
+
+    $template = Join-Path $env:windir 'schemas\CodeIntegrity\ExamplePolicies\AllowAll.xml'
+    if (Test-Path $template) {
+        $caps.AllowAllTemplate = $true
+    } else {
+        $caps.Detail += "AllowAll WDAC template missing at $template"
+    }
+
+    $activeDir = Join-Path $env:windir 'System32\CodeIntegrity\CiPolicies\Active'
+    if (Test-Path $activeDir) {
+        $caps.ActivePoliciesDir = $true
+    } else {
+        $caps.Detail += "Active CI policies directory missing at $activeDir"
+    }
+
+    $caps.AnyUsable = ($caps.ConfigCiModule -and $caps.AllowAllTemplate -and $caps.ActivePoliciesDir)
+    return $caps
+}
+function Get-ActiveCodeIntegrityPolicies { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
+    # Enumerate currently-active CI policies. Prefers CiTool.exe (gives
+    # full metadata: name, mode, base/supplemental, signed/unsigned).
+    # Falls back to filesystem enumeration of the Active directory if
+    # CiTool isn't available.
+    $policies = @()
+
+    if (Get-Command CiTool.exe -ErrorAction SilentlyContinue) {
+        try {
+            $raw = & CiTool.exe -lp -json 2>&1 | Out-String
+            if ($LASTEXITCODE -eq 0 -and $raw.Trim()) {
+                $parsed = $raw | ConvertFrom-Json -ErrorAction Stop
+                $list = if ($parsed.Policies) { $parsed.Policies } else { $parsed }
+                foreach ($p in $list) {
+                    $policies += [pscustomobject]@{
+                        PolicyId       = $p.PolicyID
+                        BasePolicyId   = $p.BasePolicyID
+                        Name           = $p.FriendlyName
+                        IsSystemPolicy = [bool]$p.IsSystemPolicy
+                        IsEnforced     = [bool]$p.IsEnforced
+                        IsSignedPolicy = [bool]$p.IsSignedPolicy
+                        IsSupplemental = ($p.PolicyID -ne $p.BasePolicyID)
+                        Path           = $p.PolicyPath
+                        Source         = 'CiTool'
+                    }
+                }
+            }
+        } catch {
+            # Swallow and try filesystem fallback
+        }
+    }
+
+    if ($policies.Count -eq 0) {
+        $activeDir = Join-Path $env:windir 'System32\CodeIntegrity\CiPolicies\Active'
+        if (Test-Path $activeDir) {
+            foreach ($f in (Get-ChildItem $activeDir -Filter '*.cip' -ErrorAction SilentlyContinue)) {
+                $policies += [pscustomobject]@{
+                    PolicyId       = $f.BaseName
+                    BasePolicyId   = $null
+                    Name           = '(unknown - filesystem only)'
+                    IsSystemPolicy = $null
+                    IsEnforced     = $null
+                    IsSignedPolicy = $null
+                    IsSupplemental = $null
+                    Path           = $f.FullName
+                    Source         = 'filesystem'
+                }
+            }
+        }
+    }
+
+    return $policies
+}
+function Get-AmdSuppPolicyMarkerPath {
+    # The marker file persists the policy ID we deployed, so subsequent
+    # script invocations can detect "is our supplemental already
+    # installed" and find it for uninstall.
+    param($Ctx)
+    if ($Ctx -and $Ctx.Paths -and $Ctx.Paths.Cert) {
+        return (Join-Path $Ctx.Paths.Cert 'AmdSuppPolicyId.txt')
+    }
+    return $null
+}
+function Test-AmdWdacPolicyDeployed {
+    # Returns the deployed-policy info if our supplemental is currently
+    # active, otherwise $null.
+    #
+    # Detection logic is now in two stages:
+    #   Stage 1 (primary): look for the fixed $Script:WdacPolicyGuid
+    #     among active CI policies. This works for any current deploy.
+    #   Stage 2 (legacy fallback): if a earlier AmdSuppPolicyId.txt
+    #     marker file exists in the workspace cert dir, also look for
+    #     the dynamic GUID recorded there. This lets current scripts
+    #     detect legacy deploys for clean removal.
+    param($Ctx)
+    $active = Get-ActiveCodeIntegrityPolicies
+
+    # Stage 1: fixed GUID
+    if ($Script:WdacPolicyGuid) {
+        $fixedGuid = $Script:WdacPolicyGuid.Trim('{','}')
+        $hit = $active | Where-Object {
+            $_.PolicyId -and ($_.PolicyId.Trim('{','}') -ieq $fixedGuid)
+        } | Select-Object -First 1
+        if ($hit) { return $hit }
+    }
+
+    # Stage 2: legacy marker fallback
+    $markerPath = Get-AmdSuppPolicyMarkerPath -Ctx $Ctx
+    if (-not $markerPath -or -not (Test-Path $markerPath)) { return $null }
+    $policyId = (Get-Content $markerPath -Raw -ErrorAction SilentlyContinue).Trim()
+    if (-not $policyId) { return $null }
+    $hit = $active | Where-Object { $_.PolicyId -eq $policyId } | Select-Object -First 1
+    return $hit
+}
+function Uninstall-AmdWdacPolicy {
+    # Remove a previously-deployed supplemental policy. Used by the
+    # Cleanup action and by I02 when redeploying with -Force.
+    #
+    # --json flag suppresses CiTool's interactive ENTER prompt.
+    param(
+        [Parameter(Mandatory)] [string]$PolicyId
+    )
+    $activeDir = Join-Path $env:windir 'System32\CodeIntegrity\CiPolicies\Active'
+    $deployedPath = Join-Path $activeDir "$PolicyId.cip"
+    $existed = Test-Path $deployedPath
+
+    if ($existed) {
+        if (Get-Command CiTool.exe -ErrorAction SilentlyContinue) {
+            try { & CiTool.exe --remove-policy $PolicyId --json 2>&1 | Out-Null } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
+        }
+        Remove-Item -LiteralPath $deployedPath -Force -ErrorAction SilentlyContinue
+    }
+    return [pscustomobject]@{
+        PolicyId = $PolicyId
+        Existed  = $existed
+        Removed  = $existed -and -not (Test-Path $deployedPath)
+    }
 }
 
 function Get-BootSigningEnvironment {
@@ -6879,6 +7043,103 @@ function Show-RunSummary {
 function Invoke-MainEntryPoint {
     [CmdletBinding()]
     param()
+
+    # ----- Build context (NPU state-model refactor; see SPEC.md §A.11.7
+    # *Tier B-4* for the multi-stage plan) -----
+    #
+    # The $Ctx PSCustomObject is the canonical state-passing channel used
+    # by the Chipset / Graphics / BthPan sister scripts. The NPU script
+    # historically threaded state via $Script: globals instead, which
+    # blocked the five Tier B-4 helpers (Get-OrEnsureSecureBootBaseline,
+    # Get-BootSigningEnvironment, Show-BootSigningEnvironment,
+    # Invoke-Cleanup, Resume-CtxFromWorkspace) from joining Tier A even
+    # though their logical contracts already matched the canon. The
+    # current stage of the refactor introduces the $Ctx skeleton with
+    # the canonical property set so subsequent stages (phase function
+    # migration; Tier B-4 helper Chipset-canon-isation) can land
+    # incrementally without breaking the static-analysis 0/0/0 baseline.
+    # See CHANGELOG.md for the stage-by-stage history and SPEC §A.11.7
+    # *Tier B-4* for the planned end-state.
+    #
+    # The property set is the union of (a) Chipset's canonical 29
+    # properties (necessary for Tier B-4 helpers to consume $Ctx) and
+    # (b) NPU-specific extensions (NpuDriverPackage, AmdAccountUser,
+    # WdacBinPath, etc.) that the NPU pipeline needs. NPU-only fields
+    # are added in their own block below the Chipset-canon block to
+    # keep the diff against Chipset's $Ctx initialiser visible and
+    # minimal.
+    #
+    # NOTE: at the current refactor stage the $Ctx is constructed but
+    # NOT consumed - all phase functions and the Tier B-4 helpers still
+    # read $Script: globals. The duplicate state carriage ($Script: AND
+    # $Ctx) is intentional and transitional; later stages migrate the
+    # consumers to $Ctx and remove the $Script: dependency.
+    $Ctx = [pscustomobject]@{
+        # ----- Chipset canon properties (29) -----
+        # Params (mirror Chipset L14091..L14105)
+        Action          = $Action
+        OnlyPhases      = $Script:OnlyPhases
+        InstallerUrl    = $Script:InstallerUrl
+        AmdLandingUrls  = $null  # NPU does not crawl AMD landing pages; placeholder for canon parity
+        AmdFallbackUrl  = $null  # NPU does not use the AMD fallback URL; placeholder for canon parity
+        WorkRoot        = $Script:WorkRoot
+        PfxPassword     = $Script:PfxPassword
+        TimestampUrl    = $Script:TimestampUrl
+        Force           = $false  # NPU does not expose -Force at this stage; placeholder
+        CleanWorkRoot   = $Script:CleanWorkRoot
+        UseTestSigning  = $Script:UseTestSigning
+        AllowWorkstationInstall = $Script:AllowWorkstationInstall
+        # Populated by phases (mirror Chipset L14106..L14130)
+        Os = $null; Paths = $null
+        SevenZip = $null; Signtool = $null; Inf2cat = $null
+        Installer = $null; InfInventory = $null; InfInventoryDetail = $null; PatchResults = @()
+        PatchedDirs = @()  # rehydrated by Resume-CtxFromWorkspace (consumer migrated in a later stage)
+        CertPfxPath = $null; CertCerPath = $null; CertThumbprint = $null
+        SelectedPhaseIds = @()
+        SecureBootBaseline = $null
+        WhqlCoSignAnalysis = $null
+        # ----- NPU-specific extensions -----
+        # The NPU pipeline acquires its driver via AMD's account-gated
+        # download (no public direct URL like Chipset / Graphics), so it
+        # carries account credentials, the resolved package metadata, and
+        # an optional offline-ZIP fast path. NPU also manages its own
+        # WDAC supplemental policy artefacts ($Script:WdacBinPath / Xml /
+        # PolicyName) which the AMD-family scripts express via $Ctx.Paths.*.
+        AmdAccountUser     = $Script:AmdAccountUser
+        AmdAccountPassword = $Script:AmdAccountPassword
+        ForceAmdAccountAuth = $Script:ForceAmdAccountAuth
+        AssumeIfMissing    = $Script:AssumeIfMissing
+        NpuOverride        = $Script:NpuOverride
+        RyzenAiSoftwareVersion = $Script:RyzenAiSoftwareVersion
+        OfflineZip         = $Script:OfflineZip
+        RepoUrl            = $Script:RepoUrl
+        NpuDriverPackage   = $Script:NpuDriverPackage
+        DetectedPlatform   = $Script:DetectedPlatform
+        # NPU-specific workspace path shortcuts (Chipset / Graphics use
+        # $Ctx.Paths.* sub-keys; NPU keeps these as top-level for now
+        # and will fold them under $Ctx.Paths in a later stage).
+        CertDir            = $Script:CertDir
+        DownloadDir        = $Script:DownloadDir
+        ExtractedDir       = $Script:ExtractedDir
+        PatchedDir         = $Script:PatchedDir
+        CerPath            = $Script:CerPath
+        PfxPath            = $Script:PfxPath
+        CertSubjectCn      = $Script:CertSubjectCn
+        CertValidityYears  = $Script:CertValidityYears
+        # NPU-specific WDAC artefact paths
+        WdacBinPath        = $Script:WdacBinPath
+        WdacXmlPath        = $Script:WdacXmlPath
+        WdacPolicyName     = $Script:WdacPolicyName
+        # NPU-specific inventory artefacts (for P05 output)
+        InventoryCsvPath    = $Script:InventoryCsvPath
+        InventoryReportPath = $Script:InventoryReportPath
+    }
+    # Silence "declared but never used" while the multi-stage refactor
+    # is mid-flight - later stages introduce real consumers (phase
+    # functions take -Ctx $Ctx parameter; Tier B-4 helpers read $Ctx.*
+    # properties). Out-Null is also the canonical idiom used elsewhere
+    # in the script for intentional discard.
+    $Ctx | Out-Null
 
     # Banner (sister-script-aligned: include ScriptTag and ScriptHash)
     Write-Host ''

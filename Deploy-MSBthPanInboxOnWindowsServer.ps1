@@ -437,8 +437,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-$Script:ScriptVersion = 'msbthpan-2026.05.26-r30'
-$Script:ScriptTag     = 'psa-py-v410-shared-helper-canon-uplift'
+$Script:ScriptVersion = 'msbthpan-2026.05.26-r31'
+$Script:ScriptTag     = 'npu-state-model-refactor-step-1-wdac-helpers'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls

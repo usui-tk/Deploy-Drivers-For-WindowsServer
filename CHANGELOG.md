@@ -20,7 +20,210 @@ independently.
 
 ---
 
-## [2026-05-26] `psa-py-v410-shared-helper-canon-uplift` — Chipset r82 / Graphics r48 / BthPan r30 / NPU r26
+## [2026-05-26] `npu-state-model-refactor-step-1-wdac-helpers` — Chipset r83 / Graphics r49 / BthPan r31 / NPU r27
+
+This release begins the **NPU state-model refactor** — the multi-stage
+workstream that brings the NPU script into the same `$Ctx`-based
+state-passing model used by Chipset / Graphics / BthPan, and that will
+ultimately let the five Tier B-4 helpers (`Get-OrEnsureSecureBootBaseline`,
+`Get-BootSigningEnvironment`, `Show-BootSigningEnvironment`, `Invoke-Cleanup`,
+`Resume-CtxFromWorkspace`) join Tier A. This stage 1 release is a
+**setup release**: it adds the prerequisite WDAC tooling helpers to NPU
+(so that the canonical `Get-BootSigningEnvironment` body — copied from
+Chipset in stage 3 — will have its dependencies in place) and constructs
+the canonical `$Ctx` skeleton inside NPU's `Invoke-MainEntryPoint`
+(currently unused; placeholder for stage 2 consumers). The remaining
+NPU phase functions and the five Tier B-4 helpers themselves are
+**unchanged** in this release.
+
+> **What changed**: (1) Five helpers ported from Chipset into NPU
+> verbatim: `Test-WdacToolsAvailable`, `Get-ActiveCodeIntegrityPolicies`
+> (universal, no AMD prefix), and `Get-AmdSuppPolicyMarkerPath`,
+> `Test-AmdWdacPolicyDeployed`, `Uninstall-AmdWdacPolicy` (AMD-prefix).
+> (2) Two of those — the universal pair — are now byte-identical
+> across all four scripts and graduated from `psa8001_ignore_functions`
+> to Tier A; the three AMD-prefix helpers are byte-identical across the
+> three AMD-family scripts (Chipset / Graphics / NPU) and stay in
+> `psa8001_ignore_functions` because BthPan has the MS-prefix
+> counterparts by design (Tier B-3 per-family identifier pattern).
+> (3) An NPU `$Ctx` PSCustomObject is now constructed at the head of
+> `Invoke-MainEntryPoint` with the canonical 29 Chipset properties
+> plus the NPU-specific extensions (`NpuDriverPackage`, `AmdAccountUser`,
+> `WdacBinPath`, etc.); the constructed `$Ctx` is intentionally
+> unconsumed in this release. (4) **No runtime behaviour changes** —
+> the existing `$Script:` globals continue to drive every phase
+> function and every Tier B-4 helper; the duplicate state carriage
+> (`$Script:` AND `$Ctx`) is intentional and transitional. SPEC §A.11.7
+> *Tier B-4* gains a per-stage progress table that tracks this release
+> as "Stage 1 ✅ Complete" and identifies stages 2 and 3 as planned.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.26-r82` → `chipset-2026.05.26-r83`
+  - Graphics: `graphics-2026.05.26-r48` → `graphics-2026.05.26-r49`
+  - NPU: `npu-2026.05.26-r26` → `npu-2026.05.26-r27`
+  - BthPan: `msbthpan-2026.05.26-r30` → `msbthpan-2026.05.26-r31`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `psa-py-v410-shared-helper-canon-uplift` → `npu-state-model-refactor-step-1-wdac-helpers`
+
+### NPU script — WDAC tooling helpers ported from Chipset (5 functions, ≈ 165 lines added)
+
+Five helpers required by the canonical `Get-BootSigningEnvironment` /
+`Invoke-Cleanup` bodies (planned to land in stage 3) have been ported
+from `Deploy-AMDChipsetDriverOnWindowsServer.ps1` into
+`Deploy-AMDNpuDriverOnWindowsServer.ps1` verbatim, immediately before
+the existing `Get-BootSigningEnvironment` definition:
+
+- **`Test-WdacToolsAvailable` (45 lines)** — probes the host for WDAC
+  tooling: `ConfigCI` PowerShell module, `CiTool.exe`, the AllowAll.xml
+  template, and the active-policies directory. Returns a structured
+  capabilities object so callers can present a precise diagnostic if
+  something is missing. Universal helper (no AMD / MS-BthPan prefix);
+  Chipset / Graphics / BthPan already shipped a byte-identical copy.
+  After the NPU port this is **4-way byte-identical → Tier A**.
+
+- **`Get-ActiveCodeIntegrityPolicies` (53 lines)** — enumerates active
+  WDAC supplemental policies via `CiTool.exe -lp` with a registry-based
+  fallback for hosts where the CITool isn't installed (WS2019 etc.).
+  Universal helper; **4-way byte-identical → Tier A**.
+
+- **`Get-AmdSuppPolicyMarkerPath` (10 lines)** — returns the per-driver-
+  family marker-file path under `$Ctx.WorkRoot` that records the
+  PolicyId of the AMD-family WDAC supplemental policy deployed by this
+  script. AMD-family-prefixed by design (BthPan ships the parallel
+  `Get-MsBthPanSuppPolicyMarkerPath`). After the NPU port this is
+  **3-way byte-identical (Chipset / Graphics / NPU); Tier B-3**.
+
+- **`Test-AmdWdacPolicyDeployed` (31 lines)** — checks whether the AMD-
+  family WDAC supplemental policy this script would deploy is already
+  active. AMD-family-prefixed. **3-way byte-identical; Tier B-3**.
+
+- **`Uninstall-AmdWdacPolicy` (24 lines)** — removes a previously-deployed
+  supplemental policy via `CiTool.exe --remove-policy` + a file-system
+  cleanup fallback. AMD-family-prefixed. **3-way byte-identical;
+  Tier B-3**.
+
+All five are inserted verbatim from Chipset — no NPU-specific
+adaptation. They are currently unused in NPU (their callers are
+the existing Tier B-4 helpers, which still use the NPU-simplified
+bodies in this release). Stage 3 of the refactor replaces the NPU
+Tier B-4 helper bodies with the Chipset canon, which is when these
+five become live.
+
+### NPU script — `$Ctx` skeleton construction (≈ 75 lines added)
+
+A `$Ctx` PSCustomObject is now constructed at the head of NPU's
+`Invoke-MainEntryPoint` function, immediately after `param()` and
+before the banner. The property set is the union of:
+
+- **Chipset's canonical 29 properties** (Action, OnlyPhases, InstallerUrl,
+  AmdLandingUrls, AmdFallbackUrl, WorkRoot, PfxPassword, TimestampUrl,
+  Force, CleanWorkRoot, UseTestSigning, AllowWorkstationInstall, Os,
+  Paths, SevenZip, Signtool, Inf2cat, Installer, InfInventory,
+  InfInventoryDetail, PatchResults, PatchedDirs, CertPfxPath,
+  CertCerPath, CertThumbprint, SelectedPhaseIds, SecureBootBaseline,
+  WhqlCoSignAnalysis). Properties that NPU does not populate are
+  initialised to `$null` as placeholders for stage-3 consumers (e.g.
+  `AmdLandingUrls = $null` because NPU does not crawl AMD landing pages).
+
+- **NPU-specific extensions** (≈ 20 properties): `AmdAccountUser`,
+  `AmdAccountPassword`, `ForceAmdAccountAuth`, `AssumeIfMissing`,
+  `NpuOverride`, `RyzenAiSoftwareVersion`, `OfflineZip`, `RepoUrl`,
+  `NpuDriverPackage`, `DetectedPlatform`, `CertDir`, `DownloadDir`,
+  `ExtractedDir`, `PatchedDir`, `CerPath`, `PfxPath`, `CertSubjectCn`,
+  `CertValidityYears`, `WdacBinPath`, `WdacXmlPath`, `WdacPolicyName`,
+  `InventoryCsvPath`, `InventoryReportPath`. These are read from the
+  existing `$Script:` globals at construction time so that the snapshot
+  is consistent with the rest of the (still `$Script:`-driven) script.
+
+The constructed `$Ctx` is **intentionally unconsumed in this release**
+(piped through `$Ctx | Out-Null` to silence the "declared but never
+used" lint posture). Stage 2 migrates phase functions to read from
+`$Ctx` instead of `$Script:`; stage 3 migrates the Tier B-4 helpers.
+Until stage 3 lands, `$Ctx` and `$Script:` carry the same state in
+parallel — this duplication is the price of keeping every intermediate
+release at the `psa.py 0/0/0` baseline.
+
+### `.psa.config.json` — Tier A roster: 36 → 38
+
+- Comment block at the top of `psa8001_ignore_functions` updated from
+  "the following 36 functions are byte-for-byte identical" to "the
+  following 38 functions ...", with the two new entries
+  (`Test-WdacToolsAvailable`, `Get-ActiveCodeIntegrityPolicies`) listed
+  in a new "WDAC tooling preflight helpers (2)" family heading.
+- The "WDAC / boot-signing diagnostic helpers" ignore-list section is
+  rewritten to reflect (a) `Test-WdacToolsAvailable` and
+  `Get-ActiveCodeIntegrityPolicies` have left the ignore list (Tier A);
+  (b) `Get-AmdSuppPolicyMarkerPath`, `Test-AmdWdacPolicyDeployed`, and
+  the newly added `Uninstall-AmdWdacPolicy` are now three-way byte-
+  identical (Chipset / Graphics / NPU) but stay in the ignore list
+  because Tier A requires four-way identity (Tier B-3 per-family
+  identifier pattern).
+- New `Uninstall-AmdWdacPolicy` ignore entry added (was absent because
+  the helper did not previously exist in any sister script's NPU peer).
+- No other configuration changes; all rule opt-ins and severity floors
+  unchanged.
+
+### Documentation
+
+- **`SPEC.md` §A.11.7 (`Shared helper canon and porting checklist`)**:
+  Tier A roster updated to 38 functions with a new "WDAC tooling
+  preflight helpers (2)" family heading. Tier B-3 table extended with
+  three new rows for the AMD-prefix WDAC helpers; the rationale for
+  keeping them in the ignore list (PSA8001 groups by name only; Tier A
+  requires 4-way identity which the per-family helper-pair design
+  cannot satisfy) is spelled out explicitly. Tier B-4 section gains a
+  per-stage progress table marking stage 1 ✅ Complete and identifying
+  stages 2 and 3 as planned, with function-level scope per stage.
+- **`README.md` / `README.ja.md`**: `What's new` carries an r83 entry
+  summarising the NPU state-model refactor's stage-1 setup, the
+  two-helper Tier A graduation, and the stage-2 / stage-3 roadmap.
+
+### Out of scope for this release (stage 2 and stage 3 targets)
+
+- **Stage 2 — phase function migration** (planned): migrate the 21 NPU
+  phase functions and the 8 non-phase state-touching helpers to take
+  `[Parameter(Mandatory)] $Ctx` instead of `param()`, and to read
+  `$Ctx.Foo` instead of `$Script:Foo`. The bulk of the refactor
+  (≈ 2 000 lines).
+- **Stage 3 — Tier B-4 helper canonisation** (planned): replace the
+  bodies of the five Tier B-4 helpers with the Chipset canon verbatim
+  (the supporting WDAC helpers ported in stage 1 are the prerequisite
+  for this replacement). Resolve the `Invoke-Cleanup` canon direction:
+  the C2 decision (Chipset's marker-file pattern is canon) is recorded
+  in SPEC §A.11.7. Remove the five helpers from `psa8001_ignore_functions`
+  and let PSA8001 enforce 41-way Tier A.
+- **No runtime behaviour change in this release.** Phase semantics,
+  install-decision logic, output format, parameter sets, and the
+  workspace conventions are all identical to r82. Preflight time
+  on NPU is unchanged because the new WDAC helpers are present but
+  not yet called.
+
+### Verification (run before commit)
+
+```bash
+python3 path/to/psa.py --config-check .psa.config.json                      # 0 issues
+python3 path/to/psa.py --config .psa.config.json Deploy-*.ps1               # 0 errors / 0 warnings / 0 info on all 4
+python3 path/to/psa.py --config .psa.config.json --include PSA8001 \
+    Deploy-*.ps1                                                            # 0 errors (38 Tier A functions enforced)
+```
+
+### Version policy
+
+This release is **stage 1 of the NPU state-model refactor**. The
+`$Script:ScriptVersion` bump is justified because the new `$Script:ScriptTag`
+(`npu-state-model-refactor-step-1-wdac-helpers`) becomes the value
+emitted in phase banners and DebugTrace JSONL output. Per the
+repository convention (see SPEC §A.13 *Development Workflow*), the
+per-script revision counter advances accordingly so log archives map
+unambiguously. The bump is **four-way uniform** — all four sister
+scripts move forward together even though only NPU received structural
+changes — because the per-script-but-uniform tag is a single durable
+identifier; splitting the tag would create cross-script log-archive
+ambiguity for no operational benefit.
+
+
 
 This release advances the **shared helper canon** workflow introduced
 in r81 (`psa-py-v410-three-new-error-rules-baseline`). Three Tier B
