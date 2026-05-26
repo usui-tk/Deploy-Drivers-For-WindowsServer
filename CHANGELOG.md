@@ -1100,6 +1100,2601 @@ themselves, which are displayed in banners and recorded in
 
 ---
 
+## [2026-05-26] `npu-state-model-refactor-step-2-phase-functions-ctx` — Chipset r84 / Graphics r50 / BthPan r32 / NPU r28
+
+This is **stage 2 of the NPU state-model refactor** — the bulk of the
+restructuring work. Stage 1 (`npu-state-model-refactor-step-1-wdac-helpers`)
+ported the required WDAC tooling helpers from Chipset and constructed the
+canonical `$Ctx` skeleton inside NPU's `Invoke-MainEntryPoint`. Stage 2
+makes that `$Ctx` **live**: every NPU phase function and every non-phase
+state-touching helper (other than the three Tier B-4 helpers slated for
+stage 3) now takes `$Ctx` as a mandatory parameter and reads its runtime
+state from `$Ctx.Foo` instead of `$Script:Foo`. The phase dispatcher
+(`Invoke-PhaseRunner`) was extended in lockstep so the `& $phase.Func`
+call site passes `-Ctx $Ctx`.
+
+> **What changed**: 184 mechanical `$Script:Foo → $Ctx.Foo` replacements
+> across **27 functions** (21 phase functions + `Resolve-AmdNpuDriverUrl`
+> + `Invoke-AmdAccountAuthentication` + `Show-RyzenAiSoftwareGuidance` +
+> + `Show-RunSummary` + `Invoke-MainEntryPoint` + `Invoke-PhaseRunner`),
+> 27 signature changes (`param()` → `param([Parameter(Mandatory)] $Ctx)`
+> for those with no existing param block; `$Ctx` inserted as the first
+> argument for those that did), and 5 caller-site fix-ups
+> (`Invoke-PhaseRunner -Ctx $Ctx`, `Show-RunSummary -Ctx $Ctx`,
+> `Show-RyzenAiSoftwareGuidance -Ctx $Ctx`, `Resolve-AmdNpuDriverUrl
+> -Ctx $Ctx`, `Invoke-AmdAccountAuthentication -Ctx $Ctx`).
+> **No runtime behaviour changes** — every phase still does exactly
+> what it did at r83. The Tier B-4 helpers (`Get-OrEnsureSecureBootBaseline`,
+> `Resume-CtxFromWorkspace`, `Invoke-Cleanup`) are deliberately untouched
+> in this stage and continue to read `$Script:` globals; their callers
+> do **not** pass `-Ctx $Ctx`. SPEC §A.11.7 *Tier B-4* now marks stage 2
+> as ✅ Complete; stage 3 (Tier B-4 helper Chipset-canon-isation) is the
+> remaining planned work.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.26-r83` → `chipset-2026.05.26-r84`
+  - Graphics: `graphics-2026.05.26-r49` → `graphics-2026.05.26-r50`
+  - NPU: `npu-2026.05.26-r27` → `npu-2026.05.26-r28`
+  - BthPan: `msbthpan-2026.05.26-r31` → `msbthpan-2026.05.26-r32`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `npu-state-model-refactor-step-1-wdac-helpers` → `npu-state-model-refactor-step-2-phase-functions-ctx`
+
+### NPU script — phase function and helper migration
+
+Every NPU phase function and every non-phase state-touching helper in
+scope now takes `$Ctx` as a mandatory parameter and reads its runtime
+state from `$Ctx.Foo` instead of `$Script:Foo`. The migration is
+strictly mechanical — no business logic was touched. The migration's
+mechanical breakdown:
+
+- **21 phase functions** (`Invoke-PrepPhase00`〜`09`,
+  `Invoke-VerifyPhase01`〜`06`, `Invoke-InstPhase00`〜`04`): signature
+  `param()` → `param([Parameter(Mandatory)] $Ctx)`; 130 internal
+  `$Script:Foo → $Ctx.Foo` replacements (state vars only — infra
+  vars like `$Script:CurrentPhaseId`, `$Script:DebugTrace*`,
+  `$Script:LogFile*`, `$Script:PhaseRegistry`, `$Script:ScriptHash`,
+  `$Script:ScriptTag`, `$Script:WdacPolicyGuid` etc. are deliberately
+  preserved on `$Script:` because they are framework concerns, not
+  driver-pipeline state).
+
+- **4 non-phase state-touching helpers** that did not previously
+  declare a `param()` block: `Show-RyzenAiSoftwareGuidance`,
+  `Invoke-MainEntryPoint`. Signature `param()` → `param([Parameter(Mandatory)]
+  $Ctx)`; internal `$Script:Foo → $Ctx.Foo` replacements as needed.
+
+- **3 non-phase state-touching helpers** that already declared a
+  `param()` block with parameters: `Show-RunSummary`,
+  `Invoke-AmdAccountAuthentication`, `Resolve-AmdNpuDriverUrl`.
+  These had `$Ctx` inserted as the **first** parameter, ahead of
+  their existing positional parameters. The existing parameters
+  (`$Action`, `$Username`, `$Password`, `$DriverFilename`,
+  `$NpuPlatform`, `$ExplicitInstallerUrl`, `$ExplicitOfflineZip`,
+  `$AmdAccountUser`, `$AmdAccountPassword`) are retained unchanged
+  to minimise the call-site diff.
+
+- **Dispatcher (`Invoke-PhaseRunner`)** updated to take `$Ctx` and
+  pass it to the phase function it invokes: `& $phase.Func` → `&
+  $phase.Func -Ctx $Ctx`.
+
+- **5 caller-site fix-ups**: every call to the modified helpers / the
+  dispatcher now passes `-Ctx $Ctx`:
+  - `Invoke-PhaseRunner -PhaseIds $phaseIds` →
+    `Invoke-PhaseRunner -Ctx $Ctx -PhaseIds $phaseIds`
+  - `Show-RunSummary -Action $Action` →
+    `Show-RunSummary -Ctx $Ctx -Action $Action`
+  - `Show-RyzenAiSoftwareGuidance` →
+    `Show-RyzenAiSoftwareGuidance -Ctx $Ctx`
+  - `$resolved = Resolve-AmdNpuDriverUrl \`` →
+    `$resolved = Resolve-AmdNpuDriverUrl -Ctx $Ctx \``
+  - `$authResult = Invoke-AmdAccountAuthentication \`` →
+    `$authResult = Invoke-AmdAccountAuthentication -Ctx $Ctx \``
+
+### Top-level state: dual-carriage transitional state
+
+The top-level `$Script:Foo = $Foo` / `$Script:Foo = Join-Path ...`
+assignments at NPU L307..L353 are **kept unchanged in this release**.
+The `$Ctx` constructor inside `Invoke-MainEntryPoint` (introduced in
+stage 1) reads from those `$Script:Foo` and assigns into `$Ctx.Foo`,
+so both carriages now hold the same values; the phase functions and
+the four migrated non-phase helpers read from `$Ctx.Foo`; the three
+Tier B-4 helpers still read from `$Script:Foo`. **The duplication is
+intentional**: removing the top-level `$Script:Foo` writes prematurely
+would break the three Tier B-4 helpers. Stage 3 removes the
+duplication in a single coordinated change (replace the Tier B-4
+helper bodies with the Chipset canon, then drop the unused
+`$Script:Foo` assignments).
+
+### Tier B-4 readable vars — no sync code was needed
+
+A pre-implementation analysis flagged the six `$Script:` vars that the
+three Tier B-4 helpers read — `$Script:DetectedPlatform`, `$Script:WorkRoot`,
+`$Script:CerPath`, `$Script:PatchedDir`, `$Script:PfxPath`,
+`$Script:CertSubjectCn` — as candidates for a "post-assignment
+`$Script:Foo = $Ctx.Foo` sync" pattern inside phase functions. The
+empirical analysis after the migration found **zero such assignments
+inside any in-scope function**: all six are initialised at the script's
+top level (NPU L321..L348, L751) and treated as immutable downstream.
+No phase function or non-phase helper writes them. The transitional
+dual carriage at the top level is therefore the only sync needed; no
+phase-function-level sync code was added. This is reflected in the
+clean, no-special-case state of the migrated NPU.
+
+### What was deliberately NOT done in this release
+
+- **The three Tier B-4 helpers** (`Get-OrEnsureSecureBootBaseline`,
+  `Resume-CtxFromWorkspace`, `Invoke-Cleanup`) are **untouched**:
+  their signatures stay at `param()` and their bodies still read
+  `$Script:DetectedPlatform`, `$Script:WorkRoot`, `$Script:CerPath`,
+  `$Script:PatchedDir`, `$Script:PfxPath`, `$Script:CertSubjectCn`.
+  They are scheduled to be replaced verbatim from the Chipset canon
+  in stage 3.
+
+- **The top-level `$Script:Foo` assignments** (NPU L307..L353, L751)
+  are **kept** even though phase functions no longer read them: the
+  three Tier B-4 helpers still do, and `psa.py`'s PSA2013 (read of
+  undefined `$Script:Foo`) would fire if they were removed before
+  stage 3 lands.
+
+- **The `$Ctx` constructor in `Invoke-MainEntryPoint`** still reads
+  from `$Script:Foo` to populate `$Ctx.Foo`. Inverting the data flow
+  (top-level `$Ctx.Foo = $Foo` first, then `$Script:Foo = $Ctx.Foo`
+  as the sync) is a stage-3 follow-up.
+
+- **No Chipset / Graphics / BthPan changes** other than the uniform
+  `$Script:ScriptVersion` / `$Script:ScriptTag` bump.
+
+### Documentation
+
+- **`SPEC.md` §A.11.7 *Tier B-4*** — the stage progress table now marks
+  stage 2 as ✅ Complete, including the per-category breakdown (21
+  phase functions, 4 non-phase helpers, 1 dispatcher, 184 mechanical
+  replacements, 5 caller-site fix-ups). The planning note prose is
+  updated to describe the new transitional state (top-level dual
+  carriage feeds the three remaining Tier B-4 consumers).
+- **`README.md` / `README.ja.md`** — `What's new` carries an r84 entry
+  summarising the stage 2 migration's mechanical scope and what
+  remains for stage 3.
+
+### Verification (run before commit)
+
+```bash
+python3 path/to/psa.py --config-check .psa.config.json            # 0 issues
+python3 path/to/psa.py --config .psa.config.json Deploy-*.ps1     # 0 / 0 / 0 / 0
+python3 path/to/psa.py --config .psa.config.json --include PSA8001 \
+    Deploy-*.ps1                                                  # 0 errors (38 Tier A enforced; no change vs. r83)
+```
+
+### Version policy
+
+This release is **stage 2 of the NPU state-model refactor**. The
+`$Script:ScriptVersion` bump is four-way uniform (Chipset / Graphics /
+BthPan move forward in lockstep with NPU) for the same reason as r83:
+the per-script-but-uniform `$Script:ScriptTag` is a single durable
+identifier emitted in phase banners and DebugTrace JSONL, and
+splitting the tag would create cross-script log-archive ambiguity for
+no operational benefit. **No runtime behaviour change** on any of the
+three AMD-family scripts or on BthPan.
+
+
+
+This release begins the **NPU state-model refactor** — the multi-stage
+workstream that brings the NPU script into the same `$Ctx`-based
+state-passing model used by Chipset / Graphics / BthPan, and that will
+ultimately let the five Tier B-4 helpers (`Get-OrEnsureSecureBootBaseline`,
+`Get-BootSigningEnvironment`, `Show-BootSigningEnvironment`, `Invoke-Cleanup`,
+`Resume-CtxFromWorkspace`) join Tier A. This stage 1 release is a
+**setup release**: it adds the prerequisite WDAC tooling helpers to NPU
+(so that the canonical `Get-BootSigningEnvironment` body — copied from
+Chipset in stage 3 — will have its dependencies in place) and constructs
+the canonical `$Ctx` skeleton inside NPU's `Invoke-MainEntryPoint`
+(currently unused; placeholder for stage 2 consumers). The remaining
+NPU phase functions and the five Tier B-4 helpers themselves are
+**unchanged** in this release.
+
+> **What changed**: (1) Five helpers ported from Chipset into NPU
+> verbatim: `Test-WdacToolsAvailable`, `Get-ActiveCodeIntegrityPolicies`
+> (universal, no AMD prefix), and `Get-AmdSuppPolicyMarkerPath`,
+> `Test-AmdWdacPolicyDeployed`, `Uninstall-AmdWdacPolicy` (AMD-prefix).
+> (2) Two of those — the universal pair — are now byte-identical
+> across all four scripts and graduated from `psa8001_ignore_functions`
+> to Tier A; the three AMD-prefix helpers are byte-identical across the
+> three AMD-family scripts (Chipset / Graphics / NPU) and stay in
+> `psa8001_ignore_functions` because BthPan has the MS-prefix
+> counterparts by design (Tier B-3 per-family identifier pattern).
+> (3) An NPU `$Ctx` PSCustomObject is now constructed at the head of
+> `Invoke-MainEntryPoint` with the canonical 29 Chipset properties
+> plus the NPU-specific extensions (`NpuDriverPackage`, `AmdAccountUser`,
+> `WdacBinPath`, etc.); the constructed `$Ctx` is intentionally
+> unconsumed in this release. (4) **No runtime behaviour changes** —
+> the existing `$Script:` globals continue to drive every phase
+> function and every Tier B-4 helper; the duplicate state carriage
+> (`$Script:` AND `$Ctx`) is intentional and transitional. SPEC §A.11.7
+> *Tier B-4* gains a per-stage progress table that tracks this release
+> as "Stage 1 ✅ Complete" and identifies stages 2 and 3 as planned.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.26-r82` → `chipset-2026.05.26-r83`
+  - Graphics: `graphics-2026.05.26-r48` → `graphics-2026.05.26-r49`
+  - NPU: `npu-2026.05.26-r26` → `npu-2026.05.26-r27`
+  - BthPan: `msbthpan-2026.05.26-r30` → `msbthpan-2026.05.26-r31`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `psa-py-v410-shared-helper-canon-uplift` → `npu-state-model-refactor-step-1-wdac-helpers`
+
+### NPU script — WDAC tooling helpers ported from Chipset (5 functions, ≈ 165 lines added)
+
+Five helpers required by the canonical `Get-BootSigningEnvironment` /
+`Invoke-Cleanup` bodies (planned to land in stage 3) have been ported
+from `Deploy-AMDChipsetDriverOnWindowsServer.ps1` into
+`Deploy-AMDNpuDriverOnWindowsServer.ps1` verbatim, immediately before
+the existing `Get-BootSigningEnvironment` definition:
+
+- **`Test-WdacToolsAvailable` (45 lines)** — probes the host for WDAC
+  tooling: `ConfigCI` PowerShell module, `CiTool.exe`, the AllowAll.xml
+  template, and the active-policies directory. Returns a structured
+  capabilities object so callers can present a precise diagnostic if
+  something is missing. Universal helper (no AMD / MS-BthPan prefix);
+  Chipset / Graphics / BthPan already shipped a byte-identical copy.
+  After the NPU port this is **4-way byte-identical → Tier A**.
+
+- **`Get-ActiveCodeIntegrityPolicies` (53 lines)** — enumerates active
+  WDAC supplemental policies via `CiTool.exe -lp` with a registry-based
+  fallback for hosts where the CITool isn't installed (WS2019 etc.).
+  Universal helper; **4-way byte-identical → Tier A**.
+
+- **`Get-AmdSuppPolicyMarkerPath` (10 lines)** — returns the per-driver-
+  family marker-file path under `$Ctx.WorkRoot` that records the
+  PolicyId of the AMD-family WDAC supplemental policy deployed by this
+  script. AMD-family-prefixed by design (BthPan ships the parallel
+  `Get-MsBthPanSuppPolicyMarkerPath`). After the NPU port this is
+  **3-way byte-identical (Chipset / Graphics / NPU); Tier B-3**.
+
+- **`Test-AmdWdacPolicyDeployed` (31 lines)** — checks whether the AMD-
+  family WDAC supplemental policy this script would deploy is already
+  active. AMD-family-prefixed. **3-way byte-identical; Tier B-3**.
+
+- **`Uninstall-AmdWdacPolicy` (24 lines)** — removes a previously-deployed
+  supplemental policy via `CiTool.exe --remove-policy` + a file-system
+  cleanup fallback. AMD-family-prefixed. **3-way byte-identical;
+  Tier B-3**.
+
+All five are inserted verbatim from Chipset — no NPU-specific
+adaptation. They are currently unused in NPU (their callers are
+the existing Tier B-4 helpers, which still use the NPU-simplified
+bodies in this release). Stage 3 of the refactor replaces the NPU
+Tier B-4 helper bodies with the Chipset canon, which is when these
+five become live.
+
+### NPU script — `$Ctx` skeleton construction (≈ 75 lines added)
+
+A `$Ctx` PSCustomObject is now constructed at the head of NPU's
+`Invoke-MainEntryPoint` function, immediately after `param()` and
+before the banner. The property set is the union of:
+
+- **Chipset's canonical 29 properties** (Action, OnlyPhases, InstallerUrl,
+  AmdLandingUrls, AmdFallbackUrl, WorkRoot, PfxPassword, TimestampUrl,
+  Force, CleanWorkRoot, UseTestSigning, AllowWorkstationInstall, Os,
+  Paths, SevenZip, Signtool, Inf2cat, Installer, InfInventory,
+  InfInventoryDetail, PatchResults, PatchedDirs, CertPfxPath,
+  CertCerPath, CertThumbprint, SelectedPhaseIds, SecureBootBaseline,
+  WhqlCoSignAnalysis). Properties that NPU does not populate are
+  initialised to `$null` as placeholders for stage-3 consumers (e.g.
+  `AmdLandingUrls = $null` because NPU does not crawl AMD landing pages).
+
+- **NPU-specific extensions** (≈ 20 properties): `AmdAccountUser`,
+  `AmdAccountPassword`, `ForceAmdAccountAuth`, `AssumeIfMissing`,
+  `NpuOverride`, `RyzenAiSoftwareVersion`, `OfflineZip`, `RepoUrl`,
+  `NpuDriverPackage`, `DetectedPlatform`, `CertDir`, `DownloadDir`,
+  `ExtractedDir`, `PatchedDir`, `CerPath`, `PfxPath`, `CertSubjectCn`,
+  `CertValidityYears`, `WdacBinPath`, `WdacXmlPath`, `WdacPolicyName`,
+  `InventoryCsvPath`, `InventoryReportPath`. These are read from the
+  existing `$Script:` globals at construction time so that the snapshot
+  is consistent with the rest of the (still `$Script:`-driven) script.
+
+The constructed `$Ctx` is **intentionally unconsumed in this release**
+(piped through `$Ctx | Out-Null` to silence the "declared but never
+used" lint posture). Stage 2 migrates phase functions to read from
+`$Ctx` instead of `$Script:`; stage 3 migrates the Tier B-4 helpers.
+Until stage 3 lands, `$Ctx` and `$Script:` carry the same state in
+parallel — this duplication is the price of keeping every intermediate
+release at the `psa.py 0/0/0` baseline.
+
+### `.psa.config.json` — Tier A roster: 36 → 38
+
+- Comment block at the top of `psa8001_ignore_functions` updated from
+  "the following 36 functions are byte-for-byte identical" to "the
+  following 38 functions ...", with the two new entries
+  (`Test-WdacToolsAvailable`, `Get-ActiveCodeIntegrityPolicies`) listed
+  in a new "WDAC tooling preflight helpers (2)" family heading.
+- The "WDAC / boot-signing diagnostic helpers" ignore-list section is
+  rewritten to reflect (a) `Test-WdacToolsAvailable` and
+  `Get-ActiveCodeIntegrityPolicies` have left the ignore list (Tier A);
+  (b) `Get-AmdSuppPolicyMarkerPath`, `Test-AmdWdacPolicyDeployed`, and
+  the newly added `Uninstall-AmdWdacPolicy` are now three-way byte-
+  identical (Chipset / Graphics / NPU) but stay in the ignore list
+  because Tier A requires four-way identity (Tier B-3 per-family
+  identifier pattern).
+- New `Uninstall-AmdWdacPolicy` ignore entry added (was absent because
+  the helper did not previously exist in any sister script's NPU peer).
+- No other configuration changes; all rule opt-ins and severity floors
+  unchanged.
+
+### Documentation
+
+- **`SPEC.md` §A.11.7 (`Shared helper canon and porting checklist`)**:
+  Tier A roster updated to 38 functions with a new "WDAC tooling
+  preflight helpers (2)" family heading. Tier B-3 table extended with
+  three new rows for the AMD-prefix WDAC helpers; the rationale for
+  keeping them in the ignore list (PSA8001 groups by name only; Tier A
+  requires 4-way identity which the per-family helper-pair design
+  cannot satisfy) is spelled out explicitly. Tier B-4 section gains a
+  per-stage progress table marking stage 1 ✅ Complete and identifying
+  stages 2 and 3 as planned, with function-level scope per stage.
+- **`README.md` / `README.ja.md`**: `What's new` carries an r83 entry
+  summarising the NPU state-model refactor's stage-1 setup, the
+  two-helper Tier A graduation, and the stage-2 / stage-3 roadmap.
+
+### Out of scope for this release (stage 2 and stage 3 targets)
+
+- **Stage 2 — phase function migration** (planned): migrate the 21 NPU
+  phase functions and the 8 non-phase state-touching helpers to take
+  `[Parameter(Mandatory)] $Ctx` instead of `param()`, and to read
+  `$Ctx.Foo` instead of `$Script:Foo`. The bulk of the refactor
+  (≈ 2 000 lines).
+- **Stage 3 — Tier B-4 helper canonisation** (planned): replace the
+  bodies of the five Tier B-4 helpers with the Chipset canon verbatim
+  (the supporting WDAC helpers ported in stage 1 are the prerequisite
+  for this replacement). Resolve the `Invoke-Cleanup` canon direction:
+  the C2 decision (Chipset's marker-file pattern is canon) is recorded
+  in SPEC §A.11.7. Remove the five helpers from `psa8001_ignore_functions`
+  and let PSA8001 enforce 41-way Tier A.
+- **No runtime behaviour change in this release.** Phase semantics,
+  install-decision logic, output format, parameter sets, and the
+  workspace conventions are all identical to r82. Preflight time
+  on NPU is unchanged because the new WDAC helpers are present but
+  not yet called.
+
+### Verification (run before commit)
+
+```bash
+python3 path/to/psa.py --config-check .psa.config.json                      # 0 issues
+python3 path/to/psa.py --config .psa.config.json Deploy-*.ps1               # 0 errors / 0 warnings / 0 info on all 4
+python3 path/to/psa.py --config .psa.config.json --include PSA8001 \
+    Deploy-*.ps1                                                            # 0 errors (38 Tier A functions enforced)
+```
+
+### Version policy
+
+This release is **stage 1 of the NPU state-model refactor**. The
+`$Script:ScriptVersion` bump is justified because the new `$Script:ScriptTag`
+(`npu-state-model-refactor-step-1-wdac-helpers`) becomes the value
+emitted in phase banners and DebugTrace JSONL output. Per the
+repository convention (see SPEC §A.13 *Development Workflow*), the
+per-script revision counter advances accordingly so log archives map
+unambiguously. The bump is **four-way uniform** — all four sister
+scripts move forward together even though only NPU received structural
+changes — because the per-script-but-uniform tag is a single durable
+identifier; splitting the tag would create cross-script log-archive
+ambiguity for no operational benefit.
+
+
+
+This release advances the **shared helper canon** workflow introduced
+in r81 (`psa-py-v410-three-new-error-rules-baseline`). Three Tier B
+functions — `Get-SecureBootBaselineSnapshot`, `Show-SecureBootBaselineSnapshot`,
+and (partially) `Get-OrEnsureSecureBootBaseline` — are reconciled to
+the Chipset canon, raising the PSA8001-enforced Tier A roster from
+34 to **36 functions**. The release also back-ports the BthPan
+`Invoke-InfVerifValidation`-era `$reasons.ToArray()` defensive form
+to all four scripts uniformly, eliminating a latent PS 5.1 ja-JP
+`[pscustomobject]` cast bug that had been guarded only in BthPan.
+
+> **What changed**: (1) Tier B-1 (pure cosmetic) consolidations:
+> `Show-SecureBootBaselineSnapshot` on NPU replaced `Write-Host` +
+> 4-space-indent literals with the shared `Write-Detail` helper that
+> the other three scripts already use; `Get-OrEnsureSecureBootBaseline`
+> on Graphics dropped a vestigial `# Port from chipset:` comment
+> prefix. (2) Tier B-2 (PS 5.1 ja-JP latent bug guard) uniformity:
+> `Get-SecureBootBaselineSnapshot` on Chipset / Graphics / NPU
+> changed `Reasons = @($reasons)` to `Reasons = $reasons.ToArray()`,
+> matching BthPan's defensive form; a unified comment block now
+> references the new SPEC §D.35 post-mortem. (3) SPEC §A.11.7 is
+> reorganised to expose four Tier B sub-categories (B-1 / B-2 / B-3
+> / B-4) and a dedicated **NPU state-model refactor backlog**
+> (Tier B-4) tracks the 5 remaining NPU divergences that require
+> the major `$Script:` → `$Ctx` restructuring.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.26-r81` → `chipset-2026.05.26-r82`
+  - Graphics: `graphics-2026.05.26-r47` → `graphics-2026.05.26-r48`
+  - NPU: `npu-2026.05.26-r25` → `npu-2026.05.26-r26`
+  - BthPan: `msbthpan-2026.05.26-r29` → `msbthpan-2026.05.26-r30`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `psa-py-v410-three-new-error-rules-baseline` → `psa-py-v410-shared-helper-canon-uplift`
+
+### Tier B-1 — pure cosmetic consolidation (2 functions, NOW Tier A)
+
+- **`Show-SecureBootBaselineSnapshot` (NPU)**: replaced 14 `Write-Host` + 4-space-indent literal lines with `Write-Detail` calls, matching the canonical form used by Chipset / Graphics / BthPan. No behaviour change — `Write-Detail` is the established shared helper that emits the same 4-space-indented continuation rows with optional `-Color` and is byte-identical across the 4 scripts (Tier A). After this change, `Show-SecureBootBaselineSnapshot` is byte-identical across all four scripts and is promoted from Tier B to **Tier A** (PSA8001-enforced).
+- **`Get-OrEnsureSecureBootBaseline` (Graphics)**: dropped the vestigial `# Port from chipset:` comment prefix that had been left in place during an earlier back-port. The function is now byte-identical to the Chipset canon for Chipset / Graphics / BthPan. The NPU variant still differs structurally (uses `$Script:DetectedPlatform` globals instead of a `$Ctx` parameter) and is tracked as Tier B-4 (NPU state-model refactor); see SPEC §A.11.7 *Tier B-4*.
+
+### Tier B-2 — PS 5.1 ja-JP latent bug guard, uniformly applied (1 function, NOW Tier A)
+
+- **`Get-SecureBootBaselineSnapshot` (Chipset / Graphics / NPU)**: replaced `Reasons = @($reasons)` with `Reasons = $reasons.ToArray()`, matching the defensive form that BthPan had carried since the `Invoke-InfVerifValidation` PS 5.1 ja-JP investigation. A unified 8-line comment block now references the new SPEC §D.35 post-mortem. After this change, `Get-SecureBootBaselineSnapshot` is byte-identical across all four scripts and is promoted from Tier B to **Tier A** (PSA8001-enforced).
+- **No runtime behaviour change on en-US hosts or PS 7.x.** The change is a no-op everywhere except on a PowerShell 5.1 ja-JP host that would otherwise have hit the latent ArgumentException (which had not been observed in `Get-SecureBootBaselineSnapshot` specifically, but had been observed in the structurally-identical `Invoke-InfVerifValidation` BthPan-only helper). The fix is defensive and uniform; see SPEC §D.35 for the full post-mortem and the general coding rule "when emitting a `[pscustomobject]@{ ... = $list ... }`, use `$list.ToArray()`, not `@($list)`".
+
+### Tier A roster: 34 → 36 functions
+
+The PSA8001-enforced byte-identity canon now covers **36 shared helpers** (logging primitives ×12, DebugTrace framework ×12, environment / preflight ×5, Secure Boot baseline diagnostic helpers ×7). The full inventory is documented in [SPEC §A.11.7](./SPEC.md#a117-shared-helper-canon-and-porting-checklist-chipset--canon) *Tier A*.
+
+### Tier B reorganisation (SPEC §A.11.7)
+
+The Tier B section is reorganised into four sub-categories that classify by the *kind* of divergence rather than the function family:
+
+- **Tier B-1** (pure cosmetic): empty after r82.
+- **Tier B-2** (PS 5.1 ja-JP latent-bug guard): empty after r82.
+- **Tier B-3** (per-family identifier substitution, effectively Tier C): `Resume-CtxFromWorkspace` and `Invoke-Cleanup` are re-classified here. They remain in `psa8001_ignore_functions` because their divergence (cert filename / WDAC helper name) is mandated by the per-family isolation principle — they are NOT backlog.
+- **Tier B-4** (NPU state-model architectural divergence): the 5 remaining NPU divergences (`Get-OrEnsureSecureBootBaseline`, `Get-BootSigningEnvironment`, `Show-BootSigningEnvironment`, `Invoke-Cleanup`, `Resume-CtxFromWorkspace` — note the latter two appear in both B-3 and B-4 because the NPU variant has BOTH per-family AND state-model divergence) are tracked as a single dedicated **future workstream**: the **NPU state-model refactor** (`$Script:` globals → `$Ctx` PSCustomObject). This is a multi-thousand-line restructuring expected to consume one major refactor PR plus follow-ups. SPEC §A.11.7 *Tier B-4* documents the scope, the 5 affected functions, and the open canon-direction question for `Invoke-Cleanup` (NPU's cert-subject-CN-based removal vs the AMD-family marker-file-based removal — which is canon).
+
+### Documentation
+
+- **`SPEC.md` §A.11.7 (`Shared helper canon and porting checklist`)**: Tier A roster updated to 36 functions with the new entries called out; Tier B section rewritten with B-1 / B-2 / B-3 / B-4 sub-categories; Tier B-4 NPU state-model refactor backlog documented in detail (function inventory, refactor scope, open canon-direction question).
+- **`SPEC.md` §D.35 (new — `PS 5.1 ja-JP [pscustomobject]@{ ... = @(List<T>) } ArgumentException`)**: full post-mortem of the original `Invoke-InfVerifValidation` defect localisation, the latent risk in `Get-SecureBootBaselineSnapshot`, the r82 uniform fix, the general coding rule, and the rationale for uniform application across all four sister scripts.
+- **`.psa.config.json`**: the `psa8001_ignore_functions` Secure Boot baseline helpers block is updated — `Get-SecureBootBaselineSnapshot` and `Show-SecureBootBaselineSnapshot` are removed (now Tier A); `Get-OrEnsureSecureBootBaseline` remains (Tier B-4 backlog) with a documented NPU-state-model-refactor cross-reference. The Tier A roster comment block at the top of the file is updated from "34 functions" to "36 functions" with the two new entries listed in the Secure Boot baseline diagnostic helpers family.
+- **`README.md` / `README.ja.md`**: `What's new` carries an r82 entry summarising the Tier B-1 / B-2 consolidations and the new SPEC §D.35; r81 is demoted to `Previous release notes`.
+- **`CONTRIBUTING.md`**: implicit pass — the PR checklist already references SPEC §A.11.7 *via* the previous release's update, so the canon workflow points at the updated SPEC by transitivity.
+
+### Out of scope for this release
+
+- **NPU state-model refactor (Tier B-4)**: explicitly tracked as a *future* workstream. The 5 affected functions (`Get-OrEnsureSecureBootBaseline`, `Get-BootSigningEnvironment`, `Show-BootSigningEnvironment`, `Invoke-Cleanup`, `Resume-CtxFromWorkspace`) remain in `psa8001_ignore_functions` with their current divergences. The work is too large to bundle with the cosmetic / latent-bug-guard uplift in this release; it will be sequenced separately.
+- **Tier C reclassification of phase functions**: `Show-PhaseList` was previously noted as "should ultimately be moved to Tier D" in SPEC §A.11.7. The move is deferred to a future docs-only revision; nothing materially changes in this release.
+- **No PowerShell behaviour change.** Phase semantics, install-decision logic, output format on en-US hosts, parameter sets, and the workspace conventions are all identical to r81.
+
+### Verification (run before commit)
+
+```bash
+python3 path/to/psa.py --config-check .psa.config.json                      # 0 issues
+python3 path/to/psa.py --config .psa.config.json Deploy-*.ps1               # 0 errors / 0 warnings / 0 info on all 4
+python3 path/to/psa.py --config .psa.config.json --include PSA8001 \
+    Deploy-*.ps1                                                            # 0 errors (36 Tier A functions enforced)
+```
+
+### Version policy
+
+This release is **a shared-helper-canon uplift** — three Tier B functions are promoted to Tier A and the PS 5.1 ja-JP `[pscustomobject]` latent bug is uniformly guarded. The `$Script:ScriptVersion` bump is justified because the new `$Script:ScriptTag` (`psa-py-v410-shared-helper-canon-uplift`) becomes the value emitted in phase banners and DebugTrace JSONL output. Per the repository convention (see SPEC §A.13 *Development Workflow*), the per-script revision counter advances accordingly so log archives map unambiguously.
+
+
+
+This release adopts `psa.py` 4.1.0 — the upstream minor release that
+adds three new error-severity, default-on static-analysis rules
+(`PSA1004`, `PSA2012`, `PSA2013`) on top of the v4.0.2 baseline that
+the previous release (`psa-py-v4-llm-governance-strict`, r80 / r46 /
+r28 / r24) consumed. All four sister scripts pass with a **0 / 0 / 0
+/ 0 baseline** on the full latest-mainline rule set, including the
+three new rules and the strict-mode `PSAP0005` inherited from r80.
+There are **no runtime behaviour changes**; this is a static-analysis
+coverage uplift plus shared-helper-canon documentation.
+
+> **What changed**: (1) The upstream analyzer added three error-class
+> rules that detect concrete latent-bug patterns observed in a sister
+> PowerShell pipeline (`update-windows-server-iso`). (2) The four
+> repository scripts already comply with all three new rules — the
+> uplift is verified at 0 findings on each, and the rule set is now
+> the steady-state ceiling against which future edits are gated. (3)
+> A new SPEC.md §A.11.7 ("Shared helper canon and porting checklist")
+> codifies the canonical "copy from Chipset" workflow that was
+> previously distributed across `.psa.config.json` comments and PR
+> review knowledge.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.24-r80` → `chipset-2026.05.26-r81`
+  - Graphics: `graphics-2026.05.24-r46` → `graphics-2026.05.26-r47`
+  - NPU: `npu-2026.05.24-r24` → `npu-2026.05.26-r25`
+  - BthPan: `msbthpan-2026.05.24-r28` → `msbthpan-2026.05.26-r29`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `psa-py-v4-llm-governance-strict` → `psa-py-v410-three-new-error-rules-baseline`
+- `psa.py` upgraded upstream from 4.0.2 → 4.1.0 (`PSA1004` / `PSA2012`
+  / `PSA2013` added as default-on error-severity rules). No
+  `.psa.config.json` change is required; the new rules are caught by
+  the existing severity floor.
+
+### Upstream: `psa.py` 4.1.0 (three new error rules)
+
+Three new error-severity, default-on rules were productionised in
+`psa.py` 4.1.0 (see the upstream
+[CHANGELOG.md entry for 4.1.0](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/CHANGELOG.md)
+for the full detection algorithms, false-positive defenses, and
+real-world defect citations):
+
+- **`PSA1004`** — bare `(if/switch/foreach/while/...)` used as
+  expression. PowerShell parses `(if ($x) { 'a' } else { 'b' })` as a
+  *command call* named `if`, which fails at runtime with `'if' is not
+  recognized as a name of a cmdlet, function, script file, or
+  operable program`. The parser accepts the syntax, so neither
+  `[Parser]::ParseFile` nor PSScriptAnalyzer flagged it. The correct
+  form is `$(if ...)` (subexpression) or `@(if ...)` (array
+  subexpression).
+- **`PSA2012`** — positional call provides fewer args than the target
+  function has `[Parameter(Mandatory)]` parameters. PowerShell
+  prompts the user interactively for each missing value; in CI
+  pipelines or unattended sessions the script hangs forever on
+  stdin. The trap is that the call site looks fine syntactically.
+- **`PSA2013`** — `$Script:Foo` is read but never assigned anywhere
+  in the file. PowerShell silently evaluates an unassigned
+  `$Script:Foo` to `$null`, hiding typo bugs in script-scope
+  variable names. PSA2001 (generic undefined-variable) only checks
+  within function scopes and does not see the cross-function flow of
+  `$Script:` globals.
+
+### Repository-side baseline verification
+
+All four pipeline scripts in this repository pass `psa.py 4.1.0
+--severity error` with **0 errors / 0 warnings / 0 info** under the
+canonical `.psa.config.json` at the r81 / r47 / r29 / r25 baseline.
+Specifically:
+
+- `--include PSA1004 Deploy-*.ps1` reports 0 findings on all four
+  scripts. No bare `(if/...)` expressions are present.
+- `--include PSA2012 Deploy-*.ps1` reports 0 findings on all four
+  scripts. Mandatory-parameter call sites use named arguments
+  consistently, and pass-through positional calls do not under-supply.
+- `--include PSA2013 Deploy-*.ps1` reports 0 findings on all four
+  scripts. Every `$Script:` variable read site has a corresponding
+  assignment site in the same file.
+
+### Shared helper canon documentation — new SPEC.md §A.11.7
+
+Previous releases (`r80` and earlier) enforced the "shared helpers
+must stay byte-identical across the four sister scripts" invariant
+via PSA8001 (cross-file function-body drift), with the per-script
+intentional-divergence list living in `.psa.config.json`'s
+`psa8001_ignore_functions` comments. That information was hard to
+discover from the SPEC alone — a maintainer adding a new helper had
+to read the config file's commentary to learn which tier the helper
+should land in.
+
+The new **SPEC.md §A.11.7 "Shared helper canon and porting
+checklist"** consolidates that knowledge into a single SPEC
+subsection, organised around four tiers:
+
+- **Tier A** (34 helpers, PSA8001-enforced): byte-identical across
+  all four scripts; PSA8001 fires on any drift. Logging primitives
+  (`Format-Elapsed`, `Write-Step`, `_LogLine`, …), DebugTrace
+  framework (`Start-DebugTrace`, `Stop-DebugTrace`, …),
+  environment / preflight (`Set-Tls12`, `Set-ConsoleUtf8`,
+  `Assert-Admin`, …), Secure Boot baseline diagnostic helpers
+  (`Format-SecureBootBaselineForReport`, …, `Export-DebugTraceJson`).
+- **Tier B** (9 helpers, currently PSA8001-ignored but conceptually
+  shared): present in all four scripts but with at least one
+  simplified or family-flavoured variant; documented as the **active
+  backlog for shared-helper unification work**. The three NPU
+  simplifications (`Get-BootSigningEnvironment`,
+  `Show-BootSigningEnvironment`, and cosmetic Secure Boot wording
+  deltas) are explicitly flagged as backlog rather than permanent
+  exemptions.
+- **Tier C**: helpers in 2-3 of the 4 scripts. Most are
+  driver-family-specific (AMD-only installer helpers, MSBthPan-only
+  inbox-driver helpers, Chipset-only r65 phantom-file filter) and
+  legitimately stay divergent.
+- **Tier D**: phase functions (`Invoke-(Prep|Verify|Inst)Phase\d{2}_*`)
+  and per-script identity helpers (`Show-Help`, `Show-ReferenceLinks`)
+  that are intentionally per-script.
+
+The subsection also documents the **canonical "copy from Chipset"
+direction** (Chipset is the canon source — every shared helper is
+written there first and propagated to the other three scripts) and a
+**4-step porting checklist** for back-porting / cross-porting work.
+
+The retirement of NPU's permanent "simplified script" exemption is
+the most consequential policy clarification in this release: the
+three NPU Tier B simplifications are now backlog rather than design
+decisions. The retirement does NOT block landing (existing
+`psa8001_ignore_functions` entries continue to gate CI), but it
+opens the door to future quality-cycle work that lifts NPU to the
+Chipset canon.
+
+### Documentation
+
+- **`README.md`**: new `What's new` entry for r81 / r47 / r29 / r25;
+  r80 demoted to `Previous release notes`. The detailed psa.py rule
+  inventory (previously L1266 onward) was re-written to enumerate
+  rule families (`PSA1xxx` through `PSAP0xxx`) and recent additions
+  (`PSA1004` / `PSA2012` / `PSA2013` in 4.1.0; `PSAP0005` in 4.0.0;
+  `PSA2009` in 3.8.0; `PSA2010` / `PSA2011` in 3.9.0) rather than
+  carrying a hard-coded "46-rule" count. The category table's code
+  ranges are updated (`PSA1001`..`PSA1004`, `PSA2001`..`PSA2013`,
+  …) so a reader can still see the full surface at a glance.
+- **`README.ja.md`**: synchronised translation of the above.
+- **`SPEC.md`**: parallel changes to §A.11 (the `46-rule` text on
+  L101 / §876 / §878 is replaced by family/range references with
+  inline citations to recent additions); new §A.11.5f documents the
+  three new error rules with upstream-spec links; new §A.11.7
+  documents the shared helper canon and porting checklist (the
+  larger of the two new subsections). The `--self-check` example
+  output in §A.11.6 is updated to show `49 in RULES, 49 in
+  SPEC.md §4` (the current value for the latest-mainline `psa.py`
+  4.1.0, kept as a concrete reader hint per the same exception the
+  upstream uses for its SARIF illustrative example).
+- **`TESTING.md`**: L65 `46-rule check set` parameterised to "full
+  rule set" with a pointer to `psa.py --list-rules` as the canonical
+  count source.
+- **`CONTRIBUTING.md`**: implicit pass — the existing prose already
+  references the rule families rather than a hard-coded count, so
+  no edit was required beyond the cross-references that other docs
+  carry. (If a future PR adds a contributor-facing rule-count
+  number, follow the same hybrid policy: parameterise in prose,
+  keep numerals only in deliberately illustrative samples.)
+
+### Out of scope for this release
+
+- `psa8001_ignore_functions` was NOT modified. The list documented in
+  §A.11.7 as Tier B / C remains in the same shape as r80. Future
+  quality-cycle work may walk Tier B entry-by-entry and either
+  reconcile to the Chipset canon (removing the entry from the
+  ignore list) or document the genuine driver-family asymmetry; that
+  work is deliberately out of scope here to keep the r81 diff small
+  enough to review safely.
+- No PowerShell behaviour change. Phase semantics, install-decision
+  logic, output format, parameter sets, and the workspace
+  conventions are all identical to r80.
+
+### Version policy
+
+This release is **a static-analysis-tracking bump** — the runtime
+behaviour of the four pipeline scripts is unchanged. Per the
+repository convention (see SPEC §A.13 *Development Workflow*), the
+`$Script:ScriptVersion` bump is justified because the new
+`$Script:ScriptTag` (`psa-py-v410-three-new-error-rules-baseline`)
+becomes the value emitted in phase banners and DebugTrace JSONL
+output, and downstream operators distinguishing log archives by
+script tag need a corresponding revision counter advance to map
+unambiguously.
+
+
+
+This release **completes the LLM-governance migration** that began
+at r76 / r42 / r24 / r20. The four sister scripts now pass
+`psa.py` 4.0.2 **strict mode** with a 0 / 0 / 0 / 0 baseline across
+all rules. The `psap0005_relaxed_mode` flag has been removed from
+`.psa.config.json` (taking its default `false` value).
+
+> **What changed**: The 99 strict-mode-eligible `rNN` references in
+> the four script bodies (mostly historical anchors that
+> documented when a particular block was added) have been
+> rewritten to **timeless wording** with cross-references to
+> `SPEC.md` Part D for design rationale. The release vehicle is a
+> single consolidated release rather than the four-cycle plan
+> originally documented in pre-r80 SPEC §A.13; see SPEC §D.34 for
+> the post-mortem.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.25-r76` → `chipset-2026.05.24-r80`
+  - Graphics: `graphics-2026.05.25-r42` → `graphics-2026.05.24-r46`
+  - NPU: `npu-2026.05.25-r20` → `npu-2026.05.24-r24`
+  - BthPan: `msbthpan-2026.05.25-r24` → `msbthpan-2026.05.24-r28`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `psa-py-v4-llm-governance-baseline` → `psa-py-v4-llm-governance-strict`
+- `.psa.config.json` updated:
+  - `psap0005_relaxed_mode` key removed (now defaults to `false`).
+  - Header documentation rewritten to describe strict-mode steady
+    state rather than relaxed-mode migration baseline.
+  - Trailing `,` after `"severity": "info"` removed (correct JSON).
+- `psa.py` upgraded upstream from 4.0.1 → 4.0.2 (PSAP0005 relaxed-
+  mode coverage uplift; not a config change but the baseline numbers
+  in §A.11.5 are based on this version).
+
+### Cycle B (SPEC cross-reference cleanup) — consolidated into this release
+
+The original plan was to ship this as `r77 / r43 / r21 / r25`. The
+empirical analysis (SPEC §D.34) led to consolidating the four cycles
+into this single r80 release. The rewrites that would have been
+Cycle B:
+
+- Chipset: 14 sites of `(r65, SPEC D.24)` / `(r66, SPEC D.24)` →
+  `(see SPEC §D.24)` — Phantom file reference helpers in P09.
+- Chipset: `Orphan catalog cleanup (r66 / SPEC D.24):` (slash separator)
+  → `Orphan catalog cleanup (see SPEC §D.24):`
+- Chipset / Graphics: `(r75 - SPEC D.33):` (dash separator) →
+  `(see SPEC §D.33):`
+- Chipset: `r68 (SPEC §D.26): LOADED honesty gate.` (reversed parens) →
+  `(see SPEC §D.26): LOADED honesty gate.`
+- Graphics: `r34 (SPEC §D.26): LOADED honesty gate.` (reversed parens, cross-port) →
+  `(see SPEC §D.26): LOADED honesty gate (cross-port from Chipset).`
+- 3 scripts byte-identical: `See SPEC SS D.31 for the full r71 design contract; SPEC SS D.31.11` →
+  `See SPEC §D.31 for the full design contract; SPEC §D.31.11`
+
+### Cycle A (SECTION header cleanup) — consolidated
+
+- 3 scripts byte-identical: `# SECTION r71: WHQL co-sign pre-detection + Path B prerequisite check` →
+  `# SECTION: WHQL co-sign pre-detection + Path B prerequisite check`
+- 3 scripts byte-identical: `# SECTION (r69, QI-6): CRITICAL severity acknowledgement helpers` →
+  `# SECTION (QI-6): CRITICAL severity acknowledgement helpers`
+- 3 scripts byte-identical: `# SECTION (r69, QI-9): System Restore status helpers` →
+  `# SECTION (QI-9): System Restore status helpers`
+- 3 scripts byte-identical (Pre-check semi-section): `# r71 Pre-check: Path B prerequisite check (Secure Boot firmware state)` →
+  `# Pre-check: Path B prerequisite check (Secure Boot firmware state)`
+
+### Cycle D (Earlier-revisions prose cleanup) — consolidated
+
+- Chipset: `# CSV is also absent (e.g. very old workspace prior to r65),` →
+  `# CSV is also absent (e.g. very old workspaces),`
+- Chipset: `# when no inventory is available, when the inventory predates r65` →
+  `# when no inventory is available, when the inventory predates the inf_inventory introduction`
+- Chipset: `# - If the CSV is also missing or predates r65 (no` →
+  `# - If the CSV is also missing or predates the inf_inventory introduction (no`
+- Chipset: `# workspace recovered from an r65 run, or a future code path` →
+  `# workspace recovered from an older inventory-less run, or a future code path`
+- Graphics: `# See SPEC SS D.31. Until r39, Graphics shipped the consumer code (I00 C6,` →
+  `# See SPEC §D.31. Earlier Graphics revisions shipped the consumer code (I00 C6,`
+
+### Cycle C (Added-in-release phrasing cleanup) — consolidated
+
+The most extensive category. Pattern: shift the rationale anchor
+from `(added with the rNN release)` to `(see SPEC §D.YY)`.
+
+- 3 scripts byte-identical: `# WHQL co-signature analysis (added with the r71 release).` →
+  `# WHQL co-signature analysis (see SPEC §D.31).`
+- Chipset: `(added with the r71 release) from the patch-eligible subset` →
+  `(see SPEC §D.31) from the patch-eligible subset`
+- Graphics (cross-port narrative): `(added with the r71 release; ported into Graphics by r39)` →
+  `(see SPEC §D.31; cross-script port to Graphics)`
+- 3 scripts byte-identical (I02 short-circuit): `(added with the r72 release) for all-WHQL trimmed install plans.` →
+  `(see SPEC §D.31.11) for all-WHQL trimmed install plans.`
+- BthPan: `(added in the r71 release). BthPan deploys the` →
+  `(see SPEC §D.31). BthPan deploys the`
+- Chipset / Graphics narrative: `The original r74 release threaded` →
+  `Earlier revisions threaded`
+- 3 scripts byte-identical: `# r71 adds two operator-protection mechanisms that the now-removed Path C` →
+  `# Two operator-protection mechanisms (see SPEC §D.31) that the now-removed Path C`
+- 3 scripts byte-identical: `# the /all addition in r74.` →
+  `# the /all flag (see SPEC §D.32).`
+- 3 scripts byte-identical: `documents the r72 follow-on I02 short-circuit that consumes the` →
+  `documents the I02 short-circuit (see SPEC §D.31.11) that consumes the`
+
+### NPU-specific rewrite (Q-X1 + r17 + date)
+
+NPU L5352, L5398. NPU's `Generic OS-version predicate retained after the r70 Path C deprecation.` →
+`Generic OS-version predicate retained after the Path C deprecation.`
+NPU's `# r17 (Q-X1, 2026-05-23): refuse NPU Install / All on legacy Windows Server` →
+`# (Q-X1; legacy WS2019): refuse NPU Install / All on legacy Windows Server`
+
+### Cross-port markers (Graphics-only and BthPan-only)
+
+- Graphics: 5 sites of `# r40 (graphics): ...` → `# (graphics-specific): ...`
+- BthPan: 3 sites of `# r22 (bthpan): ...` → `# (bthpan-specific): ...`
+
+### Follow-up sentences (rNN: this declaration)
+
+3 scripts: `). rNN: this declaration was ...` → `). This declaration was ...`
+- Chipset: r73
+- Graphics: r39
+- BthPan: r21
+
+### Phase-marker tri-state inline tag (Chipset only)
+
+- Chipset L9553: `Phase marker + summary (r66 tri-state:` →
+  `Phase marker + summary (tri-state form:`
+
+### Prose-internal rNN in multi-line PSCustomObject blocks (3 scripts)
+
+The `New-WhqlCoSignAnalysis` declaration block in each of Chipset /
+Graphics / BthPan had a `rNN: this declaration` follow-up plus the
+`I02 (r72 short-circuit ...)` inline reference. Both forms were
+rewritten:
+- `and I02 (r72 short-circuit for` → `and I02 (short-circuit (SPEC §D.31.11) for`
+- `(-SkipNonCosignedDrivers trim, I02 r72 short-circuit)` (Graphics L8635) →
+  `(-SkipNonCosignedDrivers trim, I02 short-circuit (SPEC §D.31.11))`
+- `missing in r71/r72 and caused P05 to throw` → `missing in earlier revisions and caused P05 to throw`
+- `P05 analysis block itself were both missing in r38;` → `... in earlier revisions;`
+
+### Documentation
+
+- `SPEC.md` §A.11.5 (Documented baseline) updated. The "Strict
+  baseline" table now includes PSAP0005; the "PSAP0005 migration
+  baseline" table renamed to "Historical migration baseline" with
+  per-`psa.py`-version comparison columns (4.0.0 / 4.0.2 relaxed /
+  4.0.2 strict).
+- `SPEC.md` §A.13 (Migration roadmap) rewritten as a "completed"
+  retrospective. The pre-r80 four-cycle plan is summarised; the
+  consolidated implementation is documented.
+- `SPEC.md` §D.34 (new) — full post-mortem of the strict-mode-flip
+  release: why the four-cycle plan was abandoned, what `psa.py`
+  4.0.2's uplift contributed, the per-category rewrite table, and
+  lessons learned for similar future migrations.
+- `SPEC.md` §A.11 footnote updated to reflect the new strict-mode
+  validation history.
+
+### Verification
+
+```text
+$ python3 psa.py --config .psa.config.json \
+    Deploy-AMDChipsetDriverOnWindowsServer.ps1 \
+    Deploy-AMDGraphicsDriverOnWindowsServer.ps1 \
+    Deploy-AMDNpuDriverOnWindowsServer.ps1 \
+    Deploy-MSBthPanInboxOnWindowsServer.ps1
+
+File   : Deploy-AMDChipsetDriverOnWindowsServer.ps1
+Lines  : 14278
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+Lines  : 14045
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-AMDNpuDriverOnWindowsServer.ps1
+Lines  : 7017
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-MSBthPanInboxOnWindowsServer.ps1
+Lines  : 11280
+Issues : 0 errors, 0 warnings, 0 info
+```
+
+### File integrity preserved
+
+- All four `.ps1` files retain UTF-8 BOM (PSA7001) and CRLF line
+  endings (PSA7002).
+- PSA8001 byte-identity verified on all shared helpers (no shared
+  helper was rewritten in only some sister scripts).
+- 5 existing `# psa-disable-line PSAP0005 -- AMD ... identifier`
+  suppression directives in Graphics (for `R9700`, `R1*`, `V1*`
+  hardware platform identifiers) are preserved unchanged.
+
+### Runtime behaviour
+
+**No runtime behaviour changes.** This is a pure documentation /
+comment-prose / configuration release. The only executable change
+is the `$Script:ScriptVersion` / `$Script:ScriptTag` constants
+themselves, which are displayed in banners and recorded in
+`DebugTrace JSONL` output but do not affect any code path.
+
+---
+
+## [2026-05-26] `npu-state-model-refactor-step-1-wdac-helpers` — Chipset r83 / Graphics r49 / BthPan r31 / NPU r27
+
+This release begins the **NPU state-model refactor** — the multi-stage
+workstream that brings the NPU script into the same `$Ctx`-based
+state-passing model used by Chipset / Graphics / BthPan, and that will
+ultimately let the five Tier B-4 helpers (`Get-OrEnsureSecureBootBaseline`,
+`Get-BootSigningEnvironment`, `Show-BootSigningEnvironment`, `Invoke-Cleanup`,
+`Resume-CtxFromWorkspace`) join Tier A. This stage 1 release is a
+**setup release**: it adds the prerequisite WDAC tooling helpers to NPU
+(so that the canonical `Get-BootSigningEnvironment` body — copied from
+Chipset in stage 3 — will have its dependencies in place) and constructs
+the canonical `$Ctx` skeleton inside NPU's `Invoke-MainEntryPoint`
+(currently unused; placeholder for stage 2 consumers). The remaining
+NPU phase functions and the five Tier B-4 helpers themselves are
+**unchanged** in this release.
+
+> **What changed**: (1) Five helpers ported from Chipset into NPU
+> verbatim: `Test-WdacToolsAvailable`, `Get-ActiveCodeIntegrityPolicies`
+> (universal, no AMD prefix), and `Get-AmdSuppPolicyMarkerPath`,
+> `Test-AmdWdacPolicyDeployed`, `Uninstall-AmdWdacPolicy` (AMD-prefix).
+> (2) Two of those — the universal pair — are now byte-identical
+> across all four scripts and graduated from `psa8001_ignore_functions`
+> to Tier A; the three AMD-prefix helpers are byte-identical across the
+> three AMD-family scripts (Chipset / Graphics / NPU) and stay in
+> `psa8001_ignore_functions` because BthPan has the MS-prefix
+> counterparts by design (Tier B-3 per-family identifier pattern).
+> (3) An NPU `$Ctx` PSCustomObject is now constructed at the head of
+> `Invoke-MainEntryPoint` with the canonical 29 Chipset properties
+> plus the NPU-specific extensions (`NpuDriverPackage`, `AmdAccountUser`,
+> `WdacBinPath`, etc.); the constructed `$Ctx` is intentionally
+> unconsumed in this release. (4) **No runtime behaviour changes** —
+> the existing `$Script:` globals continue to drive every phase
+> function and every Tier B-4 helper; the duplicate state carriage
+> (`$Script:` AND `$Ctx`) is intentional and transitional. SPEC §A.11.7
+> *Tier B-4* gains a per-stage progress table that tracks this release
+> as "Stage 1 ✅ Complete" and identifies stages 2 and 3 as planned.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.26-r82` → `chipset-2026.05.26-r83`
+  - Graphics: `graphics-2026.05.26-r48` → `graphics-2026.05.26-r49`
+  - NPU: `npu-2026.05.26-r26` → `npu-2026.05.26-r27`
+  - BthPan: `msbthpan-2026.05.26-r30` → `msbthpan-2026.05.26-r31`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `psa-py-v410-shared-helper-canon-uplift` → `npu-state-model-refactor-step-1-wdac-helpers`
+
+### NPU script — WDAC tooling helpers ported from Chipset (5 functions, ≈ 165 lines added)
+
+Five helpers required by the canonical `Get-BootSigningEnvironment` /
+`Invoke-Cleanup` bodies (planned to land in stage 3) have been ported
+from `Deploy-AMDChipsetDriverOnWindowsServer.ps1` into
+`Deploy-AMDNpuDriverOnWindowsServer.ps1` verbatim, immediately before
+the existing `Get-BootSigningEnvironment` definition:
+
+- **`Test-WdacToolsAvailable` (45 lines)** — probes the host for WDAC
+  tooling: `ConfigCI` PowerShell module, `CiTool.exe`, the AllowAll.xml
+  template, and the active-policies directory. Returns a structured
+  capabilities object so callers can present a precise diagnostic if
+  something is missing. Universal helper (no AMD / MS-BthPan prefix);
+  Chipset / Graphics / BthPan already shipped a byte-identical copy.
+  After the NPU port this is **4-way byte-identical → Tier A**.
+
+- **`Get-ActiveCodeIntegrityPolicies` (53 lines)** — enumerates active
+  WDAC supplemental policies via `CiTool.exe -lp` with a registry-based
+  fallback for hosts where the CITool isn't installed (WS2019 etc.).
+  Universal helper; **4-way byte-identical → Tier A**.
+
+- **`Get-AmdSuppPolicyMarkerPath` (10 lines)** — returns the per-driver-
+  family marker-file path under `$Ctx.WorkRoot` that records the
+  PolicyId of the AMD-family WDAC supplemental policy deployed by this
+  script. AMD-family-prefixed by design (BthPan ships the parallel
+  `Get-MsBthPanSuppPolicyMarkerPath`). After the NPU port this is
+  **3-way byte-identical (Chipset / Graphics / NPU); Tier B-3**.
+
+- **`Test-AmdWdacPolicyDeployed` (31 lines)** — checks whether the AMD-
+  family WDAC supplemental policy this script would deploy is already
+  active. AMD-family-prefixed. **3-way byte-identical; Tier B-3**.
+
+- **`Uninstall-AmdWdacPolicy` (24 lines)** — removes a previously-deployed
+  supplemental policy via `CiTool.exe --remove-policy` + a file-system
+  cleanup fallback. AMD-family-prefixed. **3-way byte-identical;
+  Tier B-3**.
+
+All five are inserted verbatim from Chipset — no NPU-specific
+adaptation. They are currently unused in NPU (their callers are
+the existing Tier B-4 helpers, which still use the NPU-simplified
+bodies in this release). Stage 3 of the refactor replaces the NPU
+Tier B-4 helper bodies with the Chipset canon, which is when these
+five become live.
+
+### NPU script — `$Ctx` skeleton construction (≈ 75 lines added)
+
+A `$Ctx` PSCustomObject is now constructed at the head of NPU's
+`Invoke-MainEntryPoint` function, immediately after `param()` and
+before the banner. The property set is the union of:
+
+- **Chipset's canonical 29 properties** (Action, OnlyPhases, InstallerUrl,
+  AmdLandingUrls, AmdFallbackUrl, WorkRoot, PfxPassword, TimestampUrl,
+  Force, CleanWorkRoot, UseTestSigning, AllowWorkstationInstall, Os,
+  Paths, SevenZip, Signtool, Inf2cat, Installer, InfInventory,
+  InfInventoryDetail, PatchResults, PatchedDirs, CertPfxPath,
+  CertCerPath, CertThumbprint, SelectedPhaseIds, SecureBootBaseline,
+  WhqlCoSignAnalysis). Properties that NPU does not populate are
+  initialised to `$null` as placeholders for stage-3 consumers (e.g.
+  `AmdLandingUrls = $null` because NPU does not crawl AMD landing pages).
+
+- **NPU-specific extensions** (≈ 20 properties): `AmdAccountUser`,
+  `AmdAccountPassword`, `ForceAmdAccountAuth`, `AssumeIfMissing`,
+  `NpuOverride`, `RyzenAiSoftwareVersion`, `OfflineZip`, `RepoUrl`,
+  `NpuDriverPackage`, `DetectedPlatform`, `CertDir`, `DownloadDir`,
+  `ExtractedDir`, `PatchedDir`, `CerPath`, `PfxPath`, `CertSubjectCn`,
+  `CertValidityYears`, `WdacBinPath`, `WdacXmlPath`, `WdacPolicyName`,
+  `InventoryCsvPath`, `InventoryReportPath`. These are read from the
+  existing `$Script:` globals at construction time so that the snapshot
+  is consistent with the rest of the (still `$Script:`-driven) script.
+
+The constructed `$Ctx` is **intentionally unconsumed in this release**
+(piped through `$Ctx | Out-Null` to silence the "declared but never
+used" lint posture). Stage 2 migrates phase functions to read from
+`$Ctx` instead of `$Script:`; stage 3 migrates the Tier B-4 helpers.
+Until stage 3 lands, `$Ctx` and `$Script:` carry the same state in
+parallel — this duplication is the price of keeping every intermediate
+release at the `psa.py 0/0/0` baseline.
+
+### `.psa.config.json` — Tier A roster: 36 → 38
+
+- Comment block at the top of `psa8001_ignore_functions` updated from
+  "the following 36 functions are byte-for-byte identical" to "the
+  following 38 functions ...", with the two new entries
+  (`Test-WdacToolsAvailable`, `Get-ActiveCodeIntegrityPolicies`) listed
+  in a new "WDAC tooling preflight helpers (2)" family heading.
+- The "WDAC / boot-signing diagnostic helpers" ignore-list section is
+  rewritten to reflect (a) `Test-WdacToolsAvailable` and
+  `Get-ActiveCodeIntegrityPolicies` have left the ignore list (Tier A);
+  (b) `Get-AmdSuppPolicyMarkerPath`, `Test-AmdWdacPolicyDeployed`, and
+  the newly added `Uninstall-AmdWdacPolicy` are now three-way byte-
+  identical (Chipset / Graphics / NPU) but stay in the ignore list
+  because Tier A requires four-way identity (Tier B-3 per-family
+  identifier pattern).
+- New `Uninstall-AmdWdacPolicy` ignore entry added (was absent because
+  the helper did not previously exist in any sister script's NPU peer).
+- No other configuration changes; all rule opt-ins and severity floors
+  unchanged.
+
+### Documentation
+
+- **`SPEC.md` §A.11.7 (`Shared helper canon and porting checklist`)**:
+  Tier A roster updated to 38 functions with a new "WDAC tooling
+  preflight helpers (2)" family heading. Tier B-3 table extended with
+  three new rows for the AMD-prefix WDAC helpers; the rationale for
+  keeping them in the ignore list (PSA8001 groups by name only; Tier A
+  requires 4-way identity which the per-family helper-pair design
+  cannot satisfy) is spelled out explicitly. Tier B-4 section gains a
+  per-stage progress table marking stage 1 ✅ Complete and identifying
+  stages 2 and 3 as planned, with function-level scope per stage.
+- **`README.md` / `README.ja.md`**: `What's new` carries an r83 entry
+  summarising the NPU state-model refactor's stage-1 setup, the
+  two-helper Tier A graduation, and the stage-2 / stage-3 roadmap.
+
+### Out of scope for this release (stage 2 and stage 3 targets)
+
+- **Stage 2 — phase function migration** (planned): migrate the 21 NPU
+  phase functions and the 8 non-phase state-touching helpers to take
+  `[Parameter(Mandatory)] $Ctx` instead of `param()`, and to read
+  `$Ctx.Foo` instead of `$Script:Foo`. The bulk of the refactor
+  (≈ 2 000 lines).
+- **Stage 3 — Tier B-4 helper canonisation** (planned): replace the
+  bodies of the five Tier B-4 helpers with the Chipset canon verbatim
+  (the supporting WDAC helpers ported in stage 1 are the prerequisite
+  for this replacement). Resolve the `Invoke-Cleanup` canon direction:
+  the C2 decision (Chipset's marker-file pattern is canon) is recorded
+  in SPEC §A.11.7. Remove the five helpers from `psa8001_ignore_functions`
+  and let PSA8001 enforce 41-way Tier A.
+- **No runtime behaviour change in this release.** Phase semantics,
+  install-decision logic, output format, parameter sets, and the
+  workspace conventions are all identical to r82. Preflight time
+  on NPU is unchanged because the new WDAC helpers are present but
+  not yet called.
+
+### Verification (run before commit)
+
+```bash
+python3 path/to/psa.py --config-check .psa.config.json                      # 0 issues
+python3 path/to/psa.py --config .psa.config.json Deploy-*.ps1               # 0 errors / 0 warnings / 0 info on all 4
+python3 path/to/psa.py --config .psa.config.json --include PSA8001 \
+    Deploy-*.ps1                                                            # 0 errors (38 Tier A functions enforced)
+```
+
+### Version policy
+
+This release is **stage 1 of the NPU state-model refactor**. The
+`$Script:ScriptVersion` bump is justified because the new `$Script:ScriptTag`
+(`npu-state-model-refactor-step-1-wdac-helpers`) becomes the value
+emitted in phase banners and DebugTrace JSONL output. Per the
+repository convention (see SPEC §A.13 *Development Workflow*), the
+per-script revision counter advances accordingly so log archives map
+unambiguously. The bump is **four-way uniform** — all four sister
+scripts move forward together even though only NPU received structural
+changes — because the per-script-but-uniform tag is a single durable
+identifier; splitting the tag would create cross-script log-archive
+ambiguity for no operational benefit.
+
+
+
+This release advances the **shared helper canon** workflow introduced
+in r81 (`psa-py-v410-three-new-error-rules-baseline`). Three Tier B
+functions — `Get-SecureBootBaselineSnapshot`, `Show-SecureBootBaselineSnapshot`,
+and (partially) `Get-OrEnsureSecureBootBaseline` — are reconciled to
+the Chipset canon, raising the PSA8001-enforced Tier A roster from
+34 to **36 functions**. The release also back-ports the BthPan
+`Invoke-InfVerifValidation`-era `$reasons.ToArray()` defensive form
+to all four scripts uniformly, eliminating a latent PS 5.1 ja-JP
+`[pscustomobject]` cast bug that had been guarded only in BthPan.
+
+> **What changed**: (1) Tier B-1 (pure cosmetic) consolidations:
+> `Show-SecureBootBaselineSnapshot` on NPU replaced `Write-Host` +
+> 4-space-indent literals with the shared `Write-Detail` helper that
+> the other three scripts already use; `Get-OrEnsureSecureBootBaseline`
+> on Graphics dropped a vestigial `# Port from chipset:` comment
+> prefix. (2) Tier B-2 (PS 5.1 ja-JP latent bug guard) uniformity:
+> `Get-SecureBootBaselineSnapshot` on Chipset / Graphics / NPU
+> changed `Reasons = @($reasons)` to `Reasons = $reasons.ToArray()`,
+> matching BthPan's defensive form; a unified comment block now
+> references the new SPEC §D.35 post-mortem. (3) SPEC §A.11.7 is
+> reorganised to expose four Tier B sub-categories (B-1 / B-2 / B-3
+> / B-4) and a dedicated **NPU state-model refactor backlog**
+> (Tier B-4) tracks the 5 remaining NPU divergences that require
+> the major `$Script:` → `$Ctx` restructuring.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.26-r81` → `chipset-2026.05.26-r82`
+  - Graphics: `graphics-2026.05.26-r47` → `graphics-2026.05.26-r48`
+  - NPU: `npu-2026.05.26-r25` → `npu-2026.05.26-r26`
+  - BthPan: `msbthpan-2026.05.26-r29` → `msbthpan-2026.05.26-r30`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `psa-py-v410-three-new-error-rules-baseline` → `psa-py-v410-shared-helper-canon-uplift`
+
+### Tier B-1 — pure cosmetic consolidation (2 functions, NOW Tier A)
+
+- **`Show-SecureBootBaselineSnapshot` (NPU)**: replaced 14 `Write-Host` + 4-space-indent literal lines with `Write-Detail` calls, matching the canonical form used by Chipset / Graphics / BthPan. No behaviour change — `Write-Detail` is the established shared helper that emits the same 4-space-indented continuation rows with optional `-Color` and is byte-identical across the 4 scripts (Tier A). After this change, `Show-SecureBootBaselineSnapshot` is byte-identical across all four scripts and is promoted from Tier B to **Tier A** (PSA8001-enforced).
+- **`Get-OrEnsureSecureBootBaseline` (Graphics)**: dropped the vestigial `# Port from chipset:` comment prefix that had been left in place during an earlier back-port. The function is now byte-identical to the Chipset canon for Chipset / Graphics / BthPan. The NPU variant still differs structurally (uses `$Script:DetectedPlatform` globals instead of a `$Ctx` parameter) and is tracked as Tier B-4 (NPU state-model refactor); see SPEC §A.11.7 *Tier B-4*.
+
+### Tier B-2 — PS 5.1 ja-JP latent bug guard, uniformly applied (1 function, NOW Tier A)
+
+- **`Get-SecureBootBaselineSnapshot` (Chipset / Graphics / NPU)**: replaced `Reasons = @($reasons)` with `Reasons = $reasons.ToArray()`, matching the defensive form that BthPan had carried since the `Invoke-InfVerifValidation` PS 5.1 ja-JP investigation. A unified 8-line comment block now references the new SPEC §D.35 post-mortem. After this change, `Get-SecureBootBaselineSnapshot` is byte-identical across all four scripts and is promoted from Tier B to **Tier A** (PSA8001-enforced).
+- **No runtime behaviour change on en-US hosts or PS 7.x.** The change is a no-op everywhere except on a PowerShell 5.1 ja-JP host that would otherwise have hit the latent ArgumentException (which had not been observed in `Get-SecureBootBaselineSnapshot` specifically, but had been observed in the structurally-identical `Invoke-InfVerifValidation` BthPan-only helper). The fix is defensive and uniform; see SPEC §D.35 for the full post-mortem and the general coding rule "when emitting a `[pscustomobject]@{ ... = $list ... }`, use `$list.ToArray()`, not `@($list)`".
+
+### Tier A roster: 34 → 36 functions
+
+The PSA8001-enforced byte-identity canon now covers **36 shared helpers** (logging primitives ×12, DebugTrace framework ×12, environment / preflight ×5, Secure Boot baseline diagnostic helpers ×7). The full inventory is documented in [SPEC §A.11.7](./SPEC.md#a117-shared-helper-canon-and-porting-checklist-chipset--canon) *Tier A*.
+
+### Tier B reorganisation (SPEC §A.11.7)
+
+The Tier B section is reorganised into four sub-categories that classify by the *kind* of divergence rather than the function family:
+
+- **Tier B-1** (pure cosmetic): empty after r82.
+- **Tier B-2** (PS 5.1 ja-JP latent-bug guard): empty after r82.
+- **Tier B-3** (per-family identifier substitution, effectively Tier C): `Resume-CtxFromWorkspace` and `Invoke-Cleanup` are re-classified here. They remain in `psa8001_ignore_functions` because their divergence (cert filename / WDAC helper name) is mandated by the per-family isolation principle — they are NOT backlog.
+- **Tier B-4** (NPU state-model architectural divergence): the 5 remaining NPU divergences (`Get-OrEnsureSecureBootBaseline`, `Get-BootSigningEnvironment`, `Show-BootSigningEnvironment`, `Invoke-Cleanup`, `Resume-CtxFromWorkspace` — note the latter two appear in both B-3 and B-4 because the NPU variant has BOTH per-family AND state-model divergence) are tracked as a single dedicated **future workstream**: the **NPU state-model refactor** (`$Script:` globals → `$Ctx` PSCustomObject). This is a multi-thousand-line restructuring expected to consume one major refactor PR plus follow-ups. SPEC §A.11.7 *Tier B-4* documents the scope, the 5 affected functions, and the open canon-direction question for `Invoke-Cleanup` (NPU's cert-subject-CN-based removal vs the AMD-family marker-file-based removal — which is canon).
+
+### Documentation
+
+- **`SPEC.md` §A.11.7 (`Shared helper canon and porting checklist`)**: Tier A roster updated to 36 functions with the new entries called out; Tier B section rewritten with B-1 / B-2 / B-3 / B-4 sub-categories; Tier B-4 NPU state-model refactor backlog documented in detail (function inventory, refactor scope, open canon-direction question).
+- **`SPEC.md` §D.35 (new — `PS 5.1 ja-JP [pscustomobject]@{ ... = @(List<T>) } ArgumentException`)**: full post-mortem of the original `Invoke-InfVerifValidation` defect localisation, the latent risk in `Get-SecureBootBaselineSnapshot`, the r82 uniform fix, the general coding rule, and the rationale for uniform application across all four sister scripts.
+- **`.psa.config.json`**: the `psa8001_ignore_functions` Secure Boot baseline helpers block is updated — `Get-SecureBootBaselineSnapshot` and `Show-SecureBootBaselineSnapshot` are removed (now Tier A); `Get-OrEnsureSecureBootBaseline` remains (Tier B-4 backlog) with a documented NPU-state-model-refactor cross-reference. The Tier A roster comment block at the top of the file is updated from "34 functions" to "36 functions" with the two new entries listed in the Secure Boot baseline diagnostic helpers family.
+- **`README.md` / `README.ja.md`**: `What's new` carries an r82 entry summarising the Tier B-1 / B-2 consolidations and the new SPEC §D.35; r81 is demoted to `Previous release notes`.
+- **`CONTRIBUTING.md`**: implicit pass — the PR checklist already references SPEC §A.11.7 *via* the previous release's update, so the canon workflow points at the updated SPEC by transitivity.
+
+### Out of scope for this release
+
+- **NPU state-model refactor (Tier B-4)**: explicitly tracked as a *future* workstream. The 5 affected functions (`Get-OrEnsureSecureBootBaseline`, `Get-BootSigningEnvironment`, `Show-BootSigningEnvironment`, `Invoke-Cleanup`, `Resume-CtxFromWorkspace`) remain in `psa8001_ignore_functions` with their current divergences. The work is too large to bundle with the cosmetic / latent-bug-guard uplift in this release; it will be sequenced separately.
+- **Tier C reclassification of phase functions**: `Show-PhaseList` was previously noted as "should ultimately be moved to Tier D" in SPEC §A.11.7. The move is deferred to a future docs-only revision; nothing materially changes in this release.
+- **No PowerShell behaviour change.** Phase semantics, install-decision logic, output format on en-US hosts, parameter sets, and the workspace conventions are all identical to r81.
+
+### Verification (run before commit)
+
+```bash
+python3 path/to/psa.py --config-check .psa.config.json                      # 0 issues
+python3 path/to/psa.py --config .psa.config.json Deploy-*.ps1               # 0 errors / 0 warnings / 0 info on all 4
+python3 path/to/psa.py --config .psa.config.json --include PSA8001 \
+    Deploy-*.ps1                                                            # 0 errors (36 Tier A functions enforced)
+```
+
+### Version policy
+
+This release is **a shared-helper-canon uplift** — three Tier B functions are promoted to Tier A and the PS 5.1 ja-JP `[pscustomobject]` latent bug is uniformly guarded. The `$Script:ScriptVersion` bump is justified because the new `$Script:ScriptTag` (`psa-py-v410-shared-helper-canon-uplift`) becomes the value emitted in phase banners and DebugTrace JSONL output. Per the repository convention (see SPEC §A.13 *Development Workflow*), the per-script revision counter advances accordingly so log archives map unambiguously.
+
+
+
+This release adopts `psa.py` 4.1.0 — the upstream minor release that
+adds three new error-severity, default-on static-analysis rules
+(`PSA1004`, `PSA2012`, `PSA2013`) on top of the v4.0.2 baseline that
+the previous release (`psa-py-v4-llm-governance-strict`, r80 / r46 /
+r28 / r24) consumed. All four sister scripts pass with a **0 / 0 / 0
+/ 0 baseline** on the full latest-mainline rule set, including the
+three new rules and the strict-mode `PSAP0005` inherited from r80.
+There are **no runtime behaviour changes**; this is a static-analysis
+coverage uplift plus shared-helper-canon documentation.
+
+> **What changed**: (1) The upstream analyzer added three error-class
+> rules that detect concrete latent-bug patterns observed in a sister
+> PowerShell pipeline (`update-windows-server-iso`). (2) The four
+> repository scripts already comply with all three new rules — the
+> uplift is verified at 0 findings on each, and the rule set is now
+> the steady-state ceiling against which future edits are gated. (3)
+> A new SPEC.md §A.11.7 ("Shared helper canon and porting checklist")
+> codifies the canonical "copy from Chipset" workflow that was
+> previously distributed across `.psa.config.json` comments and PR
+> review knowledge.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.24-r80` → `chipset-2026.05.26-r81`
+  - Graphics: `graphics-2026.05.24-r46` → `graphics-2026.05.26-r47`
+  - NPU: `npu-2026.05.24-r24` → `npu-2026.05.26-r25`
+  - BthPan: `msbthpan-2026.05.24-r28` → `msbthpan-2026.05.26-r29`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `psa-py-v4-llm-governance-strict` → `psa-py-v410-three-new-error-rules-baseline`
+- `psa.py` upgraded upstream from 4.0.2 → 4.1.0 (`PSA1004` / `PSA2012`
+  / `PSA2013` added as default-on error-severity rules). No
+  `.psa.config.json` change is required; the new rules are caught by
+  the existing severity floor.
+
+### Upstream: `psa.py` 4.1.0 (three new error rules)
+
+Three new error-severity, default-on rules were productionised in
+`psa.py` 4.1.0 (see the upstream
+[CHANGELOG.md entry for 4.1.0](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/CHANGELOG.md)
+for the full detection algorithms, false-positive defenses, and
+real-world defect citations):
+
+- **`PSA1004`** — bare `(if/switch/foreach/while/...)` used as
+  expression. PowerShell parses `(if ($x) { 'a' } else { 'b' })` as a
+  *command call* named `if`, which fails at runtime with `'if' is not
+  recognized as a name of a cmdlet, function, script file, or
+  operable program`. The parser accepts the syntax, so neither
+  `[Parser]::ParseFile` nor PSScriptAnalyzer flagged it. The correct
+  form is `$(if ...)` (subexpression) or `@(if ...)` (array
+  subexpression).
+- **`PSA2012`** — positional call provides fewer args than the target
+  function has `[Parameter(Mandatory)]` parameters. PowerShell
+  prompts the user interactively for each missing value; in CI
+  pipelines or unattended sessions the script hangs forever on
+  stdin. The trap is that the call site looks fine syntactically.
+- **`PSA2013`** — `$Script:Foo` is read but never assigned anywhere
+  in the file. PowerShell silently evaluates an unassigned
+  `$Script:Foo` to `$null`, hiding typo bugs in script-scope
+  variable names. PSA2001 (generic undefined-variable) only checks
+  within function scopes and does not see the cross-function flow of
+  `$Script:` globals.
+
+### Repository-side baseline verification
+
+All four pipeline scripts in this repository pass `psa.py 4.1.0
+--severity error` with **0 errors / 0 warnings / 0 info** under the
+canonical `.psa.config.json` at the r81 / r47 / r29 / r25 baseline.
+Specifically:
+
+- `--include PSA1004 Deploy-*.ps1` reports 0 findings on all four
+  scripts. No bare `(if/...)` expressions are present.
+- `--include PSA2012 Deploy-*.ps1` reports 0 findings on all four
+  scripts. Mandatory-parameter call sites use named arguments
+  consistently, and pass-through positional calls do not under-supply.
+- `--include PSA2013 Deploy-*.ps1` reports 0 findings on all four
+  scripts. Every `$Script:` variable read site has a corresponding
+  assignment site in the same file.
+
+### Shared helper canon documentation — new SPEC.md §A.11.7
+
+Previous releases (`r80` and earlier) enforced the "shared helpers
+must stay byte-identical across the four sister scripts" invariant
+via PSA8001 (cross-file function-body drift), with the per-script
+intentional-divergence list living in `.psa.config.json`'s
+`psa8001_ignore_functions` comments. That information was hard to
+discover from the SPEC alone — a maintainer adding a new helper had
+to read the config file's commentary to learn which tier the helper
+should land in.
+
+The new **SPEC.md §A.11.7 "Shared helper canon and porting
+checklist"** consolidates that knowledge into a single SPEC
+subsection, organised around four tiers:
+
+- **Tier A** (34 helpers, PSA8001-enforced): byte-identical across
+  all four scripts; PSA8001 fires on any drift. Logging primitives
+  (`Format-Elapsed`, `Write-Step`, `_LogLine`, …), DebugTrace
+  framework (`Start-DebugTrace`, `Stop-DebugTrace`, …),
+  environment / preflight (`Set-Tls12`, `Set-ConsoleUtf8`,
+  `Assert-Admin`, …), Secure Boot baseline diagnostic helpers
+  (`Format-SecureBootBaselineForReport`, …, `Export-DebugTraceJson`).
+- **Tier B** (9 helpers, currently PSA8001-ignored but conceptually
+  shared): present in all four scripts but with at least one
+  simplified or family-flavoured variant; documented as the **active
+  backlog for shared-helper unification work**. The three NPU
+  simplifications (`Get-BootSigningEnvironment`,
+  `Show-BootSigningEnvironment`, and cosmetic Secure Boot wording
+  deltas) are explicitly flagged as backlog rather than permanent
+  exemptions.
+- **Tier C**: helpers in 2-3 of the 4 scripts. Most are
+  driver-family-specific (AMD-only installer helpers, MSBthPan-only
+  inbox-driver helpers, Chipset-only r65 phantom-file filter) and
+  legitimately stay divergent.
+- **Tier D**: phase functions (`Invoke-(Prep|Verify|Inst)Phase\d{2}_*`)
+  and per-script identity helpers (`Show-Help`, `Show-ReferenceLinks`)
+  that are intentionally per-script.
+
+The subsection also documents the **canonical "copy from Chipset"
+direction** (Chipset is the canon source — every shared helper is
+written there first and propagated to the other three scripts) and a
+**4-step porting checklist** for back-porting / cross-porting work.
+
+The retirement of NPU's permanent "simplified script" exemption is
+the most consequential policy clarification in this release: the
+three NPU Tier B simplifications are now backlog rather than design
+decisions. The retirement does NOT block landing (existing
+`psa8001_ignore_functions` entries continue to gate CI), but it
+opens the door to future quality-cycle work that lifts NPU to the
+Chipset canon.
+
+### Documentation
+
+- **`README.md`**: new `What's new` entry for r81 / r47 / r29 / r25;
+  r80 demoted to `Previous release notes`. The detailed psa.py rule
+  inventory (previously L1266 onward) was re-written to enumerate
+  rule families (`PSA1xxx` through `PSAP0xxx`) and recent additions
+  (`PSA1004` / `PSA2012` / `PSA2013` in 4.1.0; `PSAP0005` in 4.0.0;
+  `PSA2009` in 3.8.0; `PSA2010` / `PSA2011` in 3.9.0) rather than
+  carrying a hard-coded "46-rule" count. The category table's code
+  ranges are updated (`PSA1001`..`PSA1004`, `PSA2001`..`PSA2013`,
+  …) so a reader can still see the full surface at a glance.
+- **`README.ja.md`**: synchronised translation of the above.
+- **`SPEC.md`**: parallel changes to §A.11 (the `46-rule` text on
+  L101 / §876 / §878 is replaced by family/range references with
+  inline citations to recent additions); new §A.11.5f documents the
+  three new error rules with upstream-spec links; new §A.11.7
+  documents the shared helper canon and porting checklist (the
+  larger of the two new subsections). The `--self-check` example
+  output in §A.11.6 is updated to show `49 in RULES, 49 in
+  SPEC.md §4` (the current value for the latest-mainline `psa.py`
+  4.1.0, kept as a concrete reader hint per the same exception the
+  upstream uses for its SARIF illustrative example).
+- **`TESTING.md`**: L65 `46-rule check set` parameterised to "full
+  rule set" with a pointer to `psa.py --list-rules` as the canonical
+  count source.
+- **`CONTRIBUTING.md`**: implicit pass — the existing prose already
+  references the rule families rather than a hard-coded count, so
+  no edit was required beyond the cross-references that other docs
+  carry. (If a future PR adds a contributor-facing rule-count
+  number, follow the same hybrid policy: parameterise in prose,
+  keep numerals only in deliberately illustrative samples.)
+
+### Out of scope for this release
+
+- `psa8001_ignore_functions` was NOT modified. The list documented in
+  §A.11.7 as Tier B / C remains in the same shape as r80. Future
+  quality-cycle work may walk Tier B entry-by-entry and either
+  reconcile to the Chipset canon (removing the entry from the
+  ignore list) or document the genuine driver-family asymmetry; that
+  work is deliberately out of scope here to keep the r81 diff small
+  enough to review safely.
+- No PowerShell behaviour change. Phase semantics, install-decision
+  logic, output format, parameter sets, and the workspace
+  conventions are all identical to r80.
+
+### Version policy
+
+This release is **a static-analysis-tracking bump** — the runtime
+behaviour of the four pipeline scripts is unchanged. Per the
+repository convention (see SPEC §A.13 *Development Workflow*), the
+`$Script:ScriptVersion` bump is justified because the new
+`$Script:ScriptTag` (`psa-py-v410-three-new-error-rules-baseline`)
+becomes the value emitted in phase banners and DebugTrace JSONL
+output, and downstream operators distinguishing log archives by
+script tag need a corresponding revision counter advance to map
+unambiguously.
+
+
+
+This release **completes the LLM-governance migration** that began
+at r76 / r42 / r24 / r20. The four sister scripts now pass
+`psa.py` 4.0.2 **strict mode** with a 0 / 0 / 0 / 0 baseline across
+all rules. The `psap0005_relaxed_mode` flag has been removed from
+`.psa.config.json` (taking its default `false` value).
+
+> **What changed**: The 99 strict-mode-eligible `rNN` references in
+> the four script bodies (mostly historical anchors that
+> documented when a particular block was added) have been
+> rewritten to **timeless wording** with cross-references to
+> `SPEC.md` Part D for design rationale. The release vehicle is a
+> single consolidated release rather than the four-cycle plan
+> originally documented in pre-r80 SPEC §A.13; see SPEC §D.34 for
+> the post-mortem.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.25-r76` → `chipset-2026.05.24-r80`
+  - Graphics: `graphics-2026.05.25-r42` → `graphics-2026.05.24-r46`
+  - NPU: `npu-2026.05.25-r20` → `npu-2026.05.24-r24`
+  - BthPan: `msbthpan-2026.05.25-r24` → `msbthpan-2026.05.24-r28`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `psa-py-v4-llm-governance-baseline` → `psa-py-v4-llm-governance-strict`
+- `.psa.config.json` updated:
+  - `psap0005_relaxed_mode` key removed (now defaults to `false`).
+  - Header documentation rewritten to describe strict-mode steady
+    state rather than relaxed-mode migration baseline.
+  - Trailing `,` after `"severity": "info"` removed (correct JSON).
+- `psa.py` upgraded upstream from 4.0.1 → 4.0.2 (PSAP0005 relaxed-
+  mode coverage uplift; not a config change but the baseline numbers
+  in §A.11.5 are based on this version).
+
+### Cycle B (SPEC cross-reference cleanup) — consolidated into this release
+
+The original plan was to ship this as `r77 / r43 / r21 / r25`. The
+empirical analysis (SPEC §D.34) led to consolidating the four cycles
+into this single r80 release. The rewrites that would have been
+Cycle B:
+
+- Chipset: 14 sites of `(r65, SPEC D.24)` / `(r66, SPEC D.24)` →
+  `(see SPEC §D.24)` — Phantom file reference helpers in P09.
+- Chipset: `Orphan catalog cleanup (r66 / SPEC D.24):` (slash separator)
+  → `Orphan catalog cleanup (see SPEC §D.24):`
+- Chipset / Graphics: `(r75 - SPEC D.33):` (dash separator) →
+  `(see SPEC §D.33):`
+- Chipset: `r68 (SPEC §D.26): LOADED honesty gate.` (reversed parens) →
+  `(see SPEC §D.26): LOADED honesty gate.`
+- Graphics: `r34 (SPEC §D.26): LOADED honesty gate.` (reversed parens, cross-port) →
+  `(see SPEC §D.26): LOADED honesty gate (cross-port from Chipset).`
+- 3 scripts byte-identical: `See SPEC SS D.31 for the full r71 design contract; SPEC SS D.31.11` →
+  `See SPEC §D.31 for the full design contract; SPEC §D.31.11`
+
+### Cycle A (SECTION header cleanup) — consolidated
+
+- 3 scripts byte-identical: `# SECTION r71: WHQL co-sign pre-detection + Path B prerequisite check` →
+  `# SECTION: WHQL co-sign pre-detection + Path B prerequisite check`
+- 3 scripts byte-identical: `# SECTION (r69, QI-6): CRITICAL severity acknowledgement helpers` →
+  `# SECTION (QI-6): CRITICAL severity acknowledgement helpers`
+- 3 scripts byte-identical: `# SECTION (r69, QI-9): System Restore status helpers` →
+  `# SECTION (QI-9): System Restore status helpers`
+- 3 scripts byte-identical (Pre-check semi-section): `# r71 Pre-check: Path B prerequisite check (Secure Boot firmware state)` →
+  `# Pre-check: Path B prerequisite check (Secure Boot firmware state)`
+
+### Cycle D (Earlier-revisions prose cleanup) — consolidated
+
+- Chipset: `# CSV is also absent (e.g. very old workspace prior to r65),` →
+  `# CSV is also absent (e.g. very old workspaces),`
+- Chipset: `# when no inventory is available, when the inventory predates r65` →
+  `# when no inventory is available, when the inventory predates the inf_inventory introduction`
+- Chipset: `# - If the CSV is also missing or predates r65 (no` →
+  `# - If the CSV is also missing or predates the inf_inventory introduction (no`
+- Chipset: `# workspace recovered from an r65 run, or a future code path` →
+  `# workspace recovered from an older inventory-less run, or a future code path`
+- Graphics: `# See SPEC SS D.31. Until r39, Graphics shipped the consumer code (I00 C6,` →
+  `# See SPEC §D.31. Earlier Graphics revisions shipped the consumer code (I00 C6,`
+
+### Cycle C (Added-in-release phrasing cleanup) — consolidated
+
+The most extensive category. Pattern: shift the rationale anchor
+from `(added with the rNN release)` to `(see SPEC §D.YY)`.
+
+- 3 scripts byte-identical: `# WHQL co-signature analysis (added with the r71 release).` →
+  `# WHQL co-signature analysis (see SPEC §D.31).`
+- Chipset: `(added with the r71 release) from the patch-eligible subset` →
+  `(see SPEC §D.31) from the patch-eligible subset`
+- Graphics (cross-port narrative): `(added with the r71 release; ported into Graphics by r39)` →
+  `(see SPEC §D.31; cross-script port to Graphics)`
+- 3 scripts byte-identical (I02 short-circuit): `(added with the r72 release) for all-WHQL trimmed install plans.` →
+  `(see SPEC §D.31.11) for all-WHQL trimmed install plans.`
+- BthPan: `(added in the r71 release). BthPan deploys the` →
+  `(see SPEC §D.31). BthPan deploys the`
+- Chipset / Graphics narrative: `The original r74 release threaded` →
+  `Earlier revisions threaded`
+- 3 scripts byte-identical: `# r71 adds two operator-protection mechanisms that the now-removed Path C` →
+  `# Two operator-protection mechanisms (see SPEC §D.31) that the now-removed Path C`
+- 3 scripts byte-identical: `# the /all addition in r74.` →
+  `# the /all flag (see SPEC §D.32).`
+- 3 scripts byte-identical: `documents the r72 follow-on I02 short-circuit that consumes the` →
+  `documents the I02 short-circuit (see SPEC §D.31.11) that consumes the`
+
+### NPU-specific rewrite (Q-X1 + r17 + date)
+
+NPU L5352, L5398. NPU's `Generic OS-version predicate retained after the r70 Path C deprecation.` →
+`Generic OS-version predicate retained after the Path C deprecation.`
+NPU's `# r17 (Q-X1, 2026-05-23): refuse NPU Install / All on legacy Windows Server` →
+`# (Q-X1; legacy WS2019): refuse NPU Install / All on legacy Windows Server`
+
+### Cross-port markers (Graphics-only and BthPan-only)
+
+- Graphics: 5 sites of `# r40 (graphics): ...` → `# (graphics-specific): ...`
+- BthPan: 3 sites of `# r22 (bthpan): ...` → `# (bthpan-specific): ...`
+
+### Follow-up sentences (rNN: this declaration)
+
+3 scripts: `). rNN: this declaration was ...` → `). This declaration was ...`
+- Chipset: r73
+- Graphics: r39
+- BthPan: r21
+
+### Phase-marker tri-state inline tag (Chipset only)
+
+- Chipset L9553: `Phase marker + summary (r66 tri-state:` →
+  `Phase marker + summary (tri-state form:`
+
+### Prose-internal rNN in multi-line PSCustomObject blocks (3 scripts)
+
+The `New-WhqlCoSignAnalysis` declaration block in each of Chipset /
+Graphics / BthPan had a `rNN: this declaration` follow-up plus the
+`I02 (r72 short-circuit ...)` inline reference. Both forms were
+rewritten:
+- `and I02 (r72 short-circuit for` → `and I02 (short-circuit (SPEC §D.31.11) for`
+- `(-SkipNonCosignedDrivers trim, I02 r72 short-circuit)` (Graphics L8635) →
+  `(-SkipNonCosignedDrivers trim, I02 short-circuit (SPEC §D.31.11))`
+- `missing in r71/r72 and caused P05 to throw` → `missing in earlier revisions and caused P05 to throw`
+- `P05 analysis block itself were both missing in r38;` → `... in earlier revisions;`
+
+### Documentation
+
+- `SPEC.md` §A.11.5 (Documented baseline) updated. The "Strict
+  baseline" table now includes PSAP0005; the "PSAP0005 migration
+  baseline" table renamed to "Historical migration baseline" with
+  per-`psa.py`-version comparison columns (4.0.0 / 4.0.2 relaxed /
+  4.0.2 strict).
+- `SPEC.md` §A.13 (Migration roadmap) rewritten as a "completed"
+  retrospective. The pre-r80 four-cycle plan is summarised; the
+  consolidated implementation is documented.
+- `SPEC.md` §D.34 (new) — full post-mortem of the strict-mode-flip
+  release: why the four-cycle plan was abandoned, what `psa.py`
+  4.0.2's uplift contributed, the per-category rewrite table, and
+  lessons learned for similar future migrations.
+- `SPEC.md` §A.11 footnote updated to reflect the new strict-mode
+  validation history.
+
+### Verification
+
+```text
+$ python3 psa.py --config .psa.config.json \
+    Deploy-AMDChipsetDriverOnWindowsServer.ps1 \
+    Deploy-AMDGraphicsDriverOnWindowsServer.ps1 \
+    Deploy-AMDNpuDriverOnWindowsServer.ps1 \
+    Deploy-MSBthPanInboxOnWindowsServer.ps1
+
+File   : Deploy-AMDChipsetDriverOnWindowsServer.ps1
+Lines  : 14278
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+Lines  : 14045
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-AMDNpuDriverOnWindowsServer.ps1
+Lines  : 7017
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-MSBthPanInboxOnWindowsServer.ps1
+Lines  : 11280
+Issues : 0 errors, 0 warnings, 0 info
+```
+
+### File integrity preserved
+
+- All four `.ps1` files retain UTF-8 BOM (PSA7001) and CRLF line
+  endings (PSA7002).
+- PSA8001 byte-identity verified on all shared helpers (no shared
+  helper was rewritten in only some sister scripts).
+- 5 existing `# psa-disable-line PSAP0005 -- AMD ... identifier`
+  suppression directives in Graphics (for `R9700`, `R1*`, `V1*`
+  hardware platform identifiers) are preserved unchanged.
+
+### Runtime behaviour
+
+**No runtime behaviour changes.** This is a pure documentation /
+comment-prose / configuration release. The only executable change
+is the `$Script:ScriptVersion` / `$Script:ScriptTag` constants
+themselves, which are displayed in banners and recorded in
+`DebugTrace JSONL` output but do not affect any code path.
+
+---
+
+## [2026-05-26] `psa-py-v410-shared-helper-canon-uplift` — Chipset r82 / Graphics r48 / BthPan r30 / NPU r26
+
+This release advances the **shared helper canon** workflow introduced
+in r81 (`psa-py-v410-three-new-error-rules-baseline`). Three Tier B
+functions — `Get-SecureBootBaselineSnapshot`, `Show-SecureBootBaselineSnapshot`,
+and (partially) `Get-OrEnsureSecureBootBaseline` — are reconciled to
+the Chipset canon, raising the PSA8001-enforced Tier A roster from
+34 to **36 functions**. The release also back-ports the BthPan
+`Invoke-InfVerifValidation`-era `$reasons.ToArray()` defensive form
+to all four scripts uniformly, eliminating a latent PS 5.1 ja-JP
+`[pscustomobject]` cast bug that had been guarded only in BthPan.
+
+> **What changed**: (1) Tier B-1 (pure cosmetic) consolidations:
+> `Show-SecureBootBaselineSnapshot` on NPU replaced `Write-Host` +
+> 4-space-indent literals with the shared `Write-Detail` helper that
+> the other three scripts already use; `Get-OrEnsureSecureBootBaseline`
+> on Graphics dropped a vestigial `# Port from chipset:` comment
+> prefix. (2) Tier B-2 (PS 5.1 ja-JP latent bug guard) uniformity:
+> `Get-SecureBootBaselineSnapshot` on Chipset / Graphics / NPU
+> changed `Reasons = @($reasons)` to `Reasons = $reasons.ToArray()`,
+> matching BthPan's defensive form; a unified comment block now
+> references the new SPEC §D.35 post-mortem. (3) SPEC §A.11.7 is
+> reorganised to expose four Tier B sub-categories (B-1 / B-2 / B-3
+> / B-4) and a dedicated **NPU state-model refactor backlog**
+> (Tier B-4) tracks the 5 remaining NPU divergences that require
+> the major `$Script:` → `$Ctx` restructuring.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.26-r81` → `chipset-2026.05.26-r82`
+  - Graphics: `graphics-2026.05.26-r47` → `graphics-2026.05.26-r48`
+  - NPU: `npu-2026.05.26-r25` → `npu-2026.05.26-r26`
+  - BthPan: `msbthpan-2026.05.26-r29` → `msbthpan-2026.05.26-r30`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `psa-py-v410-three-new-error-rules-baseline` → `psa-py-v410-shared-helper-canon-uplift`
+
+### Tier B-1 — pure cosmetic consolidation (2 functions, NOW Tier A)
+
+- **`Show-SecureBootBaselineSnapshot` (NPU)**: replaced 14 `Write-Host` + 4-space-indent literal lines with `Write-Detail` calls, matching the canonical form used by Chipset / Graphics / BthPan. No behaviour change — `Write-Detail` is the established shared helper that emits the same 4-space-indented continuation rows with optional `-Color` and is byte-identical across the 4 scripts (Tier A). After this change, `Show-SecureBootBaselineSnapshot` is byte-identical across all four scripts and is promoted from Tier B to **Tier A** (PSA8001-enforced).
+- **`Get-OrEnsureSecureBootBaseline` (Graphics)**: dropped the vestigial `# Port from chipset:` comment prefix that had been left in place during an earlier back-port. The function is now byte-identical to the Chipset canon for Chipset / Graphics / BthPan. The NPU variant still differs structurally (uses `$Script:DetectedPlatform` globals instead of a `$Ctx` parameter) and is tracked as Tier B-4 (NPU state-model refactor); see SPEC §A.11.7 *Tier B-4*.
+
+### Tier B-2 — PS 5.1 ja-JP latent bug guard, uniformly applied (1 function, NOW Tier A)
+
+- **`Get-SecureBootBaselineSnapshot` (Chipset / Graphics / NPU)**: replaced `Reasons = @($reasons)` with `Reasons = $reasons.ToArray()`, matching the defensive form that BthPan had carried since the `Invoke-InfVerifValidation` PS 5.1 ja-JP investigation. A unified 8-line comment block now references the new SPEC §D.35 post-mortem. After this change, `Get-SecureBootBaselineSnapshot` is byte-identical across all four scripts and is promoted from Tier B to **Tier A** (PSA8001-enforced).
+- **No runtime behaviour change on en-US hosts or PS 7.x.** The change is a no-op everywhere except on a PowerShell 5.1 ja-JP host that would otherwise have hit the latent ArgumentException (which had not been observed in `Get-SecureBootBaselineSnapshot` specifically, but had been observed in the structurally-identical `Invoke-InfVerifValidation` BthPan-only helper). The fix is defensive and uniform; see SPEC §D.35 for the full post-mortem and the general coding rule "when emitting a `[pscustomobject]@{ ... = $list ... }`, use `$list.ToArray()`, not `@($list)`".
+
+### Tier A roster: 34 → 36 functions
+
+The PSA8001-enforced byte-identity canon now covers **36 shared helpers** (logging primitives ×12, DebugTrace framework ×12, environment / preflight ×5, Secure Boot baseline diagnostic helpers ×7). The full inventory is documented in [SPEC §A.11.7](./SPEC.md#a117-shared-helper-canon-and-porting-checklist-chipset--canon) *Tier A*.
+
+### Tier B reorganisation (SPEC §A.11.7)
+
+The Tier B section is reorganised into four sub-categories that classify by the *kind* of divergence rather than the function family:
+
+- **Tier B-1** (pure cosmetic): empty after r82.
+- **Tier B-2** (PS 5.1 ja-JP latent-bug guard): empty after r82.
+- **Tier B-3** (per-family identifier substitution, effectively Tier C): `Resume-CtxFromWorkspace` and `Invoke-Cleanup` are re-classified here. They remain in `psa8001_ignore_functions` because their divergence (cert filename / WDAC helper name) is mandated by the per-family isolation principle — they are NOT backlog.
+- **Tier B-4** (NPU state-model architectural divergence): the 5 remaining NPU divergences (`Get-OrEnsureSecureBootBaseline`, `Get-BootSigningEnvironment`, `Show-BootSigningEnvironment`, `Invoke-Cleanup`, `Resume-CtxFromWorkspace` — note the latter two appear in both B-3 and B-4 because the NPU variant has BOTH per-family AND state-model divergence) are tracked as a single dedicated **future workstream**: the **NPU state-model refactor** (`$Script:` globals → `$Ctx` PSCustomObject). This is a multi-thousand-line restructuring expected to consume one major refactor PR plus follow-ups. SPEC §A.11.7 *Tier B-4* documents the scope, the 5 affected functions, and the open canon-direction question for `Invoke-Cleanup` (NPU's cert-subject-CN-based removal vs the AMD-family marker-file-based removal — which is canon).
+
+### Documentation
+
+- **`SPEC.md` §A.11.7 (`Shared helper canon and porting checklist`)**: Tier A roster updated to 36 functions with the new entries called out; Tier B section rewritten with B-1 / B-2 / B-3 / B-4 sub-categories; Tier B-4 NPU state-model refactor backlog documented in detail (function inventory, refactor scope, open canon-direction question).
+- **`SPEC.md` §D.35 (new — `PS 5.1 ja-JP [pscustomobject]@{ ... = @(List<T>) } ArgumentException`)**: full post-mortem of the original `Invoke-InfVerifValidation` defect localisation, the latent risk in `Get-SecureBootBaselineSnapshot`, the r82 uniform fix, the general coding rule, and the rationale for uniform application across all four sister scripts.
+- **`.psa.config.json`**: the `psa8001_ignore_functions` Secure Boot baseline helpers block is updated — `Get-SecureBootBaselineSnapshot` and `Show-SecureBootBaselineSnapshot` are removed (now Tier A); `Get-OrEnsureSecureBootBaseline` remains (Tier B-4 backlog) with a documented NPU-state-model-refactor cross-reference. The Tier A roster comment block at the top of the file is updated from "34 functions" to "36 functions" with the two new entries listed in the Secure Boot baseline diagnostic helpers family.
+- **`README.md` / `README.ja.md`**: `What's new` carries an r82 entry summarising the Tier B-1 / B-2 consolidations and the new SPEC §D.35; r81 is demoted to `Previous release notes`.
+- **`CONTRIBUTING.md`**: implicit pass — the PR checklist already references SPEC §A.11.7 *via* the previous release's update, so the canon workflow points at the updated SPEC by transitivity.
+
+### Out of scope for this release
+
+- **NPU state-model refactor (Tier B-4)**: explicitly tracked as a *future* workstream. The 5 affected functions (`Get-OrEnsureSecureBootBaseline`, `Get-BootSigningEnvironment`, `Show-BootSigningEnvironment`, `Invoke-Cleanup`, `Resume-CtxFromWorkspace`) remain in `psa8001_ignore_functions` with their current divergences. The work is too large to bundle with the cosmetic / latent-bug-guard uplift in this release; it will be sequenced separately.
+- **Tier C reclassification of phase functions**: `Show-PhaseList` was previously noted as "should ultimately be moved to Tier D" in SPEC §A.11.7. The move is deferred to a future docs-only revision; nothing materially changes in this release.
+- **No PowerShell behaviour change.** Phase semantics, install-decision logic, output format on en-US hosts, parameter sets, and the workspace conventions are all identical to r81.
+
+### Verification (run before commit)
+
+```bash
+python3 path/to/psa.py --config-check .psa.config.json                      # 0 issues
+python3 path/to/psa.py --config .psa.config.json Deploy-*.ps1               # 0 errors / 0 warnings / 0 info on all 4
+python3 path/to/psa.py --config .psa.config.json --include PSA8001 \
+    Deploy-*.ps1                                                            # 0 errors (36 Tier A functions enforced)
+```
+
+### Version policy
+
+This release is **a shared-helper-canon uplift** — three Tier B functions are promoted to Tier A and the PS 5.1 ja-JP `[pscustomobject]` latent bug is uniformly guarded. The `$Script:ScriptVersion` bump is justified because the new `$Script:ScriptTag` (`psa-py-v410-shared-helper-canon-uplift`) becomes the value emitted in phase banners and DebugTrace JSONL output. Per the repository convention (see SPEC §A.13 *Development Workflow*), the per-script revision counter advances accordingly so log archives map unambiguously.
+
+
+
+This release adopts `psa.py` 4.1.0 — the upstream minor release that
+adds three new error-severity, default-on static-analysis rules
+(`PSA1004`, `PSA2012`, `PSA2013`) on top of the v4.0.2 baseline that
+the previous release (`psa-py-v4-llm-governance-strict`, r80 / r46 /
+r28 / r24) consumed. All four sister scripts pass with a **0 / 0 / 0
+/ 0 baseline** on the full latest-mainline rule set, including the
+three new rules and the strict-mode `PSAP0005` inherited from r80.
+There are **no runtime behaviour changes**; this is a static-analysis
+coverage uplift plus shared-helper-canon documentation.
+
+> **What changed**: (1) The upstream analyzer added three error-class
+> rules that detect concrete latent-bug patterns observed in a sister
+> PowerShell pipeline (`update-windows-server-iso`). (2) The four
+> repository scripts already comply with all three new rules — the
+> uplift is verified at 0 findings on each, and the rule set is now
+> the steady-state ceiling against which future edits are gated. (3)
+> A new SPEC.md §A.11.7 ("Shared helper canon and porting checklist")
+> codifies the canonical "copy from Chipset" workflow that was
+> previously distributed across `.psa.config.json` comments and PR
+> review knowledge.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.24-r80` → `chipset-2026.05.26-r81`
+  - Graphics: `graphics-2026.05.24-r46` → `graphics-2026.05.26-r47`
+  - NPU: `npu-2026.05.24-r24` → `npu-2026.05.26-r25`
+  - BthPan: `msbthpan-2026.05.24-r28` → `msbthpan-2026.05.26-r29`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `psa-py-v4-llm-governance-strict` → `psa-py-v410-three-new-error-rules-baseline`
+- `psa.py` upgraded upstream from 4.0.2 → 4.1.0 (`PSA1004` / `PSA2012`
+  / `PSA2013` added as default-on error-severity rules). No
+  `.psa.config.json` change is required; the new rules are caught by
+  the existing severity floor.
+
+### Upstream: `psa.py` 4.1.0 (three new error rules)
+
+Three new error-severity, default-on rules were productionised in
+`psa.py` 4.1.0 (see the upstream
+[CHANGELOG.md entry for 4.1.0](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/CHANGELOG.md)
+for the full detection algorithms, false-positive defenses, and
+real-world defect citations):
+
+- **`PSA1004`** — bare `(if/switch/foreach/while/...)` used as
+  expression. PowerShell parses `(if ($x) { 'a' } else { 'b' })` as a
+  *command call* named `if`, which fails at runtime with `'if' is not
+  recognized as a name of a cmdlet, function, script file, or
+  operable program`. The parser accepts the syntax, so neither
+  `[Parser]::ParseFile` nor PSScriptAnalyzer flagged it. The correct
+  form is `$(if ...)` (subexpression) or `@(if ...)` (array
+  subexpression).
+- **`PSA2012`** — positional call provides fewer args than the target
+  function has `[Parameter(Mandatory)]` parameters. PowerShell
+  prompts the user interactively for each missing value; in CI
+  pipelines or unattended sessions the script hangs forever on
+  stdin. The trap is that the call site looks fine syntactically.
+- **`PSA2013`** — `$Script:Foo` is read but never assigned anywhere
+  in the file. PowerShell silently evaluates an unassigned
+  `$Script:Foo` to `$null`, hiding typo bugs in script-scope
+  variable names. PSA2001 (generic undefined-variable) only checks
+  within function scopes and does not see the cross-function flow of
+  `$Script:` globals.
+
+### Repository-side baseline verification
+
+All four pipeline scripts in this repository pass `psa.py 4.1.0
+--severity error` with **0 errors / 0 warnings / 0 info** under the
+canonical `.psa.config.json` at the r81 / r47 / r29 / r25 baseline.
+Specifically:
+
+- `--include PSA1004 Deploy-*.ps1` reports 0 findings on all four
+  scripts. No bare `(if/...)` expressions are present.
+- `--include PSA2012 Deploy-*.ps1` reports 0 findings on all four
+  scripts. Mandatory-parameter call sites use named arguments
+  consistently, and pass-through positional calls do not under-supply.
+- `--include PSA2013 Deploy-*.ps1` reports 0 findings on all four
+  scripts. Every `$Script:` variable read site has a corresponding
+  assignment site in the same file.
+
+### Shared helper canon documentation — new SPEC.md §A.11.7
+
+Previous releases (`r80` and earlier) enforced the "shared helpers
+must stay byte-identical across the four sister scripts" invariant
+via PSA8001 (cross-file function-body drift), with the per-script
+intentional-divergence list living in `.psa.config.json`'s
+`psa8001_ignore_functions` comments. That information was hard to
+discover from the SPEC alone — a maintainer adding a new helper had
+to read the config file's commentary to learn which tier the helper
+should land in.
+
+The new **SPEC.md §A.11.7 "Shared helper canon and porting
+checklist"** consolidates that knowledge into a single SPEC
+subsection, organised around four tiers:
+
+- **Tier A** (34 helpers, PSA8001-enforced): byte-identical across
+  all four scripts; PSA8001 fires on any drift. Logging primitives
+  (`Format-Elapsed`, `Write-Step`, `_LogLine`, …), DebugTrace
+  framework (`Start-DebugTrace`, `Stop-DebugTrace`, …),
+  environment / preflight (`Set-Tls12`, `Set-ConsoleUtf8`,
+  `Assert-Admin`, …), Secure Boot baseline diagnostic helpers
+  (`Format-SecureBootBaselineForReport`, …, `Export-DebugTraceJson`).
+- **Tier B** (9 helpers, currently PSA8001-ignored but conceptually
+  shared): present in all four scripts but with at least one
+  simplified or family-flavoured variant; documented as the **active
+  backlog for shared-helper unification work**. The three NPU
+  simplifications (`Get-BootSigningEnvironment`,
+  `Show-BootSigningEnvironment`, and cosmetic Secure Boot wording
+  deltas) are explicitly flagged as backlog rather than permanent
+  exemptions.
+- **Tier C**: helpers in 2-3 of the 4 scripts. Most are
+  driver-family-specific (AMD-only installer helpers, MSBthPan-only
+  inbox-driver helpers, Chipset-only r65 phantom-file filter) and
+  legitimately stay divergent.
+- **Tier D**: phase functions (`Invoke-(Prep|Verify|Inst)Phase\d{2}_*`)
+  and per-script identity helpers (`Show-Help`, `Show-ReferenceLinks`)
+  that are intentionally per-script.
+
+The subsection also documents the **canonical "copy from Chipset"
+direction** (Chipset is the canon source — every shared helper is
+written there first and propagated to the other three scripts) and a
+**4-step porting checklist** for back-porting / cross-porting work.
+
+The retirement of NPU's permanent "simplified script" exemption is
+the most consequential policy clarification in this release: the
+three NPU Tier B simplifications are now backlog rather than design
+decisions. The retirement does NOT block landing (existing
+`psa8001_ignore_functions` entries continue to gate CI), but it
+opens the door to future quality-cycle work that lifts NPU to the
+Chipset canon.
+
+### Documentation
+
+- **`README.md`**: new `What's new` entry for r81 / r47 / r29 / r25;
+  r80 demoted to `Previous release notes`. The detailed psa.py rule
+  inventory (previously L1266 onward) was re-written to enumerate
+  rule families (`PSA1xxx` through `PSAP0xxx`) and recent additions
+  (`PSA1004` / `PSA2012` / `PSA2013` in 4.1.0; `PSAP0005` in 4.0.0;
+  `PSA2009` in 3.8.0; `PSA2010` / `PSA2011` in 3.9.0) rather than
+  carrying a hard-coded "46-rule" count. The category table's code
+  ranges are updated (`PSA1001`..`PSA1004`, `PSA2001`..`PSA2013`,
+  …) so a reader can still see the full surface at a glance.
+- **`README.ja.md`**: synchronised translation of the above.
+- **`SPEC.md`**: parallel changes to §A.11 (the `46-rule` text on
+  L101 / §876 / §878 is replaced by family/range references with
+  inline citations to recent additions); new §A.11.5f documents the
+  three new error rules with upstream-spec links; new §A.11.7
+  documents the shared helper canon and porting checklist (the
+  larger of the two new subsections). The `--self-check` example
+  output in §A.11.6 is updated to show `49 in RULES, 49 in
+  SPEC.md §4` (the current value for the latest-mainline `psa.py`
+  4.1.0, kept as a concrete reader hint per the same exception the
+  upstream uses for its SARIF illustrative example).
+- **`TESTING.md`**: L65 `46-rule check set` parameterised to "full
+  rule set" with a pointer to `psa.py --list-rules` as the canonical
+  count source.
+- **`CONTRIBUTING.md`**: implicit pass — the existing prose already
+  references the rule families rather than a hard-coded count, so
+  no edit was required beyond the cross-references that other docs
+  carry. (If a future PR adds a contributor-facing rule-count
+  number, follow the same hybrid policy: parameterise in prose,
+  keep numerals only in deliberately illustrative samples.)
+
+### Out of scope for this release
+
+- `psa8001_ignore_functions` was NOT modified. The list documented in
+  §A.11.7 as Tier B / C remains in the same shape as r80. Future
+  quality-cycle work may walk Tier B entry-by-entry and either
+  reconcile to the Chipset canon (removing the entry from the
+  ignore list) or document the genuine driver-family asymmetry; that
+  work is deliberately out of scope here to keep the r81 diff small
+  enough to review safely.
+- No PowerShell behaviour change. Phase semantics, install-decision
+  logic, output format, parameter sets, and the workspace
+  conventions are all identical to r80.
+
+### Version policy
+
+This release is **a static-analysis-tracking bump** — the runtime
+behaviour of the four pipeline scripts is unchanged. Per the
+repository convention (see SPEC §A.13 *Development Workflow*), the
+`$Script:ScriptVersion` bump is justified because the new
+`$Script:ScriptTag` (`psa-py-v410-three-new-error-rules-baseline`)
+becomes the value emitted in phase banners and DebugTrace JSONL
+output, and downstream operators distinguishing log archives by
+script tag need a corresponding revision counter advance to map
+unambiguously.
+
+
+
+This release **completes the LLM-governance migration** that began
+at r76 / r42 / r24 / r20. The four sister scripts now pass
+`psa.py` 4.0.2 **strict mode** with a 0 / 0 / 0 / 0 baseline across
+all rules. The `psap0005_relaxed_mode` flag has been removed from
+`.psa.config.json` (taking its default `false` value).
+
+> **What changed**: The 99 strict-mode-eligible `rNN` references in
+> the four script bodies (mostly historical anchors that
+> documented when a particular block was added) have been
+> rewritten to **timeless wording** with cross-references to
+> `SPEC.md` Part D for design rationale. The release vehicle is a
+> single consolidated release rather than the four-cycle plan
+> originally documented in pre-r80 SPEC §A.13; see SPEC §D.34 for
+> the post-mortem.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.25-r76` → `chipset-2026.05.24-r80`
+  - Graphics: `graphics-2026.05.25-r42` → `graphics-2026.05.24-r46`
+  - NPU: `npu-2026.05.25-r20` → `npu-2026.05.24-r24`
+  - BthPan: `msbthpan-2026.05.25-r24` → `msbthpan-2026.05.24-r28`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `psa-py-v4-llm-governance-baseline` → `psa-py-v4-llm-governance-strict`
+- `.psa.config.json` updated:
+  - `psap0005_relaxed_mode` key removed (now defaults to `false`).
+  - Header documentation rewritten to describe strict-mode steady
+    state rather than relaxed-mode migration baseline.
+  - Trailing `,` after `"severity": "info"` removed (correct JSON).
+- `psa.py` upgraded upstream from 4.0.1 → 4.0.2 (PSAP0005 relaxed-
+  mode coverage uplift; not a config change but the baseline numbers
+  in §A.11.5 are based on this version).
+
+### Cycle B (SPEC cross-reference cleanup) — consolidated into this release
+
+The original plan was to ship this as `r77 / r43 / r21 / r25`. The
+empirical analysis (SPEC §D.34) led to consolidating the four cycles
+into this single r80 release. The rewrites that would have been
+Cycle B:
+
+- Chipset: 14 sites of `(r65, SPEC D.24)` / `(r66, SPEC D.24)` →
+  `(see SPEC §D.24)` — Phantom file reference helpers in P09.
+- Chipset: `Orphan catalog cleanup (r66 / SPEC D.24):` (slash separator)
+  → `Orphan catalog cleanup (see SPEC §D.24):`
+- Chipset / Graphics: `(r75 - SPEC D.33):` (dash separator) →
+  `(see SPEC §D.33):`
+- Chipset: `r68 (SPEC §D.26): LOADED honesty gate.` (reversed parens) →
+  `(see SPEC §D.26): LOADED honesty gate.`
+- Graphics: `r34 (SPEC §D.26): LOADED honesty gate.` (reversed parens, cross-port) →
+  `(see SPEC §D.26): LOADED honesty gate (cross-port from Chipset).`
+- 3 scripts byte-identical: `See SPEC SS D.31 for the full r71 design contract; SPEC SS D.31.11` →
+  `See SPEC §D.31 for the full design contract; SPEC §D.31.11`
+
+### Cycle A (SECTION header cleanup) — consolidated
+
+- 3 scripts byte-identical: `# SECTION r71: WHQL co-sign pre-detection + Path B prerequisite check` →
+  `# SECTION: WHQL co-sign pre-detection + Path B prerequisite check`
+- 3 scripts byte-identical: `# SECTION (r69, QI-6): CRITICAL severity acknowledgement helpers` →
+  `# SECTION (QI-6): CRITICAL severity acknowledgement helpers`
+- 3 scripts byte-identical: `# SECTION (r69, QI-9): System Restore status helpers` →
+  `# SECTION (QI-9): System Restore status helpers`
+- 3 scripts byte-identical (Pre-check semi-section): `# r71 Pre-check: Path B prerequisite check (Secure Boot firmware state)` →
+  `# Pre-check: Path B prerequisite check (Secure Boot firmware state)`
+
+### Cycle D (Earlier-revisions prose cleanup) — consolidated
+
+- Chipset: `# CSV is also absent (e.g. very old workspace prior to r65),` →
+  `# CSV is also absent (e.g. very old workspaces),`
+- Chipset: `# when no inventory is available, when the inventory predates r65` →
+  `# when no inventory is available, when the inventory predates the inf_inventory introduction`
+- Chipset: `# - If the CSV is also missing or predates r65 (no` →
+  `# - If the CSV is also missing or predates the inf_inventory introduction (no`
+- Chipset: `# workspace recovered from an r65 run, or a future code path` →
+  `# workspace recovered from an older inventory-less run, or a future code path`
+- Graphics: `# See SPEC SS D.31. Until r39, Graphics shipped the consumer code (I00 C6,` →
+  `# See SPEC §D.31. Earlier Graphics revisions shipped the consumer code (I00 C6,`
+
+### Cycle C (Added-in-release phrasing cleanup) — consolidated
+
+The most extensive category. Pattern: shift the rationale anchor
+from `(added with the rNN release)` to `(see SPEC §D.YY)`.
+
+- 3 scripts byte-identical: `# WHQL co-signature analysis (added with the r71 release).` →
+  `# WHQL co-signature analysis (see SPEC §D.31).`
+- Chipset: `(added with the r71 release) from the patch-eligible subset` →
+  `(see SPEC §D.31) from the patch-eligible subset`
+- Graphics (cross-port narrative): `(added with the r71 release; ported into Graphics by r39)` →
+  `(see SPEC §D.31; cross-script port to Graphics)`
+- 3 scripts byte-identical (I02 short-circuit): `(added with the r72 release) for all-WHQL trimmed install plans.` →
+  `(see SPEC §D.31.11) for all-WHQL trimmed install plans.`
+- BthPan: `(added in the r71 release). BthPan deploys the` →
+  `(see SPEC §D.31). BthPan deploys the`
+- Chipset / Graphics narrative: `The original r74 release threaded` →
+  `Earlier revisions threaded`
+- 3 scripts byte-identical: `# r71 adds two operator-protection mechanisms that the now-removed Path C` →
+  `# Two operator-protection mechanisms (see SPEC §D.31) that the now-removed Path C`
+- 3 scripts byte-identical: `# the /all addition in r74.` →
+  `# the /all flag (see SPEC §D.32).`
+- 3 scripts byte-identical: `documents the r72 follow-on I02 short-circuit that consumes the` →
+  `documents the I02 short-circuit (see SPEC §D.31.11) that consumes the`
+
+### NPU-specific rewrite (Q-X1 + r17 + date)
+
+NPU L5352, L5398. NPU's `Generic OS-version predicate retained after the r70 Path C deprecation.` →
+`Generic OS-version predicate retained after the Path C deprecation.`
+NPU's `# r17 (Q-X1, 2026-05-23): refuse NPU Install / All on legacy Windows Server` →
+`# (Q-X1; legacy WS2019): refuse NPU Install / All on legacy Windows Server`
+
+### Cross-port markers (Graphics-only and BthPan-only)
+
+- Graphics: 5 sites of `# r40 (graphics): ...` → `# (graphics-specific): ...`
+- BthPan: 3 sites of `# r22 (bthpan): ...` → `# (bthpan-specific): ...`
+
+### Follow-up sentences (rNN: this declaration)
+
+3 scripts: `). rNN: this declaration was ...` → `). This declaration was ...`
+- Chipset: r73
+- Graphics: r39
+- BthPan: r21
+
+### Phase-marker tri-state inline tag (Chipset only)
+
+- Chipset L9553: `Phase marker + summary (r66 tri-state:` →
+  `Phase marker + summary (tri-state form:`
+
+### Prose-internal rNN in multi-line PSCustomObject blocks (3 scripts)
+
+The `New-WhqlCoSignAnalysis` declaration block in each of Chipset /
+Graphics / BthPan had a `rNN: this declaration` follow-up plus the
+`I02 (r72 short-circuit ...)` inline reference. Both forms were
+rewritten:
+- `and I02 (r72 short-circuit for` → `and I02 (short-circuit (SPEC §D.31.11) for`
+- `(-SkipNonCosignedDrivers trim, I02 r72 short-circuit)` (Graphics L8635) →
+  `(-SkipNonCosignedDrivers trim, I02 short-circuit (SPEC §D.31.11))`
+- `missing in r71/r72 and caused P05 to throw` → `missing in earlier revisions and caused P05 to throw`
+- `P05 analysis block itself were both missing in r38;` → `... in earlier revisions;`
+
+### Documentation
+
+- `SPEC.md` §A.11.5 (Documented baseline) updated. The "Strict
+  baseline" table now includes PSAP0005; the "PSAP0005 migration
+  baseline" table renamed to "Historical migration baseline" with
+  per-`psa.py`-version comparison columns (4.0.0 / 4.0.2 relaxed /
+  4.0.2 strict).
+- `SPEC.md` §A.13 (Migration roadmap) rewritten as a "completed"
+  retrospective. The pre-r80 four-cycle plan is summarised; the
+  consolidated implementation is documented.
+- `SPEC.md` §D.34 (new) — full post-mortem of the strict-mode-flip
+  release: why the four-cycle plan was abandoned, what `psa.py`
+  4.0.2's uplift contributed, the per-category rewrite table, and
+  lessons learned for similar future migrations.
+- `SPEC.md` §A.11 footnote updated to reflect the new strict-mode
+  validation history.
+
+### Verification
+
+```text
+$ python3 psa.py --config .psa.config.json \
+    Deploy-AMDChipsetDriverOnWindowsServer.ps1 \
+    Deploy-AMDGraphicsDriverOnWindowsServer.ps1 \
+    Deploy-AMDNpuDriverOnWindowsServer.ps1 \
+    Deploy-MSBthPanInboxOnWindowsServer.ps1
+
+File   : Deploy-AMDChipsetDriverOnWindowsServer.ps1
+Lines  : 14278
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+Lines  : 14045
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-AMDNpuDriverOnWindowsServer.ps1
+Lines  : 7017
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-MSBthPanInboxOnWindowsServer.ps1
+Lines  : 11280
+Issues : 0 errors, 0 warnings, 0 info
+```
+
+### File integrity preserved
+
+- All four `.ps1` files retain UTF-8 BOM (PSA7001) and CRLF line
+  endings (PSA7002).
+- PSA8001 byte-identity verified on all shared helpers (no shared
+  helper was rewritten in only some sister scripts).
+- 5 existing `# psa-disable-line PSAP0005 -- AMD ... identifier`
+  suppression directives in Graphics (for `R9700`, `R1*`, `V1*`
+  hardware platform identifiers) are preserved unchanged.
+
+### Runtime behaviour
+
+**No runtime behaviour changes.** This is a pure documentation /
+comment-prose / configuration release. The only executable change
+is the `$Script:ScriptVersion` / `$Script:ScriptTag` constants
+themselves, which are displayed in banners and recorded in
+`DebugTrace JSONL` output but do not affect any code path.
+
+---
+
+## [2026-05-26] `psa-py-v410-three-new-error-rules-baseline` — Chipset r81 / Graphics r47 / BthPan r29 / NPU r25
+
+This release adopts `psa.py` 4.1.0 — the upstream minor release that
+adds three new error-severity, default-on static-analysis rules
+(`PSA1004`, `PSA2012`, `PSA2013`) on top of the v4.0.2 baseline that
+the previous release (`psa-py-v4-llm-governance-strict`, r80 / r46 /
+r28 / r24) consumed. All four sister scripts pass with a **0 / 0 / 0
+/ 0 baseline** on the full latest-mainline rule set, including the
+three new rules and the strict-mode `PSAP0005` inherited from r80.
+There are **no runtime behaviour changes**; this is a static-analysis
+coverage uplift plus shared-helper-canon documentation.
+
+> **What changed**: (1) The upstream analyzer added three error-class
+> rules that detect concrete latent-bug patterns observed in a sister
+> PowerShell pipeline (`update-windows-server-iso`). (2) The four
+> repository scripts already comply with all three new rules — the
+> uplift is verified at 0 findings on each, and the rule set is now
+> the steady-state ceiling against which future edits are gated. (3)
+> A new SPEC.md §A.11.7 ("Shared helper canon and porting checklist")
+> codifies the canonical "copy from Chipset" workflow that was
+> previously distributed across `.psa.config.json` comments and PR
+> review knowledge.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.24-r80` → `chipset-2026.05.26-r81`
+  - Graphics: `graphics-2026.05.24-r46` → `graphics-2026.05.26-r47`
+  - NPU: `npu-2026.05.24-r24` → `npu-2026.05.26-r25`
+  - BthPan: `msbthpan-2026.05.24-r28` → `msbthpan-2026.05.26-r29`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `psa-py-v4-llm-governance-strict` → `psa-py-v410-three-new-error-rules-baseline`
+- `psa.py` upgraded upstream from 4.0.2 → 4.1.0 (`PSA1004` / `PSA2012`
+  / `PSA2013` added as default-on error-severity rules). No
+  `.psa.config.json` change is required; the new rules are caught by
+  the existing severity floor.
+
+### Upstream: `psa.py` 4.1.0 (three new error rules)
+
+Three new error-severity, default-on rules were productionised in
+`psa.py` 4.1.0 (see the upstream
+[CHANGELOG.md entry for 4.1.0](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/CHANGELOG.md)
+for the full detection algorithms, false-positive defenses, and
+real-world defect citations):
+
+- **`PSA1004`** — bare `(if/switch/foreach/while/...)` used as
+  expression. PowerShell parses `(if ($x) { 'a' } else { 'b' })` as a
+  *command call* named `if`, which fails at runtime with `'if' is not
+  recognized as a name of a cmdlet, function, script file, or
+  operable program`. The parser accepts the syntax, so neither
+  `[Parser]::ParseFile` nor PSScriptAnalyzer flagged it. The correct
+  form is `$(if ...)` (subexpression) or `@(if ...)` (array
+  subexpression).
+- **`PSA2012`** — positional call provides fewer args than the target
+  function has `[Parameter(Mandatory)]` parameters. PowerShell
+  prompts the user interactively for each missing value; in CI
+  pipelines or unattended sessions the script hangs forever on
+  stdin. The trap is that the call site looks fine syntactically.
+- **`PSA2013`** — `$Script:Foo` is read but never assigned anywhere
+  in the file. PowerShell silently evaluates an unassigned
+  `$Script:Foo` to `$null`, hiding typo bugs in script-scope
+  variable names. PSA2001 (generic undefined-variable) only checks
+  within function scopes and does not see the cross-function flow of
+  `$Script:` globals.
+
+### Repository-side baseline verification
+
+All four pipeline scripts in this repository pass `psa.py 4.1.0
+--severity error` with **0 errors / 0 warnings / 0 info** under the
+canonical `.psa.config.json` at the r81 / r47 / r29 / r25 baseline.
+Specifically:
+
+- `--include PSA1004 Deploy-*.ps1` reports 0 findings on all four
+  scripts. No bare `(if/...)` expressions are present.
+- `--include PSA2012 Deploy-*.ps1` reports 0 findings on all four
+  scripts. Mandatory-parameter call sites use named arguments
+  consistently, and pass-through positional calls do not under-supply.
+- `--include PSA2013 Deploy-*.ps1` reports 0 findings on all four
+  scripts. Every `$Script:` variable read site has a corresponding
+  assignment site in the same file.
+
+### Shared helper canon documentation — new SPEC.md §A.11.7
+
+Previous releases (`r80` and earlier) enforced the "shared helpers
+must stay byte-identical across the four sister scripts" invariant
+via PSA8001 (cross-file function-body drift), with the per-script
+intentional-divergence list living in `.psa.config.json`'s
+`psa8001_ignore_functions` comments. That information was hard to
+discover from the SPEC alone — a maintainer adding a new helper had
+to read the config file's commentary to learn which tier the helper
+should land in.
+
+The new **SPEC.md §A.11.7 "Shared helper canon and porting
+checklist"** consolidates that knowledge into a single SPEC
+subsection, organised around four tiers:
+
+- **Tier A** (34 helpers, PSA8001-enforced): byte-identical across
+  all four scripts; PSA8001 fires on any drift. Logging primitives
+  (`Format-Elapsed`, `Write-Step`, `_LogLine`, …), DebugTrace
+  framework (`Start-DebugTrace`, `Stop-DebugTrace`, …),
+  environment / preflight (`Set-Tls12`, `Set-ConsoleUtf8`,
+  `Assert-Admin`, …), Secure Boot baseline diagnostic helpers
+  (`Format-SecureBootBaselineForReport`, …, `Export-DebugTraceJson`).
+- **Tier B** (9 helpers, currently PSA8001-ignored but conceptually
+  shared): present in all four scripts but with at least one
+  simplified or family-flavoured variant; documented as the **active
+  backlog for shared-helper unification work**. The three NPU
+  simplifications (`Get-BootSigningEnvironment`,
+  `Show-BootSigningEnvironment`, and cosmetic Secure Boot wording
+  deltas) are explicitly flagged as backlog rather than permanent
+  exemptions.
+- **Tier C**: helpers in 2-3 of the 4 scripts. Most are
+  driver-family-specific (AMD-only installer helpers, MSBthPan-only
+  inbox-driver helpers, Chipset-only r65 phantom-file filter) and
+  legitimately stay divergent.
+- **Tier D**: phase functions (`Invoke-(Prep|Verify|Inst)Phase\d{2}_*`)
+  and per-script identity helpers (`Show-Help`, `Show-ReferenceLinks`)
+  that are intentionally per-script.
+
+The subsection also documents the **canonical "copy from Chipset"
+direction** (Chipset is the canon source — every shared helper is
+written there first and propagated to the other three scripts) and a
+**4-step porting checklist** for back-porting / cross-porting work.
+
+The retirement of NPU's permanent "simplified script" exemption is
+the most consequential policy clarification in this release: the
+three NPU Tier B simplifications are now backlog rather than design
+decisions. The retirement does NOT block landing (existing
+`psa8001_ignore_functions` entries continue to gate CI), but it
+opens the door to future quality-cycle work that lifts NPU to the
+Chipset canon.
+
+### Documentation
+
+- **`README.md`**: new `What's new` entry for r81 / r47 / r29 / r25;
+  r80 demoted to `Previous release notes`. The detailed psa.py rule
+  inventory (previously L1266 onward) was re-written to enumerate
+  rule families (`PSA1xxx` through `PSAP0xxx`) and recent additions
+  (`PSA1004` / `PSA2012` / `PSA2013` in 4.1.0; `PSAP0005` in 4.0.0;
+  `PSA2009` in 3.8.0; `PSA2010` / `PSA2011` in 3.9.0) rather than
+  carrying a hard-coded "46-rule" count. The category table's code
+  ranges are updated (`PSA1001`..`PSA1004`, `PSA2001`..`PSA2013`,
+  …) so a reader can still see the full surface at a glance.
+- **`README.ja.md`**: synchronised translation of the above.
+- **`SPEC.md`**: parallel changes to §A.11 (the `46-rule` text on
+  L101 / §876 / §878 is replaced by family/range references with
+  inline citations to recent additions); new §A.11.5f documents the
+  three new error rules with upstream-spec links; new §A.11.7
+  documents the shared helper canon and porting checklist (the
+  larger of the two new subsections). The `--self-check` example
+  output in §A.11.6 is updated to show `49 in RULES, 49 in
+  SPEC.md §4` (the current value for the latest-mainline `psa.py`
+  4.1.0, kept as a concrete reader hint per the same exception the
+  upstream uses for its SARIF illustrative example).
+- **`TESTING.md`**: L65 `46-rule check set` parameterised to "full
+  rule set" with a pointer to `psa.py --list-rules` as the canonical
+  count source.
+- **`CONTRIBUTING.md`**: implicit pass — the existing prose already
+  references the rule families rather than a hard-coded count, so
+  no edit was required beyond the cross-references that other docs
+  carry. (If a future PR adds a contributor-facing rule-count
+  number, follow the same hybrid policy: parameterise in prose,
+  keep numerals only in deliberately illustrative samples.)
+
+### Out of scope for this release
+
+- `psa8001_ignore_functions` was NOT modified. The list documented in
+  §A.11.7 as Tier B / C remains in the same shape as r80. Future
+  quality-cycle work may walk Tier B entry-by-entry and either
+  reconcile to the Chipset canon (removing the entry from the
+  ignore list) or document the genuine driver-family asymmetry; that
+  work is deliberately out of scope here to keep the r81 diff small
+  enough to review safely.
+- No PowerShell behaviour change. Phase semantics, install-decision
+  logic, output format, parameter sets, and the workspace
+  conventions are all identical to r80.
+
+### Version policy
+
+This release is **a static-analysis-tracking bump** — the runtime
+behaviour of the four pipeline scripts is unchanged. Per the
+repository convention (see SPEC §A.13 *Development Workflow*), the
+`$Script:ScriptVersion` bump is justified because the new
+`$Script:ScriptTag` (`psa-py-v410-three-new-error-rules-baseline`)
+becomes the value emitted in phase banners and DebugTrace JSONL
+output, and downstream operators distinguishing log archives by
+script tag need a corresponding revision counter advance to map
+unambiguously.
+
+
+
+This release **completes the LLM-governance migration** that began
+at r76 / r42 / r24 / r20. The four sister scripts now pass
+`psa.py` 4.0.2 **strict mode** with a 0 / 0 / 0 / 0 baseline across
+all rules. The `psap0005_relaxed_mode` flag has been removed from
+`.psa.config.json` (taking its default `false` value).
+
+> **What changed**: The 99 strict-mode-eligible `rNN` references in
+> the four script bodies (mostly historical anchors that
+> documented when a particular block was added) have been
+> rewritten to **timeless wording** with cross-references to
+> `SPEC.md` Part D for design rationale. The release vehicle is a
+> single consolidated release rather than the four-cycle plan
+> originally documented in pre-r80 SPEC §A.13; see SPEC §D.34 for
+> the post-mortem.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.25-r76` → `chipset-2026.05.24-r80`
+  - Graphics: `graphics-2026.05.25-r42` → `graphics-2026.05.24-r46`
+  - NPU: `npu-2026.05.25-r20` → `npu-2026.05.24-r24`
+  - BthPan: `msbthpan-2026.05.25-r24` → `msbthpan-2026.05.24-r28`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `psa-py-v4-llm-governance-baseline` → `psa-py-v4-llm-governance-strict`
+- `.psa.config.json` updated:
+  - `psap0005_relaxed_mode` key removed (now defaults to `false`).
+  - Header documentation rewritten to describe strict-mode steady
+    state rather than relaxed-mode migration baseline.
+  - Trailing `,` after `"severity": "info"` removed (correct JSON).
+- `psa.py` upgraded upstream from 4.0.1 → 4.0.2 (PSAP0005 relaxed-
+  mode coverage uplift; not a config change but the baseline numbers
+  in §A.11.5 are based on this version).
+
+### Cycle B (SPEC cross-reference cleanup) — consolidated into this release
+
+The original plan was to ship this as `r77 / r43 / r21 / r25`. The
+empirical analysis (SPEC §D.34) led to consolidating the four cycles
+into this single r80 release. The rewrites that would have been
+Cycle B:
+
+- Chipset: 14 sites of `(r65, SPEC D.24)` / `(r66, SPEC D.24)` →
+  `(see SPEC §D.24)` — Phantom file reference helpers in P09.
+- Chipset: `Orphan catalog cleanup (r66 / SPEC D.24):` (slash separator)
+  → `Orphan catalog cleanup (see SPEC §D.24):`
+- Chipset / Graphics: `(r75 - SPEC D.33):` (dash separator) →
+  `(see SPEC §D.33):`
+- Chipset: `r68 (SPEC §D.26): LOADED honesty gate.` (reversed parens) →
+  `(see SPEC §D.26): LOADED honesty gate.`
+- Graphics: `r34 (SPEC §D.26): LOADED honesty gate.` (reversed parens, cross-port) →
+  `(see SPEC §D.26): LOADED honesty gate (cross-port from Chipset).`
+- 3 scripts byte-identical: `See SPEC SS D.31 for the full r71 design contract; SPEC SS D.31.11` →
+  `See SPEC §D.31 for the full design contract; SPEC §D.31.11`
+
+### Cycle A (SECTION header cleanup) — consolidated
+
+- 3 scripts byte-identical: `# SECTION r71: WHQL co-sign pre-detection + Path B prerequisite check` →
+  `# SECTION: WHQL co-sign pre-detection + Path B prerequisite check`
+- 3 scripts byte-identical: `# SECTION (r69, QI-6): CRITICAL severity acknowledgement helpers` →
+  `# SECTION (QI-6): CRITICAL severity acknowledgement helpers`
+- 3 scripts byte-identical: `# SECTION (r69, QI-9): System Restore status helpers` →
+  `# SECTION (QI-9): System Restore status helpers`
+- 3 scripts byte-identical (Pre-check semi-section): `# r71 Pre-check: Path B prerequisite check (Secure Boot firmware state)` →
+  `# Pre-check: Path B prerequisite check (Secure Boot firmware state)`
+
+### Cycle D (Earlier-revisions prose cleanup) — consolidated
+
+- Chipset: `# CSV is also absent (e.g. very old workspace prior to r65),` →
+  `# CSV is also absent (e.g. very old workspaces),`
+- Chipset: `# when no inventory is available, when the inventory predates r65` →
+  `# when no inventory is available, when the inventory predates the inf_inventory introduction`
+- Chipset: `# - If the CSV is also missing or predates r65 (no` →
+  `# - If the CSV is also missing or predates the inf_inventory introduction (no`
+- Chipset: `# workspace recovered from an r65 run, or a future code path` →
+  `# workspace recovered from an older inventory-less run, or a future code path`
+- Graphics: `# See SPEC SS D.31. Until r39, Graphics shipped the consumer code (I00 C6,` →
+  `# See SPEC §D.31. Earlier Graphics revisions shipped the consumer code (I00 C6,`
+
+### Cycle C (Added-in-release phrasing cleanup) — consolidated
+
+The most extensive category. Pattern: shift the rationale anchor
+from `(added with the rNN release)` to `(see SPEC §D.YY)`.
+
+- 3 scripts byte-identical: `# WHQL co-signature analysis (added with the r71 release).` →
+  `# WHQL co-signature analysis (see SPEC §D.31).`
+- Chipset: `(added with the r71 release) from the patch-eligible subset` →
+  `(see SPEC §D.31) from the patch-eligible subset`
+- Graphics (cross-port narrative): `(added with the r71 release; ported into Graphics by r39)` →
+  `(see SPEC §D.31; cross-script port to Graphics)`
+- 3 scripts byte-identical (I02 short-circuit): `(added with the r72 release) for all-WHQL trimmed install plans.` →
+  `(see SPEC §D.31.11) for all-WHQL trimmed install plans.`
+- BthPan: `(added in the r71 release). BthPan deploys the` →
+  `(see SPEC §D.31). BthPan deploys the`
+- Chipset / Graphics narrative: `The original r74 release threaded` →
+  `Earlier revisions threaded`
+- 3 scripts byte-identical: `# r71 adds two operator-protection mechanisms that the now-removed Path C` →
+  `# Two operator-protection mechanisms (see SPEC §D.31) that the now-removed Path C`
+- 3 scripts byte-identical: `# the /all addition in r74.` →
+  `# the /all flag (see SPEC §D.32).`
+- 3 scripts byte-identical: `documents the r72 follow-on I02 short-circuit that consumes the` →
+  `documents the I02 short-circuit (see SPEC §D.31.11) that consumes the`
+
+### NPU-specific rewrite (Q-X1 + r17 + date)
+
+NPU L5352, L5398. NPU's `Generic OS-version predicate retained after the r70 Path C deprecation.` →
+`Generic OS-version predicate retained after the Path C deprecation.`
+NPU's `# r17 (Q-X1, 2026-05-23): refuse NPU Install / All on legacy Windows Server` →
+`# (Q-X1; legacy WS2019): refuse NPU Install / All on legacy Windows Server`
+
+### Cross-port markers (Graphics-only and BthPan-only)
+
+- Graphics: 5 sites of `# r40 (graphics): ...` → `# (graphics-specific): ...`
+- BthPan: 3 sites of `# r22 (bthpan): ...` → `# (bthpan-specific): ...`
+
+### Follow-up sentences (rNN: this declaration)
+
+3 scripts: `). rNN: this declaration was ...` → `). This declaration was ...`
+- Chipset: r73
+- Graphics: r39
+- BthPan: r21
+
+### Phase-marker tri-state inline tag (Chipset only)
+
+- Chipset L9553: `Phase marker + summary (r66 tri-state:` →
+  `Phase marker + summary (tri-state form:`
+
+### Prose-internal rNN in multi-line PSCustomObject blocks (3 scripts)
+
+The `New-WhqlCoSignAnalysis` declaration block in each of Chipset /
+Graphics / BthPan had a `rNN: this declaration` follow-up plus the
+`I02 (r72 short-circuit ...)` inline reference. Both forms were
+rewritten:
+- `and I02 (r72 short-circuit for` → `and I02 (short-circuit (SPEC §D.31.11) for`
+- `(-SkipNonCosignedDrivers trim, I02 r72 short-circuit)` (Graphics L8635) →
+  `(-SkipNonCosignedDrivers trim, I02 short-circuit (SPEC §D.31.11))`
+- `missing in r71/r72 and caused P05 to throw` → `missing in earlier revisions and caused P05 to throw`
+- `P05 analysis block itself were both missing in r38;` → `... in earlier revisions;`
+
+### Documentation
+
+- `SPEC.md` §A.11.5 (Documented baseline) updated. The "Strict
+  baseline" table now includes PSAP0005; the "PSAP0005 migration
+  baseline" table renamed to "Historical migration baseline" with
+  per-`psa.py`-version comparison columns (4.0.0 / 4.0.2 relaxed /
+  4.0.2 strict).
+- `SPEC.md` §A.13 (Migration roadmap) rewritten as a "completed"
+  retrospective. The pre-r80 four-cycle plan is summarised; the
+  consolidated implementation is documented.
+- `SPEC.md` §D.34 (new) — full post-mortem of the strict-mode-flip
+  release: why the four-cycle plan was abandoned, what `psa.py`
+  4.0.2's uplift contributed, the per-category rewrite table, and
+  lessons learned for similar future migrations.
+- `SPEC.md` §A.11 footnote updated to reflect the new strict-mode
+  validation history.
+
+### Verification
+
+```text
+$ python3 psa.py --config .psa.config.json \
+    Deploy-AMDChipsetDriverOnWindowsServer.ps1 \
+    Deploy-AMDGraphicsDriverOnWindowsServer.ps1 \
+    Deploy-AMDNpuDriverOnWindowsServer.ps1 \
+    Deploy-MSBthPanInboxOnWindowsServer.ps1
+
+File   : Deploy-AMDChipsetDriverOnWindowsServer.ps1
+Lines  : 14278
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+Lines  : 14045
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-AMDNpuDriverOnWindowsServer.ps1
+Lines  : 7017
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-MSBthPanInboxOnWindowsServer.ps1
+Lines  : 11280
+Issues : 0 errors, 0 warnings, 0 info
+```
+
+### File integrity preserved
+
+- All four `.ps1` files retain UTF-8 BOM (PSA7001) and CRLF line
+  endings (PSA7002).
+- PSA8001 byte-identity verified on all shared helpers (no shared
+  helper was rewritten in only some sister scripts).
+- 5 existing `# psa-disable-line PSAP0005 -- AMD ... identifier`
+  suppression directives in Graphics (for `R9700`, `R1*`, `V1*`
+  hardware platform identifiers) are preserved unchanged.
+
+### Runtime behaviour
+
+**No runtime behaviour changes.** This is a pure documentation /
+comment-prose / configuration release. The only executable change
+is the `$Script:ScriptVersion` / `$Script:ScriptTag` constants
+themselves, which are displayed in banners and recorded in
+`DebugTrace JSONL` output but do not affect any code path.
+
+---
+
+## [2026-05-24] `psa-py-v4-llm-governance-strict` — Chipset r80 / Graphics r46 / BthPan r28 / NPU r24
+
+This release **completes the LLM-governance migration** that began
+at r76 / r42 / r24 / r20. The four sister scripts now pass
+`psa.py` 4.0.2 **strict mode** with a 0 / 0 / 0 / 0 baseline across
+all rules. The `psap0005_relaxed_mode` flag has been removed from
+`.psa.config.json` (taking its default `false` value).
+
+> **What changed**: The 99 strict-mode-eligible `rNN` references in
+> the four script bodies (mostly historical anchors that
+> documented when a particular block was added) have been
+> rewritten to **timeless wording** with cross-references to
+> `SPEC.md` Part D for design rationale. The release vehicle is a
+> single consolidated release rather than the four-cycle plan
+> originally documented in pre-r80 SPEC §A.13; see SPEC §D.34 for
+> the post-mortem.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.25-r76` → `chipset-2026.05.24-r80`
+  - Graphics: `graphics-2026.05.25-r42` → `graphics-2026.05.24-r46`
+  - NPU: `npu-2026.05.25-r20` → `npu-2026.05.24-r24`
+  - BthPan: `msbthpan-2026.05.25-r24` → `msbthpan-2026.05.24-r28`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `psa-py-v4-llm-governance-baseline` → `psa-py-v4-llm-governance-strict`
+- `.psa.config.json` updated:
+  - `psap0005_relaxed_mode` key removed (now defaults to `false`).
+  - Header documentation rewritten to describe strict-mode steady
+    state rather than relaxed-mode migration baseline.
+  - Trailing `,` after `"severity": "info"` removed (correct JSON).
+- `psa.py` upgraded upstream from 4.0.1 → 4.0.2 (PSAP0005 relaxed-
+  mode coverage uplift; not a config change but the baseline numbers
+  in §A.11.5 are based on this version).
+
+### Cycle B (SPEC cross-reference cleanup) — consolidated into this release
+
+The original plan was to ship this as `r77 / r43 / r21 / r25`. The
+empirical analysis (SPEC §D.34) led to consolidating the four cycles
+into this single r80 release. The rewrites that would have been
+Cycle B:
+
+- Chipset: 14 sites of `(r65, SPEC D.24)` / `(r66, SPEC D.24)` →
+  `(see SPEC §D.24)` — Phantom file reference helpers in P09.
+- Chipset: `Orphan catalog cleanup (r66 / SPEC D.24):` (slash separator)
+  → `Orphan catalog cleanup (see SPEC §D.24):`
+- Chipset / Graphics: `(r75 - SPEC D.33):` (dash separator) →
+  `(see SPEC §D.33):`
+- Chipset: `r68 (SPEC §D.26): LOADED honesty gate.` (reversed parens) →
+  `(see SPEC §D.26): LOADED honesty gate.`
+- Graphics: `r34 (SPEC §D.26): LOADED honesty gate.` (reversed parens, cross-port) →
+  `(see SPEC §D.26): LOADED honesty gate (cross-port from Chipset).`
+- 3 scripts byte-identical: `See SPEC SS D.31 for the full r71 design contract; SPEC SS D.31.11` →
+  `See SPEC §D.31 for the full design contract; SPEC §D.31.11`
+
+### Cycle A (SECTION header cleanup) — consolidated
+
+- 3 scripts byte-identical: `# SECTION r71: WHQL co-sign pre-detection + Path B prerequisite check` →
+  `# SECTION: WHQL co-sign pre-detection + Path B prerequisite check`
+- 3 scripts byte-identical: `# SECTION (r69, QI-6): CRITICAL severity acknowledgement helpers` →
+  `# SECTION (QI-6): CRITICAL severity acknowledgement helpers`
+- 3 scripts byte-identical: `# SECTION (r69, QI-9): System Restore status helpers` →
+  `# SECTION (QI-9): System Restore status helpers`
+- 3 scripts byte-identical (Pre-check semi-section): `# r71 Pre-check: Path B prerequisite check (Secure Boot firmware state)` →
+  `# Pre-check: Path B prerequisite check (Secure Boot firmware state)`
+
+### Cycle D (Earlier-revisions prose cleanup) — consolidated
+
+- Chipset: `# CSV is also absent (e.g. very old workspace prior to r65),` →
+  `# CSV is also absent (e.g. very old workspaces),`
+- Chipset: `# when no inventory is available, when the inventory predates r65` →
+  `# when no inventory is available, when the inventory predates the inf_inventory introduction`
+- Chipset: `# - If the CSV is also missing or predates r65 (no` →
+  `# - If the CSV is also missing or predates the inf_inventory introduction (no`
+- Chipset: `# workspace recovered from an r65 run, or a future code path` →
+  `# workspace recovered from an older inventory-less run, or a future code path`
+- Graphics: `# See SPEC SS D.31. Until r39, Graphics shipped the consumer code (I00 C6,` →
+  `# See SPEC §D.31. Earlier Graphics revisions shipped the consumer code (I00 C6,`
+
+### Cycle C (Added-in-release phrasing cleanup) — consolidated
+
+The most extensive category. Pattern: shift the rationale anchor
+from `(added with the rNN release)` to `(see SPEC §D.YY)`.
+
+- 3 scripts byte-identical: `# WHQL co-signature analysis (added with the r71 release).` →
+  `# WHQL co-signature analysis (see SPEC §D.31).`
+- Chipset: `(added with the r71 release) from the patch-eligible subset` →
+  `(see SPEC §D.31) from the patch-eligible subset`
+- Graphics (cross-port narrative): `(added with the r71 release; ported into Graphics by r39)` →
+  `(see SPEC §D.31; cross-script port to Graphics)`
+- 3 scripts byte-identical (I02 short-circuit): `(added with the r72 release) for all-WHQL trimmed install plans.` →
+  `(see SPEC §D.31.11) for all-WHQL trimmed install plans.`
+- BthPan: `(added in the r71 release). BthPan deploys the` →
+  `(see SPEC §D.31). BthPan deploys the`
+- Chipset / Graphics narrative: `The original r74 release threaded` →
+  `Earlier revisions threaded`
+- 3 scripts byte-identical: `# r71 adds two operator-protection mechanisms that the now-removed Path C` →
+  `# Two operator-protection mechanisms (see SPEC §D.31) that the now-removed Path C`
+- 3 scripts byte-identical: `# the /all addition in r74.` →
+  `# the /all flag (see SPEC §D.32).`
+- 3 scripts byte-identical: `documents the r72 follow-on I02 short-circuit that consumes the` →
+  `documents the I02 short-circuit (see SPEC §D.31.11) that consumes the`
+
+### NPU-specific rewrite (Q-X1 + r17 + date)
+
+NPU L5352, L5398. NPU's `Generic OS-version predicate retained after the r70 Path C deprecation.` →
+`Generic OS-version predicate retained after the Path C deprecation.`
+NPU's `# r17 (Q-X1, 2026-05-23): refuse NPU Install / All on legacy Windows Server` →
+`# (Q-X1; legacy WS2019): refuse NPU Install / All on legacy Windows Server`
+
+### Cross-port markers (Graphics-only and BthPan-only)
+
+- Graphics: 5 sites of `# r40 (graphics): ...` → `# (graphics-specific): ...`
+- BthPan: 3 sites of `# r22 (bthpan): ...` → `# (bthpan-specific): ...`
+
+### Follow-up sentences (rNN: this declaration)
+
+3 scripts: `). rNN: this declaration was ...` → `). This declaration was ...`
+- Chipset: r73
+- Graphics: r39
+- BthPan: r21
+
+### Phase-marker tri-state inline tag (Chipset only)
+
+- Chipset L9553: `Phase marker + summary (r66 tri-state:` →
+  `Phase marker + summary (tri-state form:`
+
+### Prose-internal rNN in multi-line PSCustomObject blocks (3 scripts)
+
+The `New-WhqlCoSignAnalysis` declaration block in each of Chipset /
+Graphics / BthPan had a `rNN: this declaration` follow-up plus the
+`I02 (r72 short-circuit ...)` inline reference. Both forms were
+rewritten:
+- `and I02 (r72 short-circuit for` → `and I02 (short-circuit (SPEC §D.31.11) for`
+- `(-SkipNonCosignedDrivers trim, I02 r72 short-circuit)` (Graphics L8635) →
+  `(-SkipNonCosignedDrivers trim, I02 short-circuit (SPEC §D.31.11))`
+- `missing in r71/r72 and caused P05 to throw` → `missing in earlier revisions and caused P05 to throw`
+- `P05 analysis block itself were both missing in r38;` → `... in earlier revisions;`
+
+### Documentation
+
+- `SPEC.md` §A.11.5 (Documented baseline) updated. The "Strict
+  baseline" table now includes PSAP0005; the "PSAP0005 migration
+  baseline" table renamed to "Historical migration baseline" with
+  per-`psa.py`-version comparison columns (4.0.0 / 4.0.2 relaxed /
+  4.0.2 strict).
+- `SPEC.md` §A.13 (Migration roadmap) rewritten as a "completed"
+  retrospective. The pre-r80 four-cycle plan is summarised; the
+  consolidated implementation is documented.
+- `SPEC.md` §D.34 (new) — full post-mortem of the strict-mode-flip
+  release: why the four-cycle plan was abandoned, what `psa.py`
+  4.0.2's uplift contributed, the per-category rewrite table, and
+  lessons learned for similar future migrations.
+- `SPEC.md` §A.11 footnote updated to reflect the new strict-mode
+  validation history.
+
+### Verification
+
+```text
+$ python3 psa.py --config .psa.config.json \
+    Deploy-AMDChipsetDriverOnWindowsServer.ps1 \
+    Deploy-AMDGraphicsDriverOnWindowsServer.ps1 \
+    Deploy-AMDNpuDriverOnWindowsServer.ps1 \
+    Deploy-MSBthPanInboxOnWindowsServer.ps1
+
+File   : Deploy-AMDChipsetDriverOnWindowsServer.ps1
+Lines  : 14278
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+Lines  : 14045
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-AMDNpuDriverOnWindowsServer.ps1
+Lines  : 7017
+Issues : 0 errors, 0 warnings, 0 info
+File   : Deploy-MSBthPanInboxOnWindowsServer.ps1
+Lines  : 11280
+Issues : 0 errors, 0 warnings, 0 info
+```
+
+### File integrity preserved
+
+- All four `.ps1` files retain UTF-8 BOM (PSA7001) and CRLF line
+  endings (PSA7002).
+- PSA8001 byte-identity verified on all shared helpers (no shared
+  helper was rewritten in only some sister scripts).
+- 5 existing `# psa-disable-line PSAP0005 -- AMD ... identifier`
+  suppression directives in Graphics (for `R9700`, `R1*`, `V1*`
+  hardware platform identifiers) are preserved unchanged.
+
+### Runtime behaviour
+
+**No runtime behaviour changes.** This is a pure documentation /
+comment-prose / configuration release. The only executable change
+is the `$Script:ScriptVersion` / `$Script:ScriptTag` constants
+themselves, which are displayed in banners and recorded in
+`DebugTrace JSONL` output but do not affect any code path.
+
+---
+
 ## [2026-05-25] `psa-py-v4-llm-governance-baseline` — Chipset r76 / Graphics r42 / BthPan r24 / NPU r20
 
 This release is the **LLM-governance baseline** for the four
