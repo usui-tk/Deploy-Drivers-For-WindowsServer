@@ -237,14 +237,13 @@
     // psa-py-v410-shared-helper-canon-uplift release (r82 / r48 / r30 /
     // r26); they are NO LONGER listed here and PSA8001 actively
     // enforces their byte-identity invariant. Get-OrEnsureSecureBootBaseline
-    // is byte-identical across Chipset / Graphics / BthPan but differs
-    // intentionally in NPU because the NPU script keeps Secure Boot
-    // baseline state on a $Script:DetectedPlatform hashtable rather than
-    // passing $Ctx around. This entry remains in the ignore list as a
-    // documented Tier B-4 backlog item (NPU state-model refactor; see
-    // SPEC.md §A.11.7); the Get-OrEnsureSecureBootBaseline divergence
-    // will be removed when that refactor lands.
-    "Get-OrEnsureSecureBootBaseline",
+    // was elevated to the same 4-way Tier A status by the stage 3
+    // completion of the NPU state-model refactor (SPEC.md §A.11.7);
+    // the entry was removed from this ignore list at the same time and
+    // PSA8001 now enforces 4-way byte-identity for Get-OrEnsureSecureBootBaseline
+    // as well. The Format / Get / Invoke helpers below remain script-
+    // specific (NPU implements a simplified probe set, Chipset and BthPan
+    // implement different inventory layouts).
     "Format-SecureBootBaselineForReport",
     "Get-SecureBootCertificateInventory",
     "Get-MsSecureBootExampleScriptPath",

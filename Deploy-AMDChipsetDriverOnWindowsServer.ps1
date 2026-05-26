@@ -651,8 +651,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.05.26-r84'
-$Script:ScriptTag     = 'npu-state-model-refactor-step-2-phase-functions-ctx'
+$Script:ScriptVersion = 'chipset-2026.05.26-r85'
+$Script:ScriptTag     = 'npu-state-model-refactor-step-3-tier-b4-helper-canon'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls

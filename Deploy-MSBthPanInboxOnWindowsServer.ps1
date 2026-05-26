@@ -437,8 +437,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-$Script:ScriptVersion = 'msbthpan-2026.05.26-r32'
-$Script:ScriptTag     = 'npu-state-model-refactor-step-2-phase-functions-ctx'
+$Script:ScriptVersion = 'msbthpan-2026.05.26-r33'
+$Script:ScriptTag     = 'npu-state-model-refactor-step-3-tier-b4-helper-canon'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls

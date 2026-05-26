@@ -20,7 +20,232 @@ independently.
 
 ---
 
-## [2026-05-26] `npu-state-model-refactor-step-2-phase-functions-ctx` — Chipset r84 / Graphics r50 / BthPan r32 / NPU r28
+## [2026-05-26] `npu-state-model-refactor-step-3-tier-b4-helper-canon` — Chipset r85 / Graphics r51 / BthPan r33 / NPU r29
+
+This is **stage 3 (the final stage) of the NPU state-model refactor**.
+Stage 1 (`npu-state-model-refactor-step-1-wdac-helpers`) ported the
+required WDAC tooling helpers from Chipset and constructed the canonical
+`$Ctx` skeleton inside NPU's `Invoke-MainEntryPoint`. Stage 2
+(`npu-state-model-refactor-step-2-phase-functions-ctx`) made that `$Ctx`
+live across every phase function and every non-phase state-touching
+helper. Stage 3 (this release) finishes the workstream by replacing the
+five Tier B-4 helper bodies with byte-identical copies from the Chipset
+canon, removing the corresponding `$Script:Foo` reads, and dropping the
+top-level `$Script:` state assignments that fed them.
+
+> **What changed**: five Tier B-4 helpers
+> (`Get-OrEnsureSecureBootBaseline`, `Get-BootSigningEnvironment`,
+> `Show-BootSigningEnvironment`, `Invoke-Cleanup`,
+> `Resume-CtxFromWorkspace`) were replaced verbatim with the Chipset
+> canon (driver-family-specific strings substituted in
+> `Resume-CtxFromWorkspace`: `'AMD-Chipset-Driver'` →
+> `'AMD-NPU-Driver'` × 4, `'AMD chipset'` → `'AMD NPU'` × 1). NPU's
+> `Invoke-MainEntryPoint` signature was rewritten from
+> `param([Parameter(Mandatory)] $Ctx)` back to `param()` (fixing a
+> silent mandatory-parameter regression introduced by stage 2's
+> mechanical replacement — the function is called with no arguments
+> from script bottom), and its `$Ctx` construction block was rewritten
+> to read script-level parameters directly (`$WorkRoot`,
+> `$OnlyPhases`, etc.) instead of via a self-referencing parent
+> `$Ctx.Foo` lookup. The NPU `$Ctx` schema was reconciled with the
+> Chipset canon: `$Ctx.Paths` is now a populated nested
+> `[pscustomobject]` (`Paths.Cert`, `Paths.Patched`, `Paths.Markers`,
+> `Paths.Logs`, etc.) initialised at `$Ctx`-construction time, and
+> `$Ctx.CertPfxPath` / `$Ctx.CertCerPath` are alias-initialised from
+> the NPU-historical `PfxPath` / `CerPath`.
+> `$Ctx.CertThumbprint` is now populated by
+> `Invoke-PrepPhase07_CreateCertificate` (Prepare path) and by
+> `Resume-CtxFromWorkspace` (Verify / Install paths). The NPU-only
+> `$Script:DetectedPlatform` hashtable was folded under
+> `$Ctx.DetectedPlatform`. Every top-level `$Script:` state assignment
+> was removed; only identity / logging / instrumentation /
+> `WdacPolicyGuid` infra remains at script scope (the last because
+> the AMD-trio 3-way Tier B-3 helper `Test-AmdWdacPolicyDeployed`
+> reads `$Script:WdacPolicyGuid` directly). `Get-OrEnsureSecureBootBaseline`
+> was removed from `psa8001_ignore_functions`; PSA8001 now actively
+> enforces its 4-way byte-identity invariant. Tier A grew from 38
+> functions to 39. The four remaining Tier B-4 helpers establish an
+> AMD-trio 3-way byte-identity invariant but do not reach 4-way
+> Tier A due to structural blockers (one-line Chipset/Graphics
+> comment drift, BthPan implementation differences, per-driver-family
+> cert filenames); these are documented in SPEC §A.11.7 future-work
+> and in SPEC §D.36 post-mortem.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.26-r84` → `chipset-2026.05.26-r85`
+  - Graphics: `graphics-2026.05.26-r50` → `graphics-2026.05.26-r51`
+  - NPU: `npu-2026.05.26-r28` → `npu-2026.05.26-r29`
+  - BthPan: `msbthpan-2026.05.26-r32` → `msbthpan-2026.05.26-r33`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `npu-state-model-refactor-step-2-phase-functions-ctx` → `npu-state-model-refactor-step-3-tier-b4-helper-canon`
+
+### NPU script — Tier B-4 helper Chipset-canon adoption
+
+The five Tier B-4 helpers were replaced with byte-identical copies of
+the Chipset canon. Pre- and post-r85 byte counts:
+
+| Helper | Pre-r85 (NPU) | Post-r85 (NPU) | Verbatim source | Driver-family substitution |
+|:---|---:|---:|:---|:---|
+| `Get-OrEnsureSecureBootBaseline` | 2618 | 2374 | Chipset | none |
+| `Get-BootSigningEnvironment` | 1753 | 7999 | Chipset | none |
+| `Show-BootSigningEnvironment` | 1603 | 3632 | Chipset | none |
+| `Invoke-Cleanup` | 3195 | 1783 | Chipset | none |
+| `Resume-CtxFromWorkspace` | 3152 | 3779 | Chipset | `'AMD-Chipset-Driver'` → `'AMD-NPU-Driver'` × 4; `'AMD chipset'` → `'AMD NPU'` × 1 |
+
+The `Invoke-Cleanup` adoption changed NPU's cleanup semantics from
+**cert-subject-CN enumeration** (scan `Cert:\LocalMachine\Root\` and
+match on `$cert.Subject -match [regex]::Escape($Script:CertSubjectCn)`)
+to **marker-file lookup** (read `PolicyId` from
+`$Ctx.Paths.Cert\AmdSuppPolicyId.txt` and call `Uninstall-AmdWdacPolicy`).
+SPEC §D.36.1 documents why the marker-file pattern was adopted as canon
+and why the cert-subject pattern was abandoned outright (rather than
+retained as a fallback).
+
+### NPU script — `Invoke-MainEntryPoint` signature and body rewrite
+
+Stage 2's mechanical replacement had erroneously rewritten the signature
+to `param([Parameter(Mandatory)] $Ctx)`, but the caller invokes the
+function with no arguments (`Invoke-MainEntryPoint` from script bottom).
+This would have failed at runtime with a parameter-binding error on the
+first script execution after r84 shipped. The regression was not caught
+by `psa.py` (PSA2001 does not currently model "function is called with
+no arguments but declares a mandatory parameter"). r85 restores the
+correct `param()` signature.
+
+The body was rewritten alongside the signature: where stage 2's `$Ctx`
+construction block read every value from `$Ctx.Foo` (a self-reference
+that produced `$null` for every property), r85's construction block
+reads from the script-level parameters directly (`$WorkRoot`,
+`$OnlyPhases`, `$InstallerUrl`, etc.) and from local helper variables
+(`$certDir = Join-Path $WorkRoot 'cert'`).
+
+### NPU script — `$Ctx` schema reconciliation with Chipset canon
+
+Three reconciliations were required for the Tier B-4 helper verbatim
+copies to consume `$Ctx` correctly:
+
+1. **`$Ctx.Paths` was `$null` and is now a populated nested
+   `[pscustomobject]`** with the canonical Chipset sub-keys
+   (`Root` / `Download` / `Extract` / `Patched` / `Cert` / `Markers` /
+   `Logs`). NPU initialises this at `$Ctx`-construction time (instead
+   of in P01 like Chipset) because the path layout is entirely known
+   from `$WorkRoot` at script start — no workspace-bootstrap step is
+   required to compute valid path values.
+
+2. **`$Ctx.CertPfxPath` and `$Ctx.CertCerPath`** are now
+   alias-initialised at `$Ctx`-construction time:
+   `CertPfxPath = Join-Path $certDir 'AMD-NPU-Driver-CodeSign.pfx'`
+   and `CertCerPath = Join-Path $certDir 'AMD-NPU-Driver-CodeSign.cer'`.
+   These mirror the NPU-historical `$Ctx.PfxPath` /
+   `$Ctx.CerPath` flat properties (which remain in place for NPU
+   phase-function consumption; folding them is tracked as
+   outstanding Tier B-4 backlog in SPEC §A.11.7 future-work).
+
+3. **`$Ctx.CertThumbprint`** is now populated by
+   `Invoke-PrepPhase07_CreateCertificate` (line added immediately
+   after `$Ctx.DetectedPlatform.Cert = $cert`) on the Prepare path,
+   and by `Resume-CtxFromWorkspace` (inherited from Chipset canon)
+   on the Verify / Install paths.
+
+### NPU script — `$Script:DetectedPlatform` folded under `$Ctx.DetectedPlatform`
+
+The NPU-only `$Script:DetectedPlatform` hashtable (28 properties for
+OS / NPU / Ryzen AI Software / download artefacts / Secure Boot
+baseline) was hoisted out of script scope and into
+`$Ctx.DetectedPlatform`. All NPU consumers (85 references across
+phase functions and helpers) already used `$Ctx.DetectedPlatform`
+since stage 2's mechanical rewrite; r85 makes the underlying value
+non-`$null`.
+
+### NPU script — top-level `$Script:` state assignments removed
+
+Every `$Script:Foo = ...` assignment at script scope was deleted
+except for these infra concerns (read by helpers that cannot
+practically take `$Ctx`):
+
+- **Identity**: `$Script:ScriptVersion`, `$Script:ScriptTag`,
+  `$Script:ScriptName`, `$Script:RepoUrl`, `$Script:ScriptHash`,
+  `$Script:ScriptPath`, `$Script:ScriptShortTag`.
+- **WDAC GUID (special case)**: `$Script:WdacPolicyGuidDefault` and
+  `$Script:WdacPolicyGuid` remain at script scope because the AMD-trio
+  3-way Tier B-3 helper `Test-AmdWdacPolicyDeployed` is byte-identical
+  across Chipset / Graphics / NPU and reads `$Script:WdacPolicyGuid`
+  directly. Migrating that consumer to `$Ctx` would break the 3-way
+  identity and is deferred to a future cross-script refactor.
+- **Logging / dispatcher / DebugTrace instrumentation**:
+  `$Script:HostStartTime`, `$Script:ScriptStartTime`,
+  `$Script:CurrentPhaseStart`, `$Script:CurrentPhaseId`,
+  `$Script:PhaseTimings`, `$Script:LogFileRelocation`,
+  `$Script:LogFileActive`, `$Script:PhaseRegistry`,
+  `$Script:PhaseResults`, `$Script:DebugTrace*` (14 properties),
+  `$Script:TopLevelException`.
+
+The five `[switch]`-typed script parameters
+(`$CleanWorkRoot`, `$UseTestSigning`, `$AllowWorkstationInstall`,
+`$ForceAmdAccountAuth`, `$AssumeIfMissing`) are read inside
+`Invoke-MainEntryPoint` via parent-scope lookup, which PSA2001 cannot
+model for `[switch]` parameters (there is no default-value form for
+PSA2001 to recognise — `[switch]$Foo = $false` is a parser error).
+Each of the five read sites carries an explicit
+`# psa-disable-line PSA2001 -- script-param parent-scope lookup` to
+keep the 0/0/0 baseline. Folding `Invoke-MainEntryPoint` back into
+script-scope code (as in Chipset / Graphics / BthPan) would eliminate
+the suppressions but is tracked as outstanding Tier B-4 backlog in
+SPEC §A.11.7 future-work.
+
+### NPU script — phase-function `$Script:WdacPolicyGuid` → `$Ctx.WdacPolicyGuid`
+
+`Invoke-InstPhase02_AuthorizeDriverSigning` had two `$Script:WdacPolicyGuid`
+references (line 6987 and line 6990 in the pre-r85 source); both were
+rewritten to `$Ctx.WdacPolicyGuid`. `Test-AmdWdacPolicyDeployed`
+(the 3-way Tier B-3 helper at line 1486-1487) is untouched per the
+infra-special-case decision above.
+
+### Static-analysis posture changes
+
+`.psa.config.json` was updated:
+
+- **`Get-OrEnsureSecureBootBaseline`** was removed from
+  `psa8001_ignore_functions`. PSA8001 now actively enforces 4-way
+  byte-identity for this function. Tier A growth: 38 → 39.
+- The four remaining Tier B-4 helpers stay in the ignore list because
+  their structural blockers (described in SPEC §D.36.3) preclude
+  4-way alignment without an operator-visible change.
+
+The 6-gate verification gauntlet (`--config-check`, full
+`--config .psa.config.json Deploy-*.ps1`, `--severity error` floor,
+PSA8001-only scan, PSAP000x-only scan, `--self-check`, and the
+`test_psa_rules.py` regression suite) passes for r85.
+
+### r84 forward-looking correction (per repository policy)
+
+The r84 SPEC §A.11.7 stage-2 row and the r84 CHANGELOG entry described
+the planned stage-3 outcome as "PSA8001 then enforces 41-way Tier A"
+and the achievable Tier A delta as "38 → 43". The actual stage-3
+outcome is **38 → 39** — only `Get-OrEnsureSecureBootBaseline` reaches
+4-way byte-identity. The four other Tier B-4 helpers establish an
+AMD-trio 3-way byte-identity invariant but do not reach 4-way Tier A
+due to structural blockers documented in SPEC §D.36.3 (per-helper:
+Chipset/Graphics one-line comment drift; BthPan implementation
+differences; per-driver-family cert filenames). Per repository policy
+the r84 historical text is **preserved verbatim**; this paragraph is
+the forward-looking correction in the chronological log.
+
+### r83 design judgment retrospective
+
+SPEC §D.36.2 captures the post-mortem on r83's `$Ctx` skeleton design
+(canon properties declared as `$null` instead of alias-initialised from
+NPU-historical values), which cost an additional refactor stage to
+unwind. The principle stated there — "when introducing a canonical
+schema alongside legacy state, initialise the canonical properties
+with the legacy values from day one" — is the actionable takeaway for
+future cross-script refactors.
+
+---
+
+
 
 This is **stage 2 of the NPU state-model refactor** — the bulk of the
 restructuring work. Stage 1 (`npu-state-model-refactor-step-1-wdac-helpers`)

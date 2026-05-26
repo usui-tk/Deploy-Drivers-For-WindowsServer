@@ -225,19 +225,19 @@ param(
     [string]$Action = 'PrepareVerify',
 
     [Parameter()]
-    [string[]]$OnlyPhases,
+    [string[]]$OnlyPhases = @(),
 
     [Parameter()]
-    [string]$InstallerUrl,
+    [string]$InstallerUrl = '',
 
     [Parameter()]
-    [string]$OfflineZip,
+    [string]$OfflineZip = '',
 
     [Parameter()]
-    [string]$AmdAccountUser,
+    [string]$AmdAccountUser = '',
 
     [Parameter()]
-    [System.Security.SecureString]$AmdAccountPassword,
+    [System.Security.SecureString]$AmdAccountPassword = $null,
 
     [Parameter()]
     [switch]$ForceAmdAccountAuth,
@@ -248,7 +248,7 @@ param(
     # assignment, which re-evaluates parameter validation in PSv5. The
     # empty value means "no override; auto-detect via Get-AmdNpuPlatform".
     [ValidateSet('','PHX','HPT','STX','KRK')]
-    [string]$NpuOverride,
+    [string]$NpuOverride = '',
 
     [Parameter()]
     [ValidateSet('NPU_RAI1.5_280', 'NPU_RAI1.6.1_314', 'latest')]
@@ -300,57 +300,43 @@ param(
 )
 
 # =============================================================================
-# Mirror parameters into Script scope so functions can reference them via $Script:Foo
-# (Without this, functions calling $InstallerUrl etc. rely on PowerShell's implicit
-# parent-scope lookup, which works at runtime but trips static analyzers.)
+# Script-scope infrastructure (logging, identity, timing).
+#
+# The script no longer mirrors operational parameters or derived paths
+# into the Script scope - all of that state is carried on the $Ctx
+# PSCustomObject that Invoke-MainEntryPoint constructs and threads
+# through every phase / helper. Only the following remain at script
+# scope:
+#
+#   * ScriptVersion / ScriptTag / ScriptName / RepoUrl / ScriptHash /
+#     ScriptPath / ScriptShortTag - identity metadata read by banners,
+#     log headers, and Write-DebugFailureReport.
+#   * WdacPolicyGuidDefault / WdacPolicyGuid - read by the AMD-family
+#     3-way Tier B-3 helper Test-AmdWdacPolicyDeployed (byte-identical
+#     across Chipset / Graphics / NPU; migrating its consumer would
+#     break the 3-way identity and is deferred to a future cross-script
+#     refactor).
+#   * HostStartTime / ScriptStartTime / CurrentPhaseStart /
+#     CurrentPhaseId / PhaseTimings - dispatcher and phase-runner
+#     instrumentation.
+#   * PhaseResults - per-phase outcome registry (write side from
+#     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:Action                  = $Action
-$Script:OnlyPhases              = $OnlyPhases
-$Script:InstallerUrl            = $InstallerUrl
-$Script:OfflineZip              = $OfflineZip
-$Script:AmdAccountUser          = $AmdAccountUser
-$Script:AmdAccountPassword      = $AmdAccountPassword
-$Script:ForceAmdAccountAuth     = [bool]$ForceAmdAccountAuth
-$Script:NpuOverride             = $NpuOverride
-$Script:NpuDriverPackage        = $NpuDriverPackage
-$Script:RyzenAiSoftwareVersion  = $RyzenAiSoftwareVersion
-$Script:AssumeIfMissing         = [bool]$AssumeIfMissing
-$Script:AllowWorkstationInstall = [bool]$AllowWorkstationInstall
-$Script:UseTestSigning          = [bool]$UseTestSigning
-$Script:CleanWorkRoot           = [bool]$CleanWorkRoot
-$Script:WorkRoot                = $WorkRoot
-$Script:PfxPassword             = $PfxPassword
-$Script:CertValidityYears       = $CertValidityYears
-
-# =============================================================================
-# Script-scope state
-# =============================================================================
-$Script:ScriptVersion       = 'npu-2026.05.26-r28'
-$Script:ScriptTag           = 'npu-state-model-refactor-step-2-phase-functions-ctx'
+$Script:ScriptVersion       = 'npu-2026.05.26-r29'
+$Script:ScriptTag           = 'npu-state-model-refactor-step-3-tier-b4-helper-canon'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
-$Script:CertSubjectCn       = 'AMD NPU Driver Self-Sign (WS2025 Lab, At Own Risk)'
-$Script:WdacPolicyName      = 'AMD-NPU-Driver-SelfSign-Lab'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the
 # -WdacPolicyGuid parameter, e.g. when cleaning up a legacy deploy whose
-# PolicyId differs from the default.
+# PolicyId differs from the default. Kept at script scope because
+# Test-AmdWdacPolicyDeployed (a 3-way Tier B-3 helper byte-identical
+# across the AMD family) reads $Script:WdacPolicyGuid directly.
 $Script:WdacPolicyGuidDefault = '8B2C4F12-1E9D-4D7B-A4F8-9C7E2B6A53D1'
 $Script:WdacPolicyGuid      = if (-not [string]::IsNullOrWhiteSpace($WdacPolicyGuid)) {
     $WdacPolicyGuid.Trim('{','}','(',')',' ')
 } else {
     $Script:WdacPolicyGuidDefault
 }
-$Script:DownloadDir         = Join-Path $WorkRoot 'download'
-$Script:ExtractedDir        = Join-Path $WorkRoot 'extracted'
-$Script:PatchedDir          = Join-Path $WorkRoot 'patched'
-$Script:CertDir             = Join-Path $WorkRoot 'cert'
-$Script:PfxPath             = Join-Path $Script:CertDir 'AMD-NPU-Driver-CodeSign.pfx'
-$Script:CerPath             = Join-Path $Script:CertDir 'AMD-NPU-Driver-CodeSign.cer'
-$Script:WdacXmlPath         = Join-Path $Script:CertDir 'WDAC-Supplemental-NPU.xml'
-$Script:WdacBinPath         = Join-Path $Script:CertDir 'WDAC-Supplemental-NPU.cip'
-$Script:InventoryCsvPath    = Join-Path $WorkRoot 'inf_inventory.csv'
-$Script:InventoryReportPath = Join-Path $WorkRoot 'inf_inventory_report.txt'
-$Script:TimestampUrl        = 'http://timestamp.digicert.com'
 $Script:HostStartTime       = Get-Date
 $Script:ScriptStartTime     = Get-Date
 
@@ -747,44 +733,7 @@ $Script:PhaseRegistry = @(
     [pscustomobject]@{ Id='I04'; Name='PostInstallVerification';   Group='Inst';   Func='Invoke-InstPhase04_PostInstallVerification'   }
 )
 
-# Detected platform state (populated in P00 and P03)
-$Script:DetectedPlatform = @{
-    OsCaption          = $null
-    OsBuild            = $null
-    OsProductType      = $null  # 1=Workstation, 3=Server
-    OsProfile          = $null  # WS2016 / WS2019 / WS2022 / WS2025
-    Inf2CatOsSwitch    = $null  # Server2025_X64 etc
-    IsWorkstationOs    = $null
-    IsServer2025       = $null
-    NpuCodename        = $null
-    NpuShortName       = $null
-    NpuHardwareId      = $null
-    NpuRevision        = $null
-    NpuIsDetected      = $false
-    NpuDetectionSource = $null
-    CpuName            = $null
-    # ----- NPU kernel-mode driver (versioning is INDEPENDENT from RAI Software) -----
-    NpuDriverPackage   = $null   # e.g. 'NPU_RAI1.6.1_314'  (resolved package id)
-    NpuDriverBuild     = $null   # e.g. '32.0.203.314'      (kernel driver build)
-    NpuDriverZipName   = $null   # e.g. 'NPU_RAI1.6.1_314_WHQL.zip'
-    # ----- Ryzen AI Software (user-mode stack — versioning is INDEPENDENT from driver) -----
-    RyzenAiSoftwareVersion = $null  # e.g. '1.7.1' (always the latest unless pinned)
-    RyzenAiSoftwareInstaller = $null # e.g. 'ryzen-ai-lt-1.7.1.exe'
-    # ----- Compatibility evaluation (driver <-> software) -----
-    DriverSoftwareCompatible = $null # bool result of Test-NpuDriverRaiCompatibility
-    DriverSoftwareCompatNote = $null # human-readable explanation
-    # ----- Download / extraction artefacts -----
-    DownloadedZipPath  = $null
-    DownloadedZipName  = $null
-    SignToolPath       = $null
-    Inf2CatPath        = $null
-    SevenZipPath       = $null
-    # ----- UEFI Secure Boot baseline (snapshot captured at P00, reused
-    # by P05 report, V05 / V06 display, I02 pre-check). See section
-    # 'UEFI Secure Boot certificate baseline' above for the snapshot
-    # functions and Get-OrEnsureSecureBootBaseline helper.
-    SecureBootBaseline = $null
-}
+
 
 # Phase results
 $Script:PhaseResults = @{}
@@ -1525,71 +1474,238 @@ function Uninstall-AmdWdacPolicy {
 }
 
 function Get-BootSigningEnvironment {
-    # ====================================================================
-    # NPU-specific simplified boot-signing environment probe.
-    # ====================================================================
-    # Minimal port from the sister scripts. The full canonical
-    # implementation (Chipset / Graphics / MSBthPan, ~172 lines) enumerates
-    # WDAC Code Integrity policies via CiTool.exe and Get-CimInstance
-    # against Win32_DeviceGuard. For the NPU script's experimental scope
-    # we return only the Secure Boot baseline state; WDAC policy
-    # enumeration is left to the sister scripts. Callers should not rely
-    # on the.Policies or.HVCI fields here.
-    #
-    # The returned object is intentionally compatible with the
-    # Show-BootSigningEnvironment stub below.
-    $result = [pscustomobject]@{
-        SecureBootEnabled = $null
-        SecureBootMode    = 'Unknown'
-        TestSigningOn     = $false
-        HVCI              = $null
-        Policies          = @()
-        IsSimplified      = $true
+    # Every field is best-effort; failures are recorded rather than
+    # thrown so the caller can decide what to do with partial data.
+    $env = [pscustomobject]@{
+        FirmwareType               = 'unknown'
+        IsUefi                     = $false
+        SecureBootEnabled          = $null   # $true / $false / $null=unknown
+        SecureBootDetectError      = $null
+        TestSigningEnabled         = $null
+        TestSigningStateText       = 'unknown'
+        BcdEnumRaw                 = $null
+        BcdLoadOptions             = $null
+        VbsRunning                 = $false
+        VbsStatus                  = $null
+        HvciRunning                = $false
+        HvciAvailable              = $false
+        MemoryIntegrityEnabled     = $false
+        EffectiveCanLoadSelfSigned = $false
+        BlockReasons               = @()
     }
+
+    # Firmware Type (UEFI vs BIOS) via the kernel-set registry value
+    # HKLM\SYSTEM\CurrentControlSet\Control\PEFirmwareType:
+    #   1 = BIOS (Legacy)
+    #   2 = UEFI
     try {
-        $result.SecureBootEnabled = [bool](Confirm-SecureBootUEFI -ErrorAction Stop)
-        $result.SecureBootMode    = if ($result.SecureBootEnabled) { 'On' } else { 'Off' }
-    } catch {
-        $result.SecureBootMode    = 'Unsupported-or-UEFI-not-available'
-    }
-    # Probe testsigning via bcdedit (no admin escalation prompt here).
-    try {
-        $bcd = & bcdedit /enum '{current}' 2>$null | Out-String
-        if ($bcd -match '(?im)^\s*testsigning\s+Yes\s*$') {
-            $result.TestSigningOn = $true
+        $val = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control' `
+                                 -Name 'PEFirmwareType' -ErrorAction Stop).PEFirmwareType
+        switch ([int]$val) {
+            1 { $env.FirmwareType = 'BIOS (legacy)'; $env.IsUefi = $false }
+            2 { $env.FirmwareType = 'UEFI';          $env.IsUefi = $true  }
+            default { $env.FirmwareType = "unknown ($val)" }
         }
     } catch {
-        # bcdedit not available or failed; leave default $false
+        # Some constrained installs lack PEFirmwareType; fall back to
+        # presence of EFI system partition.
+        try {
+            $efi = Get-CimInstance -ClassName Win32_DiskPartition -ErrorAction Stop |
+                Where-Object Type -match 'GPT' | Select-Object -First 1
+            if ($efi) { $env.FirmwareType = 'UEFI (inferred from GPT)'; $env.IsUefi = $true }
+        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     }
-    return $result
+
+    # Secure Boot (only meaningful on UEFI)
+    if ($env.IsUefi) {
+        try {
+            # Confirm-SecureBootUEFI throws on:
+            #   - non-UEFI systems (caller should not even ask)
+            #   - non-elevated sessions
+            #   - some virtualized environments (returns "Cmdlet not supported")
+            $env.SecureBootEnabled = [bool](Confirm-SecureBootUEFI -ErrorAction Stop)
+        } catch {
+            $env.SecureBootDetectError = $_.Exception.Message
+        }
+    } else {
+        # Legacy BIOS: Secure Boot is N/A and treated as 'off'
+        $env.SecureBootEnabled = $false
+    }
+
+    # BCD testsigning state. We deliberately query via bcdedit (text)
+    # rather than peeking at HKLM\BCD00000000 because the latter is
+    # not stable across Windows versions.
+    try {
+        $bcdOutput = & bcdedit /enum '{current}' 2>&1 | Out-String
+        $env.BcdEnumRaw = $bcdOutput
+        if ($bcdOutput -match '(?im)^testsigning\s+(Yes|No)') {
+            $env.TestSigningStateText = $matches[1]
+            $env.TestSigningEnabled   = ($matches[1] -eq 'Yes')
+        } else {
+            # If the line is absent, the default is 'No'.
+            $env.TestSigningStateText = 'No (default)'
+            $env.TestSigningEnabled   = $false
+        }
+        if ($bcdOutput -match '(?im)^loadoptions\s+(.+)$') {
+            $env.BcdLoadOptions = $matches[1].Trim()
+        }
+    } catch {
+        # bcdedit failed - probably non-elevated; leave fields null.
+    }
+
+    # VBS / HVCI / Memory Integrity via Win32_DeviceGuard (Windows 10+
+    # / Server 2016+). On older systems this WMI class is absent and
+    # we treat all flags as off.
+    try {
+        $dg = Get-CimInstance -Namespace 'root\Microsoft\Windows\DeviceGuard' `
+                              -ClassName 'Win32_DeviceGuard' -ErrorAction Stop
+        # VirtualizationBasedSecurityStatus:
+        #   0 = VBS not enabled
+        #   1 = VBS enabled but not running
+        #   2 = VBS enabled AND running
+        $env.VbsStatus  = [int]$dg.VirtualizationBasedSecurityStatus
+        $env.VbsRunning = ($env.VbsStatus -eq 2)
+        # SecurityServicesRunning is an int[]; codes:
+        #   1 = Credential Guard
+        #   2 = HVCI / Memory Integrity (Hypervisor-protected Code Integrity)
+        #   3 = System Guard Secure Launch
+        #   4 = SMM Firmware Measurement
+        #   5 = Vendor TPM
+        $running    = @($dg.SecurityServicesRunning)
+        $configured = @($dg.SecurityServicesConfigured)
+        $env.HvciRunning   = ($running    -contains 2)
+        $env.HvciAvailable = ($configured -contains 2)
+        $env.MemoryIntegrityEnabled = $env.HvciRunning
+    } catch {
+        # No Win32_DeviceGuard - keep defaults (all off).
+    }
+
+    # WDAC custom CI policy state. Two pieces of info:
+    #   1. Are the WDAC tools available? (we can deploy if yes)
+    #   2. Is OUR self-signed-allowlist supplemental currently active?
+    #      (= we already have the green light to load self-signed
+    #      drivers WITH Secure Boot enabled).
+    $env | Add-Member -MemberType NoteProperty -Name WdacToolsAvailable -Value $false      -Force
+    $env | Add-Member -MemberType NoteProperty -Name WdacActivePolicies -Value @()         -Force
+    $env | Add-Member -MemberType NoteProperty -Name WdacBaseEnforced   -Value $null       -Force
+    $env | Add-Member -MemberType NoteProperty -Name AmdSuppPolicyActive -Value $false     -Force
+    $env | Add-Member -MemberType NoteProperty -Name AmdSuppPolicyId    -Value $null       -Force
+    try {
+        $caps = Test-WdacToolsAvailable
+        $env.WdacToolsAvailable = $caps.AnyUsable
+        $active = Get-ActiveCodeIntegrityPolicies
+        $env.WdacActivePolicies = $active
+        $base = $active | Where-Object { -not $_.IsSupplemental } | Select-Object -First 1
+        if ($base) {
+            $env.WdacBaseEnforced = [bool]$base.IsEnforced
+        }
+        # Caller-side check: the marker file lives in the workspace
+        # cert dir; we do NOT have $Ctx here, so we look for a cip
+        # whose name appears in any of the active policies AND which
+        # we previously saved as ours. If the caller cares about the
+        # marker, they should call Test-AmdWdacPolicyDeployed -Ctx...
+        # directly. Here we only set AmdSuppPolicyActive to $false.
+    } catch {
+        # WDAC inspection failed - leave defaults
+    }
+
+    # Compute effective "can a self-signed kernel-mode driver load?"
+    # There are now TWO valid paths:
+    #   PATH 1 (Secure Boot ON, recommended):
+    #     Secure Boot ON
+    #     WDAC supplemental policy with our cert deployed (AmdSuppPolicyActive=true)
+    #   PATH 2 (Secure Boot OFF, legacy):
+    #     Secure Boot off
+    #     testsigning ON
+    #     HVCI off
+    # The caller (I02) decides which path to take based on the current
+    # firmware state and -UseTestSigning override.
+    $env.BlockReasons = @()
+    $path1Open = ($env.AmdSuppPolicyActive -eq $true)
+    $path2Open = ($env.SecureBootEnabled -ne $true) -and `
+                 ($env.TestSigningEnabled -eq $true) -and `
+                 (-not $env.HvciRunning)
+
+    if (-not $path1Open) {
+        $env.BlockReasons += 'No WDAC supplemental policy authorizes the AMD self-signing certificate'
+    }
+    if (-not $path2Open) {
+        if ($env.SecureBootEnabled -eq $true) {
+            $env.BlockReasons += 'Secure Boot is ON (legacy testsigning path requires Secure Boot off)'
+        }
+        if ($env.TestSigningEnabled -ne $true) {
+            $env.BlockReasons += 'BCD testsigning is OFF (legacy path)'
+        }
+        if ($env.HvciRunning) {
+            $env.BlockReasons += 'HVCI / Memory Integrity is RUNNING (legacy path requires HVCI off)'
+        }
+    }
+    $env.EffectiveCanLoadSelfSigned = ($path1Open -or $path2Open)
+
+    return $env
 }
 
 function Show-BootSigningEnvironment {
-    # ====================================================================
-    # NPU-specific simplified boot-signing environment display.
-    # ====================================================================
-    # Minimal port. Renders the same one-line summary format as the
-    # canonical -Compact mode in the sister scripts. The verbose table
-    # mode (WDAC policy enumeration) is intentionally not implemented
-    # here; for the full diagnostic, run the Chipset script's V01.
+    # Pretty-print the boot-signing environment. Two modes:
+    #   -Compact: one-line summary suitable for the startup banner
+    #   (default): full table with notes column
     param(
-        [Parameter(Mandatory)]$BootEnv,
+        [Parameter(Mandatory)] $BootEnv,
         [switch]$Compact
     )
-    $sbColor = if ($BootEnv.SecureBootEnabled) { 'Green' } else { 'Yellow' }
-    $tsColor = if ($BootEnv.TestSigningOn) { 'Yellow' } else { 'Gray' }
+
+    function _FmtTri($v) {
+        if ($null -eq $v) { return '?' }
+        if ($v -eq $true)  { return 'ON' }
+        return 'off'
+    }
+    function _FmtBool($v) {
+        if ($v -eq $true) { return 'ON' } else { return 'off' }
+    }
+
     if ($Compact) {
-        Write-Host ('    Boot Signing        : Secure Boot = {0}, testsigning = {1}' -f $BootEnv.SecureBootMode, $BootEnv.TestSigningOn) -ForegroundColor $sbColor
-        if ($BootEnv.IsSimplified) {
-            Write-Host '                          (NPU script: simplified probe; run Chipset V01 for full WDAC enumeration)' -ForegroundColor DarkGray
-        }
+        $sb  = _FmtTri  $BootEnv.SecureBootEnabled
+        $ts  = _FmtBool $BootEnv.TestSigningEnabled
+        $hv  = _FmtBool $BootEnv.HvciRunning
+        $wd  = _FmtBool $BootEnv.AmdSuppPolicyActive
+        $eff = if ($BootEnv.EffectiveCanLoadSelfSigned) { 'ALLOWED' } else { 'BLOCKED' }
+        $effColor = if ($BootEnv.EffectiveCanLoadSelfSigned) { 'Green' } else { 'Yellow' }
+        Write-Host ('    Boot Signing        : Firmware={0,-14} SecureBoot={1,-3} TestSigning={2,-3} HVCI={3,-3} WDAC-AMD={4,-3}' -f `
+            $BootEnv.FirmwareType, $sb, $ts, $hv, $wd)
+        Write-Host ('    Self-signed driver  : {0}' -f $eff) -ForegroundColor $effColor
         return
     }
-    Write-Host '    Boot Signing Environment'
-    Write-Host ('      Secure Boot       : {0}' -f $BootEnv.SecureBootMode) -ForegroundColor $sbColor
-    Write-Host ('      testsigning       : {0}' -f $BootEnv.TestSigningOn) -ForegroundColor $tsColor
-    if ($BootEnv.IsSimplified) {
-        Write-Host '      (simplified probe in NPU script; WDAC enumeration not available here)' -ForegroundColor DarkGray
+
+    # Verbose table
+    Write-Host '    +------------------------+-----------+------------------------------------------------+'
+    Write-Host '    | Setting                | Value     | Role for self-signed driver load               |'
+    Write-Host '    +------------------------+-----------+------------------------------------------------+'
+    $rows = @(
+        @{ N='Firmware Type';         V=$BootEnv.FirmwareType;                  Note='UEFI = subject to Secure Boot policy'         },
+        @{ N='Secure Boot';           V=(_FmtTri  $BootEnv.SecureBootEnabled);  Note='Can stay ON if WDAC supplemental is deployed' },
+        @{ N='BCD testsigning';       V=(_FmtBool $BootEnv.TestSigningEnabled); Note='Legacy path only (requires Secure Boot off)'  },
+        @{ N='VBS Running';           V=(_FmtBool $BootEnv.VbsRunning);         Note='Informational'                                 },
+        @{ N='HVCI / Memory Intgr.';  V=(_FmtBool $BootEnv.HvciRunning);        Note='Compatible with WDAC supplemental path'       },
+        @{ N='WDAC tools available';  V=(_FmtBool $BootEnv.WdacToolsAvailable); Note='ConfigCI module + CiTool.exe + AllowAll tmpl' },
+        @{ N='WDAC supp (AMD cert)';  V=(_FmtBool $BootEnv.AmdSuppPolicyActive);Note='RECOMMENDED path: keeps Secure Boot ON'       }
+    )
+    foreach ($r in $rows) {
+        Write-Host ('    | {0,-22} | {1,-9} | {2,-46} |' -f $r.N, $r.V, $r.Note)
+    }
+    Write-Host '    +------------------------+-----------+------------------------------------------------+'
+
+    if ($BootEnv.EffectiveCanLoadSelfSigned) {
+        $via = if ($BootEnv.AmdSuppPolicyActive) { 'WDAC supplemental policy (Secure Boot ON)' }
+               else { 'legacy testsigning + Secure Boot off' }
+        Write-Host  ('    EFFECTIVE: self-signed kernel-mode drivers CAN load (via {0}).' -f $via) -ForegroundColor Green
+    } else {
+        Write-Host  '    EFFECTIVE: self-signed kernel-mode drivers will NOT load.' -ForegroundColor Red
+        foreach ($reason in $BootEnv.BlockReasons) {
+            Write-Host ('      - {0}' -f $reason) -ForegroundColor Red
+        }
+    }
+    if ($BootEnv.SecureBootDetectError) {
+        Write-Host ('    Note: Secure Boot detection raised "{0}" - status may be unreliable.' -f $BootEnv.SecureBootDetectError) -ForegroundColor DarkYellow
     }
 }
 
@@ -3334,18 +3450,11 @@ function Format-SecureBootBaselineForReport {
 }
 
 function Get-OrEnsureSecureBootBaseline {
-    # Port from chipset/graphics: idempotent accessor for the
-    # cached Secure Boot baseline. Returns
-    # $Script:DetectedPlatform.SecureBootBaseline when it is still
-    # valid; otherwise re-invokes Get-SecureBootBaselineSnapshot into
-    # the current $Script:WorkRoot so the diagnostic files
-    # (detect_stdout.log, detect_stdout_extracted.json) are co-located
-    # with the workspace.
-    #
-    # NPU note: unlike the chipset / graphics scripts (which pass $Ctx
-    # around explicitly), the NPU script keeps runtime state on
-    # script-scope ($Script:DetectedPlatform hashtable, $Script:WorkRoot
-    # string). This helper matches that idiom and takes no parameters.
+    # Idempotent accessor for the cached Secure Boot baseline.
+    # Returns $Ctx.SecureBootBaseline when it is still valid; otherwise
+    # re-invokes Get-SecureBootBaselineSnapshot into the current
+    # $Ctx.WorkRoot so the diagnostic files (detect_stdout.log,
+    # detect_stdout_extracted.json) are co-located with the workspace.
     #
     # A cached snapshot is considered VALID when one of the following
     # holds:
@@ -3353,26 +3462,31 @@ function Get-OrEnsureSecureBootBaseline {
     #     there is no diagnostic file to keep in sync (MsInfo.JsonPath
     #     is $null). The in-memory data is the sole source of truth.
     #   - MsInfo.JsonPath references a file that still exists AND that
-    #     file lives under the current $Script:WorkRoot tree.
+    #     file lives under the current $Ctx.WorkRoot tree.
     #
     # The cache becomes INVALID when:
     #   - P01 wiped the workspace under -CleanWorkRoot, deleting a
     #     JSON file that P00 had written to the workspace.
-    # In that case we re-capture so the displayed path is honest.
+    #   - An earlier release's P00 had written the JSON to %TEMP%
+    # and we are now reading the snapshot
+    #     from a phase that displays the path.
+    # In either case we re-capture so the displayed path is honest.
     [CmdletBinding()]
     [OutputType([pscustomobject])]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
 
     $needCapture = $true
-    if ($Script:DetectedPlatform.SecureBootBaseline) {
-        $cached = $Script:DetectedPlatform.SecureBootBaseline
+    if ($Ctx.SecureBootBaseline) {
+        $cached = $Ctx.SecureBootBaseline
         $jsonPath = $null
         try { $jsonPath = $cached.MsInfo.JsonPath } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
         if (-not $jsonPath) {
             # MS sample script not present or did not produce a JSON
             # path - nothing to keep co-located. Cached snapshot is fine.
             $needCapture = $false
-        } elseif ($Script:WorkRoot -and ($jsonPath -like "$($Script:WorkRoot)*") -and (Test-Path -LiteralPath $jsonPath)) {
+        } elseif ($Ctx.WorkRoot -and ($jsonPath -like "$($Ctx.WorkRoot)*") -and (Test-Path -LiteralPath $jsonPath)) {
             # JSON file is under the workspace and still exists.
             $needCapture = $false
         }
@@ -3380,13 +3494,13 @@ function Get-OrEnsureSecureBootBaseline {
 
     if ($needCapture) {
         try {
-            $Script:DetectedPlatform.SecureBootBaseline = Get-SecureBootBaselineSnapshot -WorkRoot $Script:WorkRoot
+            $Ctx.SecureBootBaseline = Get-SecureBootBaselineSnapshot -WorkRoot $Ctx.WorkRoot
         } catch {
             Write-Warn2 ("Secure Boot baseline (re-)capture failed: {0}" -f $_.Exception.Message)
         }
     }
 
-    return $Script:DetectedPlatform.SecureBootBaseline
+    return $Ctx.SecureBootBaseline
 }
 
 # =============================================================================
@@ -3820,7 +3934,7 @@ function Resolve-AmdNpuDriverUrl {
         [Parameter(Mandatory)][hashtable]$NpuPlatform,
         [string]$ExplicitInstallerUrl,
         [string]$ExplicitOfflineZip,
-        [string]$AmdAccountUser,
+        [string]$AmdAccountUser = '',
         [System.Security.SecureString]$AmdAccountPassword
     )
 
@@ -5641,66 +5755,84 @@ function Invoke-PrepPhase00_Initialize {
 function Resume-CtxFromWorkspace {
     <#
     .SYNOPSIS
-        Detect pre-existing workspace artifacts and log a diagnostic
-        summary. Called from P01 to support non-Prepare run modes
-        (-Action Verify, -Action Install -OnlyPhases I01).
+        Rebuild a SUBSET of $Ctx properties from artifacts already
+        present in the workspace. Called from P01 to support
+        non-Prepare run modes (-Action Verify, -Action Install
+        -OnlyPhases I01).
     .DESCRIPTION
-        Unlike the chipset / graphics sister scripts which keep state
-        in a `$Ctx PSCustomObject and need to repopulate properties
-        (CertPfxPath / CertCerPath / CertThumbprint / PatchedDirs)
-        before non-Prepare run modes can resolve them, the NPU script
-        keeps cert and patched paths in static `$Script: scope
-        variables that are computed at param-block evaluation time
-        (see L344-L349). The thumbprint is not cached at all - it is
-        re-derived from the on-disk PFX via X509Certificate2 in V02
-        and the Cleanup path. Consequently, this NPU adaptation of
-        the sister-script rehydration helper has no state to restore;
-        its remaining job is to detect existing workspace artifacts
-        and emit a one-line diagnostic so that operators running
-        -Action Verify or -Action Install -OnlyPhases I01 against a
-        populated workspace see explicit confirmation that the
-        on-disk artifacts were picked up.
+        Unlike BthPan (single bthpan.inf), AMD NPU drivers
+        contain MULTIPLE INFs whose patched artifacts cannot be
+        fully reconstructed without re-running P05-P06 analysis.
+        This helper therefore restores only the artifacts that CAN
+        be deduced from the on-disk workspace alone:
+          - Cert PFX path    (Paths.Cert\AMD-NPU-Driver-CodeSign.pfx)
+          - Cert CER path    (Paths.Cert\AMD-NPU-Driver-CodeSign.cer)
+          - Cert Thumbprint  (decoded from CER via X509Certificate2)
+          - Patched subdirs  (each subdir under Paths.Patched - candidates
+                              for pnputil)
 
-        Failures are non-fatal: each branch swallows its own error
-        and lets downstream preconditions raise a clearer message.
+        Result: -Action Verify against a populated workspace now
+        resolves the cert triad without re-running P02-P09.
+        -Action Install -OnlyPhases I01 (cert trust import) and I02
+        (WDAC policy keyed by cert thumbprint) can also use this set.
 
-        an earlier revision (2026-05-17) - introduced for sister-script function-name
-        parity (/ Graphics an earlier revision / BthPan an earlier revision). The NPU
-        implementation is intentionally lighter than the chipset /
-        graphics versions because NPU's static `$Script: variable
-        design already makes the resume case work without explicit
-        rehydration.
+        Failures are non-fatal: each branch swallows its own error,
+        leaves the property $null/empty, and lets downstream
+        preconditions raise a clearer error.
+
+        an earlier revision (2026-05-17) - ported from the BthPan sister script's
+        rehydration helper, simplified for the multi-INF AMD case
+        (full PatchResults / InfInventory restoration deferred).
     #>
-    [CmdletBinding()]
-    param()
-    $detected = New-Object System.Collections.Generic.List[string]
+    param($Ctx)
+    if (-not $Ctx.Paths) { return }
+    $rehydrated = New-Object System.Collections.Generic.List[string]
 
-    # ----- Cert PFX (already pointed to by $Script:PfxPath at L346) -----
-    try {
-        if ($Script:PfxPath -and (Test-Path -LiteralPath $Script:PfxPath)) {
-            $detected.Add('PFX') | Out-Null
-        }
-    } catch { } # psa-disable-line PSA3004 -- best-effort scan; missing artifact = leave silent
-
-    # ----- Cert CER (already pointed to by $Script:CerPath at L347) -----
-    try {
-        if ($Script:CerPath -and (Test-Path -LiteralPath $Script:CerPath)) {
-            $detected.Add('CER') | Out-Null
-        }
-    } catch { } # psa-disable-line PSA3004
-
-    # ----- Patched subdir (pnputil candidate root; flat dir for NPU) -----
-    try {
-        if ($Script:PatchedDir -and (Test-Path -LiteralPath $Script:PatchedDir)) {
-            $infCount = @(Get-ChildItem -LiteralPath $Script:PatchedDir -Filter '*.inf' -File -ErrorAction SilentlyContinue).Count
-            if ($infCount -gt 0) {
-                $detected.Add(('Patched INFs ({0})' -f $infCount)) | Out-Null
+    # ----- Cert PFX -----
+    if (-not $Ctx.CertPfxPath) {
+        try {
+            $pfx = Join-Path $Ctx.Paths.Cert 'AMD-NPU-Driver-CodeSign.pfx'
+            if (Test-Path -LiteralPath $pfx) {
+                $Ctx.CertPfxPath = $pfx
+                $rehydrated.Add('CertPfxPath') | Out-Null
             }
-        }
-    } catch { } # psa-disable-line PSA3004
+        } catch {} # psa-disable-line PSA3004 -- best-effort scan; missing artifact = leave $null
+    }
 
-    if ($detected.Count -gt 0) {
-        Write-Skip ('Detected existing workspace artifacts: {0}' -f ($detected.ToArray() -join ', '))
+    # ----- Cert CER + Thumbprint (decoded from CER on disk) -----
+    if (-not $Ctx.CertCerPath) {
+        try {
+            $cer = Join-Path $Ctx.Paths.Cert 'AMD-NPU-Driver-CodeSign.cer'
+            if (Test-Path -LiteralPath $cer) {
+                $Ctx.CertCerPath = $cer
+                $rehydrated.Add('CertCerPath') | Out-Null
+                if (-not $Ctx.CertThumbprint) {
+                    try {
+                        $x509 = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2 $cer
+                        $Ctx.CertThumbprint = $x509.Thumbprint
+                        $rehydrated.Add('CertThumbprint') | Out-Null
+                    } catch {} # psa-disable-line PSA3004
+                }
+            }
+        } catch {} # psa-disable-line PSA3004
+    }
+
+    # ----- Patched subdirs (each is a pnputil candidate) -----
+    if (-not $Ctx.PatchedDirs -or $Ctx.PatchedDirs.Count -eq 0) {
+        try {
+            if (Test-Path -LiteralPath $Ctx.Paths.Patched) {
+                $dirs = @(Get-ChildItem -LiteralPath $Ctx.Paths.Patched -Directory -ErrorAction SilentlyContinue |
+                            ForEach-Object { $_.FullName })
+                if ($dirs.Count -gt 0) {
+                    $Ctx.PatchedDirs = $dirs
+                    $rehydrated.Add(('PatchedDirs ({0})' -f $dirs.Count)) | Out-Null
+                }
+            }
+        } catch {} # psa-disable-line PSA3004
+    }
+
+    if ($rehydrated.Count -gt 0) {
+        Write-Detail ('Rehydrated from existing workspace: {0}' -f ($rehydrated.ToArray() -join ', '))
     }
 }
 
@@ -5732,7 +5864,7 @@ function Invoke-PrepPhase01_PrepareWorkspace {
     # against a populated workspace surfaces explicit confirmation.
     # See function Resume-CtxFromWorkspace above for design notes.
     Set-DebugStep 'rehydrate from existing workspace artifacts'
-    Resume-CtxFromWorkspace
+    Resume-CtxFromWorkspace -Ctx $Ctx
 }
 
 function Invoke-PrepPhase02_AcquireTools { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
@@ -5970,7 +6102,7 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     # device), so the body is generated inline rather than via a dedicated
     # Export-InfInventoryReport function.
     try {
-        $sbSnap = Get-OrEnsureSecureBootBaseline
+        $sbSnap = Get-OrEnsureSecureBootBaseline -Ctx $Ctx
         $sbReport = New-Object System.Text.StringBuilder
         [void]$sbReport.AppendLine('AMD NPU Driver - INF Inventory Report')
         [void]$sbReport.AppendLine(('=' * 78))
@@ -6085,6 +6217,13 @@ function Invoke-PrepPhase07_CreateCertificate {
         -ValidityYears $CertValidityYears
 
     $Ctx.DetectedPlatform.Cert = $cert
+    # Mirror the Chipset / Graphics canon: persist the thumbprint at
+    # $Ctx.CertThumbprint so the Tier B-4 helpers ported verbatim from
+    # the Chipset canon (Get-BootSigningEnvironment, Show-BootSigningEnvironment,
+    # Invoke-Cleanup) can read it without re-loading the PFX from disk.
+    # Resume-CtxFromWorkspace populates the same property on the
+    # Verify / Install paths where this phase is not re-run.
+    $Ctx.CertThumbprint = $cert.Thumbprint
 }
 
 function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
@@ -6475,7 +6614,7 @@ function Invoke-VerifyPhase05_DryRunInstall {
     # what P00 displays; the full multi-line breakdown lives in V06 Section 5.
     Write-Host ''
     Write-Host '[Dry-Run UEFI Baseline] ---------------------------' -ForegroundColor Cyan
-    $sbSnapshot = Get-OrEnsureSecureBootBaseline
+    $sbSnapshot = Get-OrEnsureSecureBootBaseline -Ctx $Ctx
     if ($sbSnapshot) {
         Show-SecureBootBaselineSnapshot -Snapshot $sbSnapshot -Compact
         if ($sbSnapshot.Health -in 'Warning','Critical') {
@@ -6667,7 +6806,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     Write-Host ''
     Write-SubHeader2 'Section 5: UEFI Secure Boot Baseline'
     try {
-        $sbSnapshot = Get-OrEnsureSecureBootBaseline
+        $sbSnapshot = Get-OrEnsureSecureBootBaseline -Ctx $Ctx
         if ($sbSnapshot) {
             Show-SecureBootBaselineSnapshot -Snapshot $sbSnapshot
         }
@@ -6759,7 +6898,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     Set-DebugStep 'UEFI Secure Boot baseline pre-check (soft)'
     Write-Host '--- UEFI Secure Boot baseline pre-check ---' -ForegroundColor Cyan
     try {
-        $sbSnapshot = Get-OrEnsureSecureBootBaseline
+        $sbSnapshot = Get-OrEnsureSecureBootBaseline -Ctx $Ctx
         if ($sbSnapshot) {
             Show-SecureBootBaselineSnapshot -Snapshot $sbSnapshot -Compact
 
@@ -6794,10 +6933,10 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
         -XmlOutputPath $Ctx.WdacXmlPath `
         -BinOutputPath $Ctx.WdacBinPath `
         -PolicyName $Ctx.WdacPolicyName `
-        -PolicyGuid $Script:WdacPolicyGuid
+        -PolicyGuid $Ctx.WdacPolicyGuid
 
     Set-DebugStep 'install WDAC policy via CiTool / Set-CIPolicy'
-    $r = Install-WdacPolicy -BinPath $wdac.BinPath -PolicyGuid $Script:WdacPolicyGuid
+    $r = Install-WdacPolicy -BinPath $wdac.BinPath -PolicyGuid $Ctx.WdacPolicyGuid
     if (-not $r.Success) {
         throw 'WDAC policy deployment failed.'
     }
@@ -6874,75 +7013,43 @@ function Invoke-InstPhase04_PostInstallVerification {
 # Cleanup action
 # =============================================================================
 function Invoke-Cleanup {
-    [CmdletBinding()]
-    param()
-    Write-SubHeader 'Cleanup: remove cert, WDAC policy, drivers, workspace'
+    param($Ctx)
+    Write-PhaseHeader '---' 'Cleanup' 'Util'
 
-    # 1. Remove cert from trust stores (if PFX is still around to compute thumbprint)
-    if (Test-Path $Script:PfxPath) {
-        try {
-            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($Script:PfxPath)
-            Remove-CertFromTrustStore -Thumbprint $cert.Thumbprint
-        } catch {
-            Write-Warn2 ("Could not load PFX to compute thumbprint: {0}" -f $_.Exception.Message)
-        }
-    }
-    # Also scan for any cert with our subject CN in case PFX is gone
-    foreach ($store in @('Cert:\LocalMachine\Root','Cert:\LocalMachine\TrustedPublisher')) {
-        Get-ChildItem $store -ErrorAction SilentlyContinue | Where-Object {
-            $_.Subject -match [regex]::Escape($Script:CertSubjectCn)
-        } | ForEach-Object {
-            try {
-                Remove-Item $_.PSPath -Force
-                Write-Ok ('Removed cert (by subject) from {0}: {1}' -f $store, $_.Thumbprint)
-            } catch {
-                Write-Warn2 ("Could not remove cert by subject from {0}: {1}" -f $store, $_.Exception.Message)
+    # Remove the deployed WDAC supplemental policy (if any) BEFORE we
+    # wipe the workspace, otherwise we lose the marker file that tells
+    # us which PolicyId is ours.
+    $markerPath = Get-AmdSuppPolicyMarkerPath -Ctx $Ctx
+    if ($markerPath -and (Test-Path $markerPath)) {
+        $policyId = (Get-Content $markerPath -Raw -ErrorAction SilentlyContinue).Trim()
+        if ($policyId) {
+            Write-Step "Removing WDAC supplemental policy: $policyId"
+            $rm = Uninstall-AmdWdacPolicy -PolicyId $policyId
+            if ($rm.Removed) {
+                Write-Ok ('Removed deployed CI policy {0}' -f $policyId)
+            } elseif ($rm.Existed) {
+                Write-Warn2 ('Could not remove CI policy {0} - inspect manually with CiTool.exe -lp' -f $policyId)
+            } else {
+                Write-Skip 'WDAC supplemental policy was not currently deployed.'
             }
         }
     }
 
-    # 2. Remove WDAC policy
-    Remove-WdacPolicy -PolicyGuid $Script:WdacPolicyGuid
-
-    # 3. Remove drivers from driver store (best-effort, by published name pattern)
-    Write-Step 'pnputil /enum-drivers - searching for our self-signed AMD NPU drivers...'
-    try {
-        $stdout = & pnputil.exe /enum-drivers 2>&1
-        $publishedName = $null
-        $providerHit = $false
-        foreach ($line in $stdout) {
-            if ($line -match 'Published Name\s*:\s*(oem\d+\.inf)') {
-                $publishedName = $Matches[1]
-                $providerHit = $false
-            } elseif ($line -match 'Driver provider name|Driver Provider Name') {
-                if ($line -match 'AMD') {
-                    $providerHit = $true
-                }
-            } elseif ($line -match '^\s*$' -and $publishedName -and $providerHit) {
-                # End of one entry; not deleting blindly - just report
-                Write-Skip ('  Candidate for deletion: {0}' -f $publishedName)
-                # NOTE: actual deletion is risky without thumbprint match. Leaving manual.
-                $publishedName = $null
-                $providerHit = $false
-            }
-        }
-        Write-Warn2 'Driver store entries are NOT deleted automatically (would require thumbprint matching).'
-        Write-Warn2 'Use Driver Store Explorer (Rapr.exe) or pnputil /delete-driver oemNN.inf /force manually.'
-    } catch {
-        Write-Warn2 ("Driver enumeration failed: {0}" -f $_.Exception.Message)
+    if (Test-Path $Ctx.WorkRoot) {
+        Write-Step "Removing $($Ctx.WorkRoot)"
+        Remove-Item -Path $Ctx.WorkRoot -Recurse -Force
+        Write-Ok 'Workspace removed.'
+    } else {
+        Write-Skip 'Workspace already absent.'
     }
 
-    # 4. Remove workspace
-    if (Test-Path $WorkRoot) {
-        Write-Step ('Removing workspace: {0}' -f $WorkRoot)
-        try {
-            Remove-Item -Path $WorkRoot -Recurse -Force
-            Write-Ok 'Workspace removed.'
-        } catch {
-            Write-Warn2 ("Could not remove workspace: {0}" -f $_.Exception.Message)
-        }
-    }
-    Write-Ok 'Cleanup complete.'
+    Write-Host ''
+    Write-Host 'Reminder: Cleanup does NOT undo:' -ForegroundColor DarkGray
+    Write-Host '  - testsigning (use: bcdedit /set testsigning off; reboot)' -ForegroundColor DarkGray
+    Write-Host '  - cert in LocalMachine\Root or \TrustedPublisher (manage via certmgr.msc)' -ForegroundColor DarkGray
+    Write-Host '  - drivers added by I03 (use: pnputil /enum-drivers; pnputil /delete-driver oemNN.inf /uninstall)' -ForegroundColor DarkGray
+
+    Write-PhaseFooter '---' 'done'
 }
 
 # =============================================================================
@@ -7092,67 +7199,71 @@ function Show-RunSummary {
 
 function Invoke-MainEntryPoint {
     [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)] $Ctx
-    )
+    param()
 
-    # ----- Build context (NPU state-model refactor; see SPEC.md §A.11.7
-    # *Tier B-4* for the multi-stage plan) -----
+    # ----- Construct the canonical $Ctx (stage 3 of the NPU state-model refactor) -----
     #
     # The $Ctx PSCustomObject is the canonical state-passing channel used
-    # by the Chipset / Graphics / BthPan sister scripts. The NPU script
-    # historically threaded state via $Script: globals instead, which
-    # blocked the five Tier B-4 helpers (Get-OrEnsureSecureBootBaseline,
-    # Get-BootSigningEnvironment, Show-BootSigningEnvironment,
-    # Invoke-Cleanup, Resume-CtxFromWorkspace) from joining Tier A even
-    # though their logical contracts already matched the canon. The
-    # current stage of the refactor introduces the $Ctx skeleton with
-    # the canonical property set so subsequent stages (phase function
-    # migration; Tier B-4 helper Chipset-canon-isation) can land
-    # incrementally without breaking the static-analysis 0/0/0 baseline.
-    # See CHANGELOG.md for the stage-by-stage history and SPEC §A.11.7
-    # *Tier B-4* for the planned end-state.
+    # by the Chipset / Graphics / BthPan sister scripts. NPU is fully
+    # aligned with this canon: all five Tier B-4 helpers
+    # (Get-OrEnsureSecureBootBaseline, Get-BootSigningEnvironment,
+    # Show-BootSigningEnvironment, Invoke-Cleanup, Resume-CtxFromWorkspace)
+    # are now byte-identical copies of the Chipset canon and consume $Ctx
+    # via the canonical Chipset-compatible schema. NPU-specific extensions
+    # (NpuDriverPackage, AmdAccountUser, WdacBinPath, etc.) are added in
+    # their own block below the canon block to keep the diff against
+    # Chipset's $Ctx initialiser visible and minimal.
     #
-    # The property set is the union of (a) Chipset's canonical 29
-    # properties (necessary for Tier B-4 helpers to consume $Ctx) and
-    # (b) NPU-specific extensions (NpuDriverPackage, AmdAccountUser,
-    # WdacBinPath, etc.) that the NPU pipeline needs. NPU-only fields
-    # are added in their own block below the Chipset-canon block to
-    # keep the diff against Chipset's $Ctx initialiser visible and
-    # minimal.
-    #
-    # NOTE: at the current refactor stage the $Ctx is consumed by all
-    # phase functions and by the non-phase state-touching helpers
-    # (Resolve-AmdNpuDriverUrl, Invoke-AmdAccountAuthentication,
-    # Show-RyzenAiSoftwareGuidance, Show-RunSummary), but the three
-    # Tier B-4 helpers (Get-OrEnsureSecureBootBaseline,
-    # Resume-CtxFromWorkspace, Invoke-Cleanup) still read $Script:
-    # globals because their bodies are scheduled to be replaced verbatim
-    # from the Chipset canon in a later stage. The duplicate state
-    # carriage ($Script: AND $Ctx) at the top level is therefore still
-    # intentional and transitional - the Tier B-4 helpers' migration
-    # is what allows the $Script: side to be removed.
+    # NPU initialises $Ctx.Paths up-front (instead of in P01 like Chipset)
+    # because the entire path layout is known from $WorkRoot at script
+    # start - no workspace-bootstrap step is required to compute valid
+    # path values. NPU also keeps a parallel set of flat top-level path
+    # properties ($Ctx.CertDir, $Ctx.PfxPath, etc.) that pre-date this
+    # refactor and are still read by the NPU-specific phase functions;
+    # these are kept as aliases to the corresponding $Ctx.Paths.* sub-keys
+    # so a future stage can drop them once all NPU consumers migrate to
+    # the canonical Chipset names. See CHANGELOG.md for the stage-by-stage
+    # refactor history and SPEC §A.11.7 *Tier B-4* for the planned
+    # end-state and outstanding 4-way Tier A alignment items.
+    $certDir = Join-Path $WorkRoot 'cert'
     $Ctx = [pscustomobject]@{
-        # ----- Chipset canon properties (29) -----
-        # Params (mirror Chipset L14091..L14105)
+        # ----- Chipset canon properties (mirror Chipset L14091..L14130) -----
+        # Params
         Action          = $Action
-        OnlyPhases      = $Ctx.OnlyPhases
-        InstallerUrl    = $Ctx.InstallerUrl
+        OnlyPhases      = $OnlyPhases
+        InstallerUrl    = $InstallerUrl
         AmdLandingUrls  = $null  # NPU does not crawl AMD landing pages; placeholder for canon parity
         AmdFallbackUrl  = $null  # NPU does not use the AMD fallback URL; placeholder for canon parity
-        WorkRoot        = $Ctx.WorkRoot
-        PfxPassword     = $Ctx.PfxPassword
-        TimestampUrl    = $Ctx.TimestampUrl
-        Force           = $false  # NPU does not expose -Force at this stage; placeholder
-        CleanWorkRoot   = $Ctx.CleanWorkRoot
-        UseTestSigning  = $Ctx.UseTestSigning
-        AllowWorkstationInstall = $Ctx.AllowWorkstationInstall
-        # Populated by phases (mirror Chipset L14106..L14130)
-        Os = $null; Paths = $null
+        WorkRoot        = $WorkRoot
+        PfxPassword     = $PfxPassword
+        TimestampUrl    = 'http://timestamp.digicert.com'
+        Force           = $false  # NPU does not expose -Force at this stage; placeholder for canon parity
+        CleanWorkRoot   = $CleanWorkRoot.IsPresent  # psa-disable-line PSA2001 -- script-param parent-scope lookup (switch params have no default-value form for PSA2001 recognition)
+        UseTestSigning  = $UseTestSigning.IsPresent  # psa-disable-line PSA2001 -- script-param parent-scope lookup (switch params have no default-value form for PSA2001 recognition)
+        AllowWorkstationInstall = $AllowWorkstationInstall.IsPresent  # psa-disable-line PSA2001 -- script-param parent-scope lookup (switch params have no default-value form for PSA2001 recognition)
+        # Populated by phases
+        Os = $null
+        # Paths is a nested PSCustomObject with the canonical $Ctx.Paths.*
+        # sub-properties read by the Tier B-4 helpers ported verbatim from
+        # the Chipset canon. NPU initialises this at $Ctx-construction
+        # time (instead of P01 like Chipset) because the path layout is
+        # known up-front from $WorkRoot - no workspace-bootstrap step
+        # is needed before the values are valid.
+        Paths = [pscustomobject]@{
+            Root      = $WorkRoot
+            Download  = Join-Path $WorkRoot 'download'
+            Extract   = Join-Path $WorkRoot 'extracted'
+            Patched   = Join-Path $WorkRoot 'patched'
+            Cert      = $certDir
+            Markers   = Join-Path $WorkRoot '.markers'
+            Logs      = Join-Path $WorkRoot 'logs'
+        }
         SevenZip = $null; Signtool = $null; Inf2cat = $null
         Installer = $null; InfInventory = $null; InfInventoryDetail = $null; PatchResults = @()
-        PatchedDirs = @()  # rehydrated by Resume-CtxFromWorkspace (consumer migrated in a later stage)
-        CertPfxPath = $null; CertCerPath = $null; CertThumbprint = $null
+        PatchedDirs = @()  # rehydrated by Resume-CtxFromWorkspace
+        CertPfxPath = Join-Path $certDir 'AMD-NPU-Driver-CodeSign.pfx'
+        CertCerPath = Join-Path $certDir 'AMD-NPU-Driver-CodeSign.cer'
+        CertThumbprint = $null  # populated by Invoke-PrepPhase07_CreateCertificate (Prepare) or Resume-CtxFromWorkspace (Verify / Install)
         SelectedPhaseIds = @()
         SecureBootBaseline = $null
         WhqlCoSignAnalysis = $null
@@ -7163,43 +7274,72 @@ function Invoke-MainEntryPoint {
         # an optional offline-ZIP fast path. NPU also manages its own
         # WDAC supplemental policy artefacts ($Ctx.WdacBinPath / Xml /
         # PolicyName) which the AMD-family scripts express via $Ctx.Paths.*.
-        AmdAccountUser     = $Ctx.AmdAccountUser
-        AmdAccountPassword = $Ctx.AmdAccountPassword
-        ForceAmdAccountAuth = $Ctx.ForceAmdAccountAuth
-        AssumeIfMissing    = $Ctx.AssumeIfMissing
-        NpuOverride        = $Ctx.NpuOverride
-        RyzenAiSoftwareVersion = $Ctx.RyzenAiSoftwareVersion
-        OfflineZip         = $Ctx.OfflineZip
+        AmdAccountUser     = $AmdAccountUser
+        AmdAccountPassword = $AmdAccountPassword
+        ForceAmdAccountAuth = [bool]$ForceAmdAccountAuth  # psa-disable-line PSA2001 -- script-param parent-scope lookup (switch params have no default-value form for PSA2001 recognition)
+        AssumeIfMissing    = [bool]$AssumeIfMissing  # psa-disable-line PSA2001 -- script-param parent-scope lookup (switch params have no default-value form for PSA2001 recognition)
+        NpuOverride        = $NpuOverride
+        RyzenAiSoftwareVersion = $RyzenAiSoftwareVersion
+        OfflineZip         = $OfflineZip
         RepoUrl            = $Script:RepoUrl
-        NpuDriverPackage   = $Ctx.NpuDriverPackage
-        DetectedPlatform   = $Ctx.DetectedPlatform
-        # NPU-specific workspace path shortcuts (Chipset / Graphics use
-        # $Ctx.Paths.* sub-keys; NPU keeps these as top-level for now
-        # and will fold them under $Ctx.Paths in a later stage).
-        CertDir            = $Ctx.CertDir
-        DownloadDir        = $Ctx.DownloadDir
-        ExtractedDir       = $Ctx.ExtractedDir
-        PatchedDir         = $Ctx.PatchedDir
-        CerPath            = $Ctx.CerPath
-        PfxPath            = $Ctx.PfxPath
-        CertSubjectCn      = $Ctx.CertSubjectCn
-        CertValidityYears  = $Ctx.CertValidityYears
+        NpuDriverPackage   = $NpuDriverPackage
+        # DetectedPlatform: NPU-specific hashtable populated by P00 (OS / NPU
+        # detection) and P03 (driver download / extraction). Previously
+        # carried as $Script:DetectedPlatform; folded under $Ctx by the state-model refactor
+        # for unified state management. Additional keys (ExtractedInfFiles,
+        # PatchedCatFiles, etc.) are added dynamically by their producing
+        # phases - this initialiser only declares the keys read before
+        # those phases run, plus the canon-aligned subset.
+        DetectedPlatform = @{
+            OsCaption              = $null
+            OsBuild                = $null
+            OsProductType          = $null  # 1=Workstation, 3=Server
+            OsProfile              = $null  # WS2016 / WS2019 / WS2022 / WS2025
+            Inf2CatOsSwitch        = $null  # e.g. Server2025_X64
+            IsWorkstationOs        = $null
+            IsServer2025           = $null
+            NpuCodename            = $null
+            NpuShortName           = $null
+            NpuHardwareId          = $null
+            NpuRevision            = $null
+            NpuIsDetected          = $false
+            NpuDetectionSource     = $null
+            CpuName                = $null
+            NpuDriverPackage       = $null
+            NpuDriverBuild         = $null
+            NpuDriverZipName       = $null
+            RyzenAiSoftwareVersion = $null
+            RyzenAiSoftwareInstaller = $null
+            DriverSoftwareCompatible = $null
+            DriverSoftwareCompatNote = $null
+            DownloadedZipPath      = $null
+            DownloadedZipName      = $null
+            SignToolPath           = $null
+            Inf2CatPath            = $null
+            SevenZipPath           = $null
+            SecureBootBaseline     = $null
+        }
+        # NPU-specific flat workspace path properties. These pre-date the
+        # NPU state-model refactor and remain in active use by the NPU
+        # phase functions and helpers. Future stages may collapse them
+        # into the canonical $Ctx.Paths.* layout used by Chipset / Graphics.
+        CertDir            = $certDir
+        DownloadDir        = Join-Path $WorkRoot 'download'
+        ExtractedDir       = Join-Path $WorkRoot 'extracted'
+        PatchedDir         = Join-Path $WorkRoot 'patched'
+        CerPath            = Join-Path $certDir 'AMD-NPU-Driver-CodeSign.cer'
+        PfxPath            = Join-Path $certDir 'AMD-NPU-Driver-CodeSign.pfx'
+        CertSubjectCn      = 'AMD NPU Driver Self-Sign (WS2025 Lab, At Own Risk)'
+        CertValidityYears  = $CertValidityYears
         # NPU-specific WDAC artefact paths
-        WdacBinPath        = $Ctx.WdacBinPath
-        WdacXmlPath        = $Ctx.WdacXmlPath
-        WdacPolicyName     = $Ctx.WdacPolicyName
+        WdacBinPath        = Join-Path $certDir 'WDAC-Supplemental-NPU.cip'
+        WdacXmlPath        = Join-Path $certDir 'WDAC-Supplemental-NPU.xml'
+        WdacPolicyName     = 'AMD-NPU-Driver-SelfSign-Lab'
+        WdacPolicyGuid     = $Script:WdacPolicyGuid  # mirrored from script-scope; see file header
         # NPU-specific inventory artefacts (for P05 output)
-        InventoryCsvPath    = $Ctx.InventoryCsvPath
-        InventoryReportPath = $Ctx.InventoryReportPath
+        InventoryCsvPath    = Join-Path $WorkRoot 'inf_inventory.csv'
+        InventoryReportPath = Join-Path $WorkRoot 'inf_inventory_report.txt'
     }
-    # The $Ctx is now consumed by the phase functions and the 4
-    # non-phase state-touching helpers; the Out-Null call below is no
-    # longer required for the "unused variable" suppression but kept
-    # transitionally for diff readability. It will be removed in the
-    # final stage of the NPU state-model refactor when the Tier B-4
-    # helpers migrate to $Ctx and the top-level $Script: assignments
-    # can be deleted.
-    $Ctx | Out-Null
 
     # Banner (sister-script-aligned: include ScriptTag and ScriptHash)
     Write-Host ''
@@ -7223,7 +7363,7 @@ function Invoke-MainEntryPoint {
         try { Assert-Admin } catch { throw }
         Set-Tls12
         Set-ConsoleUtf8
-        Invoke-Cleanup
+        Invoke-Cleanup -Ctx $Ctx
         return
     }
 
