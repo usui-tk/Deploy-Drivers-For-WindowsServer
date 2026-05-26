@@ -325,8 +325,8 @@ $Script:CertValidityYears       = $CertValidityYears
 # =============================================================================
 # Script-scope state
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.05.26-r27'
-$Script:ScriptTag           = 'npu-state-model-refactor-step-1-wdac-helpers'
+$Script:ScriptVersion       = 'npu-2026.05.26-r28'
+$Script:ScriptTag           = 'npu-state-model-refactor-step-2-phase-functions-ctx'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 $Script:CertSubjectCn       = 'AMD NPU Driver Self-Sign (WS2025 Lab, At Own Risk)'
@@ -1599,6 +1599,7 @@ function Show-BootSigningEnvironment {
 function Invoke-PhaseRunner { # psa-disable-line PSAP0001 -- Invoke-PhaseRunner is the phase dispatcher, not a phase itself; intentional name
     [CmdletBinding()]
     param(
+        [Parameter(Mandatory)] $Ctx,
         [Parameter(Mandatory)][string[]]$PhaseIds
     )
     foreach ($id in $PhaseIds) {
@@ -1618,7 +1619,7 @@ function Invoke-PhaseRunner { # psa-disable-line PSAP0001 -- Invoke-PhaseRunner 
         $errCaught = $null
 
         try {
-            & $phase.Func
+            & $phase.Func -Ctx $Ctx
             $Script:PhaseResults[$id] = @{
                 Status   = 'OK'
                 Duration = ((Get-Date) - $start)
@@ -3815,6 +3816,7 @@ function Resolve-AmdNpuDriverUrl {
     [CmdletBinding()]
     [OutputType([hashtable])]
     param(
+        [Parameter(Mandatory)] $Ctx,
         [Parameter(Mandatory)][hashtable]$NpuPlatform,
         [string]$ExplicitInstallerUrl,
         [string]$ExplicitOfflineZip,
@@ -3830,7 +3832,7 @@ function Resolve-AmdNpuDriverUrl {
     }
     $expectedZipName = $NpuPlatform.NpuDriverZipName
 
-    $downloadDir = $Script:DownloadDir
+    $downloadDir = $Ctx.DownloadDir
     if (-not (Test-Path $downloadDir)) {
         New-Item -Path $downloadDir -ItemType Directory -Force | Out-Null
     }
@@ -3891,7 +3893,7 @@ function Resolve-AmdNpuDriverUrl {
         Write-Warn2 '      accept the Ryzen AI EULA, and fetch the ZIP via dynamic URL.'
         Write-Warn2 '      AMD periodically changes form layouts; if this fails, use Tier 1 or 4.'
         try {
-            $authResult = Invoke-AmdAccountAuthentication `
+            $authResult = Invoke-AmdAccountAuthentication -Ctx $Ctx `
                 -Username $AmdAccountUser `
                 -Password $AmdAccountPassword `
                 -DriverFilename $expectedZipName
@@ -4154,6 +4156,7 @@ function Invoke-AmdAccountAuthentication {
     [CmdletBinding()]
     [OutputType([hashtable])]
     param(
+        [Parameter(Mandatory)] $Ctx,
         [Parameter(Mandatory)][string]$Username,
         [Parameter(Mandatory)][System.Security.SecureString]$Password,
         [Parameter(Mandatory)][string]$DriverFilename
@@ -4166,7 +4169,7 @@ function Invoke-AmdAccountAuthentication {
     Write-Warn2 'this back-end. Tier 4 (-OfflineZip) is the recommended path.'
     Write-Warn2 '------------------------------------------------------------'
 
-    if (-not $Script:ForceAmdAccountAuth) {
+    if (-not $Ctx.ForceAmdAccountAuth) {
         Write-Fail 'Tier 2 (AMD account auto-download) is disabled by default since 2026-05-10.'
         Write-Skip 'Pass -ForceAmdAccountAuth to attempt anyway (best-effort, expected to fail).'
         Write-Skip 'Recommended: download the ZIP manually and use -OfflineZip <path>.'
@@ -5550,7 +5553,9 @@ function Test-IsLegacyWindowsServerOs { # psa-disable-line PSA6003 -- "Os" is si
 
 function Invoke-PrepPhase00_Initialize {
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
     Set-DebugStep 'show PS environment'
     Write-Step 'Running environment and sanity checks'
 
@@ -5560,13 +5565,13 @@ function Invoke-PrepPhase00_Initialize {
     Set-ConsoleUtf8
 
     $os = Show-OperatingSystemDetail
-    $Script:DetectedPlatform.OsCaption       = $os.OsCaption
-    $Script:DetectedPlatform.OsBuild         = $os.OsBuild
-    $Script:DetectedPlatform.OsProductType   = $os.OsProductType
-    $Script:DetectedPlatform.OsProfile       = $os.OsProfile
-    $Script:DetectedPlatform.Inf2CatOsSwitch = $os.Inf2CatOsSwitch
-    $Script:DetectedPlatform.IsWorkstationOs = $os.IsWorkstationOs
-    $Script:DetectedPlatform.IsServer2025    = $os.IsServer2025
+    $Ctx.DetectedPlatform.OsCaption       = $os.OsCaption
+    $Ctx.DetectedPlatform.OsBuild         = $os.OsBuild
+    $Ctx.DetectedPlatform.OsProductType   = $os.OsProductType
+    $Ctx.DetectedPlatform.OsProfile       = $os.OsProfile
+    $Ctx.DetectedPlatform.Inf2CatOsSwitch = $os.Inf2CatOsSwitch
+    $Ctx.DetectedPlatform.IsWorkstationOs = $os.IsWorkstationOs
+    $Ctx.DetectedPlatform.IsServer2025    = $os.IsServer2025
 
     # (Q-X1; legacy WS2019): refuse NPU Install / All on legacy Windows Server
     # (WS2019 / WS2016) before any further initialization work runs. The
@@ -5579,10 +5584,10 @@ function Invoke-PrepPhase00_Initialize {
     # workspace, run dry-runs, or clean up. See SPEC §D.27 and the
     # catastrophic field failure case study in SPEC §D.26.
     Set-DebugStep 'legacy Windows Server refuse check (Q-X1)'
-    if ($Script:Action -in @('Install','All') -and (Test-IsLegacyWindowsServerOs)) {
+    if ($Ctx.Action -in @('Install','All') -and (Test-IsLegacyWindowsServerOs)) {
         Write-Fail ''
         Write-Fail '========================================================================'
-        Write-Fail (' NPU -Action {0} is NOT SUPPORTED on Windows Server 2019 / 2016.' -f $Script:Action)
+        Write-Fail (' NPU -Action {0} is NOT SUPPORTED on Windows Server 2019 / 2016.' -f $Ctx.Action)
         Write-Fail '========================================================================'
         Write-Fail ''
         Write-Fail '  The AMD NPU driver pipeline has not been validated on legacy Windows'
@@ -5601,7 +5606,7 @@ function Invoke-PrepPhase00_Initialize {
         Write-Fail '  If you need NPU support on WS2019/2016, please open a GitHub issue;'
         Write-Fail '  the path can be enabled after dedicated physical validation.'
         Write-Fail ''
-        throw ('NPU -Action {0} refused on legacy Windows Server. See message above.' -f $Script:Action)
+        throw ('NPU -Action {0} refused on legacy Windows Server. See message above.' -f $Ctx.Action)
     }
 
     # NPU-specific OS support warning
@@ -5616,7 +5621,7 @@ function Invoke-PrepPhase00_Initialize {
     Write-Host ''
 
     # ---- UEFI Secure Boot certificate baseline (port from chipset/graphics) ----
-    # Capture once at P00 and cache on $Script:DetectedPlatform so later
+    # Capture once at P00 and cache on $Ctx.DetectedPlatform so later
     # phases (P05 report append, V05 / V06 display, I02 pre-check) can
     # reuse the same snapshot without re-invoking the Microsoft sample
     # script multiple times. The snapshot function uses New-Item -Force
@@ -5626,8 +5631,8 @@ function Invoke-PrepPhase00_Initialize {
     # missing diagnostic file (e.g. when -CleanWorkRoot wipes it at
     # P01) and re-captures.
     try {
-        $Script:DetectedPlatform.SecureBootBaseline = Get-SecureBootBaselineSnapshot -WorkRoot $Script:WorkRoot
-        Show-SecureBootBaselineSnapshot -Snapshot $Script:DetectedPlatform.SecureBootBaseline -Compact
+        $Ctx.DetectedPlatform.SecureBootBaseline = Get-SecureBootBaselineSnapshot -WorkRoot $Ctx.WorkRoot
+        Show-SecureBootBaselineSnapshot -Snapshot $Ctx.DetectedPlatform.SecureBootBaseline -Compact
     } catch {
         Write-Warn2 ("Secure Boot baseline capture failed: {0}" -f $_.Exception.Message)
     }
@@ -5701,16 +5706,18 @@ function Resume-CtxFromWorkspace {
 
 function Invoke-PrepPhase01_PrepareWorkspace {
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
 
     Set-DebugStep 'optional: wipe existing workspace (-CleanWorkRoot)'
-    if ($Script:CleanWorkRoot -and (Test-Path $Script:WorkRoot)) {
-        Write-Step ("CleanWorkRoot: removing {0}" -f $Script:WorkRoot)
-        Remove-Item -Path $Script:WorkRoot -Recurse -Force -ErrorAction SilentlyContinue
+    if ($Ctx.CleanWorkRoot -and (Test-Path $Ctx.WorkRoot)) {
+        Write-Step ("CleanWorkRoot: removing {0}" -f $Ctx.WorkRoot)
+        Remove-Item -Path $Ctx.WorkRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     Set-DebugStep 'create workspace subdirectories'
-    foreach ($dir in @($Script:WorkRoot, $Script:DownloadDir, $Script:ExtractedDir, $Script:PatchedDir, $Script:CertDir)) {
+    foreach ($dir in @($Ctx.WorkRoot, $Ctx.DownloadDir, $Ctx.ExtractedDir, $Ctx.PatchedDir, $Ctx.CertDir)) {
         if (-not (Test-Path $dir)) {
             New-Item -Path $dir -ItemType Directory -Force | Out-Null
             Write-Skip ("Created: {0}" -f $dir)
@@ -5718,7 +5725,7 @@ function Invoke-PrepPhase01_PrepareWorkspace {
             Write-Skip ("Existing: {0}" -f $dir)
         }
     }
-    Write-Ok ("Workspace ready at: {0}" -f $Script:WorkRoot)
+    Write-Ok ("Workspace ready at: {0}" -f $Ctx.WorkRoot)
 
     # Detect and log pre-existing workspace artifacts so that
     # -Action Verify / -Action Install (-OnlyPhases I01) running
@@ -5730,46 +5737,50 @@ function Invoke-PrepPhase01_PrepareWorkspace {
 
 function Invoke-PrepPhase02_AcquireTools { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
     Set-DebugStep 'delegate to Initialize-ToolingStack'
     Write-Step 'Acquiring signtool, inf2cat, and 7-Zip'
     $tools = Install-RequiredTools
-    $Script:DetectedPlatform.SignToolPath = $tools.SignTool
-    $Script:DetectedPlatform.Inf2CatPath  = $tools.Inf2Cat
-    $Script:DetectedPlatform.SevenZipPath = $tools.SevenZip
+    $Ctx.DetectedPlatform.SignToolPath = $tools.SignTool
+    $Ctx.DetectedPlatform.Inf2CatPath  = $tools.Inf2Cat
+    $Ctx.DetectedPlatform.SevenZipPath = $tools.SevenZip
 }
 
 function Invoke-PrepPhase03_FetchInstaller {
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
     Set-DebugStep 'detect NPU platform and resolve installer source'
     Write-Step 'Detecting NPU platform and resolving installer source (4-tier fallback)'
 
     # ----- detect NPU platform
     Write-SubHeader2 'NPU platform detection'
     $npu = Get-AmdNpuPlatform `
-        -Override $Script:NpuOverride `
-        -AssumeIfMissing:$Script:AssumeIfMissing `
-        -NpuDriverPackageSelection $Script:NpuDriverPackage `
-        -RyzenAiSoftwareVersionSelection $Script:RyzenAiSoftwareVersion
+        -Override $Ctx.NpuOverride `
+        -AssumeIfMissing:$Ctx.AssumeIfMissing `
+        -NpuDriverPackageSelection $Ctx.NpuDriverPackage `
+        -RyzenAiSoftwareVersionSelection $Ctx.RyzenAiSoftwareVersion
 
-    $Script:DetectedPlatform.NpuCodename             = $npu.NpuCodename
-    $Script:DetectedPlatform.NpuShortName            = $npu.NpuShortName
-    $Script:DetectedPlatform.NpuHardwareId           = $npu.HardwareId
-    $Script:DetectedPlatform.NpuRevision             = $npu.Revision
-    $Script:DetectedPlatform.NpuIsDetected           = $npu.IsDetected
-    $Script:DetectedPlatform.NpuDetectionSource      = $npu.DetectionSource
-    $Script:DetectedPlatform.CpuName                 = $npu.CpuName
+    $Ctx.DetectedPlatform.NpuCodename             = $npu.NpuCodename
+    $Ctx.DetectedPlatform.NpuShortName            = $npu.NpuShortName
+    $Ctx.DetectedPlatform.NpuHardwareId           = $npu.HardwareId
+    $Ctx.DetectedPlatform.NpuRevision             = $npu.Revision
+    $Ctx.DetectedPlatform.NpuIsDetected           = $npu.IsDetected
+    $Ctx.DetectedPlatform.NpuDetectionSource      = $npu.DetectionSource
+    $Ctx.DetectedPlatform.CpuName                 = $npu.CpuName
     # NPU driver fields (independent axis)
-    $Script:DetectedPlatform.NpuDriverPackage        = $npu.NpuDriverPackage
-    $Script:DetectedPlatform.NpuDriverBuild          = $npu.NpuDriverBuild
-    $Script:DetectedPlatform.NpuDriverZipName        = $npu.NpuDriverZipName
+    $Ctx.DetectedPlatform.NpuDriverPackage        = $npu.NpuDriverPackage
+    $Ctx.DetectedPlatform.NpuDriverBuild          = $npu.NpuDriverBuild
+    $Ctx.DetectedPlatform.NpuDriverZipName        = $npu.NpuDriverZipName
     # Ryzen AI Software fields (independent axis)
-    $Script:DetectedPlatform.RyzenAiSoftwareVersion  = $npu.RyzenAiSoftwareVersion
-    $Script:DetectedPlatform.RyzenAiSoftwareInstaller = $npu.RyzenAiSoftwareInstaller
+    $Ctx.DetectedPlatform.RyzenAiSoftwareVersion  = $npu.RyzenAiSoftwareVersion
+    $Ctx.DetectedPlatform.RyzenAiSoftwareInstaller = $npu.RyzenAiSoftwareInstaller
     # Compatibility evaluation (separate axis)
-    $Script:DetectedPlatform.DriverSoftwareCompatible = $npu.DriverSoftwareCompatible
-    $Script:DetectedPlatform.DriverSoftwareCompatNote = $npu.DriverSoftwareCompatNote
+    $Ctx.DetectedPlatform.DriverSoftwareCompatible = $npu.DriverSoftwareCompatible
+    $Ctx.DetectedPlatform.DriverSoftwareCompatNote = $npu.DriverSoftwareCompatNote
 
     Write-Ok ('CPU                  : {0}' -f $npu.CpuName)
     Write-Ok ('NPU codename         : {0}' -f $npu.NpuCodename)
@@ -5807,21 +5818,21 @@ function Invoke-PrepPhase03_FetchInstaller {
 
     # ----- resolve and download package
     Write-SubHeader2 'NPU driver package resolution & download'
-    $resolved = Resolve-AmdNpuDriverUrl `
+    $resolved = Resolve-AmdNpuDriverUrl -Ctx $Ctx `
         -NpuPlatform $npu `
-        -ExplicitInstallerUrl $Script:InstallerUrl `
-        -ExplicitOfflineZip $Script:OfflineZip `
-        -AmdAccountUser $Script:AmdAccountUser `
-        -AmdAccountPassword $Script:AmdAccountPassword
+        -ExplicitInstallerUrl $Ctx.InstallerUrl `
+        -ExplicitOfflineZip $Ctx.OfflineZip `
+        -AmdAccountUser $Ctx.AmdAccountUser `
+        -AmdAccountPassword $Ctx.AmdAccountPassword
 
     if (-not $resolved) {
         throw 'Could not resolve NPU driver package source.'
     }
 
-    $Script:DetectedPlatform.DownloadedZipPath = $resolved.LocalPath
-    $Script:DetectedPlatform.DownloadedZipName = Split-Path $resolved.LocalPath -Leaf
-    $Script:DetectedPlatform.DownloadSourceType = $resolved.SourceType
-    $Script:DetectedPlatform.DownloadSourceUrl  = $resolved.SourceUrl
+    $Ctx.DetectedPlatform.DownloadedZipPath = $resolved.LocalPath
+    $Ctx.DetectedPlatform.DownloadedZipName = Split-Path $resolved.LocalPath -Leaf
+    $Ctx.DetectedPlatform.DownloadSourceType = $resolved.SourceType
+    $Ctx.DetectedPlatform.DownloadSourceUrl  = $resolved.SourceUrl
 
     Write-Host ''
     Write-Ok ('Source type   : {0}' -f $resolved.SourceType)
@@ -5835,34 +5846,38 @@ function Invoke-PrepPhase03_FetchInstaller {
 
 function Invoke-PrepPhase04_ExtractInstaller {
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
 
     Set-DebugStep 'precondition: DownloadedZipPath and 7z available'
-    if (-not $Script:DetectedPlatform.DownloadedZipPath) {
+    if (-not $Ctx.DetectedPlatform.DownloadedZipPath) {
         throw 'No downloaded ZIP path; P03 did not complete successfully.'
     }
-    if (-not $Script:DetectedPlatform.SevenZipPath) {
+    if (-not $Ctx.DetectedPlatform.SevenZipPath) {
         throw 'No 7-Zip path; P02 did not complete successfully.'
     }
 
     $extracted = Expand-AmdNpuPackage `
-        -ZipPath $Script:DetectedPlatform.DownloadedZipPath `
-        -DestinationDir $Script:ExtractedDir `
-        -SevenZipPath $Script:DetectedPlatform.SevenZipPath
+        -ZipPath $Ctx.DetectedPlatform.DownloadedZipPath `
+        -DestinationDir $Ctx.ExtractedDir `
+        -SevenZipPath $Ctx.DetectedPlatform.SevenZipPath
 
-    $Script:DetectedPlatform.ExtractedInfFiles = $extracted.InfFiles
-    $Script:DetectedPlatform.ExtractedCatFiles = $extracted.CatFiles
-    $Script:DetectedPlatform.ExtractedSysFiles = $extracted.SysFiles
-    $Script:DetectedPlatform.ExtractedExeFiles = $extracted.ExeFiles
+    $Ctx.DetectedPlatform.ExtractedInfFiles = $extracted.InfFiles
+    $Ctx.DetectedPlatform.ExtractedCatFiles = $extracted.CatFiles
+    $Ctx.DetectedPlatform.ExtractedSysFiles = $extracted.SysFiles
+    $Ctx.DetectedPlatform.ExtractedExeFiles = $extracted.ExeFiles
 }
 
 function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
     Set-DebugStep 'inventory INF files and parse target NPU'
     Write-Step 'Inventorying INFs and filtering for target NPU'
 
-    $infs = $Script:DetectedPlatform.ExtractedInfFiles
+    $infs = $Ctx.DetectedPlatform.ExtractedInfFiles
     if (-not $infs -or $infs.Count -eq 0) {
         throw 'No INF files to analyze; P04 did not extract any.'
     }
@@ -5879,7 +5894,7 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
         $matchesTarget = $false
         $matchedHwids = @()
         $targetPattern = $null
-        switch ($Script:DetectedPlatform.NpuShortName) {
+        switch ($Ctx.DetectedPlatform.NpuShortName) {
             'PHX' { $targetPattern = 'VEN_1022&DEV_1502' }
             'HPT' { $targetPattern = 'VEN_1022&DEV_1502' }
             'STX' { $targetPattern = 'VEN_1022&DEV_17F0' }
@@ -5929,8 +5944,8 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     }
 
     # CSV export
-    $inventory | Export-Csv -Path $Script:InventoryCsvPath -NoTypeInformation -Encoding UTF8
-    Write-Skip ("Inventory CSV: {0}" -f $Script:InventoryCsvPath)
+    $inventory | Export-Csv -Path $Ctx.InventoryCsvPath -NoTypeInformation -Encoding UTF8
+    Write-Skip ("Inventory CSV: {0}" -f $Ctx.InventoryCsvPath)
 
     $selected = $inventory | Where-Object SelectedForPipeline
     Write-Host ''
@@ -5944,10 +5959,10 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
         foreach ($e in $inventory) { $e.SelectedForPipeline = $true }
     }
 
-    $Script:DetectedPlatform.InfInventory = $inventory
+    $Ctx.DetectedPlatform.InfInventory = $inventory
 
     # ---- Write inf_inventory_report.txt (text-format inventory + Secure Boot baseline appendix) ----
-    # Previously, $Script:InventoryReportPath was declared but never written.
+    # Previously, $Ctx.InventoryReportPath was declared but never written.
     # We now populate it so artefacts are aligned with the chipset / graphics
     # scripts (which both produce an inf_inventory_report.txt with a UEFI
     # Secure Boot Baseline appendix at the end). NPU's inventory is much
@@ -5960,9 +5975,9 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
         [void]$sbReport.AppendLine('AMD NPU Driver - INF Inventory Report')
         [void]$sbReport.AppendLine(('=' * 78))
         [void]$sbReport.AppendLine(("Generated      : {0}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')))
-        [void]$sbReport.AppendLine(("Host OS        : {0}" -f $Script:DetectedPlatform.OsCaption))
-        [void]$sbReport.AppendLine(("NPU codename   : {0}  ({1})" -f $Script:DetectedPlatform.NpuCodename, $Script:DetectedPlatform.NpuShortName))
-        [void]$sbReport.AppendLine(("Target HWID    : {0}" -f $Script:DetectedPlatform.NpuHardwareId))
+        [void]$sbReport.AppendLine(("Host OS        : {0}" -f $Ctx.DetectedPlatform.OsCaption))
+        [void]$sbReport.AppendLine(("NPU codename   : {0}  ({1})" -f $Ctx.DetectedPlatform.NpuCodename, $Ctx.DetectedPlatform.NpuShortName))
+        [void]$sbReport.AppendLine(("Target HWID    : {0}" -f $Ctx.DetectedPlatform.NpuHardwareId))
         [void]$sbReport.AppendLine(("Total INFs     : {0}" -f $inventory.Count))
         [void]$sbReport.AppendLine(("Selected       : {0}" -f ($inventory | Where-Object SelectedForPipeline).Count))
         [void]$sbReport.AppendLine('')
@@ -5993,8 +6008,8 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
             }
         }
 
-        Set-Content -LiteralPath $Script:InventoryReportPath -Value $sbReport.ToString() -Encoding UTF8
-        Write-Skip ("Inventory text report: {0}" -f $Script:InventoryReportPath)
+        Set-Content -LiteralPath $Ctx.InventoryReportPath -Value $sbReport.ToString() -Encoding UTF8
+        Write-Skip ("Inventory text report: {0}" -f $Ctx.InventoryReportPath)
     } catch {
         Write-Warn2 ("inf_inventory_report.txt generation failed (non-fatal): {0}" -f $_.Exception.Message)
     }
@@ -6002,11 +6017,13 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
 
 function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
     Set-DebugStep 'mirror Workstation decorations as ProductType=3'
     Write-Step 'Mirroring Workstation [Manufacturer] decorations as ProductType=3'
 
-    $inventory = $Script:DetectedPlatform.InfInventory
+    $inventory = $Ctx.DetectedPlatform.InfInventory
     if (-not $inventory) {
         throw 'No INF inventory; P05 did not complete.'
     }
@@ -6015,7 +6032,7 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
     $copied    = 0
     $failed    = 0
     foreach ($e in $inventory | Where-Object SelectedForPipeline) {
-        $outPath = Join-Path $Script:PatchedDir $e.FileName
+        $outPath = Join-Path $Ctx.PatchedDir $e.FileName
         Write-Step ('Processing: {0}' -f $e.FileName)
         try {
             $r = Add-ProductType3Decoration -InputInfPath $e.FullPath -OutputInfPath $outPath
@@ -6035,7 +6052,7 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
             Get-ChildItem -Path $sourceDir -File | Where-Object {
                 $_.Extension -in @('.cat','.sys','.dll','.pdb','.man','.cab','.exe','.bin','.xml','.json')
             } | ForEach-Object {
-                $destFile = Join-Path $Script:PatchedDir $_.Name
+                $destFile = Join-Path $Ctx.PatchedDir $_.Name
                 if (-not (Test-Path $destFile)) {
                     Copy-Item -Path $_.FullName -Destination $destFile -Force
                 }
@@ -6055,57 +6072,63 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
 
 function Invoke-PrepPhase07_CreateCertificate {
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
     Set-DebugStep 'delegate to New-CodeSignCert'
 
     $cert = New-SelfSignedCodeSigningCert `
-        -Subject $Script:CertSubjectCn `
-        -PfxPath $Script:PfxPath `
-        -CerPath $Script:CerPath `
+        -Subject $Ctx.CertSubjectCn `
+        -PfxPath $Ctx.PfxPath `
+        -CerPath $Ctx.CerPath `
         -PfxPassword $PfxPassword `
         -ValidityYears $CertValidityYears
 
-    $Script:DetectedPlatform.Cert = $cert
+    $Ctx.DetectedPlatform.Cert = $cert
 }
 
 function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
 
     Set-DebugStep 'precondition: Inf2CatPath available'
-    if (-not $Script:DetectedPlatform.Inf2CatPath) {
+    if (-not $Ctx.DetectedPlatform.Inf2CatPath) {
         throw 'inf2cat path not resolved; P02 did not complete.'
     }
 
     Set-DebugStep 'run inf2cat against patched/'
     $r = Invoke-Inf2Cat `
-        -Inf2CatPath $Script:DetectedPlatform.Inf2CatPath `
-        -DriverDir $Script:PatchedDir `
-        -OsSwitch $Script:DetectedPlatform.Inf2CatOsSwitch
+        -Inf2CatPath $Ctx.DetectedPlatform.Inf2CatPath `
+        -DriverDir $Ctx.PatchedDir `
+        -OsSwitch $Ctx.DetectedPlatform.Inf2CatOsSwitch
 
     if (-not $r.Success) {
         Write-Fail ('inf2cat exit code: {0}' -f $r.ExitCode)
         throw 'inf2cat failed.'
     }
 
-    $cats = Get-ChildItem -Path $Script:PatchedDir -Filter '*.cat' -File
+    $cats = Get-ChildItem -Path $Ctx.PatchedDir -Filter '*.cat' -File
     Write-Ok ('Generated {0} catalog file(s):' -f $cats.Count)
     foreach ($c in $cats) {
         Write-Skip ('  {0}' -f $c.Name)
     }
-    $Script:DetectedPlatform.PatchedCatFiles = $cats
+    $Ctx.DetectedPlatform.PatchedCatFiles = $cats
 }
 
 function Invoke-PrepPhase09_SignCatalogs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
 
     Set-DebugStep 'precondition: SignToolPath available'
-    if (-not $Script:DetectedPlatform.SignToolPath) {
+    if (-not $Ctx.DetectedPlatform.SignToolPath) {
         throw 'signtool path not resolved; P02 did not complete.'
     }
 
-    $cats = Get-ChildItem -Path $Script:PatchedDir -Filter '*.cat' -File
+    $cats = Get-ChildItem -Path $Ctx.PatchedDir -Filter '*.cat' -File
     if ($cats.Count -eq 0) {
         throw 'No catalogs to sign.'
     }
@@ -6115,11 +6138,11 @@ function Invoke-PrepPhase09_SignCatalogs { # psa-disable-line PSA6003 -- compoun
     foreach ($c in $cats) {
         Write-Step ('Signing: {0}' -f $c.Name)
         $r = Invoke-SignTool `
-            -SignToolPath $Script:DetectedPlatform.SignToolPath `
+            -SignToolPath $Ctx.DetectedPlatform.SignToolPath `
             -CatPath $c.FullName `
-            -PfxPath $Script:PfxPath `
+            -PfxPath $Ctx.PfxPath `
             -PfxPassword $PfxPassword `
-            -TimestampUrl $Script:TimestampUrl `
+            -TimestampUrl $Ctx.TimestampUrl `
             -HashAlgo 'SHA384'
         if ($r.Success) {
             $signed++
@@ -6141,31 +6164,33 @@ function Invoke-PrepPhase09_SignCatalogs { # psa-disable-line PSA6003 -- compoun
 
 function Invoke-VerifyPhase01_VerifyArtifacts { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
     Set-DebugStep 'verify cert + patched INFs + catalogs all exist'
     Write-Step 'Verifying cert + patched INFs + catalogs all exist'
 
     $ok = $true
 
     Set-DebugStep 'check PFX/CER/INF/catalog presence on disk'
-    if (-not (Test-Path $Script:PfxPath)) {
-        Write-Fail ('Missing PFX: {0}' -f $Script:PfxPath)
+    if (-not (Test-Path $Ctx.PfxPath)) {
+        Write-Fail ('Missing PFX: {0}' -f $Ctx.PfxPath)
         $ok = $false
     } else {
-        Write-Ok ('PFX present: {0}' -f $Script:PfxPath)
+        Write-Ok ('PFX present: {0}' -f $Ctx.PfxPath)
     }
-    if (-not (Test-Path $Script:CerPath)) {
-        Write-Fail ('Missing CER: {0}' -f $Script:CerPath)
+    if (-not (Test-Path $Ctx.CerPath)) {
+        Write-Fail ('Missing CER: {0}' -f $Ctx.CerPath)
         $ok = $false
     } else {
-        Write-Ok ('CER present: {0}' -f $Script:CerPath)
+        Write-Ok ('CER present: {0}' -f $Ctx.CerPath)
     }
 
-    $infs = Get-ChildItem -Path $Script:PatchedDir -Filter '*.inf' -File -ErrorAction SilentlyContinue
+    $infs = Get-ChildItem -Path $Ctx.PatchedDir -Filter '*.inf' -File -ErrorAction SilentlyContinue
     Write-Ok ('Patched INFs: {0}' -f $infs.Count)
     if ($infs.Count -eq 0) { $ok = $false }
 
-    $cats = Get-ChildItem -Path $Script:PatchedDir -Filter '*.cat' -File -ErrorAction SilentlyContinue
+    $cats = Get-ChildItem -Path $Ctx.PatchedDir -Filter '*.cat' -File -ErrorAction SilentlyContinue
     Write-Ok ('Catalogs    : {0}' -f $cats.Count)
     if ($cats.Count -eq 0) { $ok = $false }
 
@@ -6174,7 +6199,9 @@ function Invoke-VerifyPhase01_VerifyArtifacts { # psa-disable-line PSA6003 -- co
 
 function Invoke-VerifyPhase02_VerifyCertificate {
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
     Set-DebugStep 'check EKU, key length, and validity period'
     Write-Step 'Checking EKU, key length, and validity period'
 
@@ -6183,14 +6210,14 @@ function Invoke-VerifyPhase02_VerifyCertificate {
     try {
     Set-DebugStep 'load PFX via X509Certificate2 (with fallback)'
         if ([string]::IsNullOrEmpty($PfxPassword)) {
-            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($Script:PfxPath, '', 'Exportable,PersistKeySet')
+            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($Ctx.PfxPath, '', 'Exportable,PersistKeySet')
         } else {
-            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($Script:PfxPath, $PfxPassword, 'Exportable,PersistKeySet')
+            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($Ctx.PfxPath, $PfxPassword, 'Exportable,PersistKeySet')
         }
     } catch {
         Write-Warn2 ('Could not load with placeholder password; trying empty: {0}' -f $_.Exception.Message)
         try {
-            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($Script:PfxPath)
+            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($Ctx.PfxPath)
         } catch {
             throw "Could not load PFX: $($_.Exception.Message)"
         }
@@ -6232,17 +6259,19 @@ function Invoke-VerifyPhase02_VerifyCertificate {
 
 function Invoke-VerifyPhase03_VerifyCatalogs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
     Set-DebugStep 'run signtool verify /pa on each catalog'
     Write-Step 'Running signtool verify /pa on each catalog'
     Write-Skip 'NOTE: Verification will FAIL until I01 imports the cert into trust stores.'
     Write-Skip '      That failure is expected here.'
 
-    $cats = Get-ChildItem -Path $Script:PatchedDir -Filter '*.cat' -File
+    $cats = Get-ChildItem -Path $Ctx.PatchedDir -Filter '*.cat' -File
     $ok = 0; $fail = 0
     Set-DebugStep 'verify each catalog (loop)'
     foreach ($c in $cats) {
-        $r = Test-CatalogSignature -SignToolPath $Script:DetectedPlatform.SignToolPath -CatPath $c.FullName
+        $r = Test-CatalogSignature -SignToolPath $Ctx.DetectedPlatform.SignToolPath -CatPath $c.FullName
         if ($r.Success) {
             $ok++
             Write-Skip ('  {0} OK' -f $c.Name)
@@ -6257,12 +6286,14 @@ function Invoke-VerifyPhase03_VerifyCatalogs { # psa-disable-line PSA6003 -- com
 
 function Invoke-VerifyPhase04_VerifyInfs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
     Set-DebugStep 'verify ProductType=3 decoration coverage'
     Write-Step 'Verifying ProductType=3 decoration coverage'
 
-    $build = $Script:DetectedPlatform.OsBuild
-    $infs = Get-ChildItem -Path $Script:PatchedDir -Filter '*.inf' -File
+    $build = $Ctx.DetectedPlatform.OsBuild
+    $infs = Get-ChildItem -Path $Ctx.PatchedDir -Filter '*.inf' -File
     $covered = 0; $uncovered = 0
     Set-DebugStep 'check each INF for Server decoration (loop)'
     foreach ($inf in $infs) {
@@ -6285,7 +6316,9 @@ function Invoke-VerifyPhase04_VerifyInfs { # psa-disable-line PSA6003 -- compoun
 
 function Invoke-VerifyPhase05_DryRunInstall {
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
     # V05 produces an install plan that the user can review before any system
     # state is mutated. The plan is structured to match the chipset / graphics
     # script conventions:
@@ -6301,7 +6334,7 @@ function Invoke-VerifyPhase05_DryRunInstall {
     Set-DebugStep 'simulate installation phases I01/I02/I03 (dry-run)'
     Write-Step 'Simulating Installation phases I01 / I02 / I03 - NO system changes will be made.'
 
-    $patched = Get-ChildItem -Path $Script:PatchedDir -Filter '*.inf' -File
+    $patched = Get-ChildItem -Path $Ctx.PatchedDir -Filter '*.inf' -File
     Set-DebugStep 'enumerate patched INFs for evaluation'
     if ($patched.Count -eq 0) {
         Write-Warn2 'No patched INFs to evaluate.'
@@ -6381,7 +6414,7 @@ function Invoke-VerifyPhase05_DryRunInstall {
             AsIsVersion    = if ($matchedCurrent) { $matchedCurrent.DriverVersion } else { $null }
         })
     }
-    $Script:DetectedPlatform.InstallPlan = $plan
+    $Ctx.DetectedPlatform.InstallPlan = $plan
 
     # ----- Render plan in two groups (sister-aligned: Group A / Group B) -----
     $groupA = $plan | Where-Object MatchedCurrent
@@ -6453,7 +6486,9 @@ function Invoke-VerifyPhase05_DryRunInstall {
 
 function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
     Set-DebugStep 'analyze hardware impact on detected NPU'
     # V06 reports the planned hardware impact of the I03 install. It is
     # structured to mirror the chipset / graphics V06 layout while accounting
@@ -6474,14 +6509,14 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     Write-SubHeader2 'Section 1: AS-IS - NPU hardware enumeration on this host'
     $current = $null
     Set-DebugStep 'match detected NPU HW ID against patched INFs'
-    if ($Script:DetectedPlatform.NpuIsDetected) {
-        Write-Ok ('NPU codename       : {0}' -f $Script:DetectedPlatform.NpuCodename)
-        Write-Ok ('Hardware ID        : {0}' -f $Script:DetectedPlatform.NpuHardwareId)
-        Write-Ok ('Revision           : {0}' -f $Script:DetectedPlatform.NpuRevision)
+    if ($Ctx.DetectedPlatform.NpuIsDetected) {
+        Write-Ok ('NPU codename       : {0}' -f $Ctx.DetectedPlatform.NpuCodename)
+        Write-Ok ('Hardware ID        : {0}' -f $Ctx.DetectedPlatform.NpuHardwareId)
+        Write-Ok ('Revision           : {0}' -f $Ctx.DetectedPlatform.NpuRevision)
 
         # Look up the actual current driver bound to this device
-        $hwidPattern = if ($Script:DetectedPlatform.NpuHardwareId) {
-            $Script:DetectedPlatform.NpuHardwareId.Replace('\','\\')
+        $hwidPattern = if ($Ctx.DetectedPlatform.NpuHardwareId) {
+            $Ctx.DetectedPlatform.NpuHardwareId.Replace('\','\\')
         } else { $null }
         if (-not [string]::IsNullOrEmpty($hwidPattern)) {
             $current = Get-CimInstance Win32_PnPSignedDriver -ErrorAction SilentlyContinue | Where-Object {
@@ -6509,8 +6544,8 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     # ------------------------------------------------------------------
     Write-Host ''
     Write-SubHeader2 'Section 2: AS-IS / TO-BE driver comparison (version-aware)'
-    if ($Script:DetectedPlatform.InstallPlan) {
-        $plan       = $Script:DetectedPlatform.InstallPlan
+    if ($Ctx.DetectedPlatform.InstallPlan) {
+        $plan       = $Ctx.DetectedPlatform.InstallPlan
         $matched    = $plan | Where-Object MatchedCurrent
         $unmatched  = $plan | Where-Object { -not $_.MatchedCurrent }
         $willReplace      = $matched | Where-Object Action -in '[UPGRADE]','[ADD]'
@@ -6571,8 +6606,8 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     # ------------------------------------------------------------------
     Write-Host ''
     Write-SubHeader2 'Section 3: Risk classification of planned actions'
-    if ($Script:DetectedPlatform.InstallPlan) {
-        $plan = $Script:DetectedPlatform.InstallPlan
+    if ($Ctx.DetectedPlatform.InstallPlan) {
+        $plan = $Ctx.DetectedPlatform.InstallPlan
         $adds       = $plan | Where-Object Action -EQ '[ADD]'
         $upgrades   = $plan | Where-Object Action -EQ '[UPGRADE]'
         $keeps      = $plan | Where-Object Action -EQ '[KEEP]'
@@ -6647,12 +6682,14 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
 
 function Invoke-InstPhase00_PreInstallReview {
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
     Set-DebugStep 'show pre-install review for operator acknowledgement'
     Write-Step 'Showing pre-install review for operator acknowledgement'
 
     Set-DebugStep 'workstation OS install guard check'
-    if ($Script:DetectedPlatform.IsWorkstationOs -and -not $Script:AllowWorkstationInstall) {
+    if ($Ctx.DetectedPlatform.IsWorkstationOs -and -not $Ctx.AllowWorkstationInstall) {
         Write-Warn2 ''
         Write-Warn2 'Install phases are blocked on Workstation OS by default.'
         Write-Warn2 'Use -AllowWorkstationInstall to override (discouraged).'
@@ -6689,14 +6726,18 @@ function Invoke-InstPhase00_PreInstallReview {
 
 function Invoke-InstPhase01_TrustCertificate {
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
     Set-DebugStep 'delegate to Add-CertToTrustStore'
-    Add-CertToTrustStore -CerPath $Script:CerPath
+    Add-CertToTrustStore -CerPath $Ctx.CerPath
 }
 
 function Invoke-InstPhase02_AuthorizeDriverSigning {
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
     Set-DebugStep 'build and deploy WDAC supplemental Code Integrity policy'
     Write-Step 'Building and deploying WDAC supplemental Code Integrity policy'
 
@@ -6724,7 +6765,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
 
             # WDAC path is planned but Secure Boot is OFF -> path is
             # overspecified (testsigning would suffice). Not a block.
-            if (-not $Script:UseTestSigning -and $sbSnapshot.Embedded.SecureBootEnabled -eq $false) {
+            if (-not $Ctx.UseTestSigning -and $sbSnapshot.Embedded.SecureBootEnabled -eq $false) {
                 Write-Warn2 'WDAC path is planned, but Secure Boot is OFF. Code Integrity policy will still apply; testsigning would also suffice. Continuing.'
             }
             # Surface UEFI rollout error state without blocking
@@ -6741,7 +6782,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     Write-Host ''
 
     Set-DebugStep 'testsigning fallback or WDAC policy build'
-    if ($Script:UseTestSigning) {
+    if ($Ctx.UseTestSigning) {
         Write-Warn2 'UseTestSigning specified; falling back to bcdedit /set testsigning on'
         Write-Warn2 'A reboot is required for testsigning mode to take effect.'
         & bcdedit /set testsigning on 2>&1 | ForEach-Object { Write-Skip ("    {0}" -f $_) }
@@ -6749,10 +6790,10 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     }
 
     $wdac = New-WdacSupplementalPolicy `
-        -CerPath $Script:CerPath `
-        -XmlOutputPath $Script:WdacXmlPath `
-        -BinOutputPath $Script:WdacBinPath `
-        -PolicyName $Script:WdacPolicyName `
+        -CerPath $Ctx.CerPath `
+        -XmlOutputPath $Ctx.WdacXmlPath `
+        -BinOutputPath $Ctx.WdacBinPath `
+        -PolicyName $Ctx.WdacPolicyName `
         -PolicyGuid $Script:WdacPolicyGuid
 
     Set-DebugStep 'install WDAC policy via CiTool / Set-CIPolicy'
@@ -6765,11 +6806,13 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
 
 function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
     Set-DebugStep 'run pnputil /add-driver /install for each patched INF'
     Write-Step 'Running pnputil /add-driver /install for each patched INF'
 
-    $infs = Get-ChildItem -Path $Script:PatchedDir -Filter '*.inf' -File
+    $infs = Get-ChildItem -Path $Ctx.PatchedDir -Filter '*.inf' -File
     $ok = 0; $fail = 0
     Set-DebugStep 'install each patched INF via pnputil (loop)'
     foreach ($inf in $infs) {
@@ -6792,11 +6835,13 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
 
 function Invoke-InstPhase04_PostInstallVerification {
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
 
     Set-DebugStep 'verify NPU device binding via Win32_PnPSignedDriver'
-    if ($Script:DetectedPlatform.NpuHardwareId) {
-        $hwidEscaped = [regex]::Escape($Script:DetectedPlatform.NpuHardwareId)
+    if ($Ctx.DetectedPlatform.NpuHardwareId) {
+        $hwidEscaped = [regex]::Escape($Ctx.DetectedPlatform.NpuHardwareId)
         $bound = $null
         if (-not [string]::IsNullOrEmpty($hwidEscaped)) {
             Set-DebugStep 'match NPU HWID against Win32_PnPSignedDriver entries'
@@ -6905,7 +6950,9 @@ function Invoke-Cleanup {
 # =============================================================================
 function Show-RyzenAiSoftwareGuidance {
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
     Write-Host ''
     Write-Host '+================================================================+' -ForegroundColor Cyan
     Write-Host '| RYZEN AI SOFTWARE (USER-MODE STACK) - INSTALL THIS SEPARATELY |' -ForegroundColor Cyan
@@ -6914,9 +6961,9 @@ function Show-RyzenAiSoftwareGuidance {
     Write-Host 'This script installed the kernel-mode NPU driver only.' -ForegroundColor White
     Write-Host 'To actually use the NPU for AI inference, install Ryzen AI Software:' -ForegroundColor White
     Write-Host ''
-    Write-Host ('  Detected NPU codename       : {0}' -f $Script:DetectedPlatform.NpuShortName) -ForegroundColor Gray
-    Write-Host ('  Installed NPU driver build  : {0} (kernel-mode, this script)' -f $Script:DetectedPlatform.NpuDriverBuild) -ForegroundColor Gray
-    Write-Host ('  Recommended RAI Software    : {0} (user-mode stack, install separately)' -f $Script:DetectedPlatform.RyzenAiSoftwareVersion) -ForegroundColor Gray
+    Write-Host ('  Detected NPU codename       : {0}' -f $Ctx.DetectedPlatform.NpuShortName) -ForegroundColor Gray
+    Write-Host ('  Installed NPU driver build  : {0} (kernel-mode, this script)' -f $Ctx.DetectedPlatform.NpuDriverBuild) -ForegroundColor Gray
+    Write-Host ('  Recommended RAI Software    : {0} (user-mode stack, install separately)' -f $Ctx.DetectedPlatform.RyzenAiSoftwareVersion) -ForegroundColor Gray
     Write-Host '  Note: NPU driver and Ryzen AI Software are versioned INDEPENDENTLY.' -ForegroundColor Gray
     Write-Host '        Always use the LATEST Ryzen AI Software for end-user workloads.' -ForegroundColor Gray
     Write-Host ''
@@ -6928,8 +6975,8 @@ function Show-RyzenAiSoftwareGuidance {
     Write-Host ''
     Write-Host '  INSTALLATION STEPS:' -ForegroundColor White
     Write-Host '    1. Download Ryzen AI Software installer (user-mode stack):' -ForegroundColor White
-    $raiInstaller = if ($Script:DetectedPlatform.RyzenAiSoftwareInstaller) { $Script:DetectedPlatform.RyzenAiSoftwareInstaller } else { 'ryzen-ai-lt-1.7.1.exe' }
-    $raiVer       = if ($Script:DetectedPlatform.RyzenAiSoftwareVersion)   { $Script:DetectedPlatform.RyzenAiSoftwareVersion }   else { '1.7.1' }
+    $raiInstaller = if ($Ctx.DetectedPlatform.RyzenAiSoftwareInstaller) { $Ctx.DetectedPlatform.RyzenAiSoftwareInstaller } else { 'ryzen-ai-lt-1.7.1.exe' }
+    $raiVer       = if ($Ctx.DetectedPlatform.RyzenAiSoftwareVersion)   { $Ctx.DetectedPlatform.RyzenAiSoftwareVersion }   else { '1.7.1' }
     Write-Host ('       https://account.amd.com/en/forms/downloads/xef.html?filename={0}' -f $raiInstaller) -ForegroundColor Cyan
     Write-Host ("       Filename: {0}" -f $raiInstaller) -ForegroundColor Cyan
     Write-Host ''
@@ -6958,7 +7005,7 @@ function Show-RyzenAiSoftwareGuidance {
     Write-Host '    Latest releases:          https://github.com/amd/RyzenAI-SW/releases' -ForegroundColor Cyan
     Write-Host ''
     Write-Host '  IMPORTANT - Server 2025 caveat:' -ForegroundColor Magenta
-    if ($Script:DetectedPlatform.IsServer2025) {
+    if ($Ctx.DetectedPlatform.IsServer2025) {
         Write-Host '    You are on Windows Server 2025. AMD does NOT support Ryzen AI Software here.' -ForegroundColor Magenta
         Write-Host '    The kernel driver this script installed will load, but the user-mode' -ForegroundColor Magenta
         Write-Host '    Python/ONNX Runtime stack may fail to initialize on Server SKU.' -ForegroundColor Magenta
@@ -6977,7 +7024,10 @@ function Show-RyzenAiSoftwareGuidance {
 # =============================================================================
 function Show-RunSummary {
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$Action)
+    param(
+        [Parameter(Mandatory)] $Ctx,
+        [Parameter(Mandatory)][string]$Action
+    )
 
     $totalElapsed = (Get-Date) - $Script:ScriptStartTime
     $endedAtStr   = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss')
@@ -6993,14 +7043,14 @@ function Show-RunSummary {
     Write-Host (" Ended           : {0}" -f $endedAtStr) -ForegroundColor Gray
     Write-Host (" Duration        : {0}" -f (Format-Elapsed $totalElapsed)) -ForegroundColor Gray
     Write-Host (" Workspace       : {0}" -f $WorkRoot) -ForegroundColor Gray
-    if ($Script:DetectedPlatform.NpuShortName) {
-        Write-Host (" NPU             : {0} ({1})" -f $Script:DetectedPlatform.NpuCodename, $Script:DetectedPlatform.NpuShortName) -ForegroundColor Gray
+    if ($Ctx.DetectedPlatform.NpuShortName) {
+        Write-Host (" NPU             : {0} ({1})" -f $Ctx.DetectedPlatform.NpuCodename, $Ctx.DetectedPlatform.NpuShortName) -ForegroundColor Gray
     }
-    if ($Script:DetectedPlatform.NpuDriverPackage) {
-        Write-Host (" NPU driver pkg  : {0} (build {1})" -f $Script:DetectedPlatform.NpuDriverPackage, $Script:DetectedPlatform.NpuDriverBuild) -ForegroundColor Gray
+    if ($Ctx.DetectedPlatform.NpuDriverPackage) {
+        Write-Host (" NPU driver pkg  : {0} (build {1})" -f $Ctx.DetectedPlatform.NpuDriverPackage, $Ctx.DetectedPlatform.NpuDriverBuild) -ForegroundColor Gray
     }
-    if ($Script:DetectedPlatform.RyzenAiSoftwareVersion) {
-        Write-Host (" RAI Software    : {0} (separate user-mode install)" -f $Script:DetectedPlatform.RyzenAiSoftwareVersion) -ForegroundColor Gray
+    if ($Ctx.DetectedPlatform.RyzenAiSoftwareVersion) {
+        Write-Host (" RAI Software    : {0} (separate user-mode install)" -f $Ctx.DetectedPlatform.RyzenAiSoftwareVersion) -ForegroundColor Gray
     }
 
     Write-Host ''
@@ -7042,7 +7092,9 @@ function Show-RunSummary {
 
 function Invoke-MainEntryPoint {
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
 
     # ----- Build context (NPU state-model refactor; see SPEC.md §A.11.7
     # *Tier B-4* for the multi-stage plan) -----
@@ -7069,26 +7121,32 @@ function Invoke-MainEntryPoint {
     # keep the diff against Chipset's $Ctx initialiser visible and
     # minimal.
     #
-    # NOTE: at the current refactor stage the $Ctx is constructed but
-    # NOT consumed - all phase functions and the Tier B-4 helpers still
-    # read $Script: globals. The duplicate state carriage ($Script: AND
-    # $Ctx) is intentional and transitional; later stages migrate the
-    # consumers to $Ctx and remove the $Script: dependency.
+    # NOTE: at the current refactor stage the $Ctx is consumed by all
+    # phase functions and by the non-phase state-touching helpers
+    # (Resolve-AmdNpuDriverUrl, Invoke-AmdAccountAuthentication,
+    # Show-RyzenAiSoftwareGuidance, Show-RunSummary), but the three
+    # Tier B-4 helpers (Get-OrEnsureSecureBootBaseline,
+    # Resume-CtxFromWorkspace, Invoke-Cleanup) still read $Script:
+    # globals because their bodies are scheduled to be replaced verbatim
+    # from the Chipset canon in a later stage. The duplicate state
+    # carriage ($Script: AND $Ctx) at the top level is therefore still
+    # intentional and transitional - the Tier B-4 helpers' migration
+    # is what allows the $Script: side to be removed.
     $Ctx = [pscustomobject]@{
         # ----- Chipset canon properties (29) -----
         # Params (mirror Chipset L14091..L14105)
         Action          = $Action
-        OnlyPhases      = $Script:OnlyPhases
-        InstallerUrl    = $Script:InstallerUrl
+        OnlyPhases      = $Ctx.OnlyPhases
+        InstallerUrl    = $Ctx.InstallerUrl
         AmdLandingUrls  = $null  # NPU does not crawl AMD landing pages; placeholder for canon parity
         AmdFallbackUrl  = $null  # NPU does not use the AMD fallback URL; placeholder for canon parity
-        WorkRoot        = $Script:WorkRoot
-        PfxPassword     = $Script:PfxPassword
-        TimestampUrl    = $Script:TimestampUrl
+        WorkRoot        = $Ctx.WorkRoot
+        PfxPassword     = $Ctx.PfxPassword
+        TimestampUrl    = $Ctx.TimestampUrl
         Force           = $false  # NPU does not expose -Force at this stage; placeholder
-        CleanWorkRoot   = $Script:CleanWorkRoot
-        UseTestSigning  = $Script:UseTestSigning
-        AllowWorkstationInstall = $Script:AllowWorkstationInstall
+        CleanWorkRoot   = $Ctx.CleanWorkRoot
+        UseTestSigning  = $Ctx.UseTestSigning
+        AllowWorkstationInstall = $Ctx.AllowWorkstationInstall
         # Populated by phases (mirror Chipset L14106..L14130)
         Os = $null; Paths = $null
         SevenZip = $null; Signtool = $null; Inf2cat = $null
@@ -7103,42 +7161,44 @@ function Invoke-MainEntryPoint {
         # download (no public direct URL like Chipset / Graphics), so it
         # carries account credentials, the resolved package metadata, and
         # an optional offline-ZIP fast path. NPU also manages its own
-        # WDAC supplemental policy artefacts ($Script:WdacBinPath / Xml /
+        # WDAC supplemental policy artefacts ($Ctx.WdacBinPath / Xml /
         # PolicyName) which the AMD-family scripts express via $Ctx.Paths.*.
-        AmdAccountUser     = $Script:AmdAccountUser
-        AmdAccountPassword = $Script:AmdAccountPassword
-        ForceAmdAccountAuth = $Script:ForceAmdAccountAuth
-        AssumeIfMissing    = $Script:AssumeIfMissing
-        NpuOverride        = $Script:NpuOverride
-        RyzenAiSoftwareVersion = $Script:RyzenAiSoftwareVersion
-        OfflineZip         = $Script:OfflineZip
+        AmdAccountUser     = $Ctx.AmdAccountUser
+        AmdAccountPassword = $Ctx.AmdAccountPassword
+        ForceAmdAccountAuth = $Ctx.ForceAmdAccountAuth
+        AssumeIfMissing    = $Ctx.AssumeIfMissing
+        NpuOverride        = $Ctx.NpuOverride
+        RyzenAiSoftwareVersion = $Ctx.RyzenAiSoftwareVersion
+        OfflineZip         = $Ctx.OfflineZip
         RepoUrl            = $Script:RepoUrl
-        NpuDriverPackage   = $Script:NpuDriverPackage
-        DetectedPlatform   = $Script:DetectedPlatform
+        NpuDriverPackage   = $Ctx.NpuDriverPackage
+        DetectedPlatform   = $Ctx.DetectedPlatform
         # NPU-specific workspace path shortcuts (Chipset / Graphics use
         # $Ctx.Paths.* sub-keys; NPU keeps these as top-level for now
         # and will fold them under $Ctx.Paths in a later stage).
-        CertDir            = $Script:CertDir
-        DownloadDir        = $Script:DownloadDir
-        ExtractedDir       = $Script:ExtractedDir
-        PatchedDir         = $Script:PatchedDir
-        CerPath            = $Script:CerPath
-        PfxPath            = $Script:PfxPath
-        CertSubjectCn      = $Script:CertSubjectCn
-        CertValidityYears  = $Script:CertValidityYears
+        CertDir            = $Ctx.CertDir
+        DownloadDir        = $Ctx.DownloadDir
+        ExtractedDir       = $Ctx.ExtractedDir
+        PatchedDir         = $Ctx.PatchedDir
+        CerPath            = $Ctx.CerPath
+        PfxPath            = $Ctx.PfxPath
+        CertSubjectCn      = $Ctx.CertSubjectCn
+        CertValidityYears  = $Ctx.CertValidityYears
         # NPU-specific WDAC artefact paths
-        WdacBinPath        = $Script:WdacBinPath
-        WdacXmlPath        = $Script:WdacXmlPath
-        WdacPolicyName     = $Script:WdacPolicyName
+        WdacBinPath        = $Ctx.WdacBinPath
+        WdacXmlPath        = $Ctx.WdacXmlPath
+        WdacPolicyName     = $Ctx.WdacPolicyName
         # NPU-specific inventory artefacts (for P05 output)
-        InventoryCsvPath    = $Script:InventoryCsvPath
-        InventoryReportPath = $Script:InventoryReportPath
+        InventoryCsvPath    = $Ctx.InventoryCsvPath
+        InventoryReportPath = $Ctx.InventoryReportPath
     }
-    # Silence "declared but never used" while the multi-stage refactor
-    # is mid-flight - later stages introduce real consumers (phase
-    # functions take -Ctx $Ctx parameter; Tier B-4 helpers read $Ctx.*
-    # properties). Out-Null is also the canonical idiom used elsewhere
-    # in the script for intentional discard.
+    # The $Ctx is now consumed by the phase functions and the 4
+    # non-phase state-touching helpers; the Out-Null call below is no
+    # longer required for the "unused variable" suppression but kept
+    # transitionally for diff readability. It will be removed in the
+    # final stage of the NPU state-model refactor when the Tier B-4
+    # helpers migrate to $Ctx and the top-level $Script: assignments
+    # can be deleted.
     $Ctx | Out-Null
 
     # Banner (sister-script-aligned: include ScriptTag and ScriptHash)
@@ -7169,10 +7229,10 @@ function Invoke-MainEntryPoint {
 
     # Resolve which phases to run
     $phaseIds = $null
-    if ($Script:OnlyPhases -and $Script:OnlyPhases.Count -gt 0) {
+    if ($Ctx.OnlyPhases -and $Ctx.OnlyPhases.Count -gt 0) {
         # Honor explicit -OnlyPhases override (split commas, trim, dedupe)
         $phaseIds = @()
-        foreach ($entry in $Script:OnlyPhases) {
+        foreach ($entry in $Ctx.OnlyPhases) {
             foreach ($id in ($entry -split ',')) {
                 $trimmed = $id.Trim()
                 if (-not [string]::IsNullOrEmpty($trimmed)) {
@@ -7200,7 +7260,7 @@ function Invoke-MainEntryPoint {
         try {
             $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
             $productType = [int]$os.ProductType
-            if ($productType -eq 1 -and -not $Script:AllowWorkstationInstall) {
+            if ($productType -eq 1 -and -not $Ctx.AllowWorkstationInstall) {
                 Write-Warn2 ''
                 Write-Warn2 '------------------------------------------------------------------'
                 Write-Warn2 ('Action={0} on Workstation OS detected.' -f $Action)
@@ -7215,7 +7275,7 @@ function Invoke-MainEntryPoint {
     }
 
     # Execute the resolved phase list
-    Invoke-PhaseRunner -PhaseIds $phaseIds
+    Invoke-PhaseRunner -Ctx $Ctx -PhaseIds $phaseIds
 
     # Post-Install / Post-All: show Ryzen AI Software guidance to the operator
     if ($Action -eq 'Install' -or $Action -eq 'All') {
@@ -7228,7 +7288,7 @@ function Invoke-MainEntryPoint {
             }
         }
         if ($allInstallPhasesOk) {
-            Show-RyzenAiSoftwareGuidance
+            Show-RyzenAiSoftwareGuidance -Ctx $Ctx
         }
     }
 }
@@ -7255,7 +7315,7 @@ finally {
     # Always print run summary (except on ListPhases, which has nothing to summarize)
     if ($Action -ne 'ListPhases') {
         try {
-            Show-RunSummary -Action $Action
+            Show-RunSummary -Ctx $Ctx -Action $Action
         } catch {
             Write-Warn2 ('Could not render run summary: {0}' -f $_.Exception.Message)
         }

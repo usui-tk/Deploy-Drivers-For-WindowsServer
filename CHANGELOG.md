@@ -20,7 +20,184 @@ independently.
 
 ---
 
-## [2026-05-26] `npu-state-model-refactor-step-1-wdac-helpers` — Chipset r83 / Graphics r49 / BthPan r31 / NPU r27
+## [2026-05-26] `npu-state-model-refactor-step-2-phase-functions-ctx` — Chipset r84 / Graphics r50 / BthPan r32 / NPU r28
+
+This is **stage 2 of the NPU state-model refactor** — the bulk of the
+restructuring work. Stage 1 (`npu-state-model-refactor-step-1-wdac-helpers`)
+ported the required WDAC tooling helpers from Chipset and constructed the
+canonical `$Ctx` skeleton inside NPU's `Invoke-MainEntryPoint`. Stage 2
+makes that `$Ctx` **live**: every NPU phase function and every non-phase
+state-touching helper (other than the three Tier B-4 helpers slated for
+stage 3) now takes `$Ctx` as a mandatory parameter and reads its runtime
+state from `$Ctx.Foo` instead of `$Script:Foo`. The phase dispatcher
+(`Invoke-PhaseRunner`) was extended in lockstep so the `& $phase.Func`
+call site passes `-Ctx $Ctx`.
+
+> **What changed**: 184 mechanical `$Script:Foo → $Ctx.Foo` replacements
+> across **27 functions** (21 phase functions + `Resolve-AmdNpuDriverUrl`
+> + `Invoke-AmdAccountAuthentication` + `Show-RyzenAiSoftwareGuidance` +
+> + `Show-RunSummary` + `Invoke-MainEntryPoint` + `Invoke-PhaseRunner`),
+> 27 signature changes (`param()` → `param([Parameter(Mandatory)] $Ctx)`
+> for those with no existing param block; `$Ctx` inserted as the first
+> argument for those that did), and 5 caller-site fix-ups
+> (`Invoke-PhaseRunner -Ctx $Ctx`, `Show-RunSummary -Ctx $Ctx`,
+> `Show-RyzenAiSoftwareGuidance -Ctx $Ctx`, `Resolve-AmdNpuDriverUrl
+> -Ctx $Ctx`, `Invoke-AmdAccountAuthentication -Ctx $Ctx`).
+> **No runtime behaviour changes** — every phase still does exactly
+> what it did at r83. The Tier B-4 helpers (`Get-OrEnsureSecureBootBaseline`,
+> `Resume-CtxFromWorkspace`, `Invoke-Cleanup`) are deliberately untouched
+> in this stage and continue to read `$Script:` globals; their callers
+> do **not** pass `-Ctx $Ctx`. SPEC §A.11.7 *Tier B-4* now marks stage 2
+> as ✅ Complete; stage 3 (Tier B-4 helper Chipset-canon-isation) is the
+> remaining planned work.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.26-r83` → `chipset-2026.05.26-r84`
+  - Graphics: `graphics-2026.05.26-r49` → `graphics-2026.05.26-r50`
+  - NPU: `npu-2026.05.26-r27` → `npu-2026.05.26-r28`
+  - BthPan: `msbthpan-2026.05.26-r31` → `msbthpan-2026.05.26-r32`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `npu-state-model-refactor-step-1-wdac-helpers` → `npu-state-model-refactor-step-2-phase-functions-ctx`
+
+### NPU script — phase function and helper migration
+
+Every NPU phase function and every non-phase state-touching helper in
+scope now takes `$Ctx` as a mandatory parameter and reads its runtime
+state from `$Ctx.Foo` instead of `$Script:Foo`. The migration is
+strictly mechanical — no business logic was touched. The migration's
+mechanical breakdown:
+
+- **21 phase functions** (`Invoke-PrepPhase00`〜`09`,
+  `Invoke-VerifyPhase01`〜`06`, `Invoke-InstPhase00`〜`04`): signature
+  `param()` → `param([Parameter(Mandatory)] $Ctx)`; 130 internal
+  `$Script:Foo → $Ctx.Foo` replacements (state vars only — infra
+  vars like `$Script:CurrentPhaseId`, `$Script:DebugTrace*`,
+  `$Script:LogFile*`, `$Script:PhaseRegistry`, `$Script:ScriptHash`,
+  `$Script:ScriptTag`, `$Script:WdacPolicyGuid` etc. are deliberately
+  preserved on `$Script:` because they are framework concerns, not
+  driver-pipeline state).
+
+- **4 non-phase state-touching helpers** that did not previously
+  declare a `param()` block: `Show-RyzenAiSoftwareGuidance`,
+  `Invoke-MainEntryPoint`. Signature `param()` → `param([Parameter(Mandatory)]
+  $Ctx)`; internal `$Script:Foo → $Ctx.Foo` replacements as needed.
+
+- **3 non-phase state-touching helpers** that already declared a
+  `param()` block with parameters: `Show-RunSummary`,
+  `Invoke-AmdAccountAuthentication`, `Resolve-AmdNpuDriverUrl`.
+  These had `$Ctx` inserted as the **first** parameter, ahead of
+  their existing positional parameters. The existing parameters
+  (`$Action`, `$Username`, `$Password`, `$DriverFilename`,
+  `$NpuPlatform`, `$ExplicitInstallerUrl`, `$ExplicitOfflineZip`,
+  `$AmdAccountUser`, `$AmdAccountPassword`) are retained unchanged
+  to minimise the call-site diff.
+
+- **Dispatcher (`Invoke-PhaseRunner`)** updated to take `$Ctx` and
+  pass it to the phase function it invokes: `& $phase.Func` → `&
+  $phase.Func -Ctx $Ctx`.
+
+- **5 caller-site fix-ups**: every call to the modified helpers / the
+  dispatcher now passes `-Ctx $Ctx`:
+  - `Invoke-PhaseRunner -PhaseIds $phaseIds` →
+    `Invoke-PhaseRunner -Ctx $Ctx -PhaseIds $phaseIds`
+  - `Show-RunSummary -Action $Action` →
+    `Show-RunSummary -Ctx $Ctx -Action $Action`
+  - `Show-RyzenAiSoftwareGuidance` →
+    `Show-RyzenAiSoftwareGuidance -Ctx $Ctx`
+  - `$resolved = Resolve-AmdNpuDriverUrl \`` →
+    `$resolved = Resolve-AmdNpuDriverUrl -Ctx $Ctx \``
+  - `$authResult = Invoke-AmdAccountAuthentication \`` →
+    `$authResult = Invoke-AmdAccountAuthentication -Ctx $Ctx \``
+
+### Top-level state: dual-carriage transitional state
+
+The top-level `$Script:Foo = $Foo` / `$Script:Foo = Join-Path ...`
+assignments at NPU L307..L353 are **kept unchanged in this release**.
+The `$Ctx` constructor inside `Invoke-MainEntryPoint` (introduced in
+stage 1) reads from those `$Script:Foo` and assigns into `$Ctx.Foo`,
+so both carriages now hold the same values; the phase functions and
+the four migrated non-phase helpers read from `$Ctx.Foo`; the three
+Tier B-4 helpers still read from `$Script:Foo`. **The duplication is
+intentional**: removing the top-level `$Script:Foo` writes prematurely
+would break the three Tier B-4 helpers. Stage 3 removes the
+duplication in a single coordinated change (replace the Tier B-4
+helper bodies with the Chipset canon, then drop the unused
+`$Script:Foo` assignments).
+
+### Tier B-4 readable vars — no sync code was needed
+
+A pre-implementation analysis flagged the six `$Script:` vars that the
+three Tier B-4 helpers read — `$Script:DetectedPlatform`, `$Script:WorkRoot`,
+`$Script:CerPath`, `$Script:PatchedDir`, `$Script:PfxPath`,
+`$Script:CertSubjectCn` — as candidates for a "post-assignment
+`$Script:Foo = $Ctx.Foo` sync" pattern inside phase functions. The
+empirical analysis after the migration found **zero such assignments
+inside any in-scope function**: all six are initialised at the script's
+top level (NPU L321..L348, L751) and treated as immutable downstream.
+No phase function or non-phase helper writes them. The transitional
+dual carriage at the top level is therefore the only sync needed; no
+phase-function-level sync code was added. This is reflected in the
+clean, no-special-case state of the migrated NPU.
+
+### What was deliberately NOT done in this release
+
+- **The three Tier B-4 helpers** (`Get-OrEnsureSecureBootBaseline`,
+  `Resume-CtxFromWorkspace`, `Invoke-Cleanup`) are **untouched**:
+  their signatures stay at `param()` and their bodies still read
+  `$Script:DetectedPlatform`, `$Script:WorkRoot`, `$Script:CerPath`,
+  `$Script:PatchedDir`, `$Script:PfxPath`, `$Script:CertSubjectCn`.
+  They are scheduled to be replaced verbatim from the Chipset canon
+  in stage 3.
+
+- **The top-level `$Script:Foo` assignments** (NPU L307..L353, L751)
+  are **kept** even though phase functions no longer read them: the
+  three Tier B-4 helpers still do, and `psa.py`'s PSA2013 (read of
+  undefined `$Script:Foo`) would fire if they were removed before
+  stage 3 lands.
+
+- **The `$Ctx` constructor in `Invoke-MainEntryPoint`** still reads
+  from `$Script:Foo` to populate `$Ctx.Foo`. Inverting the data flow
+  (top-level `$Ctx.Foo = $Foo` first, then `$Script:Foo = $Ctx.Foo`
+  as the sync) is a stage-3 follow-up.
+
+- **No Chipset / Graphics / BthPan changes** other than the uniform
+  `$Script:ScriptVersion` / `$Script:ScriptTag` bump.
+
+### Documentation
+
+- **`SPEC.md` §A.11.7 *Tier B-4*** — the stage progress table now marks
+  stage 2 as ✅ Complete, including the per-category breakdown (21
+  phase functions, 4 non-phase helpers, 1 dispatcher, 184 mechanical
+  replacements, 5 caller-site fix-ups). The planning note prose is
+  updated to describe the new transitional state (top-level dual
+  carriage feeds the three remaining Tier B-4 consumers).
+- **`README.md` / `README.ja.md`** — `What's new` carries an r84 entry
+  summarising the stage 2 migration's mechanical scope and what
+  remains for stage 3.
+
+### Verification (run before commit)
+
+```bash
+python3 path/to/psa.py --config-check .psa.config.json            # 0 issues
+python3 path/to/psa.py --config .psa.config.json Deploy-*.ps1     # 0 / 0 / 0 / 0
+python3 path/to/psa.py --config .psa.config.json --include PSA8001 \
+    Deploy-*.ps1                                                  # 0 errors (38 Tier A enforced; no change vs. r83)
+```
+
+### Version policy
+
+This release is **stage 2 of the NPU state-model refactor**. The
+`$Script:ScriptVersion` bump is four-way uniform (Chipset / Graphics /
+BthPan move forward in lockstep with NPU) for the same reason as r83:
+the per-script-but-uniform `$Script:ScriptTag` is a single durable
+identifier emitted in phase banners and DebugTrace JSONL, and
+splitting the tag would create cross-script log-archive ambiguity for
+no operational benefit. **No runtime behaviour change** on any of the
+three AMD-family scripts or on BthPan.
+
+
 
 This release begins the **NPU state-model refactor** — the multi-stage
 workstream that brings the NPU script into the same `$Ctx`-based
