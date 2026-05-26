@@ -485,10 +485,10 @@ P00 must enforce all THREE console encodings to UTF-8 so that:
 2. **External tool stdout** captured via `& tool ... | Out-String` is decoded as UTF-8. CiTool.exe and modern signtool.exe write UTF-8 on Windows Server 2025, and without this setting their Japanese output renders as mojibake like `蜃ｦ逅・・謌仙粥縺励∪縺励◆` (the UTF-8 byte sequence of `処理が成功しました` interpreted as cp932).
 3. **PowerShell-to-native stdin** pipes (`$json | tool.exe`) send UTF-8 bytes to the external tool.
 
-The canonical implementation, defined as a dedicated helper `Set-ConsoleUtf8` and called from P00 immediately after `Set-Tls12` (chipset/graphics) or `Set-NetworkProtocol` (NPU):
+The canonical implementation, defined as a dedicated helper `Set-Utf8PipelineEncoding` and called from P00 immediately after `Set-TlsSecurityProtocol` (chipset/graphics) or `Set-NetworkProtocol` (NPU):
 
 ```powershell
-function Set-ConsoleUtf8 {
+function Set-Utf8PipelineEncoding {
     try { [Console]::OutputEncoding = [System.Text.Encoding]::UTF8 } catch { }
     try { [Console]::InputEncoding  = [System.Text.Encoding]::UTF8 } catch { }
     try { Set-Variable -Name OutputEncoding -Scope Global -Value ([System.Text.Encoding]::UTF8) -ErrorAction SilentlyContinue } catch { }
@@ -569,7 +569,7 @@ C:\Temp\<scripttag>_<Action>_<yyyyMMdd-HHmmss>.log
 
 Where `<scripttag>` is `amd-chipset` / `amd-graphics` / `amd-npu` / `ms-bthpan`. The timestamp suffix prevents same-Action re-runs from appending to the previous file when that is not desired.
 
-Operators on a ja-JP host with the default cp932 console code page who pipe `-LogFile` output through a downstream tool must still set the consuming tool's file encoding to UTF-8 (the script's `Set-ConsoleUtf8` in P00 enforces UTF-8 for `[Console]::OutputEncoding`, but text editors / `Get-Content` on the captured file may default to cp932 / Shift-JIS).
+Operators on a ja-JP host with the default cp932 console code page who pipe `-LogFile` output through a downstream tool must still set the consuming tool's file encoding to UTF-8 (the script's `Set-Utf8PipelineEncoding` in P00 enforces UTF-8 for `[Console]::OutputEncoding`, but text editors / `Get-Content` on the captured file may default to cp932 / Shift-JIS).
 
 ---
 
@@ -1019,7 +1019,7 @@ Across all four pipeline scripts, **34 helper functions** are inherited verbatim
 
 **Environment / preflight (5 functions)**
 
-`Set-Tls12`, `Set-ConsoleUtf8`, `Assert-Admin`, `Assert-PowerShellCompatibility`, `Show-PowerShellEnvironment`
+`Set-TlsSecurityProtocol`, `Set-Utf8PipelineEncoding`, `Assert-Admin`, `Assert-PowerShellCompatibility`, `Show-PowerShellEnvironment`
 
 **Secure Boot baseline diagnostic helpers (5 functions; 1 PSA8001-enforced + 4 PSA8001-ignored-but-still-verbatim)**
 
@@ -1182,13 +1182,13 @@ When a shared helper is fixed in Graphics / NPU / BthPan instead of Chipset (e.g
 These 38 helpers are inherited verbatim from Chipset by all three other scripts. PSA8001 fires on any drift; the gate has been continuously green for the original 34 functions since the r60 / r28 / r10 / r10 release. The first uplift (`Get-SecureBootBaselineSnapshot`, `Show-SecureBootBaselineSnapshot`) graduated from Tier B to Tier A in the `psa-py-v410-shared-helper-canon-uplift` release; the second uplift (`Test-WdacToolsAvailable`, `Get-ActiveCodeIntegrityPolicies`) joined Tier A in the `npu-state-model-refactor-step-1-wdac-helpers` release when these two universal WDAC tooling preflight helpers were ported from Chipset / Graphics / BthPan into NPU as part of the NPU state-model refactor's first stage. The canonical inventory below is grouped by functional family to make porting decisions easier:
 
 **Logging primitives (12)**
-`Format-Elapsed`, `_LogLine`, `Write-Step`, `Write-Ok`, `Write-Warn2`, `Write-Fail`, `Write-Skip`, `Write-Detail`, `Write-PhaseHeader`, `Write-PhaseFooter`, `Get-PhaseElapsedTag`, `Format-DebugFailure`
+`Format-Elapsed`, `_LogLine`, `Write-Step`, `Write-Ok`, `Write-Caution`, `Write-Fail`, `Write-Skip`, `Write-Detail`, `Write-PhaseHeader`, `Write-PhaseFooter`, `Get-PhaseElapsedTag`, `Format-DebugFailure`
 
 **DebugTrace framework (12)**
 `_DebugTrace_NextSeq`, `_DebugTrace_Now`, `_DebugTrace_WriteJsonlLine`, `_DebugTrace_RetireFrame`, `Start-DebugTrace`, `Stop-DebugTrace`, `Set-DebugStep`, `Write-DebugFailureReport`, `Enable-DebugTraceFileOutput`, `Disable-DebugTraceFileOutput`, `Get-DebugTraceFileOutputStatus`, `Enable-AutoExportOnPhaseFailure`
 
 **Environment / preflight (5)**
-`Set-Tls12`, `Set-ConsoleUtf8`, `Assert-Admin`, `Assert-PowerShellCompatibility`, `Show-PowerShellEnvironment`
+`Set-TlsSecurityProtocol`, `Set-Utf8PipelineEncoding`, `Assert-Admin`, `Assert-PowerShellCompatibility`, `Show-PowerShellEnvironment`
 
 **Secure Boot baseline diagnostic helpers (7)**
 `Format-SecureBootBaselineForReport`, `Get-SecureBootCertificateInventory`, `Get-MsSecureBootExampleScriptPath`, `Invoke-MsSecureBootDetectScript`, `Export-DebugTraceJson`, `Get-SecureBootBaselineSnapshot`, `Show-SecureBootBaselineSnapshot`
@@ -1312,7 +1312,7 @@ The following 28 helper functions are byte-identical across all five scripts (Ch
 - **Logging primitives (8)**: `_LogLine`, `Get-PhaseElapsedTag`, `Format-Elapsed`, `Write-Ok`, `Write-Fail`, `Write-Skip`, `Write-Step`, `Write-Caution` (renamed from `Write-Warn2` / `Write-Warn` at this release)
 - **Continuation/detail helper (1)**: `Write-Detail` (defined in all five scripts; AMD scripts use it heavily, SpeakerDeck currently has 0 callsites — see per-repo carve-out below)
 - **Phase banners (2)**: `Write-PhaseHeader`, `Write-PhaseFooter`
-- **Environment / preflight (3)**: `Set-Tls12`, `Set-ConsoleUtf8`, `Assert-PowerShellCompatibility`
+- **Environment / preflight (3)**: `Set-TlsSecurityProtocol`, `Set-Utf8PipelineEncoding`, `Assert-PowerShellCompatibility`
 - **DebugTrace framework (9)**: `Start-DebugTrace`, `Stop-DebugTrace`, `_DebugTrace_RetireFrame`, `_DebugTrace_WriteJsonlLine`, `Enable-DebugTraceFileOutput`, `Enable-AutoExportOnPhaseFailure`, `Export-DebugTraceJson`, `Format-DebugFailure`, `Write-DebugFailureReport`
 
 ###### Per-repo differences explicitly carved out

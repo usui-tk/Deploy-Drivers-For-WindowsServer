@@ -786,8 +786,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'graphics-2026.05.26-r52'
-$Script:ScriptTag     = 'cross-repo-shared-utility-canon-write-caution'
+$Script:ScriptVersion = 'graphics-2026.05.27-r53'
+$Script:ScriptTag     = 'cross-repo-canon-rename-misleading-helpers'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -1628,7 +1628,7 @@ function Show-DriverInstallationOrderNotice {
     Write-Host '+------------------------------------------------------------------------+' -ForegroundColor Yellow
 }
 
-function Set-Tls12 {
+function Set-TlsSecurityProtocol {
     # ====================================================================
     # Enable TLS for outbound HTTPS calls with best-effort multi-version
     # fallback. Tls12 is the baseline (required by most modern endpoints
@@ -1647,7 +1647,7 @@ function Set-Tls12 {
     try { $protos = $protos -bor [Net.SecurityProtocolType]::Tls   } catch { } # psa-disable-line PSA3004 -- defensive legacy fallback for very old environments
     [Net.ServicePointManager]::SecurityProtocol = $protos
 }
-function Set-ConsoleUtf8 {
+function Set-Utf8PipelineEncoding {
     # ====================================================================
     # SPEC A.5 / D.5: enforce UTF-8 console encoding so ja-JP Japanese
     # log strings (and external tool output such as CiTool.exe) render
@@ -7631,8 +7631,8 @@ function Invoke-PrepPhase00_Initialize {
     Set-DebugStep 'pre-flight checks (PS compat / admin / TLS / UTF8)'
     Assert-PowerShellCompatibility
     Assert-Admin
-    Set-Tls12
-    Set-ConsoleUtf8
+    Set-TlsSecurityProtocol
+    Set-Utf8PipelineEncoding
 
     Set-DebugStep 'detect OS context'
     $Ctx.Os = Get-OsContext

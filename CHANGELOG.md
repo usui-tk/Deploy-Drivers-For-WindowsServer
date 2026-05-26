@@ -20,7 +20,98 @@ independently.
 
 ---
 
-## [2026-05-27] `cross-repo-shared-utility-canon-write-caution` — Chipset r86 / Graphics r52 / BthPan r34 / NPU r30
+## [2026-05-27] `cross-repo-canon-rename-misleading-helpers` — Chipset r87 / Graphics r53 / BthPan r35 / NPU r31
+
+This is a **focused naming-cleanup release** that renames two helpers
+in the 5-way cross-repo shared utility canon where the function names
+had drifted away from what the implementations actually do. Both
+renames are mechanical (function-body bytes unchanged); the entire
+release is a callsite-only rewrite plus the script-identity bump.
+
+### Function renames
+
+- **`Set-Tls12` → `Set-TlsSecurityProtocol`**
+  The pre-rename name suggested "set TLS 1.2", but since the
+  `cross-repo-shared-utility-canon-write-caution` release (r86) the
+  implementation has been the hybrid canon that negotiates TLS 1.3 +
+  1.2 + best-effort 1.1 + 1.0 fallback. The new name reflects what
+  the function actually does: it assigns the
+  `[Net.ServicePointManager]::SecurityProtocol` bitmask for outbound
+  HTTPS calls.
+
+- **`Set-ConsoleUtf8` → `Set-Utf8PipelineEncoding`**
+  The pre-rename name suggested "set Console to UTF-8", but the
+  implementation sets three distinct things: `[Console]::OutputEncoding`,
+  `[Console]::InputEncoding`, AND the PowerShell-internal
+  `$OutputEncoding` global variable. The third is **not** a Console
+  property — it controls how PowerShell writes piped data to external
+  tools. The new name captures the broader pipeline-encoding scope.
+
+### Callsite rewrites
+
+Both renames are precise `\bName\b` word-boundary replacements across
+all five scripts:
+
+| Script   | Set-Tls12 → Set-TlsSecurityProtocol | Set-ConsoleUtf8 → Set-Utf8PipelineEncoding |
+|----------|-------------------------------------|--------------------------------------------|
+| Chipset  | 2 (def + 1 call)                    | 2 (def + 1 call)                           |
+| Graphics | 2 (def + 1 call)                    | 2 (def + 1 call)                           |
+| NPU      | 3 (def + 2 calls)                   | 3 (def + 2 calls)                          |
+| BthPan   | 2 (def + 1 call)                    | 2 (def + 1 call)                           |
+| Total    | 9 occurrences (this repo)           | 9 occurrences (this repo)                  |
+
+The matching SpeakerDeck-repo release rewrites the corresponding 3 +
+3 = 6 occurrences in `Download-SpeakerDeck.ps1`.
+
+### Release-wide changes
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.26-r86` → `chipset-2026.05.27-r87`
+  - Graphics: `graphics-2026.05.26-r52` → `graphics-2026.05.27-r53`
+  - NPU: `npu-2026.05.26-r30` → `npu-2026.05.27-r31`
+  - BthPan: `msbthpan-2026.05.26-r34` → `msbthpan-2026.05.27-r35`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `cross-repo-shared-utility-canon-write-caution` →
+    `cross-repo-canon-rename-misleading-helpers`
+
+### Documentation changes
+
+- `SPEC.md` §A.5 (Console encoding) and §A.11.7 (cross-repo canon) —
+  forward-looking references to the two helpers updated to the new
+  names. §A.11.5b Tier A list also updated; the §A.11.7 Logging
+  primitives list incidentally received the same `Write-Warn2` →
+  `Write-Caution` correction that the r86 release missed at that
+  particular table.
+- `SPEC.md` §A.11.5 (PSA8001 history note) and §D.5 / §D.16
+  (historical Known Pitfalls) retain the pre-rename names as
+  **verbatim historical context** per the repository's policy. The
+  function names there describe the implementations as they existed at
+  the time the pitfall was logged.
+- `README.md` / `README.ja.md` — "What's new" section updated; r86
+  moved to "Previous release notes".
+- This `CHANGELOG.md` entry.
+
+### Verification
+
+5-way byte-identity across the 28 canon functions is preserved (the
+two renamed function bodies are unchanged; only the function name and
+callsites changed). All four scripts pass `psa.py 4.1.0` with
+`0 / 0 / 0 / 0` on the full latest-mainline rule set.
+
+### Why this is a separate release from r86
+
+The r86 release established the hybrid `Set-Tls12` body (TLS 1.3 +
+1.2 + 1.1 + 1.0) and the hybrid `Set-ConsoleUtf8` body (Console +
+pipeline encoding both). The name-vs-implementation drift this release
+addresses was introduced by r86's hybrid uplift. r86 was correct to
+focus on the **implementation** of the cross-repo canon (best-of-both
+selection per function); r87 corrects the **naming** that should have
+been updated alongside. Splitting these into two commits keeps each
+release's "what changed" reviewable independently.
+
+---
+
+
 
 This release establishes the **5-way cross-repo shared utility canon** that
 spans the four AMD-family scripts in this repository and the

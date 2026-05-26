@@ -322,8 +322,8 @@ param(
 #   * PhaseResults - per-phase outcome registry (write side from
 #     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.05.26-r30'
-$Script:ScriptTag           = 'cross-repo-shared-utility-canon-write-caution'
+$Script:ScriptVersion       = 'npu-2026.05.27-r31'
+$Script:ScriptTag           = 'cross-repo-canon-rename-misleading-helpers'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the
@@ -1236,7 +1236,7 @@ function Assert-Admin {
     }
 }
 
-function Set-Tls12 {
+function Set-TlsSecurityProtocol {
     # ====================================================================
     # Enable TLS for outbound HTTPS calls with best-effort multi-version
     # fallback. Tls12 is the baseline (required by most modern endpoints
@@ -1255,7 +1255,7 @@ function Set-Tls12 {
     try { $protos = $protos -bor [Net.SecurityProtocolType]::Tls   } catch { } # psa-disable-line PSA3004 -- defensive legacy fallback for very old environments
     [Net.ServicePointManager]::SecurityProtocol = $protos
 }
-function Set-ConsoleUtf8 {
+function Set-Utf8PipelineEncoding {
     # ====================================================================
     # SPEC A.5 / D.5: enforce UTF-8 console encoding so ja-JP Japanese
     # log strings (and external tool output such as CiTool.exe) render
@@ -5695,8 +5695,8 @@ function Invoke-PrepPhase00_Initialize {
 
     Show-PowerShellEnvironment
     Assert-Admin
-    Set-Tls12
-    Set-ConsoleUtf8
+    Set-TlsSecurityProtocol
+    Set-Utf8PipelineEncoding
 
     $os = Show-OperatingSystemDetail
     $Ctx.DetectedPlatform.OsCaption       = $os.OsCaption
@@ -7381,8 +7381,8 @@ function Invoke-MainEntryPoint {
     if ($Action -eq 'Cleanup') {
         # Best-effort: even Cleanup needs admin + TLS for cert removal
         try { Assert-Admin } catch { throw }
-        Set-Tls12
-        Set-ConsoleUtf8
+        Set-TlsSecurityProtocol
+        Set-Utf8PipelineEncoding
         Invoke-Cleanup -Ctx $Ctx
         return
     }
