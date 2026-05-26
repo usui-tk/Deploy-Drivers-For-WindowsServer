@@ -786,8 +786,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'graphics-2026.05.24-r46'
-$Script:ScriptTag     = 'psa-py-v4-llm-governance-strict'
+$Script:ScriptVersion = 'graphics-2026.05.26-r47'
+$Script:ScriptTag     = 'psa-py-v410-three-new-error-rules-baseline'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls

@@ -20,7 +20,196 @@ independently.
 
 ---
 
-## [2026-05-24] `psa-py-v4-llm-governance-strict` — Chipset r80 / Graphics r46 / BthPan r28 / NPU r24
+## [2026-05-26] `psa-py-v410-three-new-error-rules-baseline` — Chipset r81 / Graphics r47 / BthPan r29 / NPU r25
+
+This release adopts `psa.py` 4.1.0 — the upstream minor release that
+adds three new error-severity, default-on static-analysis rules
+(`PSA1004`, `PSA2012`, `PSA2013`) on top of the v4.0.2 baseline that
+the previous release (`psa-py-v4-llm-governance-strict`, r80 / r46 /
+r28 / r24) consumed. All four sister scripts pass with a **0 / 0 / 0
+/ 0 baseline** on the full latest-mainline rule set, including the
+three new rules and the strict-mode `PSAP0005` inherited from r80.
+There are **no runtime behaviour changes**; this is a static-analysis
+coverage uplift plus shared-helper-canon documentation.
+
+> **What changed**: (1) The upstream analyzer added three error-class
+> rules that detect concrete latent-bug patterns observed in a sister
+> PowerShell pipeline (`update-windows-server-iso`). (2) The four
+> repository scripts already comply with all three new rules — the
+> uplift is verified at 0 findings on each, and the rule set is now
+> the steady-state ceiling against which future edits are gated. (3)
+> A new SPEC.md §A.11.7 ("Shared helper canon and porting checklist")
+> codifies the canonical "copy from Chipset" workflow that was
+> previously distributed across `.psa.config.json` comments and PR
+> review knowledge.
+
+### Release-wide changes (all four scripts)
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.24-r80` → `chipset-2026.05.26-r81`
+  - Graphics: `graphics-2026.05.24-r46` → `graphics-2026.05.26-r47`
+  - NPU: `npu-2026.05.24-r24` → `npu-2026.05.26-r25`
+  - BthPan: `msbthpan-2026.05.24-r28` → `msbthpan-2026.05.26-r29`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `psa-py-v4-llm-governance-strict` → `psa-py-v410-three-new-error-rules-baseline`
+- `psa.py` upgraded upstream from 4.0.2 → 4.1.0 (`PSA1004` / `PSA2012`
+  / `PSA2013` added as default-on error-severity rules). No
+  `.psa.config.json` change is required; the new rules are caught by
+  the existing severity floor.
+
+### Upstream: `psa.py` 4.1.0 (three new error rules)
+
+Three new error-severity, default-on rules were productionised in
+`psa.py` 4.1.0 (see the upstream
+[CHANGELOG.md entry for 4.1.0](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/CHANGELOG.md)
+for the full detection algorithms, false-positive defenses, and
+real-world defect citations):
+
+- **`PSA1004`** — bare `(if/switch/foreach/while/...)` used as
+  expression. PowerShell parses `(if ($x) { 'a' } else { 'b' })` as a
+  *command call* named `if`, which fails at runtime with `'if' is not
+  recognized as a name of a cmdlet, function, script file, or
+  operable program`. The parser accepts the syntax, so neither
+  `[Parser]::ParseFile` nor PSScriptAnalyzer flagged it. The correct
+  form is `$(if ...)` (subexpression) or `@(if ...)` (array
+  subexpression).
+- **`PSA2012`** — positional call provides fewer args than the target
+  function has `[Parameter(Mandatory)]` parameters. PowerShell
+  prompts the user interactively for each missing value; in CI
+  pipelines or unattended sessions the script hangs forever on
+  stdin. The trap is that the call site looks fine syntactically.
+- **`PSA2013`** — `$Script:Foo` is read but never assigned anywhere
+  in the file. PowerShell silently evaluates an unassigned
+  `$Script:Foo` to `$null`, hiding typo bugs in script-scope
+  variable names. PSA2001 (generic undefined-variable) only checks
+  within function scopes and does not see the cross-function flow of
+  `$Script:` globals.
+
+### Repository-side baseline verification
+
+All four pipeline scripts in this repository pass `psa.py 4.1.0
+--severity error` with **0 errors / 0 warnings / 0 info** under the
+canonical `.psa.config.json` at the r81 / r47 / r29 / r25 baseline.
+Specifically:
+
+- `--include PSA1004 Deploy-*.ps1` reports 0 findings on all four
+  scripts. No bare `(if/...)` expressions are present.
+- `--include PSA2012 Deploy-*.ps1` reports 0 findings on all four
+  scripts. Mandatory-parameter call sites use named arguments
+  consistently, and pass-through positional calls do not under-supply.
+- `--include PSA2013 Deploy-*.ps1` reports 0 findings on all four
+  scripts. Every `$Script:` variable read site has a corresponding
+  assignment site in the same file.
+
+### Shared helper canon documentation — new SPEC.md §A.11.7
+
+Previous releases (`r80` and earlier) enforced the "shared helpers
+must stay byte-identical across the four sister scripts" invariant
+via PSA8001 (cross-file function-body drift), with the per-script
+intentional-divergence list living in `.psa.config.json`'s
+`psa8001_ignore_functions` comments. That information was hard to
+discover from the SPEC alone — a maintainer adding a new helper had
+to read the config file's commentary to learn which tier the helper
+should land in.
+
+The new **SPEC.md §A.11.7 "Shared helper canon and porting
+checklist"** consolidates that knowledge into a single SPEC
+subsection, organised around four tiers:
+
+- **Tier A** (34 helpers, PSA8001-enforced): byte-identical across
+  all four scripts; PSA8001 fires on any drift. Logging primitives
+  (`Format-Elapsed`, `Write-Step`, `_LogLine`, …), DebugTrace
+  framework (`Start-DebugTrace`, `Stop-DebugTrace`, …),
+  environment / preflight (`Set-Tls12`, `Set-ConsoleUtf8`,
+  `Assert-Admin`, …), Secure Boot baseline diagnostic helpers
+  (`Format-SecureBootBaselineForReport`, …, `Export-DebugTraceJson`).
+- **Tier B** (9 helpers, currently PSA8001-ignored but conceptually
+  shared): present in all four scripts but with at least one
+  simplified or family-flavoured variant; documented as the **active
+  backlog for shared-helper unification work**. The three NPU
+  simplifications (`Get-BootSigningEnvironment`,
+  `Show-BootSigningEnvironment`, and cosmetic Secure Boot wording
+  deltas) are explicitly flagged as backlog rather than permanent
+  exemptions.
+- **Tier C**: helpers in 2-3 of the 4 scripts. Most are
+  driver-family-specific (AMD-only installer helpers, MSBthPan-only
+  inbox-driver helpers, Chipset-only r65 phantom-file filter) and
+  legitimately stay divergent.
+- **Tier D**: phase functions (`Invoke-(Prep|Verify|Inst)Phase\d{2}_*`)
+  and per-script identity helpers (`Show-Help`, `Show-ReferenceLinks`)
+  that are intentionally per-script.
+
+The subsection also documents the **canonical "copy from Chipset"
+direction** (Chipset is the canon source — every shared helper is
+written there first and propagated to the other three scripts) and a
+**4-step porting checklist** for back-porting / cross-porting work.
+
+The retirement of NPU's permanent "simplified script" exemption is
+the most consequential policy clarification in this release: the
+three NPU Tier B simplifications are now backlog rather than design
+decisions. The retirement does NOT block landing (existing
+`psa8001_ignore_functions` entries continue to gate CI), but it
+opens the door to future quality-cycle work that lifts NPU to the
+Chipset canon.
+
+### Documentation
+
+- **`README.md`**: new `What's new` entry for r81 / r47 / r29 / r25;
+  r80 demoted to `Previous release notes`. The detailed psa.py rule
+  inventory (previously L1266 onward) was re-written to enumerate
+  rule families (`PSA1xxx` through `PSAP0xxx`) and recent additions
+  (`PSA1004` / `PSA2012` / `PSA2013` in 4.1.0; `PSAP0005` in 4.0.0;
+  `PSA2009` in 3.8.0; `PSA2010` / `PSA2011` in 3.9.0) rather than
+  carrying a hard-coded "46-rule" count. The category table's code
+  ranges are updated (`PSA1001`..`PSA1004`, `PSA2001`..`PSA2013`,
+  …) so a reader can still see the full surface at a glance.
+- **`README.ja.md`**: synchronised translation of the above.
+- **`SPEC.md`**: parallel changes to §A.11 (the `46-rule` text on
+  L101 / §876 / §878 is replaced by family/range references with
+  inline citations to recent additions); new §A.11.5f documents the
+  three new error rules with upstream-spec links; new §A.11.7
+  documents the shared helper canon and porting checklist (the
+  larger of the two new subsections). The `--self-check` example
+  output in §A.11.6 is updated to show `49 in RULES, 49 in
+  SPEC.md §4` (the current value for the latest-mainline `psa.py`
+  4.1.0, kept as a concrete reader hint per the same exception the
+  upstream uses for its SARIF illustrative example).
+- **`TESTING.md`**: L65 `46-rule check set` parameterised to "full
+  rule set" with a pointer to `psa.py --list-rules` as the canonical
+  count source.
+- **`CONTRIBUTING.md`**: implicit pass — the existing prose already
+  references the rule families rather than a hard-coded count, so
+  no edit was required beyond the cross-references that other docs
+  carry. (If a future PR adds a contributor-facing rule-count
+  number, follow the same hybrid policy: parameterise in prose,
+  keep numerals only in deliberately illustrative samples.)
+
+### Out of scope for this release
+
+- `psa8001_ignore_functions` was NOT modified. The list documented in
+  §A.11.7 as Tier B / C remains in the same shape as r80. Future
+  quality-cycle work may walk Tier B entry-by-entry and either
+  reconcile to the Chipset canon (removing the entry from the
+  ignore list) or document the genuine driver-family asymmetry; that
+  work is deliberately out of scope here to keep the r81 diff small
+  enough to review safely.
+- No PowerShell behaviour change. Phase semantics, install-decision
+  logic, output format, parameter sets, and the workspace
+  conventions are all identical to r80.
+
+### Version policy
+
+This release is **a static-analysis-tracking bump** — the runtime
+behaviour of the four pipeline scripts is unchanged. Per the
+repository convention (see SPEC §A.13 *Development Workflow*), the
+`$Script:ScriptVersion` bump is justified because the new
+`$Script:ScriptTag` (`psa-py-v410-three-new-error-rules-baseline`)
+becomes the value emitted in phase banners and DebugTrace JSONL
+output, and downstream operators distinguishing log archives by
+script tag need a corresponding revision counter advance to map
+unambiguously.
+
+
 
 This release **completes the LLM-governance migration** that began
 at r76 / r42 / r24 / r20. The four sister scripts now pass

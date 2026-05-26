@@ -98,7 +98,7 @@ When extending these scripts, **copy these helpers verbatim** from the most rece
 psa.py  (obtained from the canonical artifact repository — see A.11)
 ```
 
-`psa.py` is a **pure Python** static analyzer (no PowerShell installation required) with a **46-rule** check set spanning `PSA1001`..`PSA9002` plus the project-convention family `PSAP0001`..`PSAP0005`. The repository policy is to validate against the **latest mainline** `psa.py` from the canonical repository (see §A.11 for the rationale and workflow). It is **not** bundled in this repository. It is maintained as a single canonical artifact at:
+`psa.py` is a **pure Python** static analyzer (no PowerShell installation required) with a check set covering the generic families `PSA1xxx`..`PSA9xxx` plus the project-convention family `PSAP0xxx`. The repository policy is to validate against the **latest mainline** `psa.py` from the canonical repository (see §A.11 for the rationale and workflow). Exact rule count and per-family composition are not reproduced here to avoid drift on every upstream addition; the canonical source is the runtime `RULES` registry (visible via `psa.py --list-rules`) and the upstream [`SPEC.md` §4](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md). It is **not** bundled in this repository. It is maintained as a single canonical artifact at:
 
 ```
 https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/python/powershell-static-analyzer/psa.py
@@ -873,22 +873,31 @@ python3 psa.py --severity error Deploy-AMDChipsetDriverOnWindowsServer.ps1
 # Exit code 0 = no errors. Warnings and info do not gate the build.
 ```
 
-### Rule coverage (46 rules)
+### Rule coverage
 
-`psa.py` ships with a **46-rule** check set grouped into **nine categories**. The PSA8xxx, PSA9xxx, and PSAPxxxx families were added in 3.2.0; PSAP0003 and PSAP0004 were added in 3.3.0; PSA2007 / PSA2008 were added in 3.6.0; PSA3005 was added in 3.2.0 and PSA3006 in 3.7.0; PSA7002 was added in 3.7.0; PSA2009 was added in 3.8.0; PSA2010 and PSA2011 were added in 3.9.0 (see §D.33.8 for the motivation); **PSAP0005 was added in 4.0.0 — the LLM-assisted maintenance guardrail companion of PSAP0003, see SPEC §A.13 "Enforcement matrix" and the upstream `psa.py` SPEC §4.37 for its detection rules and the relaxed-mode migration aid**. The older PSA1xxx–PSA7xxx families are otherwise unchanged in scope. (See the canonical [psa.py `CHANGELOG.md`](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/CHANGELOG.md) for the full per-version history; this repository validates against the latest mainline — see the Version policy subsection above.)
+`psa.py` ships a check set grouped into **ten categories** (`PSA1xxx` syntax balance, `PSA2xxx` variable / scope, `PSA3xxx` coding pattern, `PSA4xxx` style / info, `PSA5xxx` security, `PSA6xxx` best practice, `PSA7xxx` file format / encoding, `PSA8xxx` cross-file consistency, `PSA9xxx` complexity / metrics, plus the project / pipeline convention family `PSAP0xxx`). The exact rule count grows as new defect classes are productionised upstream; this section names the categories rather than the count to avoid mechanical drift each time a rule is added. Notable rule lineage (most recent additions first):
+
+- **`PSA1004` / `PSA2012` / `PSA2013`** were added in 4.1.0 — three error-severity static checks that close the gap revealed by the upstream `update-windows-server-iso` r07.0 bug-fix cycle (bare `(if ...)` parsed as command call; positional call with insufficient args to a Mandatory-param function hanging unattended sessions; `$Script:Foo` read but never assigned silently evaluating to `$null`). All three default-on. See the upstream `psa.py` SPEC.md §4.3a / §4.9f / §4.9g for the detection algorithms; this repository validates against them at the latest mainline.
+- **`PSAP0005`** was added in 4.0.0 — the LLM-assisted maintenance guardrail companion of `PSAP0003`; see SPEC §A.13 *Enforcement matrix* and the upstream `psa.py` SPEC §4.37.
+- **`PSA2010`** (call to undefined function) and **`PSA2011`** (`Split-Path -LiteralPath ... -Parent` AmbiguousParameterSet on PS 5.1 ja-JP) were added in 3.9.0 — see §D.33.8 for the motivation.
+- **`PSA2009`** (PSCustomObject sealed-object semantic check) was added in 3.8.0 — see §A.11.5c.
+- **`PSA2007` / `PSA2008` / `PSA3006` / `PSA6007` / `PSA6008` / `PSA7002`** were added across 3.6.0 and 3.7.0.
+- **`PSA8xxx`, `PSA9xxx`, `PSAPxxxx`** families were introduced in 3.2.0 (with `PSAP0003` / `PSAP0004` following in 3.3.0).
+
+(See the canonical [psa.py `CHANGELOG.md`](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/CHANGELOG.md) for the full per-version history.)
 
 | Category                                  | Code range            | Examples                                                                                                                                                                                                                                                              |
 | ----------------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Syntax balance                            | `PSA1001`..`PSA1003`  | brace / paren / bracket balance                                                                                                                                                                                                                                       |
-| Semantics                                 | `PSA2001`..`PSA2006`  | undefined variable, auto-variable shadowing, `-match` against bare variable, `$null` on the right of `-eq`/`-ne`, assignment / redirection inside conditional                                                                                                         |
-| Coding pattern                            | `PSA3001`..`PSA3005`  | `Start-Process -ArgumentList`, trailing backtick before empty line, `-match` against empty string, empty `catch` block, `Start-Transcript -Path` should be `-LiteralPath`                                                                                            |
-| Hygiene                                   | `PSA4001`..`PSA4004`  | unfinished markers, trailing whitespace, long line, trailing semicolon                                                                                                                                                                                                |
+| Syntax balance                            | `PSA1001`..`PSA1004`  | brace / paren / bracket balance, bare `(if/switch/foreach/while/...)` used as expression                                                                                                                                                                              |
+| Semantics                                 | `PSA2001`..`PSA2013`  | undefined variable, auto-variable shadowing, `-match` against bare variable, `$null` on the right of `-eq`/`-ne`, assignment / redirection inside conditional, parameter name shadows auto-variable, `$Script:` mutated without init, PSCustomObject property assigned without prior declaration, call to undefined function, `Split-Path -LiteralPath ... -Parent` AmbiguousParameterSet, positional call with insufficient args to a Mandatory-param function, `$Script:Foo` read but never assigned                                                                                                       |
+| Coding pattern                            | `PSA3001`..`PSA3006`  | `Start-Process -ArgumentList`, trailing backtick before empty line, `-match` against empty string, empty `catch` block, `Start-Transcript -Path` should be `-LiteralPath`, `Get-WmiObject` / WMI cmdlets (prefer CIM)                                                |
+| Style / info                              | `PSA4001`..`PSA4004`  | unfinished markers, trailing whitespace, long line, trailing semicolon                                                                                                                                                                                                |
 | Security                                  | `PSA5001`..`PSA5004`  | plain-text password parameter, `Invoke-Expression`, broken hash algorithm, hardcoded `ComputerName`                                                                                                                                                                   |
-| Best practice                             | `PSA6001`..`PSA6006`  | non-approved verb, cmdlet alias, plural function noun, `$global:` definition, mandatory parameter with default, switch defaulting to `$true`                                                                                                                          |
-| File format                               | `PSA7001`             | missing UTF-8 BOM on `.ps1` (Windows PowerShell 5.1 ja-JP falls back to Shift-JIS / cp932 without BOM)                                                                                                                                                                 |
+| Best practice                             | `PSA6001`..`PSA6008`  | non-approved verb, cmdlet alias, plural function noun, `$global:` definition, mandatory parameter with default, switch defaulting to `$true`, missing `[OutputType()]` declaration, function with attributes but no `param()` block                                  |
+| File format                               | `PSA7001`..`PSA7002`  | missing UTF-8 BOM on `.ps1` (Windows PowerShell 5.1 ja-JP falls back to Shift-JIS / cp932 without BOM), LF-only / mixed line endings (canonical form is CRLF)                                                                                                         |
 | Cross-file consistency                    | `PSA8001`             | function body hash drift across files in the same scan — enforces that shared helper functions (`Format-Elapsed`, `Write-Detail`, `Start-DebugTrace` family, etc.) stay byte-for-byte synchronised across the four pipeline scripts                                   |
 | Complexity metrics                        | `PSA9001`..`PSA9002`  | function-body length threshold (default off, tunable via `max_function_lines`), external-process invocation without `$LASTEXITCODE` check (default off)                                                                                                              |
-| Project / pipeline conventions            | `PSAP0001`..`PSAP0005` | phase function naming convention (`Invoke-(Prep\|Verify\|Inst)PhaseNN_Name`), required script-identifier variables, **new in 3.3.0:** inline `# rNN:` revision-tag comments (`PSAP0003`), end-of-file `REVISION HISTORY` blocks (`PSAP0004`), **new in 4.0.0:** any `rNN` reference in a comment body, broader than `PSAP0003`'s structured tag forms (`PSAP0005`, run in strict mode by this repository). **All PSAPxxxx rules are off by default**; opt in via `.psa.config.json`. This repository opts in to all five. |
+| Project / pipeline conventions            | `PSAP0001`..`PSAP0005` | phase function naming convention (`Invoke-(Prep\|Verify\|Inst)PhaseNN_Name`), required script-identifier variables, inline `# rNN:` revision-tag comments (`PSAP0003`), end-of-file `REVISION HISTORY` blocks (`PSAP0004`), any `rNN` reference in a comment body, broader than `PSAP0003`'s structured tag forms (`PSAP0005`, run in strict mode by this repository). **All PSAPxxxx rules are off by default**; opt in via `.psa.config.json`. This repository opts in to all five. |
 
 For the authoritative specification of every rule (severity, examples,
 suppression guidance), see
@@ -1138,6 +1147,98 @@ The four scripts in this repository pass PSA2011 at the r75 baseline with **0 fi
 
 See the upstream [psa.py SPEC.md §4.9e](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md#49e-psa2011--split-path--literalpath---parent) for the formal specification.
 
+### A.11.5f Three new error rules added in `psa.py` 4.1.0 (PSA1004 / PSA2012 / PSA2013)
+
+`psa.py` 4.1.0 productionised three additional **error-severity, default-on** static checks that close concrete latent-bug classes observed in a sister PowerShell pipeline (`update-windows-server-iso`). All three are detected by `psa.py 4.1.0` running with the canonical `.psa.config.json` of this repository, and **all four pipeline scripts in this repository pass them with 0 findings at the r81 / r47 / r29 / r25 baseline** (the `psa-py-v410-three-new-error-rules-baseline` release).
+
+- **PSA1004** — bare `(if/switch/foreach/while/...)` used as expression. PowerShell parses `(if ($x) { 'a' } else { 'b' })` as a *command call* named `if`, which fails at runtime with `'if' is not recognized as a name of a cmdlet, function, script file, or operable program`. The parser accepts the syntax, so neither `[Parser]::ParseFile` nor PSScriptAnalyzer flagged it. The correct form is `$(if ...)` (subexpression) or `@(if ...)` (array subexpression).
+- **PSA2012** — positional call provides fewer args than the target function has `[Parameter(Mandatory)]` parameters. PowerShell prompts the user interactively for each missing value; in CI pipelines or unattended sessions the script hangs forever on stdin. The trap is that the call site looks fine syntactically. Fix: use named arguments (`-Name value`) for any function with multiple Mandatory parameters.
+- **PSA2013** — `$Script:Foo` is read but never assigned anywhere in the file. PowerShell silently evaluates an unassigned `$Script:Foo` to `$null`, hiding typo bugs in script-scope variable names. PSA2001 (generic undefined-variable) only checks within function scopes and does not see the cross-function flow of `$Script:` globals.
+
+Per the rule-content authority policy (see §A.11 *Version policy*), detailed detection algorithms, false-positive defenses, suggested-fix examples, limitations, and inline-suppression syntax for all three rules live in the upstream `psa.py` specification:
+
+- Upstream [psa.py SPEC.md §4.3a — PSA1004](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md#43a-psa1004--bare-statement-as-expression)
+- Upstream [psa.py SPEC.md §4.9f — PSA2012](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md#49f-psa2012--positional-call-with-insufficient-args-to-a-mandatory-param-function)
+- Upstream [psa.py SPEC.md §4.9g — PSA2013](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md#49g-psa2013--scriptfoo-read-but-never-assigned)
+
+This repository does not duplicate those algorithms here; new findings against any of the three rules must be either fixed (the default) or, in rare justified cases, suppressed inline with a rationale comment per the policy in §A.11.5.
+
+### A.11.7 Shared helper canon and porting checklist (Chipset = canon)
+
+This subsection codifies what was previously distributed across `.psa.config.json` comments, ad-hoc PR review knowledge, and SPEC §A.11.5b. It exists to make the **"copy and paste from Chipset"** workflow auditable: when a shared helper is added, modified, or fixed, the change should land in the **Chipset script first** and then be replicated verbatim into the other three sister scripts. PSA8001 (cross-file function-body drift, see §A.11.5b) enforces this for Tier A; the remaining tiers are documented here.
+
+#### Canonical source
+
+`Deploy-AMDChipsetDriverOnWindowsServer.ps1` is the **canon source** for every helper listed in Tier A and Tier B below. Rationale:
+
+- Chipset received the richest pipeline implementation history (r65 phantom-file filter, r71 WHQL co-sign pre-detection, r68 LOADED-honesty gate, etc.) — each of these landed on Chipset first and was subsequently back-ported to Graphics / NPU / BthPan.
+- Chipset's hardware target (AMD Ryzen chipset INFs) exercises the full installation pipeline (P00–I04) without the shortcuts available to NPU (Microsoft Store + winget acquisition) or BthPan (Microsoft inbox driver, no upstream installer).
+- Chipset has the largest call-site coverage for shared helpers; sites that exist in only 1-2 sister scripts are by definition not part of the shared contract.
+
+When a shared helper is fixed in Graphics / NPU / BthPan instead of Chipset (e.g. during emergency triage), the change MUST be back-ported to Chipset in the same PR, and the PR description MUST note the back-port. Otherwise PSA8001 will flag drift on the next commit, and the canonical direction-of-flow is permanently broken.
+
+#### Tier A — byte-identical across all four scripts (PSA8001-enforced)
+
+These 34 helpers are inherited verbatim from Chipset by all three other scripts. PSA8001 fires on any drift; the gate has been continuously green since the r60 / r28 / r10 / r10 release. The canonical inventory below is grouped by functional family to make porting decisions easier:
+
+**Logging primitives (12)**
+`Format-Elapsed`, `_LogLine`, `Write-Step`, `Write-Ok`, `Write-Warn2`, `Write-Fail`, `Write-Skip`, `Write-Detail`, `Write-PhaseHeader`, `Write-PhaseFooter`, `Get-PhaseElapsedTag`, `Format-DebugFailure`
+
+**DebugTrace framework (12)**
+`_DebugTrace_NextSeq`, `_DebugTrace_Now`, `_DebugTrace_WriteJsonlLine`, `_DebugTrace_RetireFrame`, `Start-DebugTrace`, `Stop-DebugTrace`, `Set-DebugStep`, `Write-DebugFailureReport`, `Enable-DebugTraceFileOutput`, `Disable-DebugTraceFileOutput`, `Get-DebugTraceFileOutputStatus`, `Enable-AutoExportOnPhaseFailure`
+
+**Environment / preflight (5)**
+`Set-Tls12`, `Set-ConsoleUtf8`, `Assert-Admin`, `Assert-PowerShellCompatibility`, `Show-PowerShellEnvironment`
+
+**Secure Boot baseline diagnostic helpers (5)**
+`Format-SecureBootBaselineForReport`, `Get-SecureBootCertificateInventory`, `Get-MsSecureBootExampleScriptPath`, `Invoke-MsSecureBootDetectScript`, `Export-DebugTraceJson`
+
+Adding a new helper to this tier: write it in Chipset first, paste it byte-for-byte into the other three scripts, run `python3 psa.py --include PSA8001 Deploy-*.ps1` to confirm no drift is reported, and do NOT add the new helper to `psa8001_ignore_functions`. The PSA8001 gate then permanently enforces the byte-identity invariant from that commit onward.
+
+#### Tier B — 4-script-shared but currently drift-tolerant (PSA8001-ignored)
+
+These 9 helpers exist in all four scripts but are currently listed in `psa8001_ignore_functions` because at least one sister script has a simplified or driver-family-flavoured variant. They are NOT phase functions (which are intentionally per-script — see Tier D); they are general-purpose helpers whose simplification was historically allowed during the NPU script's bring-up and never reconciled. **They are the active backlog for shared-helper unification work**; future quality cycles should walk them one by one and either (a) lift the NPU / BthPan / Graphics variant to match Chipset and remove the function from `psa8001_ignore_functions`, or (b) document a genuine driver-family asymmetry that justifies the divergence.
+
+| Function | Tier-B reason (current divergence) | Canonical (Chipset) shape |
+|:---|:---|:---|
+| `Get-BootSigningEnvironment` | NPU ships a simplified variant that probes only Secure Boot + testsigning state; Chipset / Graphics / BthPan additionally enumerate the active WDAC supplemental policies via `CITool.exe` (or registry fallback). | Full WDAC enumeration. |
+| `Show-BootSigningEnvironment` | NPU renders a 2-line summary; the other three render the full multi-row table. | Full multi-row console output. |
+| `Get-OrEnsureSecureBootBaseline` | Cosmetic log-message wording differs across the 4; underlying logic is equivalent. | Chipset's wording is canonical. |
+| `Get-SecureBootBaselineSnapshot` | Same as above — wording-only divergence. | Chipset's wording is canonical. |
+| `Show-SecureBootBaselineSnapshot` | Same as above. | Chipset's wording is canonical. |
+| `Show-DriverInstallationOrderNotice` | Per-driver-family wording (Chipset / Graphics share verbatim; NPU and BthPan differ on the "expected order" sentence). | Chipset's wording is canonical for AMD-family scripts; the NPU / BthPan variants are family-specific and may legitimately stay divergent — assess case-by-case. |
+| `Show-PhaseList` | Per-driver-family phase descriptions (each script lists its own P00..I04). | NOT a true Tier B (legitimately per-script); listed here for awareness — should ultimately be moved to Tier D. |
+| `Invoke-Cleanup` | Per-driver-family cleanup paths (workspace path differs per family). | Chipset's structure is the canonical template; per-family paths are the only valid divergence. |
+| `Resume-CtxFromWorkspace` | Per-driver-family `$Ctx` schema (Chipset has WHQL co-sign analysis fields, NPU does not). | Chipset is canonical for the `$Ctx` skeleton; per-field omissions in simpler scripts are by design. |
+
+**NPU is not excluded from this canon.** Earlier policy granted NPU a permanent "simplified script" exemption; that exemption is hereby retired as a documented backlog item. NPU's three Tier B simplifications (`Get-BootSigningEnvironment`, `Show-BootSigningEnvironment`, and the cosmetic Secure Boot wording deltas) are intended to be reconciled to the Chipset canon in a future quality cycle, not left as a permanent asymmetry. The retirement does NOT block landing — the existing `psa8001_ignore_functions` entry continues to gate CI on the current baseline — but it marks each entry as a known debt rather than a closed design decision.
+
+#### Tier C — partial-sibling helpers (subset of scripts only)
+
+These helpers exist in only 2-3 of the 4 scripts. Most are driver-family-specific (AMD-only installer helpers, MSBthPan-only inbox-driver helpers) and are NOT canon-relevant. A small subset are subtly miscategorised — they look family-specific at first glance but would actually benefit all four scripts. The canonical division:
+
+- **AMD-only (Chipset + Graphics)**: installer extraction (`Expand-AmdInstaller` family, `Get-AmdSourceVariant`, `Get-PreferredAmdSourceVariants`), AMD INF inventory / patching helpers, AMD WDAC supplemental policy (`New-AmdDriverWdacSupplementalPolicy`, `Install-AmdWdacPolicy`, `Uninstall-AmdWdacPolicy`, `Test-AmdWdacPolicyDeployed`), Adrenalin / Catalyst version helpers. **These are by design AMD-family-specific; do NOT propagate to BthPan.**
+- **Chipset-only (Chipset only)**: r65 phantom-file filter (`Get-IneligibleInfLookup`, `Test-InfIsIneligible`, `Get-IneligibleDirSet`, `Get-InfReferencedFile`), `_NewChipsetPlatform`, `Get-AmdChipsetPlatform`, `Get-LatestAmdChipsetUrl`. **The phantom-file filter is a candidate for Graphics back-port if/when an Adrenalin package exhibits the same `SECREPAIR Error: 3` cascade; see §D.24. Currently deferred.**
+- **MSBthPan-only**: inbox-driver-specific helpers (`Get-MsBthPanSuppPolicyMarkerPath`, `Install-MsBthPanWdacPolicy`, `Uninstall-MsBthPanWdacPolicy`, `New-MsBthPanDriverWdacSupplementalPolicy`, `Test-MsBthPanWdacPolicyDeployed`). **Microsoft-inbox-driver-specific; do NOT propagate to the AMD family.**
+- **NPU-only platform-detection**: `Get-NpuPlatform`, `Resolve-NpuDriverPackage`, `Show-OperatingSystemDetail`. **NPU-specific; the operating-system-detail rendering is also a candidate for Tier A if all four scripts grow a need for it.**
+
+When designing a new helper that touches multiple driver families: prefer adding it to Tier A (write it once in Chipset, paste verbatim into the other three, let PSA8001 enforce sync) over creating multiple variants in Tier C.
+
+#### Tier D — intentionally per-script (will never be unified)
+
+Phase functions (the 21 `Invoke-(Prep|Verify|Inst)Phase\d{2}_*` entries) and per-script identity helpers (`Show-Help`, `Show-ReferenceLinks`) are by design per-script. They are listed in `psa8001_ignore_functions` and SHOULD remain there. Edits to a phase function in one script do NOT imply a back-port to the other three; phase semantics are driver-family-specific by construction.
+
+#### Porting checklist (from Chipset to a sister script)
+
+When applying a shared-helper change from Chipset to Graphics / NPU / BthPan:
+
+1. **Identify the tier.** If the function is in `psa8001_ignore_functions`, it is Tier B / C / D — propagation is judgement-based. If it is NOT in the ignore list, it is Tier A and propagation is mandatory.
+2. **Verify the BOM / line-ending invariants.** All four scripts MUST be UTF-8 BOM + CRLF (see §A.2). After paste, run `python3 psa.py --include PSA7001,PSA7002 Deploy-*.ps1` and confirm 0 findings.
+3. **Run PSA8001 with the canonical config.** `python3 psa.py --config .psa.config.json Deploy-*.ps1` must continue to report 0 / 0 / 0 across all four scripts. PSA8001 drift indicates either an incomplete propagation (Tier A, fix immediately) or a legitimate per-script variant that should be added to `psa8001_ignore_functions` (Tier B / C / D, with a code-comment rationale).
+4. **Update CHANGELOG.md.** Per the repository revision discipline (PSAP0003 / PSAP0004 / PSAP0005), per-revision history lives in `CHANGELOG.md`, not in script comments. If the propagation is part of a release, add it to the existing release entry; if it is mid-cycle, queue it under `## [Unreleased]`.
+
+This checklist is informational, not enforced by any static rule. The static-analysis gate (`psa.py --config .psa.config.json`) is the *hard* requirement; this checklist surfaces the additional decisions a human reviewer SHOULD weigh when copy-pasting.
+
 ### A.11.6 Self-quality gates for `psa.py` (consumer-side usage)
 
 Since `psa.py` 3.5.0 the canonical analyzer ships three built-in
@@ -1192,7 +1293,7 @@ Expected output on an internally-consistent `psa.py`:
 ```
 psa.py self-check report (SPEC.md ↔ RULES)
   SPEC.md  : /.../scripts/python/powershell-static-analyzer/SPEC.md
-  rules    : 36 in RULES, 36 in SPEC.md §4
+  rules    : 49 in RULES, 49 in SPEC.md §4
   SPEC.md and RULES are in sync (no drift detected)
 ```
 

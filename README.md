@@ -118,60 +118,30 @@ All four PowerShell scripts share the same 21-phase architecture, the same self-
 
 ## What's new
 
-**Latest release: `2026-05-24` — Chipset r80 / Graphics r46 / BthPan r28 / NPU r24** (`psa-py-v4-llm-governance-strict`).
-This release **completes the LLM-governance migration** that began
-at r76 / r42 / r24 / r20. All four sister scripts now pass `psa.py`
-4.0.2 in **strict mode** (`psap0005_relaxed_mode` removed from
-`.psa.config.json`) with a **0 / 0 / 0 / 0 baseline** on every rule
-in the analyzer's 46-rule set.
+**Latest release: `2026-05-26` — Chipset r81 / Graphics r47 / BthPan r29 / NPU r25** (`psa-py-v410-three-new-error-rules-baseline`).
+This release adopts `psa.py` 4.1.0 — the upstream minor release that adds three new error-severity, default-on static-analysis rules (`PSA1004`, `PSA2012`, `PSA2013`). All four sister scripts pass with a **0 / 0 / 0 / 0 baseline** on the full latest-mainline rule set, including the three new error rules and the strict-mode `PSAP0005` inherited from the previous release. There are **no runtime behaviour changes**; the release is a static-analysis-coverage uplift.
 
-Key changes (no runtime behaviour changes — see CHANGELOG for the
-full per-rewrite list):
+Key changes (see CHANGELOG for the full entry):
 
-- **`psa.py` 4.0.2 (upstream) — `PSAP0005` relaxed-mode coverage uplift.**
-  Nine new exempt patterns (E1-E9) plus a comment-block-level
-  exempt heuristic were added upstream to handle the empirical prose
-  patterns observed in this repository's r76 baseline (`(rNN / SPEC D.YY)`,
-  `(Q-X1, rNN)`, `# rNN (graphics):`, `predates rNN`, `r71 adds ...`,
-  etc.). Under the new analyzer the four-script relaxed-mode count
-  dropped from 64 to 1.
+- **`psa.py` 4.1.0 (upstream) — three new error-severity rules.** `PSA1004` flags bare `(if/switch/foreach/while/...)` used as an expression (PowerShell parses this as a command call to `if` and fails at runtime). `PSA2012` flags positional calls that provide fewer arguments than the target function has `[Parameter(Mandatory)]` parameters (PowerShell prompts for the missing values interactively, hanging unattended sessions). `PSA2013` flags `$Script:Foo` reads that have no corresponding assignment anywhere in the file (PowerShell silently evaluates to `$null`, hiding typo bugs). All three default-on. See SPEC §A.11.5f for the repository-side commentary.
 
-- **99 strict-mode-eligible `rNN` references rewritten.** A bulk
-  rewrite swept all four scripts in one consolidated change set,
-  shifting historical "added in rNN" / "before rNN" / "rNN
-  (graphics)" / etc. prose to **timeless wording** with cross-
-  references to `SPEC.md` Part D for design rationale. PSA8001
-  byte-identity on cross-script-shared helpers is preserved.
+- **`$Script:ScriptTag` updated to `psa-py-v410-three-new-error-rules-baseline`** across all four scripts. **All four scripts pass `psa.py 4.1.0 --severity error` with 0 errors / 0 warnings / 0 info under the canonical `.psa.config.json`.**
 
-- **`.psa.config.json` simplified.** The
-  `psap0005_relaxed_mode` key is now omitted (taking its default
-  `false` value). The PSAP0005 section in the config header is
-  rewritten to describe the strict-mode steady state rather than the
-  relaxed-mode migration baseline.
+- **SPEC.md §A.11.7 (new) — Shared helper canon and porting checklist.** Documents the canonical "copy from Chipset" workflow for shared helpers across the four sister scripts (Tier A — PSA8001-enforced byte-identity; Tier B — 4-script-shared but currently drift-tolerant; Tier C — driver-family-specific; Tier D — intentionally per-script). The NPU "simplified script" permanent exemption is retired as a documented backlog item — the three NPU Tier B simplifications are now flagged for future reconciliation to the Chipset canon.
 
-- **`$Script:ScriptTag` updated to `psa-py-v4-llm-governance-strict`**
-  across all four scripts. **All four scripts pass `psa.py 4.0.2
-  --severity error` with 0 errors and 0 warnings at the r80
-  baseline.**
-
-- **SPEC.md §D.34 (new)** documents the full post-mortem: why the
-  four-cycle plan in the pre-r80 §A.13 was abandoned in favour of a
-  consolidated release, what `psa.py` 4.0.2's uplift contributed, the
-  per-category rewrite table, and lessons learned for similar future
-  migrations.
-
-See [SPEC §A.13](./SPEC.md#a13-development-workflow) for the
-LLM-governance steady-state policy and [SPEC §D.34](./SPEC.md#d34-psap0005-strict-mode-migration-r80--r46--r24--r28-2026-05-24) for the migration retrospective.
+- **Rule-count text alignment — `46`-rule references replaced by family/range references throughout `README.md` / `README.ja.md` / `SPEC.md` / `TESTING.md` / `CONTRIBUTING.md`** so that future rule additions do not require simultaneous text updates across the documentation tree. The canonical source for the current count is the runtime `RULES` registry (visible via `psa.py --list-rules`) and the upstream `psa.py` SPEC.md §4.
 
 ### Previous release notes
 
-The **`2026-05-25` Chipset r76 / Graphics r42 / BthPan r24 / NPU r20**
-release (`psa-py-v4-llm-governance-baseline`) was the **LLM-governance
-baseline**: it adopted `psa.py` 4.0.0, cleaned up the nine
-`PSAP0003`-flagged inline revision-tag comments introduced by r74,
-and opted in to the new `PSAP0005` rule with
-`psap0005_relaxed_mode: true` as the migration baseline. The r76
-release set up the migration target that r80 has now reached.
+The **`2026-05-24` Chipset r80 / Graphics r46 / BthPan r28 / NPU r24** release (`psa-py-v4-llm-governance-strict`) **completed the LLM-governance migration** that began at r76 / r42 / r24 / r20. All four sister scripts pass `psa.py` 4.0.2 in **strict mode** (`psap0005_relaxed_mode` removed from `.psa.config.json`) with a **0 / 0 / 0 / 0 baseline** on every rule in the analyzer's rule set at that point:
+
+- `psa.py` 4.0.2 (upstream) extended the `PSAP0005` relaxed-mode coverage with nine new exempt patterns (E1-E9) plus a comment-block-level exempt heuristic; under the new analyzer the four-script relaxed-mode count dropped from 64 to 1.
+- 99 strict-mode-eligible `rNN` references were rewritten in a bulk consolidated change set, shifting historical "added in rNN" / "before rNN" / "rNN (graphics)" / etc. prose to **timeless wording** with cross-references to `SPEC.md` Part D for design rationale. PSA8001 byte-identity on cross-script-shared helpers was preserved.
+- `.psa.config.json` was simplified by omitting the `psap0005_relaxed_mode` key (taking its default `false` value).
+- `$Script:ScriptTag` was updated to `psa-py-v4-llm-governance-strict` across all four scripts.
+- SPEC.md §D.34 documents the full post-mortem of the consolidated release.
+
+See [SPEC §A.13](./SPEC.md#a13-development-workflow) for the LLM-governance steady-state policy and [SPEC §D.34](./SPEC.md#d34-psap0005-strict-mode-migration-r80--r46--r24--r28-2026-05-24) for the migration retrospective.
 
 The **`2026-05-25` Chipset r75 / Graphics r41 / BthPan r23 / NPU r19**
 release (`legacy-ws2019-ps51-japp-correctness-fix`) fixed three
@@ -1263,12 +1233,19 @@ In the rest of this document and in `SPEC.md` / `TESTING.md` / `CONTRIBUTING.md`
 
 #### Checks performed
 
-`psa.py` (latest mainline) ships with a **46-rule** check set spanning `PSA1001`..`PSA9002` for generic rules plus `PSAP0001`..`PSAP0005` for project / pipeline convention rules. The 46-rule count includes `PSA2009` (PSCustomObject property assigned without prior declaration), introduced in `psa.py` v3.8.0 alongside the Chipset r73 / Graphics r39 / BthPan r21 release — this rule is the static-analysis counterpart of the runtime defect that caused `Chipset r72 P05 -> FAILED with "WhqlCoSignAnalysis" property-not-found exception` on a Japanese-locale Windows Server 2019 host. The count also includes `PSA2010` (call to undefined function, error) and `PSA2011` (`Split-Path -LiteralPath ... -Parent` triggers AmbiguousParameterSet on PS 5.1 ja-JP, error), both introduced in `psa.py` v3.9.0 alongside the Chipset r75 / Graphics r41 / BthPan r23 / NPU r19 release — these rules would have caught the r75 §D.33 Defect A (`Split-Path` binder bug) and the §D.32.2 `Find-Signtool` family of typos at static-analysis time. **The 46th rule, `PSAP0005` (revision reference in comment body), is the LLM-assisted-maintenance guardrail added in `psa.py` v4.0.0** — it catches any `rNN` reference inside a comment body, broader than `PSAP0003`'s structured tag forms. This repository runs `PSAP0005` in its default **strict mode** since the Chipset r80 / Graphics r46 / BthPan r28 / NPU r24 release (`psa-py-v4-llm-governance-strict`); the original `psap0005_relaxed_mode: true` baseline adopted at r76 has been retired and the key is omitted from `.psa.config.json` (see SPEC §A.13 *Migration roadmap* — status `COMPLETED` — and §D.34 for the retrospective). See `SPEC.md` §A.11.5c / §A.11.5d / §A.11.5e for PSA2009/2010/2011 detailed semantics, and `SPEC.md` §A.13 for PSAP0005's repository-side policy. This repository validates its scripts against the latest mainline `psa.py` (no fixed-version pinning); see `SPEC.md` §A.11 *Version policy* for the rationale and the LLM / AI workflow for adopting a new version. The 46 rules are grouped into nine categories:
+`psa.py` (latest mainline) ships a check set spanning the generic families `PSA1xxx` through `PSA9xxx` plus the project-pipeline convention family `PSAP0xxx`. The exact rule count grows as new defect classes are productionised upstream; this section names the families and notable recent additions rather than the raw count, to avoid mechanical drift each time a rule is added. The most recent additions:
+
+- **`PSA1004` / `PSA2012` / `PSA2013` (added in `psa.py` 4.1.0)** — three error-severity, default-on static checks that close concrete latent-bug classes: bare `(if/switch/foreach/while/...)` parsed as a command call (PSA1004), positional call with insufficient args to a Mandatory-param function silently hanging unattended sessions (PSA2012), and `$Script:Foo` read but never assigned silently evaluating to `$null` (PSA2013). All four pipeline scripts in this repository pass with 0 findings at the r81 / r47 / r29 / r25 baseline (`psa-py-v410-three-new-error-rules-baseline`).
+- **`PSAP0005` (added in `psa.py` 4.0.0, the LLM-assisted-maintenance guardrail)** catches any `rNN` reference inside a comment body, broader than `PSAP0003`'s structured tag forms. This repository runs `PSAP0005` in its default **strict mode** since the Chipset r80 / Graphics r46 / BthPan r28 / NPU r24 release (`psa-py-v4-llm-governance-strict`); the original `psap0005_relaxed_mode: true` baseline adopted at r76 has been retired and the key is omitted from `.psa.config.json` (see SPEC §A.13 *Migration roadmap* — status `COMPLETED` — and §D.34 for the retrospective).
+- **`PSA2009` (added in 3.8.0)** is the static-analysis counterpart of the runtime defect that caused `Chipset r72 P05 -> FAILED with "WhqlCoSignAnalysis" property-not-found exception` on a Japanese-locale Windows Server 2019 host.
+- **`PSA2010` / `PSA2011` (added in 3.9.0)** would have caught the r75 §D.33 Defect A (`Split-Path` binder bug) and the §D.32.2 `Find-Signtool` family of typos at static-analysis time.
+
+See `SPEC.md` §A.11.5c / §A.11.5d / §A.11.5e / §A.11.5f for the repository-side commentary on PSA2009 / PSA2010 / PSA2011 / PSA1004+2012+2013, and `SPEC.md` §A.13 for PSAP0005's repository-side policy. This repository validates its scripts against the latest mainline `psa.py` (no fixed-version pinning); see `SPEC.md` §A.11 *Version policy* for the rationale and the LLM / AI workflow for adopting a new version. The rules are grouped into the following ten categories:
 
 | Category                       | Code range                | Examples                                                                                                                                                                                                                                       |
 | ---                            | ---                       | ---                                                                                                                                                                                                                                            |
-| Syntax balance                 | `PSA1001`..`PSA1003`      | brace / paren / bracket balance                                                                                                                                                                                                                |
-| Semantics                      | `PSA2001`..`PSA2011`      | undefined variable, auto-variable shadowing, `-match` against bare variable, `$null` on the right of `-eq`/`-ne`, assignment / redirection inside conditional, parameter shadows auto-variable (`PSA2007`), `$Script:Foo++` without init (`PSA2008`), **new in v3.8.0:** PSCustomObject property assigned without prior declaration (`PSA2009`), **new in v3.9.0:** call to undefined function (`PSA2010`, error) and `Split-Path -LiteralPath ... -Parent` triggers AmbiguousParameterSet on PS 5.1 ja-JP (`PSA2011`, error) |
+| Syntax balance                 | `PSA1001`..`PSA1004`      | brace / paren / bracket balance, bare `(if/switch/foreach/while/...)` used as expression (`PSA1004`, new in 4.1.0)                                                                                                                              |
+| Semantics                      | `PSA2001`..`PSA2013`      | undefined variable, auto-variable shadowing, `-match` against bare variable, `$null` on the right of `-eq`/`-ne`, assignment / redirection inside conditional, parameter shadows auto-variable (`PSA2007`), `$Script:Foo++` without init (`PSA2008`), PSCustomObject property assigned without prior declaration (`PSA2009`), call to undefined function (`PSA2010`, error), `Split-Path -LiteralPath ... -Parent` triggers AmbiguousParameterSet on PS 5.1 ja-JP (`PSA2011`, error), positional call with insufficient args to a Mandatory-param function (`PSA2012`, error, new in 4.1.0), `$Script:Foo` read but never assigned (`PSA2013`, error, new in 4.1.0) |
 | Coding pattern                 | `PSA3001`..`PSA3006`      | `Start-Process -ArgumentList`, trailing backtick before empty line, `-match` against empty string, empty `catch` block, `Start-Transcript -Path` should be `-LiteralPath`, `Get-WmiObject` / `Invoke-WmiMethod` etc. (prefer CIM cmdlets)        |
 | Hygiene                        | `PSA4001`..`PSA4004`      | unfinished markers (TODO / FIXME / XXX / HACK), trailing whitespace, long line, trailing semicolon                                                                                                                                             |
 | Security                       | `PSA5001`..`PSA5004`      | plain-text password parameter, `Invoke-Expression`, broken hash algorithm, hardcoded `ComputerName`                                                                                                                                            |
