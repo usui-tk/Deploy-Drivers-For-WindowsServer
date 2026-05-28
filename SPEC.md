@@ -79,7 +79,7 @@ Deploy-MSBthPanInboxOnWindowsServer.ps1      (Microsoft inbox Bluetooth PAN driv
 These 21-phase deployment scripts are the canonical source for:
 
 - `Write-PhaseHeader` / `Write-PhaseFooter` / `Format-Elapsed`
-- `Write-Step` / `Write-Ok` / `Write-Warn2` / `Write-Fail` / `Write-Skip`
+- `Write-Step` / `Write-Ok` / `Write-Caution` / `Write-Fail` / `Write-Skip`
 - `Write-Detail` (continuation-line helper; see §A.5)
 - `Write-SubHeader` / `Write-SubHeader2` (Level-1 / Level-2 in-phase banners)
 - Banner block layout (Magenta `=` × 72, script-tag line, phase entry / exit)
@@ -439,7 +439,7 @@ Each phase result is recorded in `$Script:PhaseTimings` (`Add` of a `pscustomobj
 | ------ | -------- | -------------- | ------------------- |
 | `[*]`  | Cyan     | `Write-Step`   | Action being taken  |
 | `[+]`  | Green    | `Write-Ok`     | Success / positive  |
-| `[!]`  | Yellow   | `Write-Warn2`  | Degraded / non-fatal|
+| `[!]`  | Yellow   | `Write-Caution`  | Degraded / non-fatal|
 | `[X]`  | Red      | `Write-Fail`   | Failure             |
 | `[~]`  | DarkGray | `Write-Skip`   | No-op / cached      |
 
@@ -918,6 +918,8 @@ This repository ships its own `.psa.config.json` at the repository root. It is t
 
 3. **Disables `PSA4003` (long line)** because the pipeline scripts intentionally use multi-clause `-f` format strings (Show-PowerShellEnvironment table, per-device AS-IS / TO-BE analysis tables) that exceed 120 columns for readability of the resulting console output.
 
+4. **Disables `PSA7003` (non-ASCII character in script body, default-on warning, new in `psa.py` 4.2.0)** because the pipeline scripts embed intentional Japanese console-output strings and em-dashes directly in their `.ps1` bodies (the `Write-Step` / `Write-Caution` / `Write-Skip` log lines). A non-ASCII script body is the expected steady state for this repository rather than a source-format defect, so the rule is opted out at project level. (The scripts are nevertheless committed as UTF-8 with BOM + CRLF — see the encoding section of `README.md` — so the non-ASCII content round-trips losslessly across PowerShell 5.1 / 7.x.)
+
 The canonical invocation is therefore:
 
 ```bash
@@ -1007,11 +1009,11 @@ How the previously-documented findings were resolved in this sync:
 
 ### A.11.5b Shared-helper contract (PSA8001-enforced)
 
-Across all four pipeline scripts, **34 helper functions** are inherited verbatim from the canonical baseline. PSA8001 (cross-file function-body drift) actively enforces byte-for-byte identity on **30 of them**; the remaining **4 Secure Boot baseline diagnostic helpers** (listed in `.psa.config.json` `psa8001_ignore_functions`: `Format-SecureBootBaselineForReport`, `Get-SecureBootCertificateInventory`, `Get-MsSecureBootExampleScriptPath`, `Invoke-MsSecureBootDetectScript`) are still inherited verbatim so that any future PSA8001 uplift on those 4 sees a consistent baseline. The current contract surface (see [CHANGELOG.md](./CHANGELOG.md) for the verified baseline):
+Across all four pipeline scripts, **38 helper functions** are inherited verbatim from the canonical baseline, and PSA8001 (cross-file function-body drift) actively enforces byte-for-byte identity (after comment / string stripping) on **all 38**. The three Secure Boot baseline diagnostic helpers `Format-SecureBootBaselineForReport`, `Get-SecureBootCertificateInventory`, and `Get-MsSecureBootExampleScriptPath` — previously parked in `.psa.config.json` `psa8001_ignore_functions` — had since converged to 4-way code-identity and were **promoted out of the ignore list** in the `cross-repo-canon-iso-encoding-tls-rename` release; a fourth historical ignore entry, `Invoke-MsSecureBootDetectScript`, named no top-level function in any of the four scripts and was removed at the same time. There are now **no diagnostic-helper exceptions remaining among the shared canon** — the full 38-function surface is PSA8001-enforced. The current contract surface (see [CHANGELOG.md](./CHANGELOG.md) for the verified baseline):
 
 **Logging primitives (12 functions)**
 
-`Format-Elapsed`, `_LogLine`, `Write-Step`, `Write-Ok`, `Write-Warn2`, `Write-Fail`, `Write-Skip`, `Write-Detail`, `Write-PhaseHeader`, `Write-PhaseFooter`, `Get-PhaseElapsedTag`, `Format-DebugFailure`
+`Format-Elapsed`, `_LogLine`, `Write-Step`, `Write-Ok`, `Write-Caution`, `Write-Fail`, `Write-Skip`, `Write-Detail`, `Write-PhaseHeader`, `Write-PhaseFooter`, `Get-PhaseElapsedTag`, `Format-DebugFailure`
 
 **DebugTrace framework (12 functions)**
 
@@ -1021,11 +1023,15 @@ Across all four pipeline scripts, **34 helper functions** are inherited verbatim
 
 `Set-TlsSecurityProtocol`, `Set-Utf8PipelineEncoding`, `Assert-Admin`, `Assert-PowerShellCompatibility`, `Show-PowerShellEnvironment`
 
-**Secure Boot baseline diagnostic helpers (5 functions; 1 PSA8001-enforced + 4 PSA8001-ignored-but-still-verbatim)**
+**Secure Boot baseline diagnostic helpers (7 functions)**
 
-`Format-SecureBootBaselineForReport` *(ignored)*, `Get-SecureBootCertificateInventory` *(ignored)*, `Get-MsSecureBootExampleScriptPath` *(ignored)*, `Invoke-MsSecureBootDetectScript` *(ignored)*, `Export-DebugTraceJson` *(enforced)*
+`Format-SecureBootBaselineForReport`, `Get-SecureBootCertificateInventory`, `Get-MsSecureBootExampleScriptPath`, `Export-DebugTraceJson`, `Get-SecureBootBaselineSnapshot`, `Show-SecureBootBaselineSnapshot`, `Get-OrEnsureSecureBootBaseline`
 
-**Verifying the contract locally**: run psa.py against all four scripts in a single invocation. Any drift in the **30 PSA8001-enforced functions** above will produce a PSA8001 error pointing at the function header. Drift in the **4 PSA8001-ignored Secure Boot baseline diagnostic helpers** will not be flagged by `psa.py` (those helpers are listed in `psa8001_ignore_functions` because their call sites reference `$Ctx`-shaped context indirectly and one variant exists across the four driver scripts), but is still a contract violation that maintainers MUST manually verify on touch — see SPEC §D.25 r03 status note for the rationale. Functions intentionally per-script (phase functions, `Show-Help`, `Show-PhaseList`, `Find-KitTool`, per-driver-family helpers) are also listed in `psa8001_ignore_functions` in `.psa.config.json`; functions identical in only 2-3 of the 4 scripts (e.g., AMD-family-only helpers, MSBthPan-only helpers) are not currently enforced because their absence in the 4th script is by design.
+**WDAC tooling preflight (2 functions)**
+
+`Test-WdacToolsAvailable`, `Get-ActiveCodeIntegrityPolicies`
+
+**Verifying the contract locally**: run psa.py against all four scripts in a single invocation. Any drift in the **38 PSA8001-enforced functions** above will produce a PSA8001 error pointing at the function header. As of the `cross-repo-canon-iso-encoding-tls-rename` release there are no longer any PSA8001-ignored-but-still-verbatim diagnostic helpers: the former Secure Boot diagnostic exceptions had all converged to 4-way code-identity and were promoted to enforced, so the entire shared-helper surface is now machine-checked on every scan. Functions intentionally per-script (phase functions, `Show-Help`, `Show-PhaseList`, `Find-KitTool`, per-driver-family helpers) are also listed in `psa8001_ignore_functions` in `.psa.config.json`; functions identical in only 2-3 of the 4 scripts (e.g., AMD-family-only helpers, MSBthPan-only helpers) are not currently enforced because their absence in the 4th script is by design.
 
 When adding a new shared helper that should remain in sync across all four scripts, add it to all four scripts with identical bodies and do NOT add it to `psa8001_ignore_functions`. PSA8001 will then enforce its sync invariant from that point onward.
 
@@ -1179,7 +1185,7 @@ When a shared helper is fixed in Graphics / NPU / BthPan instead of Chipset (e.g
 
 #### Tier A — byte-identical across all four scripts (PSA8001-enforced)
 
-These 38 helpers are inherited verbatim from Chipset by all three other scripts. PSA8001 fires on any drift; the gate has been continuously green for the original 34 functions since the r60 / r28 / r10 / r10 release. The first uplift (`Get-SecureBootBaselineSnapshot`, `Show-SecureBootBaselineSnapshot`) graduated from Tier B to Tier A in the `psa-py-v410-shared-helper-canon-uplift` release; the second uplift (`Test-WdacToolsAvailable`, `Get-ActiveCodeIntegrityPolicies`) joined Tier A in the `npu-state-model-refactor-step-1-wdac-helpers` release when these two universal WDAC tooling preflight helpers were ported from Chipset / Graphics / BthPan into NPU as part of the NPU state-model refactor's first stage. The canonical inventory below is grouped by functional family to make porting decisions easier:
+These 38 helpers are inherited verbatim from Chipset by all three other scripts. PSA8001 fires on any drift. As of the `cross-repo-canon-iso-encoding-tls-rename` release **all 38 are PSA8001-enforced**: the three Secure Boot diagnostic helpers (`Format-SecureBootBaselineForReport`, `Get-SecureBootCertificateInventory`, `Get-MsSecureBootExampleScriptPath`) that had been parked in `psa8001_ignore_functions` were promoted once they converged to 4-way code-identity, and the stale `Invoke-MsSecureBootDetectScript` ignore entry — which named no existing top-level function (see the count-reconciliation note below) — was removed. The gate has been continuously green for the bulk of these functions since the r60 / r28 / r10 / r10 release. The first uplift (`Get-SecureBootBaselineSnapshot`, `Show-SecureBootBaselineSnapshot`) graduated from Tier B to Tier A in the `psa-py-v410-shared-helper-canon-uplift` release; the second uplift (`Test-WdacToolsAvailable`, `Get-ActiveCodeIntegrityPolicies`) joined Tier A in the `npu-state-model-refactor-step-1-wdac-helpers` release when these two universal WDAC tooling preflight helpers were ported from Chipset / Graphics / BthPan into NPU as part of the NPU state-model refactor's first stage. The canonical inventory below is grouped by functional family to make porting decisions easier:
 
 **Logging primitives (12)**
 `Format-Elapsed`, `_LogLine`, `Write-Step`, `Write-Ok`, `Write-Caution`, `Write-Fail`, `Write-Skip`, `Write-Detail`, `Write-PhaseHeader`, `Write-PhaseFooter`, `Get-PhaseElapsedTag`, `Format-DebugFailure`
@@ -1191,12 +1197,16 @@ These 38 helpers are inherited verbatim from Chipset by all three other scripts.
 `Set-TlsSecurityProtocol`, `Set-Utf8PipelineEncoding`, `Assert-Admin`, `Assert-PowerShellCompatibility`, `Show-PowerShellEnvironment`
 
 **Secure Boot baseline diagnostic helpers (7)**
-`Format-SecureBootBaselineForReport`, `Get-SecureBootCertificateInventory`, `Get-MsSecureBootExampleScriptPath`, `Invoke-MsSecureBootDetectScript`, `Export-DebugTraceJson`, `Get-SecureBootBaselineSnapshot`, `Show-SecureBootBaselineSnapshot`
+`Format-SecureBootBaselineForReport`, `Get-SecureBootCertificateInventory`, `Get-MsSecureBootExampleScriptPath`, `Export-DebugTraceJson`, `Get-SecureBootBaselineSnapshot`, `Show-SecureBootBaselineSnapshot`, `Get-OrEnsureSecureBootBaseline`
 
 **WDAC tooling preflight helpers (2)**
 `Test-WdacToolsAvailable`, `Get-ActiveCodeIntegrityPolicies` — universal helpers (no AMD / MS-BthPan prefix); both probe the host's CodeIntegrity tooling availability and enumerate the active CI policy inventory, with no driver-family-specific behaviour. Newly arrived in Tier A as a deliberate by-product of the NPU state-model refactor's first stage (the canonical `Get-BootSigningEnvironment` consumes both, so porting it into NPU required porting these dependencies first).
 
 Adding a new helper to this tier: write it in Chipset first, paste it byte-for-byte into the other three scripts, run `python3 psa.py --include PSA8001 Deploy-*.ps1` to confirm no drift is reported, and do NOT add the new helper to `psa8001_ignore_functions`. The PSA8001 gate then permanently enforces the byte-identity invariant from that commit onward.
+
+###### Count-reconciliation note (`cross-repo-canon-iso-encoding-tls-rename`)
+
+The Tier A inventory holds **38** functions. Earlier revisions of this section, and the §D.36 NPU-state-model retrospective, described the post-stage-3 figure as **39** ("Tier A 38 → 39"). That 39 was an overcount of exactly one: the historical "original 34" baseline silently counted `Invoke-MsSecureBootDetectScript`, an ignore-list entry that names no top-level function in any of the four scripts. With that phantom entry removed and `Get-OrEnsureSecureBootBaseline` (the genuine stage-3 promotion) counted, the verified figure is **38**, every one of which is now PSA8001-enforced (the three previously-ignored Secure Boot diagnostic helpers were promoted once they converged). The §D.36 retrospective rows are left intact as the historical record of what those releases reported; this note is the authoritative current count.
 
 #### Tier B — 4-script-shared but currently drift-tolerant (PSA8001-ignored)
 
@@ -1348,13 +1358,13 @@ This weaker tier lets the project record real shared code — so a future canon 
 
 ###### Registered partial participant: `Update-WindowsServerIso.ps1`
 
-`usui-tk/ai-generated-artifacts`, the `scripts/powershell/update-windows-server-iso/Update-WindowsServerIso.ps1` script, was seeded from this canon's logging / DebugTrace primitives. As of the `cross-repo-canon-iso-port-alignment` release its logger names are aligned to the canon (it no longer carries the locally-grown `Write-Warn` name, nor `Write-Step` standing in for `Write-Detail`; see that script's SPEC §B.19.4.4 for the port detail).
+`usui-tk/ai-generated-artifacts`, the `scripts/powershell/update-windows-server-iso/Update-WindowsServerIso.ps1` script, was seeded from this canon's logging / DebugTrace primitives. As of the `cross-repo-canon-iso-port-alignment` release its logger names are aligned to the canon (it no longer carries the locally-grown `Write-Warn` name, nor `Write-Step` standing in for `Write-Detail`; see that script's SPEC §B.19.4.4 for the port detail). A follow-on `cross-repo-canon-iso-encoding-tls-rename` release (ISO `r11.1`) additionally aligned the two host-configuration helper *names* to the canon — `Set-ConsoleUtf8` → `Set-Utf8PipelineEncoding` and `Set-Tls12` → `Set-TlsSecurityProtocol` — while leaving their simpler, ISO-specific bodies in the carve-out set below.
 
 **Maintained-identical set (19)** — byte-identical with the canon (Chipset) and SHOULD be kept so at bi-repo review:
 
 `Format-Elapsed`, `_LogLine`, `Write-Step`, `Write-Ok`, `Write-Caution`, `Write-Fail`, `Write-Skip`, `Write-Detail`, `Get-PhaseElapsedTag`, `Format-DebugFailure`, `_DebugTrace_NextSeq`, `_DebugTrace_Now`, `_DebugTrace_RetireFrame`, `Set-DebugStep`, `Write-DebugFailureReport`, `Disable-DebugTraceFileOutput`, `Get-DebugTraceFileOutputStatus`, `Enable-AutoExportOnPhaseFailure`, `Assert-PowerShellCompatibility`.
 
-**Carve-out set (7)** — same name, intentionally divergent body, NOT expected to converge. These all stem from the ISO script's different runtime model (its build pipeline and DebugTrace lifecycle are not the 21-phase driver pipeline), so a byte-identity requirement would be a redesign, not an alignment:
+**Carve-out set (9)** — same name, intentionally divergent body, NOT expected to converge. Most stem from the ISO script's different runtime model (its build pipeline and DebugTrace lifecycle are not the 21-phase driver pipeline); the two host-configuration helpers were *name*-aligned to the canon in the `cross-repo-canon-iso-encoding-tls-rename` release but keep the ISO script's simpler bodies. A byte-identity requirement would be a redesign, not an alignment:
 
 | Function(s) | Nature of divergence |
 |:---|:---|
@@ -1362,8 +1372,10 @@ This weaker tier lets the project record real shared code — so a future canon 
 | `Start-DebugTrace`, `Stop-DebugTrace`, `_DebugTrace_WriteJsonlLine` | The trace lifecycle and JSONL record schema bind to the ISO script's own stage model rather than the driver pipeline's phases. |
 | `Enable-DebugTraceFileOutput` | Default trace-output path / file-naming differs for the ISO build workflow. |
 | `Show-PowerShellEnvironment` | Same carve-out reason as the SpeakerDeck case above — the AMD canon implementation references driver-specific helpers (`Get-BootSigningEnvironment`, `Show-DriverInstallationOrderNotice`, …) that do not exist in the ISO script. |
+| `Set-Utf8PipelineEncoding` | Renamed from the ISO script's locally-grown `Set-ConsoleUtf8` to the canon name in the `cross-repo-canon-iso-encoding-tls-rename` release. The body sets all three encodings (`[Console]::OutputEncoding` / `[Console]::InputEncoding` / `$OutputEncoding`), so the canon name is accurate, but the ISO implementation is shorter than the canon and is NOT maintained byte-identical. |
+| `Set-TlsSecurityProtocol` | Renamed from the ISO script's locally-grown `Set-Tls12` in the same release. The body assigns the `[Net.ServicePointManager]::SecurityProtocol` bitmask (so the canon name is accurate), but negotiates a narrower protocol set than the canon (no TLS 1.3 leg) and is NOT maintained byte-identical. |
 
-**Not present (3)** — the ISO script does not define these canon helpers at all (it uses a different outbound-HTTP and admin-check approach): `Set-TlsSecurityProtocol`, `Set-Utf8PipelineEncoding`, `Assert-Admin`.
+**Not present (1)** — the ISO script does not define this canon helper at all (it uses a different admin-check approach): `Assert-Admin`. (Its outbound-HTTP / console-encoding helpers, formerly absent under the canon names, are now present under those names but with divergent bodies — see the carve-out set above.)
 
 Separately, the ISO script's three ported 7-Zip helpers (`Get-SevenZipPath`, `Get-LatestSevenZipUrl`, `Install-SevenZipFallback`) are byte-identical to Chipset except for two values that MUST encode the ISO script's identity (a GitHub API `User-Agent` string and a `psa-disable` justification comment that names `msiexec`); these are documented in that script's SPEC §B.19.4.4 and are not part of the logging/DebugTrace maintained-identical set above.
 
@@ -4708,7 +4720,7 @@ If you are creating a 5th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1
 
 1. **Choose a reference script.** Use one of the **production-validated** scripts: `Deploy-AMDChipsetDriverOnWindowsServer.ps1`, `Deploy-AMDGraphicsDriverOnWindowsServer.ps1`, or `Deploy-MSBthPanInboxOnWindowsServer.ps1`. **Do NOT use the NPU script as a starting template** — the NPU script is classified as "🆘 Experimental / research-grade — NOT production-ready" (see README.md "Risk classification of the four scripts"), has no physical-hardware validation runs, and its idioms have not been verified to be safe to copy. Among the three production-validated scripts, the Chipset script has the largest test surface (Phase coverage, INF patch logic, multi-OS detection) and the MSBthPan script has the cleanest single-INF / single-HWID flow — pick whichever is closer to your new script's domain. Copy that file as your starting template.
 2. Replace `$Script:ScriptName`, `$Script:ScriptVersion`, `$Script:ScriptTag`, `$Script:CertSubjectCn`, `$Script:WdacPolicyName`, `$Script:WdacPolicyGuid`, `$Script:WorkRoot` with values specific to your new script.
-3. Re-implement only the **domain helpers** section (platform detection, installer resolution, INF inventory filter). Reuse all other sections verbatim — especially the output helpers (`Write-Step`/`Write-Ok`/`Write-Warn2`/`Write-Fail`/`Write-Skip`/`Write-Detail`/`_LogLine`), timestamp idioms (`(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')`), CIM-with-WMI-fallback pattern, and the `Test-WdacToolsAvailable` / `Install-AmdWdacPolicy` / `Uninstall-AmdWdacPolicy` triplet which are PS 5.1-validated and handle multiple edge cases (CiTool absent on WS2019, WS2025 build 26100 schema variant in AllowAll.xml, CIM bridge fallback via PS_UpdateAndCompareCIPolicy). **Ground-up reimplementation of these helpers is strongly discouraged** — they encode validation history that is invisible in the code itself. Two concrete cases (originally documented in the now-removed §D.25 narrative; preserved here as Windows-PowerShell-5.1 footgun examples) illustrate why: (a) `Get-Date -AsUTC` is a PS 7.1+ parameter that fails at parameter binding on PS 5.1 with a non-obvious error message — a clean-room reimplementation typed this idiom and shipped a broken script; (b) `[string]$Script:CertThumbprint = ''` inside a `param()` block silently becomes a literally-named `Script:CertThumbprint` parameter rather than a script-scope assignment, which breaks the intended `-CertThumbprint` caller convention without raising any parse-time error. Both defects survived initial code review and only surfaced under end-to-end execution. Copying a validated sister-script idiom avoids both of these failure modes by construction.
+3. Re-implement only the **domain helpers** section (platform detection, installer resolution, INF inventory filter). Reuse all other sections verbatim — especially the output helpers (`Write-Step`/`Write-Ok`/`Write-Caution`/`Write-Fail`/`Write-Skip`/`Write-Detail`/`_LogLine`), timestamp idioms (`(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')`), CIM-with-WMI-fallback pattern, and the `Test-WdacToolsAvailable` / `Install-AmdWdacPolicy` / `Uninstall-AmdWdacPolicy` triplet which are PS 5.1-validated and handle multiple edge cases (CiTool absent on WS2019, WS2025 build 26100 schema variant in AllowAll.xml, CIM bridge fallback via PS_UpdateAndCompareCIPolicy). **Ground-up reimplementation of these helpers is strongly discouraged** — they encode validation history that is invisible in the code itself. Two concrete cases (originally documented in the now-removed §D.25 narrative; preserved here as Windows-PowerShell-5.1 footgun examples) illustrate why: (a) `Get-Date -AsUTC` is a PS 7.1+ parameter that fails at parameter binding on PS 5.1 with a non-obvious error message — a clean-room reimplementation typed this idiom and shipped a broken script; (b) `[string]$Script:CertThumbprint = ''` inside a `param()` block silently becomes a literally-named `Script:CertThumbprint` parameter rather than a script-scope assignment, which breaks the intended `-CertThumbprint` caller convention without raising any parse-time error. Both defects survived initial code review and only surfaced under end-to-end execution. Copying a validated sister-script idiom avoids both of these failure modes by construction.
 4. Run `python3 psa.py <new-script>.ps1` (see A.11 for setup) until 0 errors.
 5. Add B.5 section to this SPEC.md.
 6. Add the new script to `README.md` "What's in the box" table, "Parameters" section, "Risk classification" table — and sync `README.ja.md`.

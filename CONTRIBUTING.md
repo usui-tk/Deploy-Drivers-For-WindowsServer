@@ -48,7 +48,7 @@ Blank issues are disabled — please pick the closest template even if not a per
 ### Code style
 
 - **PowerShell**: follow the existing style — Verb-Noun cmdlets, `[CmdletBinding()]` for non-trivial functions, `[OutputType(...)]` where it adds clarity, brace on the same line as the opening keyword (`if (cond) {`), 4-space indent, no tabs.
-- **Marker / log convention** (see [SPEC.md §A.5](./SPEC.md#a5-logging-conventions)): every event line uses `Write-Step` / `Write-Ok` / `Write-Warn2` / `Write-Fail` / `Write-Skip`. Continuation rows inside a section-banner table use `Write-Detail` (4-space indent, no marker, optional `-Color` / `-NoNewline`). Bare `Write-Host "    XXX"` is a SPEC violation.
+- **Marker / log convention** (see [SPEC.md §A.5](./SPEC.md#a5-logging-conventions)): every event line uses `Write-Step` / `Write-Ok` / `Write-Caution` / `Write-Fail` / `Write-Skip`. Continuation rows inside a section-banner table use `Write-Detail` (4-space indent, no marker, optional `-Color` / `-NoNewline`). Bare `Write-Host "    XXX"` is a SPEC violation.
 - **Comments**: explain *why*, not *what*. The "why" is harder to reverse-engineer than the "what".
 - **No external dependencies**: keep the scripts standalone. Anything beyond the PowerShell standard library + `winget` for SDK/WDK install needs a strong justification.
 - **PowerShell 5.1 compatibility**: the scripts must run on stock Windows PowerShell 5.1 (Desktop edition). Avoid PowerShell 7+ specific syntax (`??`, `?.`, ternary `?:`, etc.). The static analyzer (psa.py) is Python 3 and has no such restriction.

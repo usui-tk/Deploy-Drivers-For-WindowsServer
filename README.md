@@ -1000,7 +1000,7 @@ The legacy `*>&1 | Tee-Object` idiom is still supported and may be preferable wh
     Tee-Object -FilePath "C:\Temp\amd-chipset_Install_$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
 ```
 
-If you redirect output to a file (whether via `-LogFile` or `Tee-Object`) on a ja-JP host with the default code page (932 / Shift-JIS), set your file encoding explicitly to UTF-8 to avoid double-encoding of Japanese strings — the scripts call `Set-ConsoleUtf8` in P00 to enforce UTF-8 for `[Console]::OutputEncoding`, but consumers of the captured file (text editors, `Get-Content`, etc.) may still need to be told the file is UTF-8.
+If you redirect output to a file (whether via `-LogFile` or `Tee-Object`) on a ja-JP host with the default code page (932 / Shift-JIS), set your file encoding explicitly to UTF-8 to avoid double-encoding of Japanese strings — the scripts call `Set-Utf8PipelineEncoding` in P00 to enforce UTF-8 for `[Console]::OutputEncoding`, but consumers of the captured file (text editors, `Get-Content`, etc.) may still need to be told the file is UTF-8.
 
 ---
 
@@ -1249,6 +1249,7 @@ In the rest of this document and in `SPEC.md` / `TESTING.md` / `CONTRIBUTING.md`
 
 `psa.py` (latest mainline) ships a check set spanning the generic families `PSA1xxx` through `PSA9xxx` plus the project-pipeline convention family `PSAP0xxx`. The exact rule count grows as new defect classes are productionised upstream; this section names the families and notable recent additions rather than the raw count, to avoid mechanical drift each time a rule is added. The most recent additions:
 
+- **`PSA7003` (added in `psa.py` 4.2.0, non-ASCII script body)** — a default-on **warning** that flags any non-ASCII character in a `.ps1` body outside the BOM (em / en dashes, smart quotes, the section sign, the ellipsis, no-break spaces — the source-format defect class an ASCII-only CI gate rejects). **This repository deliberately opts out of `PSA7003`** (disabled in `.psa.config.json`): the AMD-family scripts embed intentional Japanese log strings and em-dashes in their console output, so a non-ASCII script body is expected here rather than a defect. See `SPEC.md` §A.11.5.
 - **`PSA1004` / `PSA2012` / `PSA2013` (added in `psa.py` 4.1.0)** — three error-severity, default-on static checks that close concrete latent-bug classes: bare `(if/switch/foreach/while/...)` parsed as a command call (PSA1004), positional call with insufficient args to a Mandatory-param function silently hanging unattended sessions (PSA2012), and `$Script:Foo` read but never assigned silently evaluating to `$null` (PSA2013). All four pipeline scripts in this repository pass with 0 findings at the r81 / r47 / r29 / r25 baseline (`psa-py-v410-three-new-error-rules-baseline`).
 - **`PSAP0005` (added in `psa.py` 4.0.0, the LLM-assisted-maintenance guardrail)** catches any `rNN` reference inside a comment body, broader than `PSAP0003`'s structured tag forms. This repository runs `PSAP0005` in its default **strict mode** since the Chipset r80 / Graphics r46 / BthPan r28 / NPU r24 release (`psa-py-v4-llm-governance-strict`); the original `psap0005_relaxed_mode: true` baseline adopted at r76 has been retired and the key is omitted from `.psa.config.json` (see SPEC §A.13 *Migration roadmap* — status `COMPLETED` — and §D.34 for the retrospective).
 - **`PSA2009` (added in 3.8.0)** is the static-analysis counterpart of the runtime defect that caused `Chipset r72 P05 -> FAILED with "WhqlCoSignAnalysis" property-not-found exception` on a Japanese-locale Windows Server 2019 host.
@@ -1334,7 +1335,7 @@ If you are adding a new feature, the recommended workflow is: read `SPEC.md` →
 
 ### PowerShell scripts (`*.ps1`)
 
-All `*.ps1` files in this repository are **checked out as UTF-8 with BOM and CRLF line endings** on every platform. This is the canonical encoding for PowerShell 5.1 + 7.x scripts that contain non-ASCII characters (the Japanese log strings inside `Write-Skip` / `Write-Warn2` calls). The `.gitattributes` rule that enforces this is:
+All `*.ps1` files in this repository are **checked out as UTF-8 with BOM and CRLF line endings** on every platform. This is the canonical encoding for PowerShell 5.1 + 7.x scripts that contain non-ASCII characters (the Japanese log strings inside `Write-Skip` / `Write-Caution` calls). The `.gitattributes` rule that enforces this is:
 
 ```
 *.ps1 text working-tree-encoding=UTF-8 eol=crlf

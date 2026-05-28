@@ -1717,7 +1717,7 @@ This section covers the four r71 mechanisms documented in SPEC §D.31 and the on
 | --- | --- | --- |
 | 1 | Constrained VM or legacy BIOS host where `Confirm-SecureBootUEFI` throws. | — |
 | 2 | Run `.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action Install -UseTestSigning` | I02 calls `Invoke-PathBPrerequisiteCheck`. The helper catches the exception, returns `Result=ok, Reason=secure-boot-unknown`. |
-| 3 | I02 prints the warning block as Write-Warn2 messages and continues to the existing legacy Secure Boot guard (which uses the OS-layer `$bootEnvBefore.SecureBootEnabled` view). | If both views agree on "off", Path B proceeds normally. If they diverge, the legacy guard fires. |
+| 3 | I02 prints the warning block as Write-Caution messages and continues to the existing legacy Secure Boot guard (which uses the OS-layer `$bootEnvBefore.SecureBootEnabled` view). | If both views agree on "off", Path B proceeds normally. If they diverge, the legacy guard fires. |
 
 ### TC14.6 — All-WHQL install plan: WHQL analysis is reported but no special branches fire
 

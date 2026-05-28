@@ -254,13 +254,17 @@
     // completion of the NPU state-model refactor (SPEC.md §A.11.7);
     // the entry was removed from this ignore list at the same time and
     // PSA8001 now enforces 4-way byte-identity for Get-OrEnsureSecureBootBaseline
-    // as well. The Format / Get / Invoke helpers below remain script-
-    // specific (NPU implements a simplified probe set, Chipset and BthPan
-    // implement different inventory layouts).
-    "Format-SecureBootBaselineForReport",
-    "Get-SecureBootCertificateInventory",
-    "Get-MsSecureBootExampleScriptPath",
-    "Invoke-MsSecureBootDetectScript",
+    // as well.
+    //
+    // The Format-SecureBootBaselineForReport / Get-SecureBootCertificateInventory
+    // / Get-MsSecureBootExampleScriptPath helpers have since CONVERGED to
+    // 4-way code-identity (PSA8001 strips comments/strings before comparison;
+    // the bodies now match across all four scripts) and were promoted OUT of
+    // this ignore list in the cross-repo-canon-iso-encoding-tls-rename
+    // release; PSA8001 now actively enforces their byte-identity invariant.
+    // The former Invoke-MsSecureBootDetectScript entry was a stale reference
+    // (no such top-level function exists in any of the four scripts) and was
+    // removed at the same time.
 
     // ---- WDAC / boot-signing diagnostic helpers ----
     // AMDNpu ships a SIMPLIFIED Get/Show-BootSigningEnvironment that
