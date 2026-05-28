@@ -1333,6 +1333,40 @@ Prior to the `cross-repo-shared-utility-canon-write-caution` release, the AMD sc
 
 The rename touched all five scripts' definitions and ~520 callsites total (Chipset 109, Graphics 103, NPU 119, BthPan 95, SpeakerDeck 47). Per the repository's revision-history policy, the full callsite count and the history of why two names existed in the first place is captured in `CHANGELOG.md` for the release; the script bodies themselves carry no `Write-Warn` / `Write-Warn2` references after the rename.
 
+##### Partial port participants (one-way ports)
+
+The 5-way canon above describes **full bidirectional members**: every function in the canon list is maintained byte-identical in lockstep, and a change in any one of the five scripts is propagated to the other four (the `Write-Caution` rename above is the model — it touched all five, SpeakerDeck included).
+
+A second, weaker kind of cross-repo relationship is governed separately here: a **partial port participant**. This is a script in another repository that was *seeded* from this canon by a one-time copy of a subset of the helpers and thereafter evolves on its own. It is deliberately NOT a full member:
+
+- only an explicitly enumerated subset of its helpers is maintained byte-identical with the canon (the **maintained-identical set**);
+- the remaining same-name helpers are allowed to diverge (the **carve-out set**), typically because the participant has a different internal model;
+- the participant carries no obligation to propagate its own changes back (the relationship is one-way: canon → participant);
+- the canon side carries a *SHOULD*, not a *MUST*: when a change touches a helper in the participant's maintained-identical set, the bi-repo release review SHOULD offer the change to the participant, but the participant MAY decline where it conflicts with its model.
+
+This weaker tier lets the project record real shared code — so a future canon change knows a downstream copy exists — without overstating the relationship as full membership or imposing lockstep on a script that deliberately diverged. As with the 5-way canon, PSA8001 does not see this relationship (it is single-repo); the maintained-identical set is upheld only at bi-repo release review.
+
+###### Registered partial participant: `Update-WindowsServerIso.ps1`
+
+`usui-tk/ai-generated-artifacts`, the `scripts/powershell/update-windows-server-iso/Update-WindowsServerIso.ps1` script, was seeded from this canon's logging / DebugTrace primitives. As of the `cross-repo-canon-iso-port-alignment` release its logger names are aligned to the canon (it no longer carries the locally-grown `Write-Warn` name, nor `Write-Step` standing in for `Write-Detail`; see that script's SPEC §B.19.4.4 for the port detail).
+
+**Maintained-identical set (19)** — byte-identical with the canon (Chipset) and SHOULD be kept so at bi-repo review:
+
+`Format-Elapsed`, `_LogLine`, `Write-Step`, `Write-Ok`, `Write-Caution`, `Write-Fail`, `Write-Skip`, `Write-Detail`, `Get-PhaseElapsedTag`, `Format-DebugFailure`, `_DebugTrace_NextSeq`, `_DebugTrace_Now`, `_DebugTrace_RetireFrame`, `Set-DebugStep`, `Write-DebugFailureReport`, `Disable-DebugTraceFileOutput`, `Get-DebugTraceFileOutputStatus`, `Enable-AutoExportOnPhaseFailure`, `Assert-PowerShellCompatibility`.
+
+**Carve-out set (7)** — same name, intentionally divergent body, NOT expected to converge. These all stem from the ISO script's different runtime model (its build pipeline and DebugTrace lifecycle are not the 21-phase driver pipeline), so a byte-identity requirement would be a redesign, not an alignment:
+
+| Function(s) | Nature of divergence |
+|:---|:---|
+| `Write-PhaseHeader`, `Write-PhaseFooter` | Phase-banner content is specific to the ISO build stages. |
+| `Start-DebugTrace`, `Stop-DebugTrace`, `_DebugTrace_WriteJsonlLine` | The trace lifecycle and JSONL record schema bind to the ISO script's own stage model rather than the driver pipeline's phases. |
+| `Enable-DebugTraceFileOutput` | Default trace-output path / file-naming differs for the ISO build workflow. |
+| `Show-PowerShellEnvironment` | Same carve-out reason as the SpeakerDeck case above — the AMD canon implementation references driver-specific helpers (`Get-BootSigningEnvironment`, `Show-DriverInstallationOrderNotice`, …) that do not exist in the ISO script. |
+
+**Not present (3)** — the ISO script does not define these canon helpers at all (it uses a different outbound-HTTP and admin-check approach): `Set-TlsSecurityProtocol`, `Set-Utf8PipelineEncoding`, `Assert-Admin`.
+
+Separately, the ISO script's three ported 7-Zip helpers (`Get-SevenZipPath`, `Get-LatestSevenZipUrl`, `Install-SevenZipFallback`) are byte-identical to Chipset except for two values that MUST encode the ISO script's identity (a GitHub API `User-Agent` string and a `psa-disable` justification comment that names `msiexec`); these are documented in that script's SPEC §B.19.4.4 and are not part of the logging/DebugTrace maintained-identical set above.
+
 ### A.11.6 Self-quality gates for `psa.py` (consumer-side usage)
 
 Since `psa.py` 3.5.0 the canonical analyzer ships three built-in

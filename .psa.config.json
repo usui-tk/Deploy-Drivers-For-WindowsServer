@@ -119,7 +119,20 @@
     // Show-SecureBootBaselineSnapshot table, per-device AS-IS / TO-BE
     // analysis tables). Forcing those onto multiple lines makes the
     // string concatenation harder to review than the long-line form.
-    "PSA4003"
+    "PSA4003",
+
+    // PSA7003 (non-ASCII character in script body, new in psa.py 4.2.0)
+    // is intentionally off for this repository. The four pipeline scripts
+    // legitimately contain non-ASCII content in their bodies: Japanese
+    // console-output strings (operator-facing progress / result messages)
+    // and em-dash separators in the .NOTES sidebar. These are deliberate,
+    // not AI/rich-text-paste artifacts, and converting the Japanese to
+    // ASCII would destroy operator-facing meaning. PSA7003's ASCII-only
+    // premise does not apply to this codebase. The canonical psa.py ships
+    // PSA7003 default-on; consumers with intentional non-ASCII bodies opt
+    // out here. See SPEC.md A.11 for the version policy and the consumer
+    // re-evaluation step that runs whenever psa.py adds a default-on rule.
+    "PSA7003"
   ],
 
 
@@ -151,7 +164,7 @@
   //     Get-DebugTraceFileOutputStatus, Enable-AutoExportOnPhaseFailure
   //
   //   Environment / preflight (5):
-  //     Set-Tls12, Set-ConsoleUtf8,
+  //     Set-TlsSecurityProtocol, Set-Utf8PipelineEncoding,
   //     Assert-Admin, Assert-PowerShellCompatibility,
   //     Show-PowerShellEnvironment
   //
