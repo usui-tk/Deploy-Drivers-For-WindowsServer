@@ -1790,7 +1790,7 @@ Added with the Chipset r73 / Graphics r39 / BthPan r21 release as the static-ana
 
 | Step | Setup | Expected outcome |
 | --- | --- | --- |
-| 1 | Working tree at the current mainline of `Deploy-Drivers-For-WindowsServer`. Python 3.8+ installed. Fetch the canonical analyzer: `curl -sSL https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py -o /tmp/psa.py` (and the sibling `VERSION` file). Confirm `python3 /tmp/psa.py --version` reports `psa.py 3.8.0` or later. | — |
+| 1 | Working tree at the current mainline of `Deploy-Drivers-For-WindowsServer`. Python 3.8+ installed. Fetch the canonical analyzer: `curl -sSL https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/quality-tools/powershell-static-analyzer/psa.py -o /tmp/psa.py` (and the sibling `VERSION` file). Confirm `python3 /tmp/psa.py --version` reports `psa.py 3.8.0` or later. | — |
 | 2 | Run `python3 /tmp/psa.py --include PSA2009 --no-color Deploy-AMDChipsetDriverOnWindowsServer.ps1`. | `Issues : 0 errors, 0 warnings, 0 info` followed by `(no issues found)`. The exit code is 0. |
 | 3 | Run `python3 /tmp/psa.py --include PSA2009 --no-color Deploy-AMDGraphicsDriverOnWindowsServer.ps1`. | Same as step 2. |
 | 4 | Run `python3 /tmp/psa.py --include PSA2009 --no-color Deploy-AMDNpuDriverOnWindowsServer.ps1`. | Same as step 2. (NPU does not use `[pscustomobject]@{...}` for its `$Ctx` and is exempt from the WHQL producer-consumer contract; the rule still scans the file and finds zero violations.) |
@@ -2126,7 +2126,7 @@ Write-Host "Pass 1b returned $($set.Count) entries:"
 
 ```bash
 # From the repository root:
-curl -sSL https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py -o /tmp/psa-3.9.0.py
+curl -sSL https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/quality-tools/powershell-static-analyzer/psa.py -o /tmp/psa-3.9.0.py
 python3 /tmp/psa-3.9.0.py \
     --config .psa.config.json \
     --severity error \
@@ -2326,7 +2326,7 @@ A deviation in either direction requires investigation: a higher count means a n
 **Procedure**: Run the upstream `psa.py` test suite, which includes Section 2c (15 relaxed-mode test cases) and Section 2d (PSAP0003 + PSAP0005 dedupe).
 
 ```bash
-cd path/to/ai-generated-artifacts/scripts/python/powershell-static-analyzer
+cd path/to/ai-generated-artifacts/quality-tools/powershell-static-analyzer
 python3 test_psa_rules.py
 ```
 

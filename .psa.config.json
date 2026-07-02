@@ -4,7 +4,7 @@
 //
 // File format : JSONC  (JSON with C-style line // and block /* */ comments)
 // Encoding    : UTF-8
-// Schema      : See https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md
+// Schema      : See https://github.com/usui-tk/ai-generated-artifacts/blob/main/quality-tools/powershell-static-analyzer/SPEC.md
 // Applies to  : psa.py latest mainline (see VERSION file in canonical repo)
 //
 // -----------------------------------------------------------------------------

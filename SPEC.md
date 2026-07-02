@@ -98,10 +98,10 @@ When extending these scripts, **copy these helpers verbatim** from the most rece
 psa.py  (obtained from the canonical artifact repository — see A.11)
 ```
 
-`psa.py` is a **pure Python** static analyzer (no PowerShell installation required) with a check set covering the generic families `PSA1xxx`..`PSA9xxx` plus the project-convention family `PSAP0xxx`. The repository policy is to validate against the **latest mainline** `psa.py` from the canonical repository (see §A.11 for the rationale and workflow). Exact rule count and per-family composition are not reproduced here to avoid drift on every upstream addition; the canonical source is the runtime `RULES` registry (visible via `psa.py --list-rules`) and the upstream [`SPEC.md` §4](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md). It is **not** bundled in this repository. It is maintained as a single canonical artifact at:
+`psa.py` is a **pure Python** static analyzer (no PowerShell installation required) with a check set covering the generic families `PSA1xxx`..`PSA9xxx` plus the project-convention family `PSAP0xxx`. The repository policy is to validate against the **latest mainline** `psa.py` from the canonical repository (see §A.11 for the rationale and workflow). Exact rule count and per-family composition are not reproduced here to avoid drift on every upstream addition; the canonical source is the runtime `RULES` registry (visible via `psa.py --list-rules`) and the upstream [`SPEC.md` §4](https://github.com/usui-tk/ai-generated-artifacts/blob/main/quality-tools/powershell-static-analyzer/SPEC.md). It is **not** bundled in this repository. It is maintained as a single canonical artifact at:
 
 ```
-https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/python/powershell-static-analyzer/psa.py
+https://github.com/usui-tk/ai-generated-artifacts/tree/main/quality-tools/powershell-static-analyzer/psa.py
 ```
 
 It must be:
@@ -760,7 +760,7 @@ This SPEC, `TESTING.md`, `CONTRIBUTING.md`, and `README.md` therefore avoid pinn
 The canonical source of truth for "what is the current `psa.py` version on mainline" is the `VERSION` file sitting next to `psa.py` in the canonical repository:
 
 ```
-ai-generated-artifacts/scripts/python/powershell-static-analyzer/
+ai-generated-artifacts/quality-tools/powershell-static-analyzer/
 ├── psa.py        ← __version__ string inside
 ├── VERSION       ← single ASCII line, no leading 'v', terminating LF
 ├── SPEC.md
@@ -772,11 +772,11 @@ Three equivalent retrieval methods (any of them works; pick the one that fits yo
 
 ```bash
 # Method 1 — remote HTTP GET, no clone, no Python (recommended for CI / one-off checks).
-LATEST=$(curl -sSL https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/VERSION)
+LATEST=$(curl -sSL https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/quality-tools/powershell-static-analyzer/VERSION)
 echo "Latest psa.py on mainline: $LATEST"
 
 # Method 2 — already cloned (e.g., sister repository checkout next to this one).
-LATEST=$(cat /path/to/ai-generated-artifacts/scripts/python/powershell-static-analyzer/VERSION)
+LATEST=$(cat /path/to/ai-generated-artifacts/quality-tools/powershell-static-analyzer/VERSION)
 
 # Method 3 — invoke a local copy of psa.py (requires Python).
 LATEST=$(python3 /path/to/psa.py --version | awk '{print $2}')
@@ -793,10 +793,10 @@ When an LLM / AI maintainer (or a human) is about to make changes to **any** of 
 3. **If `LATEST != LOCAL`**:
    1. Replace `psa.py` AND its sibling `VERSION` file from mainline (both files MUST move together):
       ```bash
-      curl -sSL https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py -o psa.py
-      curl -sSL https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/VERSION -o VERSION
+      curl -sSL https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/quality-tools/powershell-static-analyzer/psa.py -o psa.py
+      curl -sSL https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/quality-tools/powershell-static-analyzer/VERSION -o VERSION
       ```
-   2. Read the new entries in the canonical [`psa.py` `CHANGELOG.md`](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/CHANGELOG.md) and the current canonical [`psa.py` `SPEC.md`](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md) to understand what changed (new rules, tightened heuristics, schema changes).
+   2. Read the new entries in the canonical [`psa.py` `CHANGELOG.md`](https://github.com/usui-tk/ai-generated-artifacts/blob/main/quality-tools/powershell-static-analyzer/CHANGELOG.md) and the current canonical [`psa.py` `SPEC.md`](https://github.com/usui-tk/ai-generated-artifacts/blob/main/quality-tools/powershell-static-analyzer/SPEC.md) to understand what changed (new rules, tightened heuristics, schema changes).
    3. Re-evaluate this repository's `.psa.config.json` `enable` list against the latest `psa.py` `SPEC.md`. Newly-added opt-in rules that match the four pipeline scripts' discipline goals SHOULD be enabled (this repository currently opts in to all four PSAPxxxx rules).
    4. Re-run the full static-analysis pass for all four scripts under the new `psa.py`. Treat any new findings as regressions to be addressed in the same change set, not as findings to be deferred.
 4. **If `LATEST == LOCAL`**: proceed with the planned change, but still re-run the analyzer on the modified scripts before declaring done.
@@ -811,8 +811,8 @@ For the full policy rationale and additional context, see the [psa.py Versioning
 
 ```
 Repository : https://github.com/usui-tk/ai-generated-artifacts
-Path       : scripts/python/powershell-static-analyzer/psa.py
-Raw URL    : https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py
+Path       : quality-tools/powershell-static-analyzer/psa.py
+Raw URL    : https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/quality-tools/powershell-static-analyzer/psa.py
 ```
 
 Any change to `psa.py` (bug fix, new check, new auto-variable entry, etc.) must be made in that canonical repository. This repository (`Deploy-Drivers-For-WindowsServer`) is one of its **consumers**.
@@ -828,17 +828,17 @@ Pick one of the two methods below. Both are equivalent in result; the choice is 
 git clone https://github.com/usui-tk/ai-generated-artifacts.git
 
 # Then, from this repository's root:
-python3 ../ai-generated-artifacts/scripts/python/powershell-static-analyzer/psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
-python3 ../ai-generated-artifacts/scripts/python/powershell-static-analyzer/psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
-python3 ../ai-generated-artifacts/scripts/python/powershell-static-analyzer/psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
-python3 ../ai-generated-artifacts/scripts/python/powershell-static-analyzer/psa.py Deploy-MSBthPanInboxOnWindowsServer.ps1
+python3 ../ai-generated-artifacts/quality-tools/powershell-static-analyzer/psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
+python3 ../ai-generated-artifacts/quality-tools/powershell-static-analyzer/psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+python3 ../ai-generated-artifacts/quality-tools/powershell-static-analyzer/psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
+python3 ../ai-generated-artifacts/quality-tools/powershell-static-analyzer/psa.py Deploy-MSBthPanInboxOnWindowsServer.ps1
 ```
 
 **Method 2 — Download the single file** (recommended for one-shot CI runs):
 
 ```bash
 # From the repository root (Linux / macOS)
-curl -sSLO https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py
+curl -sSLO https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/quality-tools/powershell-static-analyzer/psa.py
 python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
 python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
 python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
@@ -848,7 +848,7 @@ python3 psa.py Deploy-MSBthPanInboxOnWindowsServer.ps1
 ```powershell
 # Or, from the repository root (Windows PowerShell)
 Invoke-WebRequest `
-    -Uri  "https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py" `
+    -Uri  "https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/quality-tools/powershell-static-analyzer/psa.py" `
     -OutFile psa.py
 python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
 python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
@@ -884,7 +884,7 @@ python3 psa.py --severity error Deploy-AMDChipsetDriverOnWindowsServer.ps1
 - **`PSA2007` / `PSA2008` / `PSA3006` / `PSA6007` / `PSA6008` / `PSA7002`** were added across 3.6.0 and 3.7.0.
 - **`PSA8xxx`, `PSA9xxx`, `PSAPxxxx`** families were introduced in 3.2.0 (with `PSAP0003` / `PSAP0004` following in 3.3.0).
 
-(See the canonical [psa.py `CHANGELOG.md`](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/CHANGELOG.md) for the full per-version history.)
+(See the canonical [psa.py `CHANGELOG.md`](https://github.com/usui-tk/ai-generated-artifacts/blob/main/quality-tools/powershell-static-analyzer/CHANGELOG.md) for the full per-version history.)
 
 | Category                                  | Code range            | Examples                                                                                                                                                                                                                                                              |
 | ----------------------------------------- | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -901,7 +901,7 @@ python3 psa.py --severity error Deploy-AMDChipsetDriverOnWindowsServer.ps1
 
 For the authoritative specification of every rule (severity, examples,
 suppression guidance), see
-`https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md`
+`https://github.com/usui-tk/ai-generated-artifacts/blob/main/quality-tools/powershell-static-analyzer/SPEC.md`
 §4.
 
 Exit codes: `0` = clean (or `--severity error` filter passing), `1` =
@@ -1104,7 +1104,7 @@ To verify that PSA2009 catches the exact runtime defect reported on 2026-05-23:
 ```bash
 # At the r72 / r38 / r18 / r20 baseline (before this release):
 git checkout <commit-before-r73>
-curl -sSL https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py -o /tmp/psa-3.8.0.py
+curl -sSL https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/quality-tools/powershell-static-analyzer/psa.py -o /tmp/psa-3.8.0.py
 python3 /tmp/psa-3.8.0.py --include PSA2009 Deploy-AMDChipsetDriverOnWindowsServer.ps1
 # Expected output: 2 warnings, at the happy-path assignment site and the catch-block fallback site.
 
@@ -1131,7 +1131,7 @@ The four scripts in this repository pass PSA2010 at the r75 baseline with **0 fi
 
 **Inline suppression**: `# psa-disable-line PSA2010 -- <reason>` on the call line. Use sparingly; the rule fires on real defects and most suppression sites should instead define the missing function or extend `psa2010_known_cmdlets`.
 
-See the upstream [psa.py SPEC.md §4.9d](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md#49d-psa2010--call-to-undefined-function) for the formal specification.
+See the upstream [psa.py SPEC.md §4.9d](https://github.com/usui-tk/ai-generated-artifacts/blob/main/quality-tools/powershell-static-analyzer/SPEC.md#49d-psa2010--call-to-undefined-function) for the formal specification.
 
 ### A.11.5e PSA2011 — `Split-Path -LiteralPath ... -Parent` triggers AmbiguousParameterSet (added in `psa.py` v3.9.0)
 
@@ -1151,7 +1151,7 @@ The four scripts in this repository pass PSA2011 at the r75 baseline with **0 fi
 
 **Inline suppression**: `# psa-disable-line PSA2011 -- <reason>` on the call line. Use sparingly; the rule fires on a real ja-JP runtime defect.
 
-See the upstream [psa.py SPEC.md §4.9e](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md#49e-psa2011--split-path--literalpath---parent) for the formal specification.
+See the upstream [psa.py SPEC.md §4.9e](https://github.com/usui-tk/ai-generated-artifacts/blob/main/quality-tools/powershell-static-analyzer/SPEC.md#49e-psa2011--split-path--literalpath---parent) for the formal specification.
 
 ### A.11.5f Three new error rules added in `psa.py` 4.1.0 (PSA1004 / PSA2012 / PSA2013)
 
@@ -1163,9 +1163,9 @@ See the upstream [psa.py SPEC.md §4.9e](https://github.com/usui-tk/ai-generated
 
 Per the rule-content authority policy (see §A.11 *Version policy*), detailed detection algorithms, false-positive defenses, suggested-fix examples, limitations, and inline-suppression syntax for all three rules live in the upstream `psa.py` specification:
 
-- Upstream [psa.py SPEC.md §4.3a — PSA1004](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md#43a-psa1004--bare-statement-as-expression)
-- Upstream [psa.py SPEC.md §4.9f — PSA2012](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md#49f-psa2012--positional-call-with-insufficient-args-to-a-mandatory-param-function)
-- Upstream [psa.py SPEC.md §4.9g — PSA2013](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md#49g-psa2013--scriptfoo-read-but-never-assigned)
+- Upstream [psa.py SPEC.md §4.3a — PSA1004](https://github.com/usui-tk/ai-generated-artifacts/blob/main/quality-tools/powershell-static-analyzer/SPEC.md#43a-psa1004--bare-statement-as-expression)
+- Upstream [psa.py SPEC.md §4.9f — PSA2012](https://github.com/usui-tk/ai-generated-artifacts/blob/main/quality-tools/powershell-static-analyzer/SPEC.md#49f-psa2012--positional-call-with-insufficient-args-to-a-mandatory-param-function)
+- Upstream [psa.py SPEC.md §4.9g — PSA2013](https://github.com/usui-tk/ai-generated-artifacts/blob/main/quality-tools/powershell-static-analyzer/SPEC.md#49g-psa2013--scriptfoo-read-but-never-assigned)
 
 This repository does not duplicate those algorithms here; new findings against any of the three rules must be either fixed (the default) or, in rare justified cases, suppressed inline with a rationale comment per the policy in §A.11.5.
 
@@ -1386,7 +1386,7 @@ Since `psa.py` 3.5.0 the canonical analyzer ships three built-in
 SHOULD exercise. The gates are runnable from the command line, exit
 non-zero on any violation (suitable for CI), and require no third-party
 dependencies beyond a Python 3 interpreter. See the upstream
-[SPEC.md §12 "Self-quality gates"](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md#12-self-quality-gates)
+[SPEC.md §12 "Self-quality gates"](https://github.com/usui-tk/ai-generated-artifacts/blob/main/quality-tools/powershell-static-analyzer/SPEC.md#12-self-quality-gates)
 for the normative description; this subsection covers what this
 repository, as a consumer, does with each gate.
 
@@ -1432,7 +1432,7 @@ Expected output on an internally-consistent `psa.py`:
 
 ```
 psa.py self-check report (SPEC.md ↔ RULES)
-  SPEC.md  : /.../scripts/python/powershell-static-analyzer/SPEC.md
+  SPEC.md  : /.../quality-tools/powershell-static-analyzer/SPEC.md
   rules    : 49 in RULES, 49 in SPEC.md §4
   SPEC.md and RULES are in sync (no drift detected)
 ```
@@ -1441,7 +1441,7 @@ A non-zero exit means the local copy of `psa.py` and its sibling
 `SPEC.md` disagree on the rule set. The most common cause is having
 fetched only `psa.py` (or only `SPEC.md`) instead of the whole
 analyzer directory; refetch the entire
-`scripts/python/powershell-static-analyzer/` tree from mainline as a
+`quality-tools/powershell-static-analyzer/` tree from mainline as a
 unit.
 
 #### Pillar 1 — `test_psa_rules.py`: informative only

@@ -1203,7 +1203,7 @@ If you are still seeing P08 fail on r66, the affected INF is exhibiting a differ
 
 ### `psa.py` — PowerShell Static Analyzer
 
-The PowerShell static analyzer used to validate the pipeline scripts is `psa.py`. It is **maintained as a single canonical artifact** in a separate repository — [`usui-tk/ai-generated-artifacts`](https://github.com/usui-tk/ai-generated-artifacts) — under [`scripts/python/powershell-static-analyzer/`](https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/python/powershell-static-analyzer). This repository does **not** bundle a local copy; obtain `psa.py` via one of the methods below before using it.
+The PowerShell static analyzer used to validate the pipeline scripts is `psa.py`. It is **maintained as a single canonical artifact** in a separate repository — [`usui-tk/ai-generated-artifacts`](https://github.com/usui-tk/ai-generated-artifacts) — under [`quality-tools/powershell-static-analyzer/`](https://github.com/usui-tk/ai-generated-artifacts/tree/main/quality-tools/powershell-static-analyzer). This repository does **not** bundle a local copy; obtain `psa.py` via one of the methods below before using it.
 
 A single-file Python 3 static analyzer that catches common PowerShell mistakes the regular parser does not flag.
 
@@ -1216,9 +1216,9 @@ A single-file Python 3 static analyzer that catches common PowerShell mistakes t
 git clone https://github.com/usui-tk/ai-generated-artifacts.git ../ai-generated-artifacts
 
 # Run from this repository's root
-python3 ../ai-generated-artifacts/scripts/python/powershell-static-analyzer/psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
-python3 ../ai-generated-artifacts/scripts/python/powershell-static-analyzer/psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
-python3 ../ai-generated-artifacts/scripts/python/powershell-static-analyzer/psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
+python3 ../ai-generated-artifacts/quality-tools/powershell-static-analyzer/psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
+python3 ../ai-generated-artifacts/quality-tools/powershell-static-analyzer/psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
+python3 ../ai-generated-artifacts/quality-tools/powershell-static-analyzer/psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
 ```
 
 **Method 2 — Download the single file (recommended for one-shot CI runs)**
@@ -1226,7 +1226,7 @@ python3 ../ai-generated-artifacts/scripts/python/powershell-static-analyzer/psa.
 Linux / macOS (curl):
 
 ```bash
-curl -sSLO https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py
+curl -sSLO https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/quality-tools/powershell-static-analyzer/psa.py
 python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
 python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
 python3 psa.py Deploy-AMDNpuDriverOnWindowsServer.ps1
@@ -1236,7 +1236,7 @@ Windows PowerShell (Invoke-WebRequest):
 
 ```powershell
 Invoke-WebRequest `
-    -Uri  "https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py" `
+    -Uri  "https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/quality-tools/powershell-static-analyzer/psa.py" `
     -OutFile psa.py
 python3 psa.py Deploy-AMDChipsetDriverOnWindowsServer.ps1
 python3 psa.py Deploy-AMDGraphicsDriverOnWindowsServer.ps1
@@ -1270,7 +1270,7 @@ See `SPEC.md` §A.11.5c / §A.11.5d / §A.11.5e / §A.11.5f for the repository-s
 | Complexity metrics             | `PSA9001`..`PSA9002`      | function-body length threshold (off by default), external-process invocation without `$LASTEXITCODE` check (off by default)                                                                                                                    |
 | Project / pipeline conventions | `PSAP0001`..`PSAP0005`    | phase function naming convention, required script-identifier variables, **new in 3.3.0:** inline `# rNN:` revision-tag comments (`PSAP0003`), end-of-file `REVISION HISTORY` blocks (`PSAP0004`), **new in 4.0.0:** any `rNN` reference in a comment body, broader than `PSAP0003` (`PSAP0005`, run in strict mode by this repository) — **all PSAPxxxx rules are off by default**; this repository opts in to all five |
 
-For the authoritative specification of every rule, see [`scripts/python/powershell-static-analyzer/SPEC.md`](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/SPEC.md) §4 in the [ai-generated-artifacts](https://github.com/usui-tk/ai-generated-artifacts) repository.
+For the authoritative specification of every rule, see [`quality-tools/powershell-static-analyzer/SPEC.md`](https://github.com/usui-tk/ai-generated-artifacts/blob/main/quality-tools/powershell-static-analyzer/SPEC.md) §4 in the [ai-generated-artifacts](https://github.com/usui-tk/ai-generated-artifacts) repository.
 
 #### Repository-specific configuration
 
@@ -1301,7 +1301,7 @@ Exit codes: `0` = clean, `1` = warnings only, `2` = errors. Useful in CI:
 # .github/workflows/lint.yml example (Method 2 — single-file download)
 - name: Fetch psa.py from canonical repository
   run: |
-    curl -sSLO https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/scripts/python/powershell-static-analyzer/psa.py
+    curl -sSLO https://raw.githubusercontent.com/usui-tk/ai-generated-artifacts/main/quality-tools/powershell-static-analyzer/psa.py
 - name: Static-analyze PowerShell scripts
   run: |
     python3 psa.py --config ./.psa.config.json \
@@ -1311,7 +1311,7 @@ Exit codes: `0` = clean, `1` = warnings only, `2` = errors. Useful in CI:
         Deploy-MSBthPanInboxOnWindowsServer.ps1
 ```
 
-For the full design rationale, output format reference, and an extended CI integration example, see the canonical README at [`scripts/python/powershell-static-analyzer/README.md`](https://github.com/usui-tk/ai-generated-artifacts/blob/main/scripts/python/powershell-static-analyzer/README.md) in the [ai-generated-artifacts](https://github.com/usui-tk/ai-generated-artifacts) repository.
+For the full design rationale, output format reference, and an extended CI integration example, see the canonical README at [`quality-tools/powershell-static-analyzer/README.md`](https://github.com/usui-tk/ai-generated-artifacts/blob/main/quality-tools/powershell-static-analyzer/README.md) in the [ai-generated-artifacts](https://github.com/usui-tk/ai-generated-artifacts) repository.
 
 ---
 
@@ -1405,7 +1405,7 @@ The canonical reference for the per-file-type contract, the corrective tooling p
 - [CHANGELOG.md](./CHANGELOG.md) — Chronological per-release change log. **English only.**
 - [CONTRIBUTING.md](./CONTRIBUTING.md) — How to contribute.
 - [README.ja.md](./README.ja.md) — Japanese translation of this document, kept in sync.
-- [`psa.py` canonical location (ai-generated-artifacts)](https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/python/powershell-static-analyzer) — PowerShell static analyzer used by this repository's CI gates.
+- [`psa.py` canonical location (ai-generated-artifacts)](https://github.com/usui-tk/ai-generated-artifacts/tree/main/quality-tools/powershell-static-analyzer) — PowerShell static analyzer used by this repository's CI gates.
 
 ---
 
