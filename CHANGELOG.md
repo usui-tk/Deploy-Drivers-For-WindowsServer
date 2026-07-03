@@ -20,6 +20,68 @@ independently.
 
 ---
 
+## [2026-07-03] `cross-repo-canon-vendored-region-markers-wave-1` — Chipset r88 / Graphics r54 / BthPan r36 / NPU r32
+
+This is a **comment-only governance release** (central
+[ADR 0030](https://github.com/usui-tk/ai-generated-artifacts/blob/main/governance/adr/0030-satellite-canon-distribution.md),
+D19 wave 1): the 20 shared helpers that are normalized-byte-identical to the
+central canon (`usui-tk/ai-generated-artifacts` →
+`reference-code/powershell/`) are framed with canonical vendored-region
+marker pairs in all four sister scripts. **Zero function-body bytes change**
+— stripping the 40 inserted marker lines per script and reverting the
+script-identity banner reproduces the previous revision byte-for-byte
+(verified mechanically). Runtime behaviour is unchanged; markers are plain
+`#` comments outside every function body, so the PSA8001 intra-repo
+byte-identity gate is unaffected.
+
+### Framed units (20 per script, 80 occurrences repo-wide)
+
+Marker grammar and operating rules: new **SPEC §A.11.8**. The framed helpers
+(central `unit_id` prefix `pwsh.helper.`):
+
+- **Logging primitives (10):** `Format-Elapsed`, `_LogLine`, `Write-Step`,
+  `Write-Ok`, `Write-Fail`, `Write-Skip`, `Write-Detail`,
+  `Write-PhaseFooter`, `Get-PhaseElapsedTag`, `Format-DebugFailure`
+- **DebugTrace framework (8):** `_DebugTrace_NextSeq`, `_DebugTrace_Now`,
+  `_DebugTrace_RetireFrame`, `Set-DebugStep`, `Write-DebugFailureReport`,
+  `Disable-DebugTraceFileOutput`, `Get-DebugTraceFileOutputStatus`,
+  `Enable-AutoExportOnPhaseFailure`
+- **Environment / preflight (2):** `Set-TlsSecurityProtocol`,
+  `Assert-PowerShellCompatibility`
+
+The §A.11.7 Tier A helpers that currently differ from the central canon
+(e.g. `Write-Caution`, `Start-DebugTrace`, `Show-PowerShellEnvironment`) are
+**wave-2 scope** — per-unit reconciliation under ADR 0030 — and carry no
+markers in this release.
+
+### Release-wide changes
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.05.27-r87` → `chipset-2026.07.03-r88`
+  - Graphics: `graphics-2026.05.27-r53` → `graphics-2026.07.03-r54`
+  - NPU: `npu-2026.05.27-r31` → `npu-2026.07.03-r32`
+  - BthPan: `msbthpan-2026.05.27-r35` → `msbthpan-2026.07.03-r36`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `cross-repo-canon-rename-misleading-helpers` →
+    `cross-repo-canon-vendored-region-markers-wave-1`
+
+### Documentation changes
+
+- `SPEC.md` — new **§A.11.8 Cross-repo canonical vendored regions
+  (central-canon markers)**: marker grammar, the local no-touch rule for
+  framed regions, and how the central drift scanner composes with the
+  intra-repo PSA8001 gate.
+
+### Verification
+
+- `psa.py` (governed mainline, repo `.psa.config.json`): **0 errors /
+  0 warnings / 0 info** on all four scripts.
+- Marker-strip byte-identity: mechanical check per script (see above).
+- Central `canonical-drift-scanner` rehearsal against this tree: all **80**
+  framed occurrences report `match` against the central canon (0 drift).
+
+---
+
 ## [2026-05-27] `cross-repo-canon-rename-misleading-helpers` — Chipset r87 / Graphics r53 / BthPan r35 / NPU r31
 
 This is a **focused naming-cleanup release** that renames two helpers

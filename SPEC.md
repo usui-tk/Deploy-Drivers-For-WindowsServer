@@ -1514,6 +1514,47 @@ in the canonical repository
 (`https://github.com/usui-tk/ai-generated-artifacts`) rather than
 suppressing locally.
 
+### A.11.8 Cross-repo canonical vendored regions (central-canon markers)
+
+Since the `cross-repo-canon-vendored-region-markers-wave-1` release, 20 of the
+§A.11.7 Tier A helpers carry a **canonical vendored-region marker pair** in
+every sister script (80 marker-framed occurrences repo-wide):
+
+```
+# >>> CANONICAL unit_id=<id> version=<v> hash=<16hex> policy=canonical binding=follow-latest >>>
+function <Name> { ... }
+# <<< CANONICAL unit_id=<id> <<<
+```
+
+These markers make the helper an inlined copy ("vendored region") of a unit in
+the central canon
+(`https://github.com/usui-tk/ai-generated-artifacts` →
+`reference-code/powershell/`), governed by central
+[ADR 0030](https://github.com/usui-tk/ai-generated-artifacts/blob/main/governance/adr/0030-satellite-canon-distribution.md).
+Operating rules for this repository:
+
+- **The region between a marker pair is a local no-touch zone.** The master
+  for the framed body is the central canon; changes flow through the central
+  governance process and arrive here as an explicit cross-repo release —
+  never as an ad-hoc local edit. A local fix that cannot wait must be raised
+  upstream (same escalation path as the `psa.py` note above).
+- **Markers are comment-only and sit OUTSIDE the function body**, so they do
+  not affect runtime behaviour and do not participate in the PSA8001
+  function-body comparison. The two disciplines compose: PSA8001 keeps the
+  four sisters byte-identical to each other (intra-repo, §A.11.5b/§A.11.7);
+  the central `canonical-drift-scanner` compares each framed region to the
+  central canon (cross-repo, daily scheduled scan).
+- **Do not edit, move, or reword marker lines.** The `hash=` field is the
+  central normalized body hash; the `version=` field is the canon unit
+  version. Both are written by central tooling.
+- The Chipset-first porting flow (§A.11.7) is unchanged; marker lines are
+  replicated verbatim across the four sisters like any other shared-helper
+  content.
+
+The remaining §A.11.7 helpers that exist in the central canon but currently
+differ from it are wave-2 scope (per-unit reconciliation, central ADR 0030);
+they carry no markers yet.
+
 ---
 
 ## A.12 Documentation Language Policy

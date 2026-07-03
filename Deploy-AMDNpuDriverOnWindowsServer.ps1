@@ -322,8 +322,8 @@ param(
 #   * PhaseResults - per-phase outcome registry (write side from
 #     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.05.27-r31'
-$Script:ScriptTag           = 'cross-repo-canon-rename-misleading-helpers'
+$Script:ScriptVersion       = 'npu-2026.07.03-r32'
+$Script:ScriptTag           = 'cross-repo-canon-vendored-region-markers-wave-1'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the
@@ -757,6 +757,7 @@ $Script:PhaseResults = @{}
 # Sub-section: Write-SubHeader (Cyan '=' x72) - in-phase Level-1 banner
 # Sub-section: Write-SubHeader2 (DarkCyan '-' x72) - in-phase Level-2 banner
 # =============================================================================
+# >>> CANONICAL unit_id=pwsh.helper.format-elapsed version=1.0.0 hash=b63f12c32ee28520 policy=canonical binding=follow-latest >>>
 function Format-Elapsed {
     # Render a TimeSpan in a compact human-readable form.
     # Examples: '0.45s', '12.3s', '5m12.4s', '1h05m12s'
@@ -775,12 +776,16 @@ function Format-Elapsed {
         return ('{0}h{1:D2}m{2:D2}s' -f $h, $m, $s)
     }
 }
+# <<< CANONICAL unit_id=pwsh.helper.format-elapsed <<<
+# >>> CANONICAL unit_id=pwsh.helper.get-phaseelapsedtag version=1.0.0 hash=79f7a70e60311a27 policy=canonical binding=follow-latest >>>
 function Get-PhaseElapsedTag {
     # Returns elapsed-since-current-phase-start as '[+X.XXs]' or empty.
     if ($null -eq $Script:CurrentPhaseStart) { return '' }
     $span = (Get-Date) - $Script:CurrentPhaseStart
     return ('[+{0}]' -f (Format-Elapsed $span))
 }
+# <<< CANONICAL unit_id=pwsh.helper.get-phaseelapsedtag <<<
+# >>> CANONICAL unit_id=pwsh.helper.logline version=1.0.0 hash=de5d6e6301d19d87 policy=canonical binding=follow-latest >>>
 function _LogLine {
     # Internal: emits '[HH:mm:ss] [+X.XXs]   [marker] message'
     param([string]$Marker, [string]$Msg, [string]$Color)
@@ -792,12 +797,22 @@ function _LogLine {
         Write-Host ("[{0}] {1,-12} {2} {3}" -f $ts, '', $Marker, $Msg) -ForegroundColor $Color
     }
 }
+# <<< CANONICAL unit_id=pwsh.helper.logline <<<
+# >>> CANONICAL unit_id=pwsh.helper.write-step version=1.0.0 hash=257272636c6d4122 policy=canonical binding=follow-latest >>>
 function Write-Step  { param($Msg) _LogLine '[*]' $Msg 'Cyan'     }
+# <<< CANONICAL unit_id=pwsh.helper.write-step <<<
+# >>> CANONICAL unit_id=pwsh.helper.write-ok version=1.0.0 hash=383749ef0ee509b4 policy=canonical binding=follow-latest >>>
 function Write-Ok    { param($Msg) _LogLine '[+]' $Msg 'Green'    }
+# <<< CANONICAL unit_id=pwsh.helper.write-ok <<<
 function Write-Caution { param($Msg) _LogLine '[!]' $Msg 'Yellow'   }
+# >>> CANONICAL unit_id=pwsh.helper.write-fail version=1.0.0 hash=13071c0f83f38048 policy=canonical binding=follow-latest >>>
 function Write-Fail  { param($Msg) _LogLine '[X]' $Msg 'Red'      }
+# <<< CANONICAL unit_id=pwsh.helper.write-fail <<<
+# >>> CANONICAL unit_id=pwsh.helper.write-skip version=1.0.0 hash=1fc992418d41baad policy=canonical binding=follow-latest >>>
 function Write-Skip  { param($Msg) _LogLine '[~]' $Msg 'DarkGray' }
+# <<< CANONICAL unit_id=pwsh.helper.write-skip <<<
 
+# >>> CANONICAL unit_id=pwsh.helper.write-detail version=1.0.0 hash=7fa6224e26175e15 policy=canonical binding=follow-latest >>>
 function Write-Detail {
     # ====================================================================
     # Continuation / detail line for a preceding marker line, or a row
@@ -831,6 +846,7 @@ function Write-Detail {
         Write-Host ("    {0}" -f $Msg) -ForegroundColor $Color
     }
 }
+# <<< CANONICAL unit_id=pwsh.helper.write-detail <<<
 
 function Write-SubHeader {
     # In-phase Level-1 sub-banner (Cyan = x72). Used for major sections within
@@ -877,6 +893,7 @@ function Write-PhaseHeader {
     Write-Host (' script: {0}' -f $Script:ScriptShortTag) -ForegroundColor DarkGray
     Write-Host $line -ForegroundColor Magenta
 }
+# >>> CANONICAL unit_id=pwsh.helper.write-phasefooter version=1.0.0 hash=762ec88efd33dc33 policy=canonical binding=follow-latest >>>
 function Write-PhaseFooter {
     # Closes a phase started by Write-PhaseHeader. Records the elapsed
     # duration in $Script:PhaseTimings (used by run-summary helpers).
@@ -919,6 +936,7 @@ function Write-PhaseFooter {
     $Script:CurrentPhaseStart = $null
     $Script:CurrentPhaseId    = $null
 }
+# <<< CANONICAL unit_id=pwsh.helper.write-phasefooter <<<
 # =============================================================================
 # Environment detection helpers
 # =============================================================================
@@ -1172,6 +1190,7 @@ function Show-OperatingSystemDetail {
     }
 }
 
+# >>> CANONICAL unit_id=pwsh.helper.assert-powershellcompatibility version=1.0.0 hash=cbe202e59516c121 policy=canonical binding=follow-latest >>>
 function Assert-PowerShellCompatibility {
     <#
     .SYNOPSIS
@@ -1221,6 +1240,7 @@ validated under 64-bit PowerShell.
 '@
     }
 }
+# <<< CANONICAL unit_id=pwsh.helper.assert-powershellcompatibility <<<
 
 function Assert-Admin {
     # ---- Renamed from Test-AdminPrivilege; body aligned with the
@@ -1236,6 +1256,7 @@ function Assert-Admin {
     }
 }
 
+# >>> CANONICAL unit_id=pwsh.helper.set-tlssecurityprotocol version=1.0.0 hash=137ffea3b2034e15 policy=canonical binding=follow-latest >>>
 function Set-TlsSecurityProtocol {
     # ====================================================================
     # Enable TLS for outbound HTTPS calls with best-effort multi-version
@@ -1255,6 +1276,7 @@ function Set-TlsSecurityProtocol {
     try { $protos = $protos -bor [Net.SecurityProtocolType]::Tls   } catch { } # psa-disable-line PSA3004 -- defensive legacy fallback for very old environments
     [Net.ServicePointManager]::SecurityProtocol = $protos
 }
+# <<< CANONICAL unit_id=pwsh.helper.set-tlssecurityprotocol <<<
 function Set-Utf8PipelineEncoding {
     # ====================================================================
     # SPEC A.5 / D.5: enforce UTF-8 console encoding so ja-JP Japanese
@@ -1947,13 +1969,16 @@ $Script:DebugTraceEventSeq = 0
 
 # --- 1b.2: Internal helpers (not part of public API) ------------------
 
+# >>> CANONICAL unit_id=pwsh.helper.debugtrace-nextseq version=1.0.0 hash=40affbda93e0dc92 policy=canonical binding=follow-latest >>>
 function _DebugTrace_NextSeq {
     # Atomic-ish counter. Single-threaded PowerShell so no Interlocked
     # needed; this is just a small helper for readability.
     $Script:DebugTraceEventSeq++
     return $Script:DebugTraceEventSeq
 }
+# <<< CANONICAL unit_id=pwsh.helper.debugtrace-nextseq <<<
 
+# >>> CANONICAL unit_id=pwsh.helper.debugtrace-now version=1.0.0 hash=6cef1239adbe85aa policy=canonical binding=follow-latest >>>
 function _DebugTrace_Now {
     # Return current time as ISO 8601 string with milliseconds and Z
     # suffix. Pre-converted to string so ConvertTo-Json doesn't render
@@ -1961,6 +1986,7 @@ function _DebugTrace_Now {
     # readable representation regardless of PS version.
     return (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
 }
+# <<< CANONICAL unit_id=pwsh.helper.debugtrace-now <<<
 
 function _DebugTrace_WriteJsonlLine {
     # Append one JSONL line to the debugtrace.jsonl file (or to the
@@ -2036,6 +2062,7 @@ function _DebugTrace_WriteJsonlLine {
     }
 }
 
+# >>> CANONICAL unit_id=pwsh.helper.debugtrace-retireframe version=1.0.0 hash=d6ed295961b4416e policy=canonical binding=follow-latest >>>
 function _DebugTrace_RetireFrame {
     # Move a frame from the active stack into the completed list.
     # Handles the history cap. Idempotent: safe to call even if the
@@ -2054,6 +2081,7 @@ function _DebugTrace_RetireFrame {
         $Script:DebugTraceCompletedFrames.RemoveAt(0)
     }
 }
+# <<< CANONICAL unit_id=pwsh.helper.debugtrace-retireframe <<<
 
 # --- 1b.3: Public API - trace primitives ------------------------------
 
@@ -2110,6 +2138,7 @@ function Start-DebugTrace {
     })
 }
 
+# >>> CANONICAL unit_id=pwsh.helper.set-debugstep version=1.0.0 hash=0ff66497b3b281c8 policy=canonical binding=follow-latest >>>
 function Set-DebugStep {
     <#
     .SYNOPSIS
@@ -2150,6 +2179,7 @@ function Set-DebugStep {
         detail = $Detail
     })
 }
+# <<< CANONICAL unit_id=pwsh.helper.set-debugstep <<<
 
 function Stop-DebugTrace {
     <#
@@ -2193,6 +2223,7 @@ function Stop-DebugTrace {
     })
 }
 
+# >>> CANONICAL unit_id=pwsh.helper.format-debugfailure version=1.0.0 hash=0ed20da6d346d5b8 policy=canonical binding=follow-latest >>>
 function Format-DebugFailure {
     <#
     .SYNOPSIS
@@ -2240,7 +2271,9 @@ function Format-DebugFailure {
         StepHistory      = $stepHistory
     }
 }
+# <<< CANONICAL unit_id=pwsh.helper.format-debugfailure <<<
 
+# >>> CANONICAL unit_id=pwsh.helper.write-debugfailurereport version=1.0.0 hash=8c1dda9940c309c1 policy=canonical binding=follow-latest >>>
 function Write-DebugFailureReport {
     <#
     .SYNOPSIS
@@ -2325,6 +2358,7 @@ function Write-DebugFailureReport {
         }
     }
 }
+# <<< CANONICAL unit_id=pwsh.helper.write-debugfailurereport <<<
 
 # --- 1b.4: Public API - file output (Feature A) -----------------------
 
@@ -2426,6 +2460,7 @@ function Enable-DebugTraceFileOutput {
     }
 }
 
+# >>> CANONICAL unit_id=pwsh.helper.disable-debugtracefileoutput version=1.0.0 hash=0dc4d90f4368280a policy=canonical binding=follow-latest >>>
 function Disable-DebugTraceFileOutput {
     <#
     .SYNOPSIS
@@ -2442,7 +2477,9 @@ function Disable-DebugTraceFileOutput {
     })
     $Script:DebugTraceJsonlEnabled = $false
 }
+# <<< CANONICAL unit_id=pwsh.helper.disable-debugtracefileoutput <<<
 
+# >>> CANONICAL unit_id=pwsh.helper.get-debugtracefileoutputstatus version=1.0.0 hash=e03887fcc4e39fd3 policy=canonical binding=follow-latest >>>
 function Get-DebugTraceFileOutputStatus { # psa-disable-line PSA6003 -- "Status" is singular; analyzer false positive on compound name
     <#
     .SYNOPSIS
@@ -2462,9 +2499,11 @@ function Get-DebugTraceFileOutputStatus { # psa-disable-line PSA6003 -- "Status"
         CompletedFrames = $Script:DebugTraceCompletedFrames.Count
     }
 }
+# <<< CANONICAL unit_id=pwsh.helper.get-debugtracefileoutputstatus <<<
 
 # --- 1b.5: Public API - JSON Export (Feature B) -----------------------
 
+# >>> CANONICAL unit_id=pwsh.helper.enable-autoexportonphasefailure version=1.0.0 hash=81f2415bbc83f281 policy=canonical binding=follow-latest >>>
 function Enable-AutoExportOnPhaseFailure {
     <#
     .SYNOPSIS
@@ -2481,6 +2520,7 @@ function Enable-AutoExportOnPhaseFailure {
     $Script:DebugTraceAutoExportEnabled = $true
     $Script:DebugTraceAutoExportDir     = $OutputDirectory
 }
+# <<< CANONICAL unit_id=pwsh.helper.enable-autoexportonphasefailure <<<
 
 function Export-DebugTraceJson {
     <#
