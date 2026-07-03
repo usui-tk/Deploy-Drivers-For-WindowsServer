@@ -20,6 +20,60 @@ independently.
 
 ---
 
+## [2026-07-03] `cross-repo-canon-vendored-region-markers-wave-2a` — Chipset r89 / Graphics r55 / BthPan r37 / NPU r33
+
+Second **comment-only governance release** under central
+[ADR 0030](https://github.com/usui-tk/ai-generated-artifacts/blob/main/governance/adr/0030-satellite-canon-distribution.md)
+(D19 wave 2a). Re-measuring the "near" helpers under the drift contract's
+actual normalization (ADR 0015: strip comments and string literals, collapse
+whitespace) showed that **8 of the 12 differ only in wording the gate
+ignores by design** — comments, whitespace, and repo-specific string
+literals (e.g. `User-Agent`). Those 8 are framed as-is with canonical
+vendored-region markers; **zero function-body bytes change** (mechanically
+verified, wave-scoped: wave-1 markers are untouched original bytes).
+
+### Framed units (30 occurrences)
+
+- **In all four sisters (6 x 4 = 24):** `Write-Caution`, `Start-DebugTrace`,
+  `Stop-DebugTrace`, `Write-PhaseHeader`, `_DebugTrace_WriteJsonlLine`,
+  `Set-Utf8PipelineEncoding`
+- **In Chipset / Graphics / BthPan (2 x 3 = 6; absent from NPU):**
+  `Get-LatestSevenZipUrl`, `Install-SevenZipFallback`
+
+Repo-wide total after this release: **28 framed helpers / 110 occurrences**.
+The 4 helpers with GENUINE code differences from the central canon
+(`Get-SevenZipPath`, `Enable-DebugTraceFileOutput`, `Export-DebugTraceJson`,
+`Show-PowerShellEnvironment`) are **wave-2b scope** — per-unit
+reconciliation — and remain unframed.
+
+### Release-wide changes
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.07.03-r88` → `chipset-2026.07.03-r89`
+  - Graphics: `graphics-2026.07.03-r54` → `graphics-2026.07.03-r55`
+  - NPU: `npu-2026.07.03-r32` → `npu-2026.07.03-r33`
+  - BthPan: `msbthpan-2026.07.03-r36` → `msbthpan-2026.07.03-r37`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `cross-repo-canon-vendored-region-markers-wave-1` →
+    `cross-repo-canon-vendored-region-markers-wave-2a`
+
+### Documentation changes
+
+- `SPEC.md` §A.11.8 — inventory updated to 28 helpers / 110 occurrences;
+  new rule note: comment / whitespace / string-literal wording inside a
+  framed region may differ from the canon (invisible to the gate by ADR 0015
+  design; dd-owned cosmetics); wave-2b remainder named explicitly.
+
+### Verification
+
+- `psa.py` (governed mainline, repo `.psa.config.json`): **0 errors /
+  0 warnings / 0 info** on all four scripts.
+- Wave-scoped marker-strip byte-identity: mechanical check per script.
+- Central `canonical-drift-scanner` rehearsal against this tree: **all 110**
+  framed occurrences report `match` (0 drift).
+
+---
+
 ## [2026-07-03] `cross-repo-canon-vendored-region-markers-wave-1` — Chipset r88 / Graphics r54 / BthPan r36 / NPU r32
 
 This is a **comment-only governance release** (central

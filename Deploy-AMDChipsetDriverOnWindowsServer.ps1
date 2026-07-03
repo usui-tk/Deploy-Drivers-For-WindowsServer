@@ -651,8 +651,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.07.03-r88'
-$Script:ScriptTag     = 'cross-repo-canon-vendored-region-markers-wave-1'
+$Script:ScriptVersion = 'chipset-2026.07.03-r89'
+$Script:ScriptTag     = 'cross-repo-canon-vendored-region-markers-wave-2a'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -1107,7 +1107,9 @@ function Write-Step  { param($Msg) _LogLine '[*]' $Msg 'Cyan'     }
 # >>> CANONICAL unit_id=pwsh.helper.write-ok version=1.0.0 hash=383749ef0ee509b4 policy=canonical binding=follow-latest >>>
 function Write-Ok    { param($Msg) _LogLine '[+]' $Msg 'Green'    }
 # <<< CANONICAL unit_id=pwsh.helper.write-ok <<<
+# >>> CANONICAL unit_id=pwsh.helper.write-caution version=1.0.0 hash=29f499cc2213fcc6 policy=canonical binding=follow-latest >>>
 function Write-Caution { param($Msg) _LogLine '[!]' $Msg 'Yellow'   }
+# <<< CANONICAL unit_id=pwsh.helper.write-caution <<<
 # >>> CANONICAL unit_id=pwsh.helper.write-fail version=1.0.0 hash=13071c0f83f38048 policy=canonical binding=follow-latest >>>
 function Write-Fail  { param($Msg) _LogLine '[X]' $Msg 'Red'      }
 # <<< CANONICAL unit_id=pwsh.helper.write-fail <<<
@@ -1151,6 +1153,7 @@ function Write-Detail {
 }
 # <<< CANONICAL unit_id=pwsh.helper.write-detail <<<
 
+# >>> CANONICAL unit_id=pwsh.helper.write-phaseheader version=1.0.0 hash=a002b1883e7d48ba policy=canonical binding=follow-latest >>>
 function Write-PhaseHeader {
     # Prints a magenta banner that opens a phase. Records phase start
     # time so subsequent log lines can show '[+elapsed]'.
@@ -1174,6 +1177,7 @@ function Write-PhaseHeader {
     Write-Host (' script: {0}' -f $Script:ScriptShortTag) -ForegroundColor DarkGray
     Write-Host $line -ForegroundColor Magenta
 }
+# <<< CANONICAL unit_id=pwsh.helper.write-phaseheader <<<
 # >>> CANONICAL unit_id=pwsh.helper.write-phasefooter version=1.0.0 hash=762ec88efd33dc33 policy=canonical binding=follow-latest >>>
 function Write-PhaseFooter {
     # Closes a phase started by Write-PhaseHeader. Records the elapsed
@@ -1535,6 +1539,7 @@ function Set-TlsSecurityProtocol {
     [Net.ServicePointManager]::SecurityProtocol = $protos
 }
 # <<< CANONICAL unit_id=pwsh.helper.set-tlssecurityprotocol <<<
+# >>> CANONICAL unit_id=pwsh.helper.set-utf8pipelineencoding version=1.0.0 hash=16192049ae7363e8 policy=canonical binding=follow-latest >>>
 function Set-Utf8PipelineEncoding {
     # ====================================================================
     # SPEC A.5 / D.5: enforce UTF-8 console encoding so ja-JP Japanese
@@ -1565,6 +1570,7 @@ function Set-Utf8PipelineEncoding {
     try { [Console]::InputEncoding  = [System.Text.Encoding]::UTF8 } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     try { Set-Variable -Name OutputEncoding -Scope Global -Value ([System.Text.Encoding]::UTF8) -ErrorAction SilentlyContinue } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
 }
+# <<< CANONICAL unit_id=pwsh.helper.set-utf8pipelineencoding <<<
 
 #####################################################################
 # SECTION 1b: Debug Trace Facility
@@ -1696,6 +1702,7 @@ function _DebugTrace_Now {
 }
 # <<< CANONICAL unit_id=pwsh.helper.debugtrace-now <<<
 
+# >>> CANONICAL unit_id=pwsh.helper.debugtrace-writejsonlline version=1.0.0 hash=2a6dab2b78cdec25 policy=canonical binding=follow-latest >>>
 function _DebugTrace_WriteJsonlLine {
     # Append one JSONL line to the debugtrace.jsonl file (or to the
     # pre-activation buffer if file output isn't enabled yet). All
@@ -1769,6 +1776,7 @@ function _DebugTrace_WriteJsonlLine {
         }
     }
 }
+# <<< CANONICAL unit_id=pwsh.helper.debugtrace-writejsonlline <<<
 
 # >>> CANONICAL unit_id=pwsh.helper.debugtrace-retireframe version=1.0.0 hash=d6ed295961b4416e policy=canonical binding=follow-latest >>>
 function _DebugTrace_RetireFrame {
@@ -1793,6 +1801,7 @@ function _DebugTrace_RetireFrame {
 
 # --- 1b.3: Public API - trace primitives ------------------------------
 
+# >>> CANONICAL unit_id=pwsh.helper.start-debugtrace version=1.0.0 hash=351f92779b47d079 policy=canonical binding=follow-latest >>>
 function Start-DebugTrace {
     <#
     .SYNOPSIS
@@ -1845,6 +1854,7 @@ function Start-DebugTrace {
         phase = $PhaseId
     })
 }
+# <<< CANONICAL unit_id=pwsh.helper.start-debugtrace <<<
 
 # >>> CANONICAL unit_id=pwsh.helper.set-debugstep version=1.0.0 hash=0ff66497b3b281c8 policy=canonical binding=follow-latest >>>
 function Set-DebugStep {
@@ -1889,6 +1899,7 @@ function Set-DebugStep {
 }
 # <<< CANONICAL unit_id=pwsh.helper.set-debugstep <<<
 
+# >>> CANONICAL unit_id=pwsh.helper.stop-debugtrace version=1.0.0 hash=241736610d82b7d1 policy=canonical binding=follow-latest >>>
 function Stop-DebugTrace {
     <#
     .SYNOPSIS
@@ -1930,6 +1941,7 @@ function Stop-DebugTrace {
         phase    = $frame.PhaseId
     })
 }
+# <<< CANONICAL unit_id=pwsh.helper.stop-debugtrace <<<
 
 # >>> CANONICAL unit_id=pwsh.helper.format-debugfailure version=1.0.0 hash=0ed20da6d346d5b8 policy=canonical binding=follow-latest >>>
 function Format-DebugFailure {
@@ -5436,6 +5448,7 @@ function Find-KitTool {
     return $null
 }
 
+# >>> CANONICAL unit_id=pwsh.helper.get-latestsevenzipurl version=1.0.0 hash=df73d0c52090c978 policy=canonical binding=follow-latest >>>
 function Get-LatestSevenZipUrl {
     # Tier 1: 7-zip.org
     try {
@@ -5469,7 +5482,9 @@ function Get-LatestSevenZipUrl {
         Source='pinned fallback'
     }
 }
+# <<< CANONICAL unit_id=pwsh.helper.get-latestsevenzipurl <<<
 
+# >>> CANONICAL unit_id=pwsh.helper.install-sevenzipfallback version=1.0.0 hash=60007e7fce5e614e policy=canonical binding=follow-latest >>>
 function Install-SevenZipFallback {
     param([string]$DownloadDir)
     $info = Get-LatestSevenZipUrl
@@ -5483,6 +5498,7 @@ function Install-SevenZipFallback {
     $proc = Start-Process msiexec.exe -ArgumentList @('/i',"`"$msi`"",'/qn','/norestart') -Wait -PassThru # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
     if ($proc.ExitCode -ne 0) { throw "7-Zip MSI install failed (exit $($proc.ExitCode))" }
 }
+# <<< CANONICAL unit_id=pwsh.helper.install-sevenzipfallback <<<
 
 function Install-WindowsSdkFallback {
     param($OsContext, [string]$DownloadDir)

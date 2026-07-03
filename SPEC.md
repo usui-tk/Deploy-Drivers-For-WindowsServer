@@ -1516,9 +1516,11 @@ suppressing locally.
 
 ### A.11.8 Cross-repo canonical vendored regions (central-canon markers)
 
-Since the `cross-repo-canon-vendored-region-markers-wave-1` release, 20 of the
-§A.11.7 Tier A helpers carry a **canonical vendored-region marker pair** in
-every sister script (80 marker-framed occurrences repo-wide):
+Since the `cross-repo-canon-vendored-region-markers-wave-1` and `-wave-2a`
+releases, **28 shared helpers** carry a **canonical vendored-region marker
+pair** (**110 marker-framed occurrences repo-wide**: 26 helpers of the
+§A.11.7 Tier A set in all four sisters, plus the two 3-sister 7-Zip helpers
+`Get-LatestSevenZipUrl` / `Install-SevenZipFallback`, absent from NPU):
 
 ```
 # >>> CANONICAL unit_id=<id> version=<v> hash=<16hex> policy=canonical binding=follow-latest >>>
@@ -1551,9 +1553,19 @@ Operating rules for this repository:
   replicated verbatim across the four sisters like any other shared-helper
   content.
 
-The remaining §A.11.7 helpers that exist in the central canon but currently
-differ from it are wave-2 scope (per-unit reconciliation, central ADR 0030);
-they carry no markers yet.
+- **Comment / whitespace / string-literal wording inside a framed region MAY
+  differ from the central canon** — the ADR 0015 normalized-hash contract
+  strips comments and string literals and collapses whitespace before
+  hashing, so such differences are invisible to the drift gate BY DESIGN
+  (e.g. the repo-specific `User-Agent` string in `Get-LatestSevenZipUrl`, or
+  phase-id examples in comments). The wave-2a helpers were framed as-is on
+  this basis. Such wording remains dd-owned cosmetics; CODE differences are
+  what the gate detects.
+
+The remaining shared helpers that genuinely differ in code from the central
+canon are **wave-2b scope** (per-unit reconciliation, central ADR 0030):
+`Get-SevenZipPath`, `Enable-DebugTraceFileOutput`, `Export-DebugTraceJson`,
+and `Show-PowerShellEnvironment`. They carry no markers yet.
 
 ---
 

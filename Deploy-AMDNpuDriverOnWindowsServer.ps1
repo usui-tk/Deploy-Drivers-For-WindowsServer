@@ -322,8 +322,8 @@ param(
 #   * PhaseResults - per-phase outcome registry (write side from
 #     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.07.03-r32'
-$Script:ScriptTag           = 'cross-repo-canon-vendored-region-markers-wave-1'
+$Script:ScriptVersion       = 'npu-2026.07.03-r33'
+$Script:ScriptTag           = 'cross-repo-canon-vendored-region-markers-wave-2a'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the
@@ -804,7 +804,9 @@ function Write-Step  { param($Msg) _LogLine '[*]' $Msg 'Cyan'     }
 # >>> CANONICAL unit_id=pwsh.helper.write-ok version=1.0.0 hash=383749ef0ee509b4 policy=canonical binding=follow-latest >>>
 function Write-Ok    { param($Msg) _LogLine '[+]' $Msg 'Green'    }
 # <<< CANONICAL unit_id=pwsh.helper.write-ok <<<
+# >>> CANONICAL unit_id=pwsh.helper.write-caution version=1.0.0 hash=29f499cc2213fcc6 policy=canonical binding=follow-latest >>>
 function Write-Caution { param($Msg) _LogLine '[!]' $Msg 'Yellow'   }
+# <<< CANONICAL unit_id=pwsh.helper.write-caution <<<
 # >>> CANONICAL unit_id=pwsh.helper.write-fail version=1.0.0 hash=13071c0f83f38048 policy=canonical binding=follow-latest >>>
 function Write-Fail  { param($Msg) _LogLine '[X]' $Msg 'Red'      }
 # <<< CANONICAL unit_id=pwsh.helper.write-fail <<<
@@ -870,6 +872,7 @@ function Write-SubHeader2 {
     Write-Host ('-' * 72) -ForegroundColor DarkCyan
 }
 
+# >>> CANONICAL unit_id=pwsh.helper.write-phaseheader version=1.0.0 hash=a002b1883e7d48ba policy=canonical binding=follow-latest >>>
 function Write-PhaseHeader {
     # Prints a magenta banner that opens a phase. Records phase start
     # time so subsequent log lines can show '[+elapsed]'.
@@ -893,6 +896,7 @@ function Write-PhaseHeader {
     Write-Host (' script: {0}' -f $Script:ScriptShortTag) -ForegroundColor DarkGray
     Write-Host $line -ForegroundColor Magenta
 }
+# <<< CANONICAL unit_id=pwsh.helper.write-phaseheader <<<
 # >>> CANONICAL unit_id=pwsh.helper.write-phasefooter version=1.0.0 hash=762ec88efd33dc33 policy=canonical binding=follow-latest >>>
 function Write-PhaseFooter {
     # Closes a phase started by Write-PhaseHeader. Records the elapsed
@@ -1277,6 +1281,7 @@ function Set-TlsSecurityProtocol {
     [Net.ServicePointManager]::SecurityProtocol = $protos
 }
 # <<< CANONICAL unit_id=pwsh.helper.set-tlssecurityprotocol <<<
+# >>> CANONICAL unit_id=pwsh.helper.set-utf8pipelineencoding version=1.0.0 hash=16192049ae7363e8 policy=canonical binding=follow-latest >>>
 function Set-Utf8PipelineEncoding {
     # ====================================================================
     # SPEC A.5 / D.5: enforce UTF-8 console encoding so ja-JP Japanese
@@ -1307,6 +1312,7 @@ function Set-Utf8PipelineEncoding {
     try { [Console]::InputEncoding  = [System.Text.Encoding]::UTF8 } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
     try { Set-Variable -Name OutputEncoding -Scope Global -Value ([System.Text.Encoding]::UTF8) -ErrorAction SilentlyContinue } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
 }
+# <<< CANONICAL unit_id=pwsh.helper.set-utf8pipelineencoding <<<
 
 function Show-DriverInstallationOrderNotice {
     # ====================================================================
@@ -1988,6 +1994,7 @@ function _DebugTrace_Now {
 }
 # <<< CANONICAL unit_id=pwsh.helper.debugtrace-now <<<
 
+# >>> CANONICAL unit_id=pwsh.helper.debugtrace-writejsonlline version=1.0.0 hash=2a6dab2b78cdec25 policy=canonical binding=follow-latest >>>
 function _DebugTrace_WriteJsonlLine {
     # Append one JSONL line to the debugtrace.jsonl file (or to the
     # pre-activation buffer if file output isn't enabled yet). All
@@ -2061,6 +2068,7 @@ function _DebugTrace_WriteJsonlLine {
         }
     }
 }
+# <<< CANONICAL unit_id=pwsh.helper.debugtrace-writejsonlline <<<
 
 # >>> CANONICAL unit_id=pwsh.helper.debugtrace-retireframe version=1.0.0 hash=d6ed295961b4416e policy=canonical binding=follow-latest >>>
 function _DebugTrace_RetireFrame {
@@ -2085,6 +2093,7 @@ function _DebugTrace_RetireFrame {
 
 # --- 1b.3: Public API - trace primitives ------------------------------
 
+# >>> CANONICAL unit_id=pwsh.helper.start-debugtrace version=1.0.0 hash=351f92779b47d079 policy=canonical binding=follow-latest >>>
 function Start-DebugTrace {
     <#
     .SYNOPSIS
@@ -2137,6 +2146,7 @@ function Start-DebugTrace {
         phase = $PhaseId
     })
 }
+# <<< CANONICAL unit_id=pwsh.helper.start-debugtrace <<<
 
 # >>> CANONICAL unit_id=pwsh.helper.set-debugstep version=1.0.0 hash=0ff66497b3b281c8 policy=canonical binding=follow-latest >>>
 function Set-DebugStep {
@@ -2181,6 +2191,7 @@ function Set-DebugStep {
 }
 # <<< CANONICAL unit_id=pwsh.helper.set-debugstep <<<
 
+# >>> CANONICAL unit_id=pwsh.helper.stop-debugtrace version=1.0.0 hash=241736610d82b7d1 policy=canonical binding=follow-latest >>>
 function Stop-DebugTrace {
     <#
     .SYNOPSIS
@@ -2222,6 +2233,7 @@ function Stop-DebugTrace {
         phase    = $frame.PhaseId
     })
 }
+# <<< CANONICAL unit_id=pwsh.helper.stop-debugtrace <<<
 
 # >>> CANONICAL unit_id=pwsh.helper.format-debugfailure version=1.0.0 hash=0ed20da6d346d5b8 policy=canonical binding=follow-latest >>>
 function Format-DebugFailure {
