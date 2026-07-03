@@ -1516,11 +1516,13 @@ suppressing locally.
 
 ### A.11.8 Cross-repo canonical vendored regions (central-canon markers)
 
-Since the `cross-repo-canon-vendored-region-markers-wave-1` and `-wave-2a`
-releases, **28 shared helpers** carry a **canonical vendored-region marker
-pair** (**110 marker-framed occurrences repo-wide**: 26 helpers of the
-§A.11.7 Tier A set in all four sisters, plus the two 3-sister 7-Zip helpers
-`Get-LatestSevenZipUrl` / `Install-SevenZipFallback`, absent from NPU):
+Since the `cross-repo-canon-vendored-region-markers-wave-1` / `-wave-2a` /
+`-wave-2b` releases, **32 shared helpers** carry a **canonical
+vendored-region marker pair** (**125 marker-framed occurrences repo-wide**:
+29 helpers of the §A.11.7 Tier A set in all four sisters — 28 tracking the
+central canon plus `Show-PowerShellEnvironment` as a **declared fork**, see
+below — and the three 3-sister 7-Zip helpers `Get-LatestSevenZipUrl` /
+`Install-SevenZipFallback` / `Get-SevenZipPath`, absent from NPU):
 
 ```
 # >>> CANONICAL unit_id=<id> version=<v> hash=<16hex> policy=canonical binding=follow-latest >>>
@@ -1562,10 +1564,22 @@ Operating rules for this repository:
   this basis. Such wording remains dd-owned cosmetics; CODE differences are
   what the gate detects.
 
-The remaining shared helpers that genuinely differ in code from the central
-canon are **wave-2b scope** (per-unit reconciliation, central ADR 0030):
-`Get-SevenZipPath`, `Enable-DebugTraceFileOutput`, `Export-DebugTraceJson`,
-and `Show-PowerShellEnvironment`. They carry no markers yet.
+- **A declared fork carries `policy=forked binding=pin`** and its `hash=`
+  field is the **frozen LOCAL body hash** (not the canon's). The central
+  scanner reports such an instance as `forked-frozen` — registered and
+  visible, never compared. The single fork in this repository is
+  `Show-PowerShellEnvironment`: the dd variant carries deployment-specific
+  behaviour the canon does not (the Administrator-elevation check and its
+  compatibility-summary row), while the canon carries iso/dsd-specific
+  extras; merging was judged over-engineering (central ADR 0030 wave 2b,
+  2026-07-03). Re-open by replacing the marker pair with a canonical one
+  after a deliberate reconciliation.
+
+Wave-2b (the last D19 reconciliation wave) resolved every remaining shared
+helper: `Get-SevenZipPath` / `Enable-DebugTraceFileOutput` /
+`Export-DebugTraceJson` adopted the canon's code deltas (see the CHANGELOG
+release entry for the behaviour notes); `Show-PowerShellEnvironment` is the
+declared fork above. **No shared helper remains unframed.**
 
 ---
 

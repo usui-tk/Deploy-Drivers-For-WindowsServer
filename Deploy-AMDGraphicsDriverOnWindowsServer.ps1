@@ -786,8 +786,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'graphics-2026.07.03-r55'
-$Script:ScriptTag     = 'cross-repo-canon-vendored-region-markers-wave-2a'
+$Script:ScriptVersion = 'graphics-2026.07.03-r56'
+$Script:ScriptTag     = 'cross-repo-canon-vendored-region-markers-wave-2b'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -1356,6 +1356,7 @@ function Write-PhaseFooter {
     $Script:CurrentPhaseId    = $null
 }
 # <<< CANONICAL unit_id=pwsh.helper.write-phasefooter <<<
+# >>> CANONICAL unit_id=pwsh.helper.show-powershellenvironment version=1.0.0 hash=273578402faa2c70 policy=forked binding=pin >>>
 function Show-PowerShellEnvironment {
     # ====================================================================
     # Display the PowerShell execution environment for diagnostics.
@@ -1529,6 +1530,7 @@ function Show-PowerShellEnvironment {
     Write-Host '========================================================================'
     Write-Host ''
 }
+# <<< CANONICAL unit_id=pwsh.helper.show-powershellenvironment <<<
 
 # >>> CANONICAL unit_id=pwsh.helper.assert-powershellcompatibility version=1.0.0 hash=cbe202e59516c121 policy=canonical binding=follow-latest >>>
 function Assert-PowerShellCompatibility {
@@ -2216,6 +2218,7 @@ function Write-DebugFailureReport {
 
 # --- 1b.4: Public API - file output (Feature A) -----------------------
 
+# >>> CANONICAL unit_id=pwsh.helper.enable-debugtracefileoutput version=1.0.0 hash=e87c4ef0ecc70f94 policy=canonical binding=follow-latest >>>
 function Enable-DebugTraceFileOutput {
     <#
     .SYNOPSIS
@@ -2249,8 +2252,8 @@ function Enable-DebugTraceFileOutput {
             kind      = 'file.open'
             scriptVer = $Script:ScriptVersion
             scriptSha = $Script:ScriptHash
-            pid       = $PID
-            host      = $Host.Name
+            procId    = $PID
+            hostName  = $Host.Name
             psVer     = $PSVersionTable.PSVersion.ToString()
             culture   = (Get-Culture).Name
         }
@@ -2291,7 +2294,7 @@ function Enable-DebugTraceFileOutput {
         Register-EngineEvent -SourceIdentifier PowerShell.Exiting -SupportEvent -Action {
             try {
                 if ($Script:DebugTraceJsonlEnabled -and $Script:DebugTraceJsonlPath) {
-                    $closeEvent = '{{"ts":"{0}","kind":"file.close","pid":{1}}}' -f `
+                    $closeEvent = '{{"ts":"{0}","kind":"file.close","procId":{1}}}' -f `
                         (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ'), $PID
                     [System.IO.File]::AppendAllText(
                         $Script:DebugTraceJsonlPath,
@@ -2313,6 +2316,7 @@ function Enable-DebugTraceFileOutput {
         Write-Warning '   Trace events remain captured in memory and are exportable via Export-DebugTraceJson.'
     }
 }
+# <<< CANONICAL unit_id=pwsh.helper.enable-debugtracefileoutput <<<
 
 # >>> CANONICAL unit_id=pwsh.helper.disable-debugtracefileoutput version=1.0.0 hash=0dc4d90f4368280a policy=canonical binding=follow-latest >>>
 function Disable-DebugTraceFileOutput {
@@ -2376,6 +2380,7 @@ function Enable-AutoExportOnPhaseFailure {
 }
 # <<< CANONICAL unit_id=pwsh.helper.enable-autoexportonphasefailure <<<
 
+# >>> CANONICAL unit_id=pwsh.helper.export-debugtracejson version=1.0.0 hash=d23eeab86dc4fc3a policy=canonical binding=follow-latest >>>
 function Export-DebugTraceJson {
     <#
     .SYNOPSIS
@@ -2548,7 +2553,7 @@ function Export-DebugTraceJson {
         $hostInfo = [pscustomobject]@{
             psVersion   = $PSVersionTable.PSVersion.ToString()
             psEdition   = $PSVersionTable.PSEdition
-            clrVersion  = $PSVersionTable.CLRVersion.ToString()
+            clrVersion  = [System.Environment]::Version.ToString()
             os          = ([System.Environment]::OSVersion.VersionString)
             culture     = (Get-Culture).Name
             uiCulture   = (Get-UICulture).Name
@@ -2622,6 +2627,7 @@ function Export-DebugTraceJson {
         Stop-DebugTrace
     }
 }
+# <<< CANONICAL unit_id=pwsh.helper.export-debugtracejson <<<
 
 #####################################################################
 # SECTION 1c: Boot-signing environment (Secure Boot / testsigning /
@@ -5549,14 +5555,23 @@ function Invoke-WingetSilently {
     return $exit
 }
 
+# >>> CANONICAL unit_id=pwsh.helper.get-sevenzippath version=1.0.0 hash=9fa5a18e04c0f6cb policy=canonical binding=follow-latest >>>
 function Get-SevenZipPath {
     foreach ($p in @("${env:ProgramFiles}\7-Zip\7z.exe","${env:ProgramFiles(x86)}\7-Zip\7z.exe")) {
         if (Test-Path $p) { return $p }
     }
     $cmd = Get-Command 7z.exe -ErrorAction SilentlyContinue
     if ($cmd) { return $cmd.Source }
+    # Non-Windows / PATH fallbacks: the Linux p7zip binaries (7z, 7za) used by
+    # the offline CI and the test harness. The Windows path is tried first so
+    # this never changes behaviour on Windows.
+    foreach ($name in @('7z','7za')) {
+        $c = Get-Command $name -ErrorAction SilentlyContinue
+        if ($c) { return $c.Source }
+    }
     return $null
 }
+# <<< CANONICAL unit_id=pwsh.helper.get-sevenzippath <<<
 
 function Find-KitTool {
     param([string]$Name)

@@ -20,6 +20,79 @@ independently.
 
 ---
 
+## [2026-07-03] `cross-repo-canon-vendored-region-markers-wave-2b` — Chipset r90 / Graphics r56 / BthPan r38 / NPU r34
+
+Final D19 reconciliation wave (central
+[ADR 0030](https://github.com/usui-tk/ai-generated-artifacts/blob/main/governance/adr/0030-satellite-canon-distribution.md)):
+the 4 shared helpers with GENUINE code differences from the central canon
+are resolved — 3 adopt the canon's code deltas (comments stay dd-owned per
+SPEC §A.11.8), 1 is a declared fork. **Unlike waves 1/2a this release
+changes behaviour** (debug-trace JSONL keys; a latent PS 7 defect fix);
+details below. After this release **every shared helper is marker-framed:
+32 helpers / 125 occurrences repo-wide**.
+
+### Canon adoptions (code-only; 11 changed/inserted code lines per fullest script)
+
+- **`Enable-DebugTraceFileOutput` (all four):** the debug-trace JSONL
+  `session.open` payload keys `pid` / `host` are renamed to `procId` /
+  `hostName`, and the `file.close` event key `pid` to `procId` — the
+  canon's defensive rename avoiding the `$Host` auto-variable collision
+  observed on some PS 5.1 parser contexts (same defect class this repo
+  already fixed in `Export-DebugTraceJson`'s `hostInfo` rename).
+  **Behaviour note: the debug-trace JSONL key names change.** The trace is
+  a diagnostic artifact with no downstream parser contract in this repo;
+  any private tooling reading these files must be updated.
+- **`Export-DebugTraceJson` (all four):** `clrVersion` is now sourced from
+  `[System.Environment]::Version` instead of `$PSVersionTable.CLRVersion`.
+  **This fixes a latent defect:** `CLRVersion` does not exist on
+  PowerShell 7 (Core), so the previous `.ToString()` call was a
+  null-method invocation waiting to fire when `-ExportTraceOnExit` ran
+  under PS 7. The export-schema field name stays `clrVersion`.
+- **`Get-SevenZipPath` (Chipset / Graphics / BthPan):** gains the canon's
+  non-Windows PATH fallback (`7z` / `7za` via `Get-Command`). The Windows
+  install-path probes run first, so **behaviour on Windows is unchanged**
+  (inert lines on the deployment targets).
+
+### Declared fork
+
+- **`Show-PowerShellEnvironment` (all four):** framed with
+  `policy=forked binding=pin` and the frozen LOCAL body hash. The dd
+  variant keeps its deployment-specific Administrator-elevation check and
+  compatibility-summary row; the canon keeps its iso/dsd-specific extras.
+  The central scanner reports these instances as `forked-frozen`
+  (registered, visible, not compared). Rationale and the re-open path:
+  SPEC §A.11.8.
+
+### Release-wide changes
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.07.03-r89` → `chipset-2026.07.03-r90`
+  - Graphics: `graphics-2026.07.03-r55` → `graphics-2026.07.03-r56`
+  - NPU: `npu-2026.07.03-r33` → `npu-2026.07.03-r34`
+  - BthPan: `msbthpan-2026.07.03-r37` → `msbthpan-2026.07.03-r38`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `cross-repo-canon-vendored-region-markers-wave-2a` →
+    `cross-repo-canon-vendored-region-markers-wave-2b`
+
+### Documentation changes
+
+- `SPEC.md` §A.11.8 — inventory 32 helpers / 125 occurrences; the
+  declared-fork marker convention (`policy=forked binding=pin`, LOCAL
+  frozen hash) and the `Show-PowerShellEnvironment` fork record; "no shared
+  helper remains unframed".
+
+### Verification
+
+- `psa.py` (governed mainline, repo `.psa.config.json`): **0/0/0** on all
+  four scripts — including PSA8001 4-way byte-identity of every edited
+  Tier A helper.
+- Normalized-hash equality of the 3 adopted helpers against the canon
+  asserted mechanically per script before framing.
+- Central `canonical-drift-scanner` rehearsal against this tree:
+  **218 match / 4 forked-frozen / 0 drift**.
+
+---
+
 ## [2026-07-03] `cross-repo-canon-vendored-region-markers-wave-2a` — Chipset r89 / Graphics r55 / BthPan r37 / NPU r33
 
 Second **comment-only governance release** under central

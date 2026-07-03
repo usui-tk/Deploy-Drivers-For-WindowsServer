@@ -322,8 +322,8 @@ param(
 #   * PhaseResults - per-phase outcome registry (write side from
 #     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.07.03-r33'
-$Script:ScriptTag           = 'cross-repo-canon-vendored-region-markers-wave-2a'
+$Script:ScriptVersion       = 'npu-2026.07.03-r34'
+$Script:ScriptTag           = 'cross-repo-canon-vendored-region-markers-wave-2b'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the
@@ -944,6 +944,7 @@ function Write-PhaseFooter {
 # =============================================================================
 # Environment detection helpers
 # =============================================================================
+# >>> CANONICAL unit_id=pwsh.helper.show-powershellenvironment version=1.0.0 hash=273578402faa2c70 policy=forked binding=pin >>>
 function Show-PowerShellEnvironment {
     # ====================================================================
     # Display the PowerShell execution environment for diagnostics.
@@ -1117,6 +1118,7 @@ function Show-PowerShellEnvironment {
     Write-Host '========================================================================'
     Write-Host ''
 }
+# <<< CANONICAL unit_id=pwsh.helper.show-powershellenvironment <<<
 
 function Show-OperatingSystemDetail {
     [CmdletBinding()]
@@ -2374,6 +2376,7 @@ function Write-DebugFailureReport {
 
 # --- 1b.4: Public API - file output (Feature A) -----------------------
 
+# >>> CANONICAL unit_id=pwsh.helper.enable-debugtracefileoutput version=1.0.0 hash=e87c4ef0ecc70f94 policy=canonical binding=follow-latest >>>
 function Enable-DebugTraceFileOutput {
     <#
     .SYNOPSIS
@@ -2407,8 +2410,8 @@ function Enable-DebugTraceFileOutput {
             kind      = 'file.open'
             scriptVer = $Script:ScriptVersion
             scriptSha = $Script:ScriptHash
-            pid       = $PID
-            host      = $Host.Name
+            procId    = $PID
+            hostName  = $Host.Name
             psVer     = $PSVersionTable.PSVersion.ToString()
             culture   = (Get-Culture).Name
         }
@@ -2449,7 +2452,7 @@ function Enable-DebugTraceFileOutput {
         Register-EngineEvent -SourceIdentifier PowerShell.Exiting -SupportEvent -Action {
             try {
                 if ($Script:DebugTraceJsonlEnabled -and $Script:DebugTraceJsonlPath) {
-                    $closeEvent = '{{"ts":"{0}","kind":"file.close","pid":{1}}}' -f `
+                    $closeEvent = '{{"ts":"{0}","kind":"file.close","procId":{1}}}' -f `
                         (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ'), $PID
                     [System.IO.File]::AppendAllText(
                         $Script:DebugTraceJsonlPath,
@@ -2471,6 +2474,7 @@ function Enable-DebugTraceFileOutput {
         Write-Warning '   Trace events remain captured in memory and are exportable via Export-DebugTraceJson.'
     }
 }
+# <<< CANONICAL unit_id=pwsh.helper.enable-debugtracefileoutput <<<
 
 # >>> CANONICAL unit_id=pwsh.helper.disable-debugtracefileoutput version=1.0.0 hash=0dc4d90f4368280a policy=canonical binding=follow-latest >>>
 function Disable-DebugTraceFileOutput {
@@ -2534,6 +2538,7 @@ function Enable-AutoExportOnPhaseFailure {
 }
 # <<< CANONICAL unit_id=pwsh.helper.enable-autoexportonphasefailure <<<
 
+# >>> CANONICAL unit_id=pwsh.helper.export-debugtracejson version=1.0.0 hash=d23eeab86dc4fc3a policy=canonical binding=follow-latest >>>
 function Export-DebugTraceJson {
     <#
     .SYNOPSIS
@@ -2706,7 +2711,7 @@ function Export-DebugTraceJson {
         $hostInfo = [pscustomobject]@{
             psVersion   = $PSVersionTable.PSVersion.ToString()
             psEdition   = $PSVersionTable.PSEdition
-            clrVersion  = $PSVersionTable.CLRVersion.ToString()
+            clrVersion  = [System.Environment]::Version.ToString()
             os          = ([System.Environment]::OSVersion.VersionString)
             culture     = (Get-Culture).Name
             uiCulture   = (Get-UICulture).Name
@@ -2780,6 +2785,7 @@ function Export-DebugTraceJson {
         Stop-DebugTrace
     }
 }
+# <<< CANONICAL unit_id=pwsh.helper.export-debugtracejson <<<
 
 #####################################################################
 # SECTION 1d: UEFI Secure Boot certificate baseline
