@@ -737,7 +737,7 @@ $cred = Get-Credential -UserName 'you@example.com' -Message 'AMD アカウント
 | `-AllowWorkstationInstall` | (off)                | Workstation OS (Win11) での Install phase 実行を許可。 デフォルトは block される (非推奨スイッチ) |
 | `-UseTestSigning`          | (off)                | WDAC 補助 policy ではなく `bcdedit /set testsigning on` にフォールバック (非推奨)                 |
 | `-WorkRoot`                | スクリプト別         | workspace path を上書き (Chipset: `C:\Temp\Workspace_AMD-Chipset`、 Graphics: `C:\Temp\Workspace_AMD-Graphics`、 NPU: `C:\Temp\Workspace_AMD-NPU`、 BthPan: `C:\Temp\Workspace_Microsoft-BthPan`)。 `C:\Temp\Workspace_*` 配下に配置。 `C:\Temp` がない場合はスクリプトが自動作成 |
-| `-LogFile`                 | `''` (無効)         | コンソール出力全体を `Start-Transcript` / `Stop-Transcript` でファイルにキャプチャするためのオプションパス。 ファイル側は全ストリーム (Output / Host / Error / Warning / Verbose / Debug) をプレーンテキストで受け取り、 インタラクティブコンソール側は `Write-Host -ForegroundColor` の色装飾を維持する。 レガシーな `... \|*>&1 \| Tee-Object -FilePath ...` イディオムは Write-Host の色情報がパイプ経由で削除されるが、 こちらは色を保持できるため推奨。 推奨ファイル名: `C:\Temp\<tag>_<Action>_<yyyyMMdd-HHmmss>.log` |
+| `-LogFile`                 | 自動生成            | コンソール出力全体を `Start-Transcript` / `Stop-Transcript` でキャプチャするトランスクリプトのパス。 **r91+: 省略時 (デフォルト) は自動的にトランスクリプトが常時作成される** (`<WorkRoot>\\logs\\<ScriptName>_<Action>_<yyyyMMdd-HHmmss>_<PID>.log`)。 エントリバナーより前に開始されるため、 バナーと P00 の実行環境レポート全体がログに含まれる (`-CleanWorkRoot` 時は suspend/wipe/resume フローで wipe を生き延びる。 無効化スイッチはなし)。 明示的にパスを渡せば出力先を上書きできる。 ファイル側は全ストリーム (Output / Host / Error / Warning / Verbose / Debug) をプレーンテキストで受け取り、 インタラクティブコンソール側は `Write-Host -ForegroundColor` の色装飾を維持する。 レガシーな `... \\|*>&1 \\| Tee-Object -FilePath ...` イディオムは Write-Host の色情報がパイプ経由で削除されるが、 こちらは色を保持できるため推奨 |
 | `-PfxPassword`             | スクリプト別         | 自己署名 PFX のパスワード (Chipset / Graphics: `'ChangeMe!2026'`、 NPU: `''`)                     |
 | `-WdacPolicyGuid`          | スクリプト別 (固定 UUID v4) | WDAC 補助 policy GUID を上書き。 デフォルトはスクリプト別 (Chipset: `503860EA-…`、 Graphics: `85336828-…`、 NPU: `8B2C4F12-…`)。 レガシー deploy のクリーンアップ、 または並列複数 deploy で使用 |
 | `-ForceUnsafe`             | (off)                | **r69+ (Chipset / Graphics / BthPan のみ)。** I00 PreInstallReview で条件 C1 / C2 / C5 / C6 が成立した場合に表示される CRITICAL 承認チェックリスト (シングルディスプレイホストでの display ドライバ置換、 BitLocker ON + AMD PSP ドライバ置換、 ホストが 24+ 時間 reboot されていない、 r71: Secure-Boot-ON ホストでの WHQL co-sign 不足) をバイパス。 CI / CD 自動化用途のみ。 バイパスは `Set-DebugStep` で run transcript に記録される。 **本番では絶対に使用しないこと。** 詳細は SPEC §D.28 と §D.31.4 |
@@ -916,10 +916,18 @@ Phase header banner (`=` × 72、 Magenta) は dispatcher が出力し、 phase 
 
 ## 実行ログのキャプチャ (`-LogFile`)
 
-4 つのスクリプトすべてに `-LogFile <path>` パラメータがあり、 `Start-Transcript` / `Stop-Transcript` 経由でコンソール出力全体をファイルにキャプチャできます:
+**r91+: すべての実行が自動的にトランスクリプトされます。** `-LogFile` を省略した場合 (デフォルト)、 4 つのスクリプトすべてが次のパスにトランスクリプトを自動生成します:
+
+```
+<WorkRoot>\logs\<ScriptName>_<Action>_<yyyyMMdd-HHmmss>_<PID>.log
+```
+
+キャプチャは `Start-Transcript` / `Stop-Transcript` 経由で、 トランスクリプトは **エントリバナーより前** に開始されるため、 キャプチャされたファイルにはバナーと P00 の実行環境レポート全体が含まれます。 `-CleanWorkRoot` 指定時、 WorkRoot 内のトランスクリプトは suspend/wipe/resume フローで P01 の wipe を生き延びます: wipe の直前に停止してワークスペース外へ退避し、 ディレクトリ再作成後に戻して `-Append` で再開する — 実行全体が 1 本の連続したファイルでカバーされ、 wipe 自体は従来どおりツリー全体の単純削除のままです。 無効化スイッチは意図的に設けていません (中央 `Update-WindowsServerIso.ps1` プロジェクトのロギング方針に合わせ、 トランスクリプトは常時採取)。
+
+出力先を上書きしたい場合は明示的に `-LogFile <path>` を渡します:
 
 ```powershell
-# 推奨: コンソール側は色情報を維持、 ファイル側は全ストリームをプレーンテキストで取得
+# 明示的な上書き: コンソール側は色情報を維持、 ファイル側は全ストリームをプレーンテキストで取得
 $ts  = Get-Date -Format 'yyyyMMdd-HHmmss'
 $log = "C:\Temp\amd-chipset_PrepareVerify_$ts.log"
 .\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot -LogFile $log
@@ -932,8 +940,9 @@ $log = "C:\Temp\amd-chipset_PrepareVerify_$ts.log"
 - **親ディレクトリは自動作成** (例: `C:\Temp\` がない場合は作成されます)。
 - **Append モード** (`-Append -Force`) — 連続再実行はファイルに追記されます (truncate されません)。
 - **クリーンアップは冪等** — `Stop-Transcript` は最上位の `finally` block と `PowerShell.Exiting` engine event handler の両方から呼ばれます。
+- **`-WorkRoot` 内の operator 指定パス + `-CleanWorkRoot`** — 明示的な `-LogFile` パスには従来どおり退避ガードが適用されます (トランスクリプトはスクリプト隣へ移動され、 wipe で削除されない)。 WorkRoot 内 suspend/wipe/resume フローを使うのは自動生成トランスクリプトのみです。
 
-推奨ファイル命名規則:
+明示的な `-LogFile` で **上書きする場合の** 推奨ファイル命名規則:
 
 ```
 C:\Temp\<scripttag>_<Action>_<yyyyMMdd-HHmmss>.log

@@ -763,7 +763,7 @@ All four scripts share a common parameter contract for `-Action`, `-OnlyPhases`,
 | `-AllowWorkstationInstall` | (off)                | Permit Install-phase actions on Workstation OS (Win11). Discouraged — default blocks Install      |
 | `-UseTestSigning`          | (off)                | Fall back to `bcdedit /set testsigning on` instead of WDAC supplemental policy. Discouraged       |
 | `-WorkRoot`                | per-script           | Override workspace path (chipset: `C:\Temp\Workspace_AMD-Chipset`, graphics: `C:\Temp\Workspace_AMD-Graphics`, NPU: `C:\Temp\Workspace_AMD-NPU`, BthPan: `C:\Temp\Workspace_Microsoft-BthPan`). Located under `C:\Temp\Workspace_*`; the script auto-creates `C:\Temp` on demand |
-| `-LogFile`                 | `''` (disabled)      | Optional path to capture the full console transcript via `Start-Transcript` / `Stop-Transcript`. The file receives every stream (Output / Host / Error / Warning / Verbose / Debug) as plain text; the interactive console keeps its `Write-Host -ForegroundColor` decoration intact. Recommended over the legacy `... \|*>&1 \| Tee-Object -FilePath ...` idiom, which strips Write-Host coloring. Suggested filename: `C:\Temp\<tag>_<Action>_<yyyyMMdd-HHmmss>.log` |
+| `-LogFile`                 | auto-generated       | Path of the full console transcript captured via `Start-Transcript` / `Stop-Transcript`. **r91+: when omitted, a transcript is always created automatically** under `<WorkRoot>\\logs\\<ScriptName>_<Action>_<yyyyMMdd-HHmmss>_<PID>.log`, starting before the entry banner so the log contains the banner and the full P00 environment report (survives `-CleanWorkRoot` via a suspend/wipe/resume flow; no opt-out switch). Pass an explicit path to override the location. The file receives every stream (Output / Host / Error / Warning / Verbose / Debug) as plain text; the interactive console keeps its `Write-Host -ForegroundColor` decoration intact. Recommended over the legacy `... \\|*>&1 \\| Tee-Object -FilePath ...` idiom, which strips Write-Host coloring |
 | `-PfxPassword`             | per-script           | Password for the self-signed PFX (chipset/graphics/BthPan: `'ChangeMe!2026'`, NPU: `''`)          |
 | `-WdacPolicyGuid`          | per-script (fixed UUID v4) | Override the fixed WDAC supplemental policy GUID. Default is per-script (chipset: `503860EA-…`, graphics: `85336828-…`, NPU: `8B2C4F12-…`, BthPan: `A6E72D4F-3B98-4C5A-9E1D-7F8B2A4C6E5D`). Used for legacy-deploy cleanup or side-by-side multi-instance deploy |
 | `-ForceUnsafe`             | (off)                | **r69+ (Chipset/Graphics/BthPan only).** Bypass the CRITICAL acknowledgement checklist that I00 PreInstallReview prompts the operator with when conditions C1/C2/C5/C6 fire (display driver replacement on single-display host; BitLocker ON + AMD PSP driver replacement; host hasn't been rebooted in 24+ hours; r71: WHQL co-sign shortfall on Secure-Boot-ON host). Intended for CI/CD automation only; the bypass is logged via `Set-DebugStep` in the run transcript. **Do NOT use in production.** See SPEC §D.28 and §D.31.4 |
@@ -959,10 +959,18 @@ The phase header banner (`=` × 72, Magenta) is emitted by the dispatcher; phase
 
 ## Run log capture (`-LogFile`)
 
-All four scripts expose a `-LogFile <path>` parameter that captures the full console transcript via `Start-Transcript` / `Stop-Transcript`:
+**r91+: every run is transcribed automatically.** When `-LogFile` is omitted (the default), all four scripts auto-generate a transcript at
+
+```
+<WorkRoot>\logs\<ScriptName>_<Action>_<yyyyMMdd-HHmmss>_<PID>.log
+```
+
+and capture the full console transcript via `Start-Transcript` / `Stop-Transcript`. The transcript starts **before the entry banner**, so the captured file contains the banner and the complete P00 execution-environment report. With `-CleanWorkRoot`, the in-WorkRoot transcript survives the P01 wipe through a suspend/wipe/resume flow: it is stopped and stashed outside the workspace immediately before the wipe, moved back once the directories are recreated, and re-opened with `-Append` — one continuous file covers the whole run while the wipe itself remains a plain full-tree delete. There is deliberately no opt-out switch (matching the logging policy of the central `Update-WindowsServerIso.ps1` project: transcripts are always captured).
+
+Pass an explicit `-LogFile <path>` to override the location:
 
 ```powershell
-# Recommended: color is preserved in the console, the file gets every stream as plain text
+# Explicit override: color is preserved in the console, the file gets every stream as plain text
 $ts  = Get-Date -Format 'yyyyMMdd-HHmmss'
 $log = "C:\Temp\amd-chipset_PrepareVerify_$ts.log"
 .\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot -LogFile $log
@@ -975,8 +983,9 @@ Key properties:
 - **Parent directory auto-created** on demand (e.g. `C:\Temp\` is created if missing).
 - **Append mode** (`-Append -Force`) — concurrent re-runs accumulate rather than truncate.
 - **Idempotent cleanup** — `Stop-Transcript` is invoked from the top-level `finally` block and from a `PowerShell.Exiting` engine event handler as a fallback.
+- **Operator-specified path inside `-WorkRoot` + `-CleanWorkRoot`** — the pre-existing relocation guard still applies to explicit `-LogFile` paths (the transcript is moved next to the script so the wipe cannot delete it); only auto-generated transcripts use the in-WorkRoot suspend/wipe/resume flow.
 
-Recommended filename convention:
+Recommended filename convention **when overriding** with an explicit `-LogFile`:
 
 ```
 C:\Temp\<scripttag>_<Action>_<yyyyMMdd-HHmmss>.log

@@ -20,6 +20,122 @@ independently.
 
 ---
 
+## [2026-08-07] `auto-run-transcript-and-chipset-url-discovery` — Chipset r91 / Graphics r57 / NPU r35 / BthPan r39
+
+Two workstreams in one release. (1) **Automatic run transcript on all four
+scripts**: when `-LogFile` is omitted, a full console transcript is now
+created automatically under `<WorkRoot>\logs`, matching the logging policy
+of the central `Update-WindowsServerIso.ps1` project — every run leaves a
+machine-readable log without operator opt-in. (2) **Chipset URL-discovery
+hardening**: AMD renamed newly-published chipset installers from
+`amd_chipset_software_<v>.exe` to `amd_software_<v>.exe` (first seen with
+8.07.16.1035, released 2026-07-30), which made every landing-page probe
+miss and silently pinned runs to the 8.02.18.557 fallback; the discovery
+regex, download-cache filters, and pinned fallback URL are updated, and
+probe misses now preserve the fetched page bodies as evidence.
+
+### Automatic run transcript (all four)
+
+- When `-LogFile` is omitted (the default), the transcript path is
+  auto-generated as
+  `<WorkRoot>\logs\<ScriptName>_<Action>_<yyyyMMdd-HHmmss>_<PID>.log`
+  and the existing verified-activation cascade runs against it. The
+  transcript starts BEFORE the entry banner, so the captured log contains
+  the banner and the full P00 execution-environment report.
+- New helpers `Suspend-RunTranscriptForWipe` /
+  `Resume-RunTranscriptAfterWipe` (SECTION 0.26, all four scripts): with
+  `-CleanWorkRoot`, the in-WorkRoot transcript is stopped and stashed to
+  `%TEMP%` immediately before the P01 wipe, moved back after the workspace
+  directories are recreated, and re-opened with `-Append` — one continuous
+  log file covers the whole run, and the wipe itself remains a plain
+  full-tree `Remove-Item` (no exclusion logic).
+- The pre-existing `-LogFile`-inside-`-WorkRoot` relocation guard now
+  applies only to operator-specified paths; auto-generated transcripts are
+  exempt (they intentionally live under `<WorkRoot>\logs` and use the
+  suspend/resume flow instead). Operator-specified `-LogFile` behaviour is
+  otherwise unchanged. There is deliberately no opt-out switch
+  (iso-parity: transcripts are always captured).
+
+### Chipset URL-discovery hardening (Chipset only)
+
+- Root cause, confirmed live 2026-08-07 against
+  `.../chipsets/laptop-chipsets/amd-ryzen-and-athlon-mobile-chipset.html`:
+  the landing pages now link
+  `https://drivers.amd.com/drivers/amd_software_8.07.16.1035.exe`
+  (Revision 8.07.16.1035, released 2026-07-30) while the discovery regex
+  only accepted the legacy `amd_chipset_software_` naming — 0 hits on all
+  3 probed pages → pinned-fallback download of 8.02.18.557 (the
+  operator-reported symptom).
+- Discovery regex now accepts both namings:
+  `amd(?:_chipset)?_software_(\d+\.\d+\.\d+\.\d+)\.exe`. The optional
+  group cannot match the sibling `amd_raid_software_*.zip` download
+  published on the same pages.
+- The P03/P04 download-cache filters
+  (`-Filter 'amd_chipset_software_*.exe'`) are widened to the same
+  dual-naming acceptance (`-Filter '*.exe'` + `Where-Object` on
+  `^amd(_chipset)?_software_`).
+- `-AmdFallbackUrl` default: `amd_chipset_software_8.02.18.557.exe` →
+  `amd_software_8.07.16.1035.exe` (operator ruling: unify on the new
+  naming). Note 8.07.16.1035 has not yet been through an end-to-end bench
+  run on physical hardware — the first `-Action PrepareVerify` on real
+  hardware doubles as its validation.
+- Probe-evidence preservation: `Get-LatestAmdChipsetUrl` gains an optional
+  `-DiagnosticsDir` (wired to `<WorkRoot>\logs`); when EVERY probe misses,
+  each fetched page body is dumped as
+  `amd-landing-probe-<ts>-<nn>_<page>.html` so the next naming change is
+  diagnosable from run artifacts alone. Probe-result lines now also report
+  the fetched byte count. See SPEC §D.37.4 for the generalised rule.
+
+### Release-wide changes
+
+- `$Script:ScriptVersion` bumped on all four scripts:
+  - Chipset: `chipset-2026.07.03-r90` → `chipset-2026.08.07-r91`
+  - Graphics: `graphics-2026.07.03-r56` → `graphics-2026.08.07-r57`
+  - NPU: `npu-2026.07.03-r34` → `npu-2026.08.07-r35`
+  - BthPan: `msbthpan-2026.07.03-r38` → `msbthpan-2026.08.07-r39`
+- `$Script:ScriptTag` swapped on all four scripts:
+  - `cross-repo-canon-vendored-region-markers-wave-2b` →
+    `auto-run-transcript-and-chipset-url-discovery`
+
+### Sister-impact assessment (per repository rule)
+
+- The Chipset-only URL-discovery change was assessed for propagation:
+  Graphics' discovery pattern is already an alternation
+  (`adrenalin|software|radeon`) that tolerates AMD filename drift and
+  needed no change; NPU acquires its driver via AMD's account-gated
+  download and BthPan ships the host's own inbox INF — neither has a
+  landing-page discovery mechanism. The automatic-transcript change is by
+  definition four-way.
+
+### Documentation changes
+
+- `SPEC.md` §A "Run log capture" — automatic-transcript default, the
+  suspend → wipe → resume contract, and the narrowed scope of the
+  relocation guard.
+- `SPEC.md` §D.37 (new) — the 2026-07 AMD installer filename rename:
+  timeline, root cause, dual-naming regex rule, probe-evidence policy,
+  sister-impact record.
+- `README.md` / `README.ja.md` — `-LogFile` parameter row and "Run log
+  capture" section rewritten for the automatic default (kept in
+  lock-step).
+
+### Verification
+
+- `psa.py` (governed mainline, repo `.psa.config.json`): **0/0/0** on all
+  four scripts.
+- `[Parser]::ParseFile` syntax gate: clean on all four (PowerShell 7.4.6).
+- AST-extracted unit harness (pwsh 7.4.6, 18 assertions, all green):
+  discovery selects `amd_software_8.07.16.1035.exe` over legacy
+  8.02.18.557; legacy-only pages still parse; zero-hit runs fall back to
+  the pin AND dump per-page evidence files; the cache-filter regex accepts
+  both namings and rejects `amd_raid_software_*`; a real
+  `Start-Transcript` survives a full workspace wipe via suspend/resume
+  with one continuous log (pre-wipe and post-wipe markers in the same
+  file); an outside-WorkRoot transcript is untouched by suspend.
+- UTF-8 BOM + CRLF preserved on all four `.ps1` files (byte-level check).
+
+---
+
 ## [2026-07-03] `cross-repo-canon-vendored-region-markers-wave-2b` — Chipset r90 / Graphics r56 / BthPan r38 / NPU r34
 
 Final D19 reconciliation wave (central
