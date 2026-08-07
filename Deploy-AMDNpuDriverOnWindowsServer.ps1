@@ -291,15 +291,18 @@ param(
     # Write-Host coloring on the way through the pipeline.
     [string]$LogFile = '',
 
-    # === Configuration evidence collection ============================
-    # When set, the standalone configuration-evidence collector that
-    # ships next to this script
-    # (Collect-WindowsServerConfigurationEvidence.ps1) is invoked before
-    # the first phase (stage 'pre') and again at the very end of the run
-    # (stage 'post'), preserving the system state around the deployment
-    # as diffable evidence ZIPs next to the script. Best-effort by
-    # contract: collector problems never affect the deployment run.
-    [switch]$CollectEvidence,
+    # === Configuration evidence collection (DEFAULT ON) ===============
+    # By default, EVERY run (except -Action ListPhases) invokes the
+    # standalone configuration-evidence collector that ships next to
+    # this script (Collect-WindowsServerConfigurationEvidence.ps1)
+    # before the first phase (stage 'pre') and again at the very end of
+    # the run (stage 'post'), preserving the system state around the
+    # deployment as diffable evidence ZIPs next to the script.
+    # Best-effort by contract: collector problems never affect the
+    # deployment run. Specify -SkipEvidenceCollection to opt out (the
+    # switch polarity is inverted because repository static-analysis
+    # policy PSA6006 forbids switches that default to $true).
+    [switch]$SkipEvidenceCollection,
 
     [Parameter()]
     # NOTE: [string] (not [SecureString]) because the password is forwarded to
@@ -337,8 +340,8 @@ param(
 #   * PhaseResults - per-phase outcome registry (write side from
 #     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.08.07-r37'
-$Script:ScriptTag           = 'windows-server-configuration-evidence-collector'
+$Script:ScriptVersion       = 'npu-2026.08.07-r38'
+$Script:ScriptTag           = 'evidence-collection-default-on'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the
@@ -1102,7 +1105,7 @@ function Invoke-ConfigurationEvidenceCollector {
     )
     $collectorPath = Join-Path $PSScriptRoot 'Collect-WindowsServerConfigurationEvidence.ps1'
     if (-not (Test-Path -LiteralPath $collectorPath -PathType Leaf)) {
-        Write-Warning ('[-CollectEvidence] collector not found next to this script: {0}' -f $collectorPath)
+        Write-Warning ('[evidence-collection] collector not found next to this script (evidence skipped): {0}' -f $collectorPath)
         return
     }
     $invokedBy = ('{0}_{1}' -f [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), $ActionName)
@@ -1112,10 +1115,10 @@ function Invoke-ConfigurationEvidenceCollector {
         & $collectorPath -Stage $Stage -InvokedBy $invokedBy
         $collectorExit = $LASTEXITCODE
         if ($null -ne $collectorExit -and $collectorExit -ne 0) {
-            Write-Warning ('[-CollectEvidence] collector ({0}) finished with exit code {1} - review its assessment report.' -f $Stage, $collectorExit)
+            Write-Warning ('[evidence-collection] collector ({0}) finished with exit code {1} - review its assessment report.' -f $Stage, $collectorExit)
         }
     } catch {
-        Write-Warning ('[-CollectEvidence] collector ({0}) failed: {1}' -f $Stage, $_.Exception.Message)
+        Write-Warning ('[evidence-collection] collector ({0}) failed: {1}' -f $Stage, $_.Exception.Message)
     }
 }
 
@@ -7891,10 +7894,11 @@ function Invoke-MainEntryPoint {
 # =============================================================================
 $Script:TopLevelException = $null
 try {
-    # -CollectEvidence: pre-run configuration evidence (stage 'pre') -
-    # runs before dispatch so the evidence reflects the pre-deployment
-    # system state. ListPhases is skipped (no system interaction).
-    if ($CollectEvidence -and $Action -ne 'ListPhases') {
+    # Configuration evidence, stage 'pre' (default ON;
+    # -SkipEvidenceCollection opts out) - runs before dispatch so the
+    # evidence reflects the pre-deployment system state. ListPhases is
+    # skipped (no system interaction).
+    if ((-not $SkipEvidenceCollection) -and $Action -ne 'ListPhases') {
         Invoke-ConfigurationEvidenceCollector -Stage pre -ActionName $Action
     }
     Invoke-MainEntryPoint
@@ -7972,11 +7976,12 @@ finally {
         $Script:ConsoleModeChanged = $false
     }
 
-    # -CollectEvidence: post-run configuration evidence (stage 'post').
+    # Configuration evidence, stage 'post' (default ON;
+    # -SkipEvidenceCollection opts out).
     # Runs LAST - after the run summary, the transcript close, the
     # run-artifact archive and the console-mode restore - so the
     # collector's own artifacts are not nested into this run's archive.
-    if ($CollectEvidence -and $Action -ne 'ListPhases') {
+    if ((-not $SkipEvidenceCollection) -and $Action -ne 'ListPhases') {
         try { Invoke-ConfigurationEvidenceCollector -Stage post -ActionName $Action } catch { } # psa-disable-line PSA3004 -- best-effort evidence; must not mask the run outcome
     }
 

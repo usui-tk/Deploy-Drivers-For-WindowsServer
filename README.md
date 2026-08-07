@@ -104,7 +104,7 @@ For the full at-your-own-risk acknowledgements (BitLocker, anti-cheat software, 
 | `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | Graphics driver pipeline (Display, HD Audio, Audio CoProcessor, ACP, USB-C UCSI, etc.). Source: AMD Adrenalin Edition ~600 MB EXE, ~19 INFs (Vega-Polaris Legacy branch) or ~67 INFs (Main Adrenalin branch for Phoenix+). | **Stable** — same validation hosts as chipset. |
 | **`Deploy-AMDNpuDriverOnWindowsServer.ps1`** | **NPU (Ryzen AI XDNA) driver pipeline (PHX/HPT/STX/KRK).** Source: AMD Ryzen AI Software ZIP, ~250 MB, EULA-gated download (no public direct URL). Kernel-mode driver only — does NOT install Ryzen AI Software user-mode stack. | **🆘 Experimental / research-grade — NOT production-ready.** No physical-NPU validation runs have been performed. AMD account auto-download is best-effort and may break with AMD form changes. Ryzen AI Software is officially unsupported on Windows Server 2025. |
 | `Deploy-MSBthPanInboxOnWindowsServer.ps1` | **Microsoft inbox Bluetooth PAN driver (`bthpan.inf` / `bthpan.sys`) enablement pipeline.** Source: the host's own `C:\Windows\System32\DriverStore\FileRepository\bthpan.inf_amd64_*` directory — **no remote download required.** Single INF, single HWID (`BTH\MS_BTHPAN`). Distinguishes Phantom OK (bth.inf proxy match) from true resolution (Class=Net, Service=BthPan) on Windows Server. | **New** — initial release. Logic shares the same Phase / Secure Boot / WDAC framework as the AMD scripts; INF patch surface is much smaller (1 INF, 1 HWID). Physical validation on ThinkPad + Intel AX210 + WS2025 build 26100.32860 is the planned first test target. |
-| `Collect-WindowsServerConfigurationEvidence.ps1` | **Read-only configuration evidence collector (r93+).** Captures OS / device / driver-store / certificate / boot-security / CodeIntegrity / `setupapi` state into a timestamped evidence ZIP with a PASS / FAIL / REVIEW / INFO assessment report (exit codes 0 / 2 / 1). Runs standalone, or automatically as a pre/post pair via the deploy scripts' `-CollectEvidence` switch. | **New** — behavioural-harness verified; physical-host validation pending. |
+| `Collect-WindowsServerConfigurationEvidence.ps1` | **Read-only configuration evidence collector (r93+).** Captures OS / device / driver-store / certificate / boot-security / CodeIntegrity / `setupapi` state into a timestamped evidence ZIP with a PASS / FAIL / REVIEW / INFO assessment report (exit codes 0 / 2 / 1). Runs standalone, and automatically as a pre/post pair on every deploy-script run (default since r94; `-SkipEvidenceCollection` opts out). | **New** — behavioural-harness verified; physical-host validation pending. |
 | `README.md` | This document (English; the master). |  |
 | `README.ja.md` | Japanese translation of `README.md`, kept in sync. |  |
 | `SPEC.md` | Developer specification (per-script details, INF parsing strategy, WDAC policy structure). **English only.** |  |
@@ -119,9 +119,9 @@ All four PowerShell scripts share the same 21-phase architecture, the same self-
 
 ## What's new
 
-**Latest release: `2026-08-07` — Chipset r93 / Graphics r59 / NPU r37 / BthPan r41** (`windows-server-configuration-evidence-collector`), which also adds the standalone collector **`Collect-WindowsServerConfigurationEvidence.ps1` (c1)**.
+**Latest release: `2026-08-07` — Chipset r94 / Graphics r60 / NPU r38 / BthPan r42** (`evidence-collection-default-on`): configuration-evidence collection now runs **automatically on every run** (`ListPhases` excepted) — the opt-in `-CollectEvidence` switch from r93 was replaced by the opt-out `-SkipEvidenceCollection`, fulfilling the original requirement that all four scripts capture pre/post environment evidence by default. The r93 release below added the collector itself.
 
-- **New: configuration evidence collector.** A standalone, **read-only** companion script that captures the Windows Server configuration areas the deploy scripts operate on (OS identity, devices, driver store, project certificates, boot security, CodeIntegrity events, `setupapi` logs, script + workspace inventory) into a timestamped evidence ZIP with a color-coded PASS / FAIL / REVIEW / INFO assessment report. All four deploy scripts gained a `-CollectEvidence` switch that takes a **diffable pre/post evidence pair** around the run automatically. See ["Configuration evidence collector (r93+)"](#configuration-evidence-collector-r93) below.
+- **`2026-08-07` — r93 / r59 / r37 / r41** (`windows-server-configuration-evidence-collector`): **configuration evidence collector.** A standalone, **read-only** companion script that captures the Windows Server configuration areas the deploy scripts operate on (OS identity, devices, driver store, project certificates, boot security, CodeIntegrity events, `setupapi` logs, script + workspace inventory) into a timestamped evidence ZIP with a color-coded PASS / FAIL / REVIEW / INFO assessment report. All four deploy scripts gained integration that takes a **diffable pre/post evidence pair** around the run (shipped in r93 as the opt-in `-CollectEvidence`; made default-on with the opt-out `-SkipEvidenceCollection` in r94). See ["Configuration evidence collector (r93+)"](#configuration-evidence-collector-r93) below.
 
 ### Recent releases (2026-07 — 2026-08)
 
@@ -269,7 +269,7 @@ After `-Action Install` (or phases I01-I04), the script also deploys:
 - A **WDAC supplemental Code Integrity policy** to `C:\Windows\System32\CodeIntegrity\CiPolicies\Active\` that allowlists this specific cert as a kernel-mode signer. This is activated immediately via `CiTool --update-policy` (no reboot required on Windows Server 2022+ / Windows 11 22H2+).
 - The patched + self-signed drivers via `pnputil /add-driver /install`.
 
-Two artifact families land **next to the script** rather than in the workspace: the per-run diagnostics archive `<ScriptName>_<Action>_run-artifacts_<timestamp>_<PID>.zip` (r92+; excludes `*.pfx`, `download\`, `extracted\` and any file over 50 MB), and — when `-CollectEvidence` is used — the collector's `WindowsServerConfigurationEvidence_<stage>[_<invoker>]_<timestamp>` evidence directories + ZIPs (r93+).
+Two artifact families land **next to the script** rather than in the workspace: the per-run diagnostics archive `<ScriptName>_<Action>_run-artifacts_<timestamp>_<PID>.zip` (r92+; excludes `*.pfx`, `download\`, `extracted\` and any file over 50 MB), and — collected by default on every run since r94 (`-SkipEvidenceCollection` opts out) — the collector's `WindowsServerConfigurationEvidence_<stage>[_<invoker>]_<timestamp>` evidence directories + ZIPs (r93+).
 
 ---
 
@@ -303,9 +303,10 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\Deploy-AMDGraphicsDriverOnWindowsServer.ps1  -Action PrepareVerify -CleanWorkRoot
 .\Deploy-MSBthPanInboxOnWindowsServer.ps1      -Action PrepareVerify -CleanWorkRoot
 
-# Optional (r93+): wrap any run in a read-only pre/post configuration-evidence pair
-# (two diffable evidence ZIPs land next to the script; see the collector section below)
-.\Deploy-AMDChipsetDriverOnWindowsServer.ps1   -Action PrepareVerify -CleanWorkRoot -CollectEvidence
+# r94+: every run automatically takes a read-only pre/post configuration-evidence
+# pair (two diffable evidence ZIPs next to the script; see the collector section).
+# Add -SkipEvidenceCollection to any of the commands above to opt out:
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1   -Action PrepareVerify -CleanWorkRoot -SkipEvidenceCollection
 
 # NPU script — REQUIRES an offline ZIP (or other download source) to actually run P03.
 # On a clean machine without -OfflineZip, P03 will throw "All 4 download tiers exhausted".
@@ -709,7 +710,7 @@ All four scripts share a common parameter contract for `-Action`, `-OnlyPhases`,
 | `-UseTestSigning`          | (off)                | Fall back to `bcdedit /set testsigning on` instead of WDAC supplemental policy. Discouraged       |
 | `-WorkRoot`                | per-script           | Override workspace path (chipset: `C:\Temp\Workspace_AMD-Chipset`, graphics: `C:\Temp\Workspace_AMD-Graphics`, NPU: `C:\Temp\Workspace_AMD-NPU`, BthPan: `C:\Temp\Workspace_Microsoft-BthPan`). Located under `C:\Temp\Workspace_*`; the script auto-creates `C:\Temp` on demand |
 | `-LogFile`                 | auto-generated       | Path of the full console transcript captured via `Start-Transcript` / `Stop-Transcript`. **r91+: when omitted, a transcript is always created automatically** under `<WorkRoot>\\logs\\<ScriptName>_<Action>_<yyyyMMdd-HHmmss>_<PID>.log`, starting before the entry banner so the log contains the banner and the full P00 environment report (survives `-CleanWorkRoot` via a suspend/wipe/resume flow; no opt-out switch). Pass an explicit path to override the location. The file receives every stream (Output / Host / Error / Warning / Verbose / Debug) as plain text; the interactive console keeps its `Write-Host -ForegroundColor` decoration intact. Recommended over the legacy `... \\|*>&1 \\| Tee-Object -FilePath ...` idiom, which strips Write-Host coloring |
-| `-CollectEvidence`         | (off)                | **r93+ (all four).** Invokes `Collect-WindowsServerConfigurationEvidence.ps1` (shipped next to the script) with stage `pre` before the first phase and stage `post` as the last step of the run, producing diffable read-only evidence ZIPs next to the script. Best-effort: collector problems are warnings only and never affect the run. Skipped for `ListPhases` |
+| `-SkipEvidenceCollection`  | (off — collection runs) | **r94+ (all four).** Evidence collection is **ON by default**: every run except `ListPhases` invokes `Collect-WindowsServerConfigurationEvidence.ps1` (shipped next to the script) with stage `pre` before the first phase and stage `post` as the last step of the run, producing diffable read-only evidence ZIPs next to the script. Specify this switch to skip both collections. Best-effort: collector problems are warnings only and never affect the run. (r93 shipped this as the opt-in `-CollectEvidence`; r94 inverted the polarity to satisfy the original always-on requirement — PSA6006 forbids switches defaulting to `$true`.) |
 | `-PfxPassword`             | per-script           | Password for the self-signed PFX (chipset/graphics/BthPan: `'ChangeMe!2026'`, NPU: `''`)          |
 | `-WdacPolicyGuid`          | per-script (fixed UUID v4) | Override the fixed WDAC supplemental policy GUID. Default is per-script (chipset: `503860EA-…`, graphics: `85336828-…`, NPU: `8B2C4F12-…`, BthPan: `A6E72D4F-3B98-4C5A-9E1D-7F8B2A4C6E5D`). Used for legacy-deploy cleanup or side-by-side multi-instance deploy |
 | `-ForceUnsafe`             | (off)                | **r69+ (Chipset/Graphics/BthPan only).** Bypass the CRITICAL acknowledgement checklist that I00 PreInstallReview prompts the operator with when conditions C1/C2/C5/C6 fire (display driver replacement on single-display host; BitLocker ON + AMD PSP driver replacement; host hasn't been rebooted in 24+ hours; r71: WHQL co-sign shortfall on Secure-Boot-ON host). Intended for CI/CD automation only; the bypass is logged via `Set-DebugStep` in the run transcript. **Do NOT use in production.** See SPEC §D.28 and §D.31.4 |
@@ -995,10 +996,11 @@ Run it standalone at any time:
 .\Collect-WindowsServerConfigurationEvidence.ps1
 ```
 
-Or let a deploy script take a **pre/post evidence pair automatically** with the new `-CollectEvidence` switch — stage `pre` runs before the first phase, stage `post` runs as the very last step after the run-artifact archive, and the stage + invoking script are embedded in the ZIP names so the pair can be diffed:
+Since r94 the deploy scripts take a **pre/post evidence pair automatically on every run** (`ListPhases` excepted) — stage `pre` runs before the first phase, stage `post` runs as the very last step after the run-artifact archive, and the stage + invoking script are embedded in the ZIP names so the pair can be diffed. Specify `-SkipEvidenceCollection` to opt out of both collections (r93 briefly shipped this as the opt-in `-CollectEvidence`; r94 inverted the polarity):
 
 ```powershell
-.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot -CollectEvidence
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot                         # evidence pair taken automatically
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot -SkipEvidenceCollection # opt out
 ```
 
 Collector problems (missing file, nonzero exit, error) are reported as warnings and never affect the deployment run. `-OutputRoot` accepts only the script directory (default) or `C:\Temp`.

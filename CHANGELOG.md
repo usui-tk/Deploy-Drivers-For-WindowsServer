@@ -20,6 +20,38 @@ independently.
 
 ---
 
+## [2026-08-07] `evidence-collection-default-on` — Chipset r94 / Graphics r60 / NPU r38 / BthPan r42
+
+Polarity fix for the r93 evidence-collection integration: collection is
+now **ON by default**, fulfilling the original operator requirement that
+all four scripts capture pre/post environment evidence automatically on
+every run.
+
+- The opt-in `-CollectEvidence` switch (r93) is replaced by the opt-out
+  `-SkipEvidenceCollection`. Rationale for the inversion instead of a
+  `$true` default: repository static-analysis policy PSA6006 forbids
+  switch parameters defaulting to `$true` (same pattern as the
+  collector's own `-SkipSetupApiLog`).
+- Behaviour: every run except `-Action ListPhases` invokes
+  `Collect-WindowsServerConfigurationEvidence.ps1` at stage `pre`
+  (before the first phase) and stage `post` (last step of the top-level
+  `finally`). `-SkipEvidenceCollection` skips both. The best-effort
+  contract is unchanged: a missing collector, a nonzero collector exit
+  or a collector throw are warnings only (warning prefix changed from
+  `[-CollectEvidence]` to `[evidence-collection]`).
+- No collector changes (`Collect-WindowsServerConfigurationEvidence.ps1`
+  remains c1). Docs: README.md / README.ja.md parameter row, Quick
+  start and collector chapter updated to the default-on wording;
+  SPEC.md A.14.5 deploy-integration bullet updated.
+
+Gates: `psa.py` 0 findings x5, `ParseFile` clean x4, BOM + CRLF
+preserved, canon frames byte-identical (machine-verified), behavioural
+harness 27/27 re-run green, guard truth-table verified for all four
+Skip x Action combinations.
+
+---
+
+
 ## [2026-08-07] `docs-refresh-post-r93` — documentation-only (no script changes)
 
 Documentation staleness sweep after the r88-r93 release series. No

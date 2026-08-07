@@ -104,7 +104,7 @@ BitLocker、 アンチチートソフト、 サポート影響、 証明書有�
 | `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | グラフィックスドライバパイプライン (Display、 HD Audio、 Audio CoProcessor、 ACP、 USB-C UCSI 等)。 ソース: AMD Adrenalin Edition EXE 約 600 MB、 INF 約 19 個 (Vega-Polaris Legacy ブランチ) または約 67 個 (Phoenix 以降の Main Adrenalin ブランチ)。 | **安定版** — チップセットスクリプトと同一の検証ホストで検証済み。 |
 | **`Deploy-AMDNpuDriverOnWindowsServer.ps1`** | **NPU (Ryzen AI XDNA) ドライバパイプライン (PHX/HPT/STX/KRK)。** ソース: AMD Ryzen AI Software ZIP 約 250 MB、 EULA gate あり (公開直接 URL なし)。 kernel-mode driver のみ install — Ryzen AI Software user-mode stack は対象外。 | **🆘 実験的・研究用途 — 本番運用不可。** 物理 NPU ハードウェアでの検証は未実施。 AMD アカウント自動ダウンロードは best-effort で AMD 側のフォーム変更で破綻する可能性。 Ryzen AI Software は Windows Server 2025 公式非サポート。 |
 | `Deploy-MSBthPanInboxOnWindowsServer.ps1` | **Microsoft inbox Bluetooth PAN ドライバ (`bthpan.inf` / `bthpan.sys`) 有効化パイプライン。** ソース: ホスト自身の `C:\Windows\System32\DriverStore\FileRepository\bthpan.inf_amd64_*` ディレクトリ — **リモートダウンロード不要**。 単一 INF・ 単一 HWID (`BTH\MS_BTHPAN`)。 Phantom OK (bth.inf による代理マッチ) と真の解消 (Class=Net、 Service=BthPan) を Windows Server 上で明示的に区別します。 | **新規** — 初版リリース。 Phase / Secure Boot / WDAC フレームワークは AMD スクリプトと同一を verbatim 継承。 INF パッチ対象が 1 ファイル・ 1 HWID と非常に小さい。 ThinkPad + Intel AX210 + WS2025 build 26100.32860 が第一の物理検証ターゲット予定。 |
-| `Collect-WindowsServerConfigurationEvidence.ps1` | **読み取り専用の構成情報エビデンス・コレクタ (r93+)。** OS / デバイス / ドライバストア / 証明書 / ブートセキュリティ / CodeIntegrity / `setupapi` の状態をタイムスタンプ付きエビデンス ZIP に採取し、 PASS / FAIL / REVIEW / INFO 評価レポートを出力する (exit code 0 / 2 / 1)。 単体実行のほか、 デプロイスクリプトの `-CollectEvidence` スイッチで pre/post ペアとして自動実行される。 | **New** — 挙動ハーネス検証済み。 実機ホストでの検証は未実施。 |
+| `Collect-WindowsServerConfigurationEvidence.ps1` | **読み取り専用の構成情報エビデンス・コレクタ (r93+)。** OS / デバイス / ドライバストア / 証明書 / ブートセキュリティ / CodeIntegrity / `setupapi` の状態をタイムスタンプ付きエビデンス ZIP に採取し、 PASS / FAIL / REVIEW / INFO 評価レポートを出力する (exit code 0 / 2 / 1)。 単体実行のほか、 デプロイスクリプトの実行時には pre/post ペアとして自動実行される (r94 以降デフォルト。 `-SkipEvidenceCollection` でスキップ可)。 | **New** — 挙動ハーネス検証済み。 実機ホストでの検証は未実施。 |
 | `README.md` | 英語版ドキュメント (マスター)。 |  |
 | `README.ja.md` | 本ドキュメント (日本語版、 `README.md` と同期翻訳)。 |  |
 | `SPEC.md` | 開発者向け仕様書 (スクリプト別詳細、 INF パース戦略、 WDAC policy 構造)。 **英語のみ。** |  |
@@ -119,9 +119,9 @@ BitLocker、 アンチチートソフト、 サポート影響、 証明書有�
 
 ## 新着情報
 
-**最新リリース: `2026-08-07` — Chipset r93 / Graphics r59 / NPU r37 / BthPan r41** (`windows-server-configuration-evidence-collector`)。 単体実行可能なコレクタ **`Collect-WindowsServerConfigurationEvidence.ps1` (c1)** が新たに追加されました。
+**最新リリース: `2026-08-07` — Chipset r94 / Graphics r60 / NPU r38 / BthPan r42** (`evidence-collection-default-on`): 構成情報エビデンス採取が **すべての実行で自動実行** されるようになりました (`ListPhases` を除く) — r93 のオプトイン `-CollectEvidence` スイッチはオプトアウトの `-SkipEvidenceCollection` に置き換えられ、 「4 スクリプトすべての実行前後で環境データを自動収集する」 という本来要件を満たします。 コレクタ自体は下記の r93 リリースで追加されました。
 
-- **新規: 構成情報エビデンス・コレクタ。** デプロイスクリプトが操作対象とする Windows Server の構成領域 (OS 識別、 デバイス、 ドライバストア、 プロジェクト証明書、 ブートセキュリティ、 CodeIntegrity イベント、 `setupapi` ログ、 スクリプト + ワークスペース目録) を、 **読み取り専用** でタイムスタンプ付きエビデンス ZIP に採取し、 色付きの PASS / FAIL / REVIEW / INFO 評価レポートを出力します。 デプロイ 4 本には `-CollectEvidence` スイッチが追加され、 実行の前後で **diff 比較可能な pre/post エビデンスペア** を自動採取します。 詳細は後述の 「構成情報エビデンス・コレクタ (r93+)」 節を参照してください。
+- **`2026-08-07` — r93 / r59 / r37 / r41** (`windows-server-configuration-evidence-collector`): **構成情報エビデンス・コレクタ。** デプロイスクリプトが操作対象とする Windows Server の構成領域 (OS 識別、 デバイス、 ドライバストア、 プロジェクト証明書、 ブートセキュリティ、 CodeIntegrity イベント、 `setupapi` ログ、 スクリプト + ワークスペース目録) を、 **読み取り専用** でタイムスタンプ付きエビデンス ZIP に採取し、 色付きの PASS / FAIL / REVIEW / INFO 評価レポートを出力します。 デプロイ 4 本には実行前後で **diff 比較可能な pre/post エビデンスペア** を採取する統合が追加されました (r93 ではオプトインの `-CollectEvidence`。 r94 でデフォルト有効化され、 オプトアウトの `-SkipEvidenceCollection` に置換)。 詳細は後述の 「構成情報エビデンス・コレクタ (r93+)」 節を参照してください。
 
 ### 最近のリリース (2026-07 — 2026-08)
 
@@ -271,7 +271,7 @@ C:\Temp\Workspace_AMD-Chipset\   (または C:\Temp\Workspace_AMD-Graphics\・C:
 - 当該証明書を kernel-mode 署名者として allowlist する **WDAC supplemental Code Integrity policy** を `C:\Windows\System32\CodeIntegrity\CiPolicies\Active\` に deploy。`CiTool --update-policy` で即時有効化されます (Windows Server 2022+ / Windows 11 22H2+ では再起動不要)。
 - パッチ済み + 自己署名済みのドライバを `pnputil /add-driver /install` で install。
 
-以下の 2 系統の成果物は、 ワークスペースではなく **スクリプトと同じフォルダ** に生成されます: 実行ごとの診断アーカイブ `<ScriptName>_<Action>_run-artifacts_<timestamp>_<PID>.zip` (r92+。 `*.pfx`・`download\`・`extracted\`・50 MB 超のファイルは除外)、 および `-CollectEvidence` 使用時のコレクタ成果物 `WindowsServerConfigurationEvidence_<stage>[_<invoker>]_<timestamp>` エビデンスディレクトリ + ZIP (r93+)。
+以下の 2 系統の成果物は、 ワークスペースではなく **スクリプトと同じフォルダ** に生成されます: 実行ごとの診断アーカイブ `<ScriptName>_<Action>_run-artifacts_<timestamp>_<PID>.zip` (r92+。 `*.pfx`・`download\`・`extracted\`・50 MB 超のファイルは除外)、 および r94 以降すべての実行でデフォルト採取される (`-SkipEvidenceCollection` でスキップ可) コレクタ成果物 `WindowsServerConfigurationEvidence_<stage>[_<invoker>]_<timestamp>` エビデンスディレクトリ + ZIP (r93+)。
 
 ---
 
@@ -305,9 +305,10 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\Deploy-AMDGraphicsDriverOnWindowsServer.ps1  -Action PrepareVerify -CleanWorkRoot
 .\Deploy-MSBthPanInboxOnWindowsServer.ps1      -Action PrepareVerify -CleanWorkRoot
 
-# オプション (r93+): 任意の実行を読み取り専用の pre/post 構成情報エビデンスペアで挟む
+# r94+: すべての実行で読み取り専用の pre/post 構成情報エビデンスペアが自動採取される
 # (diff 可能な 2 つのエビデンス ZIP がスクリプトフォルダに生成される。 後述のコレクタ節を参照)
-.\Deploy-AMDChipsetDriverOnWindowsServer.ps1   -Action PrepareVerify -CleanWorkRoot -CollectEvidence
+# 採取を止めたい場合のみ -SkipEvidenceCollection を付ける:
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1   -Action PrepareVerify -CleanWorkRoot -SkipEvidenceCollection
 
 # NPU スクリプト — 実機実行には OfflineZip (もしくはその他のダウンロードソース) が必須。
 # クリーン環境で -OfflineZip 未指定の場合、 P03 で "All 4 download tiers exhausted" と throw する。
@@ -711,7 +712,7 @@ $cred = Get-Credential -UserName 'you@example.com' -Message 'AMD アカウント
 | `-UseTestSigning`          | (off)                | WDAC 補助 policy ではなく `bcdedit /set testsigning on` にフォールバック (非推奨)                 |
 | `-WorkRoot`                | スクリプト別         | workspace path を上書き (Chipset: `C:\Temp\Workspace_AMD-Chipset`、 Graphics: `C:\Temp\Workspace_AMD-Graphics`、 NPU: `C:\Temp\Workspace_AMD-NPU`、 BthPan: `C:\Temp\Workspace_Microsoft-BthPan`)。 `C:\Temp\Workspace_*` 配下に配置。 `C:\Temp` がない場合はスクリプトが自動作成 |
 | `-LogFile`                 | 自動生成            | コンソール出力全体を `Start-Transcript` / `Stop-Transcript` でキャプチャするトランスクリプトのパス。 **r91+: 省略時 (デフォルト) は自動的にトランスクリプトが常時作成される** (`<WorkRoot>\\logs\\<ScriptName>_<Action>_<yyyyMMdd-HHmmss>_<PID>.log`)。 エントリバナーより前に開始されるため、 バナーと P00 の実行環境レポート全体がログに含まれる (`-CleanWorkRoot` 時は suspend/wipe/resume フローで wipe を生き延びる。 無効化スイッチはなし)。 明示的にパスを渡せば出力先を上書きできる。 ファイル側は全ストリーム (Output / Host / Error / Warning / Verbose / Debug) をプレーンテキストで受け取り、 インタラクティブコンソール側は `Write-Host -ForegroundColor` の色装飾を維持する。 レガシーな `... \\|*>&1 \\| Tee-Object -FilePath ...` イディオムは Write-Host の色情報がパイプ経由で削除されるが、 こちらは色を保持できるため推奨 |
-| `-CollectEvidence`         | (off)               | **r93+ (4 本共通)。** スクリプトと同じフォルダの `Collect-WindowsServerConfigurationEvidence.ps1` を、 最初のフェーズ前に stage `pre`、 実行の最終ステップで stage `post` として呼び出し、 diff 可能な読み取り専用エビデンス ZIP をスクリプトフォルダに生成する。 ベストエフォート: コレクタ側の問題は警告のみでデプロイ実行には影響しない。 `ListPhases` ではスキップ |
+| `-SkipEvidenceCollection`  | (off — 採取は実行される) | **r94+ (4 本共通)。** エビデンス採取は **デフォルト有効**: `ListPhases` を除くすべての実行が、 スクリプトと同じフォルダの `Collect-WindowsServerConfigurationEvidence.ps1` を最初のフェーズ前に stage `pre`、 実行の最終ステップで stage `post` として呼び出し、 diff 可能な読み取り専用エビデンス ZIP をスクリプトフォルダに生成する。 本スイッチ指定時は両方の採取をスキップ。 ベストエフォート: コレクタ側の問題は警告のみでデプロイ実行には影響しない。 (r93 ではオプトインの `-CollectEvidence` として出荷されたが、 常時自動採取という本来要件を満たすため r94 で極性を反転 — PSA6006 がデフォルト `$true` の switch を禁止しているため。) |
 | `-PfxPassword`             | スクリプト別         | 自己署名 PFX のパスワード (Chipset / Graphics: `'ChangeMe!2026'`、 NPU: `''`)                     |
 | `-WdacPolicyGuid`          | スクリプト別 (固定 UUID v4) | WDAC 補助 policy GUID を上書き。 デフォルトはスクリプト別 (Chipset: `503860EA-…`、 Graphics: `85336828-…`、 NPU: `8B2C4F12-…`)。 レガシー deploy のクリーンアップ、 または並列複数 deploy で使用 |
 | `-ForceUnsafe`             | (off)                | **r69+ (Chipset / Graphics / BthPan のみ)。** I00 PreInstallReview で条件 C1 / C2 / C5 / C6 が成立した場合に表示される CRITICAL 承認チェックリスト (シングルディスプレイホストでの display ドライバ置換、 BitLocker ON + AMD PSP ドライバ置換、 ホストが 24+ 時間 reboot されていない、 r71: Secure-Boot-ON ホストでの WHQL co-sign 不足) をバイパス。 CI / CD 自動化用途のみ。 バイパスは `Set-DebugStep` で run transcript に記録される。 **本番では絶対に使用しないこと。** 詳細は SPEC §D.28 と §D.31.4 |
@@ -983,10 +984,11 @@ ja-JP host でデフォルトのコードページ (932 / Shift-JIS) のまま `
 .\Collect-WindowsServerConfigurationEvidence.ps1
 ```
 
-また、 新しい `-CollectEvidence` スイッチにより、 デプロイスクリプトが **pre/post のエビデンスペアを自動採取** します — stage `pre` は最初のフェーズの前、 stage `post` は run-artifact アーカイブ後の実行最終ステップで走り、 stage と呼び出し元スクリプトが ZIP 名に埋め込まれるためペアを diff 比較できます:
+r94 以降、 デプロイスクリプトは **すべての実行で pre/post のエビデンスペアを自動採取** します (`ListPhases` を除く) — stage `pre` は最初のフェーズの前、 stage `post` は run-artifact アーカイブ後の実行最終ステップで走り、 stage と呼び出し元スクリプトが ZIP 名に埋め込まれるためペアを diff 比較できます。 採取を止める場合のみ `-SkipEvidenceCollection` を指定してください (r93 では一時的にオプトインの `-CollectEvidence` でしたが、 r94 で極性を反転しました):
 
 ```powershell
-.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot -CollectEvidence
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot                         # エビデンスペアは自動採取
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot -SkipEvidenceCollection # 採取をスキップ
 ```
 
 コレクタ側の問題 (ファイル不在・非ゼロ exit・エラー) は警告として報告されるのみで、 デプロイ実行には決して影響しません。 `-OutputRoot` はスクリプトフォルダ (デフォルト) または `C:\Temp` のみ許可されます。
