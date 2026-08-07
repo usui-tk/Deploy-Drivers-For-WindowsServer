@@ -119,11 +119,13 @@ BitLocker、 アンチチートソフト、 サポート影響、 証明書有�
 
 ## 新着情報
 
-**最新リリース: `2026-08-07` — Chipset r94 / Graphics r60 / NPU r38 / BthPan r42** (`evidence-collection-default-on`): 構成情報エビデンス採取が **すべての実行で自動実行** されるようになりました (`ListPhases` を除く) — r93 のオプトイン `-CollectEvidence` スイッチはオプトアウトの `-SkipEvidenceCollection` に置き換えられ、 「4 スクリプトすべての実行前後で環境データを自動収集する」 という本来要件を満たします。 コレクタ自体は下記の r93 リリースで追加されました。
+**最新リリース: `2026-08-08` — Chipset r95 / Graphics r61 / NPU r39 / BthPan r43** (`ws2019-ps51-field-fixes`): 初の Windows Server 2019 実地実行からの修正 — Windows PowerShell 5.1 のエンジンバグ (存在しない変数への `Get-Variable -Scope`) が r92〜r94 のすべての 5.1 実行で RUN SUMMARY の readiness 判定を欠落させていた問題、 存在確認 probe が caught 済みエラーレコードでトランスクリプトを汚す問題、 および I02 の `PATH B` バナーに「1903 未満のビルド (WS2019 = 1809) では WDAC supplemental パスはそもそも使用不能」と明示する改善。 ポストモーテム: SPEC D.39。
 
 - **`2026-08-07` — r93 / r59 / r37 / r41** (`windows-server-configuration-evidence-collector`): **構成情報エビデンス・コレクタ。** デプロイスクリプトが操作対象とする Windows Server の構成領域 (OS 識別、 デバイス、 ドライバストア、 プロジェクト証明書、 ブートセキュリティ、 CodeIntegrity イベント、 `setupapi` ログ、 スクリプト + ワークスペース目録) を、 **読み取り専用** でタイムスタンプ付きエビデンス ZIP に採取し、 色付きの PASS / FAIL / REVIEW / INFO 評価レポートを出力します。 デプロイ 4 本には実行前後で **diff 比較可能な pre/post エビデンスペア** を採取する統合が追加されました (r93 ではオプトインの `-CollectEvidence`。 r94 でデフォルト有効化され、 オプトアウトの `-SkipEvidenceCollection` に置換)。 詳細は後述の 「構成情報エビデンス・コレクタ (r93+)」 節を参照してください。
 
 ### 最近のリリース (2026-07 — 2026-08)
+
+- **`2026-08-07` — r94 / r60 / r38 / r42** (`evidence-collection-default-on`)。 構成情報エビデンス採取が **すべての実行で自動実行** に (`ListPhases` を除く) — オプトインの `-CollectEvidence` はオプトアウトの `-SkipEvidenceCollection` に置換。
 
 - **`2026-08-07` — r92 / r58 / r36 / r40** (`quickedit-guard-readiness-and-artifact-archive`)。 実運用レポートに基づく 3 つの堅牢化: **コンソール QuickEdit ガード** (誤ったテキスト選択がすべてのコンソール出力を凍結させ、 フェーズ途中のハングと見分けがつかない現象。 SPEC D.38 が 18m37s の実測ケースを、 Ctrl-C がスクリプトを停止させずに「ハング解除」する理由も含めて記録)、 RUN SUMMARY 末尾の明示的な **Install readiness 判定**、 および **run-artifact アーカイブ** (実行ごとの診断 ZIP をスクリプトフォルダにコピー。 `*.pfx` 秘密鍵は決して含まれません)。
 - **`2026-08-07` — r91 / r57 / r35 / r39** (`auto-run-transcript-and-chipset-url-discovery`)。 すべての実行が **自動でトランスクリプト記録** されるようになりました (`-LogFile` 指定不要)。 また Chipset の URL 探索が AMD の 2026-07 インストーラ改名 (`amd_chipset_software_<v>.exe` → `amd_software_<v>.exe`。 SPEC D.37) に対応し、 probe-miss 時の証跡保存 (`logs\` 配下) が追加されました。
@@ -1118,6 +1120,11 @@ Windows 11 24H2 上で実行しています (Win11 24H2 と Windows Server 2025 
 ### "P02 で WDK インストールに 2-3 分かかる"
 
 Windows WDK のダウンロードサイズが約 2.5 GB です。マシンごとに一度だけのインストールで、以降の実行ではインストール済みの `inf2cat.exe` を再利用するため、P02 は 1 秒未満で完了します。
+
+### 「Windows Server 2019 (Secure Boot ON) で I02 が PATH B PREREQUISITE NOT MET で中断する」
+
+これは設計どおりのフェイルセーフ動作であり、 WS2019 ではツール追加による回避はできません: WDAC supplemental ポリシーのパスには Windows 10 1903 / build 18362 で導入された multiple-policy format が必要で、 WS2019 は 1809 / build 17763 のため、 CiTool 等を導入しても有効化できません (r95+ のバナーはこれを明示します)。 Secure Boot ON の状態では `bcdedit /set testsigning on` がファームウェアに拒否されるため、 レガシーパスも閉じています。 このホストでの選択肢は 2 つです: (a) ファームウェアで Secure Boot を無効化して `-UseTestSigning` で再実行 (Path B — 事前に BitLocker 回復キーを保存)、 または (b) Secure Boot ON のまま `-SkipNonCosignedDrivers` で再実行し WHQL co-sign 済みサブセットのみをインストール (Path A)。 SPEC D.39.4 参照。
+
 
 ### 「スクリプトがフェーズ途中でハングしたように見え、 Ctrl-C を押すと (停止せずに) 続行する」
 

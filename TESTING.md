@@ -2509,3 +2509,22 @@ replacements to all four `.ps1` files in one pass.
 - First WS2016-generation field fixture for the Chipset / Graphics prep pipelines (earlier physical validation was WS2025 / Win11 LTSC 2024).
 - The two operator reports from these runs drove the r91 (URL discovery) and r92 (QuickEdit guard + readiness digest + run-artifact archive) hardening releases, and the session's evidence-handling needs motivated the r93 configuration-evidence collector.
 - `Install` actions were **not** executed on this fixture as part of these runs.
+
+---
+
+## 21. Validation Scenario 21: 2026-08-08 WS2019 field run (Chipset PrepareVerify + Install attempt)
+
+**Fixture**: Windows Server 2019 (build 17763, ja-JP), UEFI firmware with Secure Boot ON, Windows PowerShell 5.1, operator-driven console session. Script generation: r94 (`evidence-collection-default-on`), so this run also exercised the automatic pre/post evidence collection and the run-artifact archive for the first time in the field.
+
+**Observed**:
+
+| Item | Result |
+|---|---|
+| `PrepareVerify -CleanWorkRoot` | All 16 phases `done` in 9m34s: the renamed `amd_software_8.07.16.1035.exe` was discovered and downloaded (r91 fix confirmed working in the field), 119 INFs analysed, 2 patched, catalogs generated and signed |
+| Automatic evidence collection (r94) | Pre/post pairs produced for both actions; collector completed with `REVIEW REQUIRED` verdicts (informational REVIEW items) and correct exit-code behaviour on WS2019 / PS 5.1 |
+| Run-artifact archives (r92) | Created next to the script for both actions; `*.pfx` correctly absent |
+| **Defect** — RUN SUMMARY truncation | `引数の型が一致しません` thrown inside `Write-InstallReadinessDigest` right after the SUM row; readiness verdict and closing separator lost. Root cause: WinPS 5.1 `Get-Variable -Scope` engine bug on a missing variable; the pwsh-7 harness could not have caught it. Fixed in r95 (SPEC D.39.2) |
+| **Noise** — caught probe errors in transcript | ~12 `終了エラー` records per run from `-ErrorAction Stop` existence probes of legitimately-absent values (`PEFirmwareType`, `SecureBoot` optional values, `Servicing` tree, `Get-ComputerRestorePoint`). All were handled; policy changed in r95 to silent probes (SPEC D.39.3) |
+| `Install` | I01 imported the certificate; **I02 aborted by design** with `PATH B PREREQUISITE NOT MET` — Secure Boot ON refuses testsigning, and on WS2019 (pre-1903) the WDAC supplemental path is architecturally unavailable (multiple-policy format requires build 18362+). r95 adds the explicit build-gated note to the banner (SPEC D.39.4). No system modification occurred beyond the I01 certificate import |
+
+**Validation value**: first WS2019-generation fixture; first field confirmation of the r91 URL-discovery fix, the r92 archive and the r94 automatic evidence collection; surfaced the 5.1-only digest defect that the Core-based harness structurally cannot detect (harness false-negative lesson recorded in SPEC D.39.2).

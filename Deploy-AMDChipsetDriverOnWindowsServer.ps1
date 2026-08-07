@@ -669,8 +669,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.08.07-r94'
-$Script:ScriptTag     = 'evidence-collection-default-on'
+$Script:ScriptVersion = 'chipset-2026.08.08-r95'
+$Script:ScriptTag     = 'ws2019-ps51-field-fixes'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -1370,25 +1370,45 @@ function Write-InstallReadinessDigest {
     # deferred - counting would need a hook inside the canonical
     # write-caution unit, and vendored canon regions are not edited in
     # this repository (improvements flow through the central canon).
-    $failedIds = @()
-    foreach ($t in @($Script:PhaseTimings)) {
-        $st = [string]$t.Status
-        if ($st -eq 'failed' -or $st -eq 'FAIL') { $failedIds += [string]$t.Id }
-    }
-    $tle = Get-Variable -Name TopLevelException -Scope Script -ErrorAction SilentlyContinue
-    if ($tle -and $null -ne $tle.Value -and $failedIds.Count -eq 0) {
-        $failedIds += '(top-level error)'
-    }
-    Write-Host ''
-    Write-Host ' Note: [!] lines above are informational / expected-condition notices by' -ForegroundColor DarkYellow
-    Write-Host '       design (e.g. a baseline check on the unpatched source INF, a' -ForegroundColor DarkYellow
-    Write-Host '       documented tool fallback, a certificate not yet trusted before' -ForegroundColor DarkYellow
-    Write-Host '       I01, or a device absent on this host). A REAL failure marks its' -ForegroundColor DarkYellow
-    Write-Host '       phase as failed in the timing table.' -ForegroundColor DarkYellow
-    if ($failedIds.Count -gt 0) {
-        Write-Host (' Install readiness : REVIEW REQUIRED - failed: {0}' -f ($failedIds -join ', ')) -ForegroundColor Red
-    } else {
-        Write-Host ' Install readiness : READY - no failed phases.' -ForegroundColor Green
+    # Whole-body containment: the digest must NEVER truncate the RUN
+    # SUMMARY, whatever a future engine quirk throws (D.39 lesson).
+    try {
+        $failedIds = @()
+        foreach ($t in @($Script:PhaseTimings)) {
+            $st = [string]$t.Status
+            if ($st -eq 'failed' -or $st -eq 'FAIL') { $failedIds += [string]$t.Id }
+        }
+        # Windows PowerShell 5.1 engine bug (fixed in PowerShell Core):
+        # Get-Variable -Scope <name> for a variable that does not exist
+        # throws a statement-terminating PSArgumentException ('Argument
+        # types do not match' / ja: 'Arg types mismatch') that
+        # -ErrorAction CANNOT suppress. Field case: the 2026-08-08
+        # WS2019 run truncated the RUN SUMMARY exactly here on the three
+        # sisters that never define $Script:TopLevelException, while the
+        # pwsh-7 harness passed (bug absent in Core) - see SPEC D.39.
+        # try/catch around -ErrorAction Stop is the only 5.1-safe probe.
+        $tleValue = $null
+        try {
+            $tleValue = (Get-Variable -Name TopLevelException -Scope Script -ErrorAction Stop).Value
+        } catch {
+            $tleValue = $null
+        }
+        if ($null -ne $tleValue -and $failedIds.Count -eq 0) {
+            $failedIds += '(top-level error)'
+        }
+        Write-Host ''
+        Write-Host ' Note: [!] lines above are informational / expected-condition notices by' -ForegroundColor DarkYellow
+        Write-Host '       design (e.g. a baseline check on the unpatched source INF, a' -ForegroundColor DarkYellow
+        Write-Host '       documented tool fallback, a certificate not yet trusted before' -ForegroundColor DarkYellow
+        Write-Host '       I01, or a device absent on this host). A REAL failure marks its' -ForegroundColor DarkYellow
+        Write-Host '       phase as failed in the timing table.' -ForegroundColor DarkYellow
+        if ($failedIds.Count -gt 0) {
+            Write-Host (' Install readiness : REVIEW REQUIRED - failed: {0}' -f ($failedIds -join ', ')) -ForegroundColor Red
+        } else {
+            Write-Host ' Install readiness : READY - no failed phases.' -ForegroundColor Green
+        }
+    } catch {
+        Write-Host (' Install readiness : (digest unavailable: {0})' -f $_.Exception.Message) -ForegroundColor Yellow
     }
 }
 
@@ -3023,43 +3043,41 @@ function Get-SecureBootCertificateInventory {
 
     # ---- HKLM:\...\Control\SecureBoot (optional values) ----
     $sbKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot'
+    # Probe with SilentlyContinue + null-check: these values are OPTIONAL
+    # (absent on most hosts, e.g. the entire Servicing tree on a WS2019
+    # field host) and an -ErrorAction Stop probe litters the transcript
+    # with caught-but-recorded error records on every run (D.39).
     foreach ($name in 'HighConfidenceOptOut','MicrosoftUpdateManagedOptIn') {
-        try {
-            $rv = Get-ItemProperty -Path $sbKey -Name $name -ErrorAction Stop
-            $inv.$name = $rv.$name
-        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
+        $rv = Get-ItemProperty -Path $sbKey -Name $name -ErrorAction SilentlyContinue
+        if ($null -ne $rv) { $inv.$name = $rv.$name }
     }
     foreach ($name in 'AvailableUpdates','AvailableUpdatesPolicy') {
-        try {
-            $rv = Get-ItemProperty -Path $sbKey -Name $name -ErrorAction Stop
+        $rv = Get-ItemProperty -Path $sbKey -Name $name -ErrorAction SilentlyContinue
+        if ($null -ne $rv) {
             $inv.$name = $rv.$name
             if ($null -ne $rv.$name) {
                 $hexProp = "${name}Hex"
                 $inv.$hexProp = ('0x{0:X}' -f [int]$rv.$name)
             }
-        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
+        }
     }
 
     # ---- HKLM:\...\Control\SecureBoot\Servicing ----
     $svcKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\Servicing'
     foreach ($name in 'UEFICA2023Status','UEFICA2023Error','UEFICA2023ErrorEvent') {
-        try {
-            $rv = Get-ItemProperty -Path $svcKey -Name $name -ErrorAction Stop
-            $inv.$name = $rv.$name
-        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
+        $rv = Get-ItemProperty -Path $svcKey -Name $name -ErrorAction SilentlyContinue
+        if ($null -ne $rv) { $inv.$name = $rv.$name }
     }
 
     # ---- Servicing\DeviceAttributes ----
     $daKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\Servicing\DeviceAttributes'
     foreach ($name in 'OEMManufacturerName','OEMModelSystemFamily','OEMModelNumber','FirmwareVersion','FirmwareReleaseDate') {
-        try {
-            $rv = Get-ItemProperty -Path $daKey -Name $name -ErrorAction Stop
-            $inv.$name = $rv.$name
-        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
+        $rv = Get-ItemProperty -Path $daKey -Name $name -ErrorAction SilentlyContinue
+        if ($null -ne $rv) { $inv.$name = $rv.$name }
     }
+    $rvCaua = Get-ItemProperty -Path $daKey -Name 'CanAttemptUpdateAfter' -ErrorAction SilentlyContinue
     try {
-        $rv = Get-ItemProperty -Path $daKey -Name 'CanAttemptUpdateAfter' -ErrorAction Stop
-        $caua = $rv.CanAttemptUpdateAfter
+        $caua = if ($null -ne $rvCaua) { $rvCaua.CanAttemptUpdateAfter } else { $null }
         if ($null -ne $caua) {
             if ($caua -is [byte[]]) {
                 $ft = [BitConverter]::ToInt64($caua, 0)
@@ -3707,17 +3725,22 @@ function Get-BootSigningEnvironment {
     # HKLM\SYSTEM\CurrentControlSet\Control\PEFirmwareType:
     #   1 = BIOS (Legacy)
     #   2 = UEFI
-    try {
-        $val = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control' `
-                                 -Name 'PEFirmwareType' -ErrorAction Stop).PEFirmwareType
+    # Probe with SilentlyContinue + null-check: the value is absent on
+    # some installs (observed on a WS2019 field host) and an
+    # -ErrorAction Stop probe litters the transcript with a
+    # caught-but-recorded error record (D.39).
+    $fwProp = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control' `
+                               -Name 'PEFirmwareType' -ErrorAction SilentlyContinue
+    if ($null -ne $fwProp) {
+        $val = $fwProp.PEFirmwareType
         switch ([int]$val) {
             1 { $env.FirmwareType = 'BIOS (legacy)'; $env.IsUefi = $false }
             2 { $env.FirmwareType = 'UEFI';          $env.IsUefi = $true  }
             default { $env.FirmwareType = "unknown ($val)" }
         }
-    } catch {
+    } else {
         # Some constrained installs lack PEFirmwareType; fall back to
-        # presence of EFI system partition.
+        # presence of a GPT partition (EFI system partition proxy).
         try {
             $efi = Get-CimInstance -ClassName Win32_DiskPartition -ErrorAction Stop |
                 Where-Object Type -match 'GPT' | Select-Object -First 1
@@ -5528,6 +5551,24 @@ function Invoke-PathBPrerequisiteCheck {
             '  SPEC SS D.31 for the full r71 design rationale.',
             ''
         )
+        # Pre-1903 builds (e.g. Windows Server 2019 = 1809 / 17763)
+        # cannot use the WDAC supplemental path AT ALL: supplemental
+        # policies require the multiple-policy format introduced in
+        # Windows 10 1903 / build 18362. Say so explicitly, so the
+        # operator does not go hunting for a way to install CiTool
+        # (2026-08-08 WS2019 field run; D.39).
+        if ([Environment]::OSVersion.Version.Build -lt 18362) {
+            $lines += @(
+                '',
+                ('  NOTE for this OS (build {0}): the WDAC supplemental-policy path' -f [Environment]::OSVersion.Version.Build),
+                '  is architecturally unavailable here - supplemental policies need',
+                '  the multiple-policy format introduced in Windows 10 1903 / build',
+                '  18362 (Windows Server 2019 = 1809 / build 17763). Installing',
+                '  CiTool or extra tooling cannot enable it. The two alternatives',
+                '  above are therefore the ONLY paths on this host: disable Secure',
+                '  Boot for Path B, or stay on Path A with the WHQL co-signed subset.'
+            )
+        }
         $result.Result = 'abort'
         $result.Reason = 'secure-boot-on'
         $result.GuidanceLines = $lines
@@ -7851,12 +7892,20 @@ function Get-SystemRestorePointStatus { # psa-disable-line PSA6003 -- "Status" i
         if (Test-Path $srKey) {
             $result.ConfigurationFound = $true
         }
-        $points = Get-ComputerRestorePoint -ErrorAction Stop
-        $result.Enabled = $true
-        $cutoff = (Get-Date).AddDays(-30)
-        $result.RecentPoints = @($points | Where-Object {
-            $_.CreationTime -ge $cutoff
-        })
+        # SilentlyContinue + -ErrorVariable: on Server SKUs the cmdlet
+        # reports 'not supported' as a non-terminating error; probing
+        # with -ErrorAction Stop litters the transcript with a
+        # caught-but-recorded error record on every run (D.39). The
+        # error variable preserves the enabled-vs-unsupported semantics.
+        $restoreErrors = $null
+        $points = Get-ComputerRestorePoint -ErrorAction SilentlyContinue -ErrorVariable restoreErrors
+        if (-not $restoreErrors -or $restoreErrors.Count -eq 0) {
+            $result.Enabled = $true
+            $cutoff = (Get-Date).AddDays(-30)
+            $result.RecentPoints = @(@($points) | Where-Object {
+                $_.CreationTime -ge $cutoff
+            })
+        }
     } catch {
         # Either SR is disabled (most common on Server SKUs) or we
         # lack privileges. Leave Enabled=$false, RecentPoints=@().

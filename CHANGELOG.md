@@ -20,6 +20,62 @@ independently.
 
 ---
 
+## [2026-08-08] `ws2019-ps51-field-fixes` — Chipset r95 / Graphics r61 / NPU r39 / BthPan r43
+
+Fixes from the first Windows Server 2019 field run (2026-08-08, ja-JP,
+UEFI + Secure Boot ON, Windows PowerShell 5.1). Full post-mortem:
+SPEC D.39.
+
+### Fix 1 — RUN SUMMARY truncation in `Write-InstallReadinessDigest` (all four)
+
+- On every WinPS 5.1 run of r92-r94, Chipset / Graphics / BthPan threw
+  `引数の型が一致しません` ("Argument types do not match") right after
+  the SUM row, losing the readiness verdict and the closing separator.
+  Root cause: a 5.1 engine bug — `Get-Variable -Scope <name>` for a
+  missing variable throws a statement-terminating PSArgumentException
+  that `-ErrorAction` cannot suppress (fixed in PowerShell Core, which
+  is why the pwsh-7 harness never caught it). Only NPU defines
+  `$Script:TopLevelException`, so only NPU was immune.
+- The probe is now `try { (Get-Variable ... -ErrorAction Stop).Value }
+  catch { $null }`, and the digest body is wrapped in a whole-body
+  try/catch so the RUN SUMMARY can never again be truncated by the
+  digest.
+
+### Fix 2 — transcript noise from existence probes (all four)
+
+- A dozen caught-but-recorded `終了エラー` lines per run came from
+  `-ErrorAction Stop` probes of values that are legitimately absent
+  (`PEFirmwareType`, optional `SecureBoot` values, the `Servicing`
+  tree — absent on WS2019 — and `Get-ComputerRestorePoint` on Server
+  SKUs). Transcription records caught Stop-escalations at throw time.
+- Policy (D.39.3): existence probes now use `-ErrorAction
+  SilentlyContinue` + null-check; `Get-ComputerRestorePoint`
+  additionally uses `-ErrorVariable` to preserve the
+  enabled-vs-unsupported distinction.
+
+### Fix 3 — pre-1903 WDAC wall made explicit (Chipset / Graphics / BthPan)
+
+- The I02 `PATH B PREREQUISITE NOT MET` banner now adds a build-gated
+  note on hosts below build 18362: the WDAC supplemental path is
+  architecturally unavailable there (multiple-policy format requires
+  Windows 10 1903+), so the two printed alternatives (Secure Boot OFF +
+  `-UseTestSigning`, or Path A with `-SkipNonCosignedDrivers`) are the
+  only options — installing CiTool cannot help. The I02 abort itself is
+  unchanged, by-design behaviour.
+
+Docs: SPEC D.39 post-mortem; README (both languages) Troubleshooting
+entry for the WS2019 I02 abort and What's new refresh; TESTING §21
+records the WS2019 field run.
+
+Gates: psa.py 0 findings x5, ParseFile clean x4, BOM+CRLF preserved,
+canon frames byte-identical (machine-verified), harness 27/27 (r93)
+re-run green plus new r95 regression harness 12/12 (digest 5.1-safety
+contract, functional verdict paths, no-Stop-probe contract x4,
+ErrorVariable semantics).
+
+---
+
+
 ## [2026-08-07] `evidence-collection-default-on` — Chipset r94 / Graphics r60 / NPU r38 / BthPan r42
 
 Polarity fix for the r93 evidence-collection integration: collection is

@@ -119,11 +119,13 @@ All four PowerShell scripts share the same 21-phase architecture, the same self-
 
 ## What's new
 
-**Latest release: `2026-08-07` — Chipset r94 / Graphics r60 / NPU r38 / BthPan r42** (`evidence-collection-default-on`): configuration-evidence collection now runs **automatically on every run** (`ListPhases` excepted) — the opt-in `-CollectEvidence` switch from r93 was replaced by the opt-out `-SkipEvidenceCollection`, fulfilling the original requirement that all four scripts capture pre/post environment evidence by default. The r93 release below added the collector itself.
+**Latest release: `2026-08-08` — Chipset r95 / Graphics r61 / NPU r39 / BthPan r43** (`ws2019-ps51-field-fixes`): fixes from the first Windows Server 2019 field run — a Windows PowerShell 5.1 engine bug (`Get-Variable -Scope` on a missing variable) truncated the RUN SUMMARY readiness verdict on every 5.1 run of r92-r94; existence probes no longer litter the transcript with caught-but-recorded error records; and the I02 `PATH B` banner now states explicitly that pre-1903 builds (WS2019 = 1809) cannot use the WDAC supplemental path at all. Post-mortem: SPEC D.39.
 
 - **`2026-08-07` — r93 / r59 / r37 / r41** (`windows-server-configuration-evidence-collector`): **configuration evidence collector.** A standalone, **read-only** companion script that captures the Windows Server configuration areas the deploy scripts operate on (OS identity, devices, driver store, project certificates, boot security, CodeIntegrity events, `setupapi` logs, script + workspace inventory) into a timestamped evidence ZIP with a color-coded PASS / FAIL / REVIEW / INFO assessment report. All four deploy scripts gained integration that takes a **diffable pre/post evidence pair** around the run (shipped in r93 as the opt-in `-CollectEvidence`; made default-on with the opt-out `-SkipEvidenceCollection` in r94). See ["Configuration evidence collector (r93+)"](#configuration-evidence-collector-r93) below.
 
 ### Recent releases (2026-07 — 2026-08)
+
+- **`2026-08-07` — r94 / r60 / r38 / r42** (`evidence-collection-default-on`): configuration-evidence collection became **automatic on every run** (`ListPhases` excepted) — the opt-in `-CollectEvidence` was replaced by the opt-out `-SkipEvidenceCollection`.
 
 - **`2026-08-07` — r92 / r58 / r36 / r40** (`quickedit-guard-readiness-and-artifact-archive`). Three field-driven hardening additions: the **console QuickEdit guard** (an accidental text selection freezes every console write and looks exactly like a mid-phase hang; SPEC D.38 documents the 18m37s field case, including why Ctrl-C "un-hangs" the run instead of stopping it), the explicit **install-readiness verdict** at the end of the RUN SUMMARY, and the **run-artifact archive** — one diagnostics ZIP per run, copied next to the script (`*.pfx` private keys are never included).
 - **`2026-08-07` — r91 / r57 / r35 / r39** (`auto-run-transcript-and-chipset-url-discovery`). Every run is now **transcribed automatically** (no `-LogFile` needed), and the Chipset URL discovery accepts AMD's 2026-07 installer renaming (`amd_chipset_software_<v>.exe` → `amd_software_<v>.exe`; SPEC D.37) with probe-miss evidence preservation under `logs\`.
@@ -1128,6 +1130,11 @@ By running these scripts, you acknowledge:
 ### "OS detected: Windows Server 2025 (build 26100) [WS2025] but ProductType: 1"
 
 You are running on Windows 11 24H2 (which shares NT build 26100 with Windows Server 2025). The script intentionally maps Win11 24H2 to the WS2025 profile because they share kernel ABI. `Install` phases are blocked on Workstation OS by default; use `-Action PrepareVerify` only, or pass `-AllowWorkstationInstall` if you really want to install on Win11 (read the warnings first). See [TESTING.md](./TESTING.md) for the pre-migration verification workflow.
+
+### "I02 aborts with PATH B PREREQUISITE NOT MET on Windows Server 2019 (Secure Boot ON)"
+
+This is designed, fail-safe behaviour, and on WS2019 there is no tooling workaround: the WDAC supplemental-policy path requires the multiple-policy format introduced in Windows 10 1903 / build 18362, while WS2019 is 1809 / build 17763 — installing CiTool or extra tooling cannot enable it (the r95+ banner says this explicitly). With Secure Boot ON, `bcdedit /set testsigning on` is refused by firmware, so the legacy path is closed too. Your two options on such a host are: (a) disable Secure Boot in firmware and re-run with `-UseTestSigning` (Path B — save your BitLocker recovery key first), or (b) keep Secure Boot ON and re-run with `-SkipNonCosignedDrivers`, installing only the WHQL co-signed subset (Path A). See SPEC D.39.4.
+
 
 ### "The script seems to hang mid-phase — and Ctrl-C makes it CONTINUE instead of stopping it"
 

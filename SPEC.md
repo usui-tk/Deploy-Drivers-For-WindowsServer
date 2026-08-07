@@ -4860,6 +4860,34 @@ The same operator session raised a second concern: a BthPan `PrepareVerify` run 
 All three fixes apply to all four scripts (Chipset r92 / Graphics r58 / NPU r36 / BthPan r40). NPU's wiring differs mechanically — the digest call sits inside `Show-RunSummary`, and the archive + console-mode restore are inserted after the summary in its `finally` with an explicit idempotent transcript stop (the pre-existing per-branch stops become no-ops) — but the operator-visible behaviour is identical across the four.
 
 
+## D.39 WS2019 field run (2026-08-08): PS 5.1 `Get-Variable -Scope` engine bug, probe-noise policy, and the pre-1903 WDAC wall
+
+### D.39.1 The run
+
+First field execution on Windows Server 2019 (build 17763, ja-JP, UEFI + Secure Boot ON, Windows PowerShell 5.1): Chipset `PrepareVerify -CleanWorkRoot` (r94) completed all 16 phases in 9m34s, then `Install` was attempted. Three distinct findings came out of the transcripts.
+
+### D.39.2 Finding 1 — `Write-InstallReadinessDigest` truncated the RUN SUMMARY (real defect, r92-introduced)
+
+Immediately after the SUM row, the transcript recorded a bare terminating error `引数の型が一致しません` ("Argument types do not match") and both the readiness verdict and the closing separator were missing. Root cause: **Windows PowerShell 5.1 engine bug** — `Get-Variable -Name X -Scope <name>` for a variable that does not exist in that scope throws a statement-terminating `PSArgumentException` that `-ErrorAction SilentlyContinue` cannot suppress (fixed in PowerShell Core, never backported to 5.1). The digest probed `$Script:TopLevelException`, which only the NPU script defines; Chipset / Graphics / BthPan therefore hit the bug on **every** 5.1 run of r92-r94, while the pwsh-7 Linux harness passed — a **harness false negative**: 5.1-only engine bugs are invisible to a Core-based harness. Fix (r95): the probe is `try { (Get-Variable ... -ErrorAction Stop).Value } catch { $null }`, and the digest body is wrapped in a whole-body try/catch so no future quirk can truncate the RUN SUMMARY again.
+
+### D.39.3 Finding 2 — transcript noise from `-ErrorAction Stop` existence probes (policy)
+
+The transcript contained a dozen `終了エラー` records for values that are legitimately absent on this host (`PEFirmwareType`, the optional `SecureBoot` values, the entire `SecureBoot\Servicing` tree — absent on WS2019 — and `Get-ComputerRestorePoint` on a Server SKU). Every one was caught and handled by design, but **PowerShell transcription records a caught `-ErrorAction Stop` escalation at throw time**, so the log reads as if the run is riddled with errors. Policy adopted in r95: **existence probes must not use `-ErrorAction Stop` + catch**; probe with `-ErrorAction SilentlyContinue` and null-check (plus `-ErrorVariable` where the error-vs-empty distinction carries semantics, e.g. `Get-ComputerRestorePoint` enabled-vs-unsupported). `-ErrorAction Stop` + catch remains correct where the operation is *expected to succeed* and failure is exceptional.
+
+### D.39.4 Finding 3 — the pre-1903 WDAC wall (documented, message improved)
+
+The `Install` run aborted at I02 with the designed `PATH B PREREQUISITE NOT MET` banner (Secure Boot ON refuses `bcdedit /set testsigning on`), after the WDAC path was ruled out ("WDAC tools not available"). On WS2019 this is not a tooling gap that can be fixed by installing anything: **supplemental policies require the multiple-policy format introduced in Windows 10 1903 / build 18362**; WS2019 is 1809 / 17763. The only paths on such hosts are (a) Secure Boot OFF + `-UseTestSigning` (Path B) or (b) Path A restricted to the WHQL co-signed subset (`-SkipNonCosignedDrivers`). r95 adds an explicit build-gated note to the banner so operators stop hunting for CiTool.
+
+### D.39.5 Observations (deferred)
+
+- The Microsoft sample-script stdout extractor pairs labels with the *next* label when a value is empty on WS2019 (`"BucketId":"BucketConfidenceLevel:"`); raw stdout remains authoritative in the evidence. Extractor robustness is a candidate fix, not landed in r95.
+- `Compress-Archive` produces backslash entry separators in the run-artifact / evidence ZIPs; extraction tools on non-Windows warn but handle it. Cosmetic.
+
+### D.39.6 Sister impact
+
+Findings 1-2 fixes apply to all four scripts (identical edits; PSA8001 byte-identity preserved). Finding 3's banner note applies to Chipset / Graphics / BthPan (the NPU I02 has no Path B banner). Release: Chipset r95 / Graphics r61 / NPU r39 / BthPan r43.
+
+
 ## Appendix: How to seed a new sister script from this SPEC
 
 If you are creating a 5th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1`):

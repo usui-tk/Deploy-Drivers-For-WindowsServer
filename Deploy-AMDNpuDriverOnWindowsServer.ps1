@@ -340,8 +340,8 @@ param(
 #   * PhaseResults - per-phase outcome registry (write side from
 #     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.08.07-r38'
-$Script:ScriptTag           = 'evidence-collection-default-on'
+$Script:ScriptVersion       = 'npu-2026.08.08-r39'
+$Script:ScriptTag           = 'ws2019-ps51-field-fixes'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the
@@ -1070,25 +1070,45 @@ function Write-InstallReadinessDigest {
     # deferred - counting would need a hook inside the canonical
     # write-caution unit, and vendored canon regions are not edited in
     # this repository (improvements flow through the central canon).
-    $failedIds = @()
-    foreach ($t in @($Script:PhaseTimings)) {
-        $st = [string]$t.Status
-        if ($st -eq 'failed' -or $st -eq 'FAIL') { $failedIds += [string]$t.Id }
-    }
-    $tle = Get-Variable -Name TopLevelException -Scope Script -ErrorAction SilentlyContinue
-    if ($tle -and $null -ne $tle.Value -and $failedIds.Count -eq 0) {
-        $failedIds += '(top-level error)'
-    }
-    Write-Host ''
-    Write-Host ' Note: [!] lines above are informational / expected-condition notices by' -ForegroundColor DarkYellow
-    Write-Host '       design (e.g. a baseline check on the unpatched source INF, a' -ForegroundColor DarkYellow
-    Write-Host '       documented tool fallback, a certificate not yet trusted before' -ForegroundColor DarkYellow
-    Write-Host '       I01, or a device absent on this host). A REAL failure marks its' -ForegroundColor DarkYellow
-    Write-Host '       phase as failed in the timing table.' -ForegroundColor DarkYellow
-    if ($failedIds.Count -gt 0) {
-        Write-Host (' Install readiness : REVIEW REQUIRED - failed: {0}' -f ($failedIds -join ', ')) -ForegroundColor Red
-    } else {
-        Write-Host ' Install readiness : READY - no failed phases.' -ForegroundColor Green
+    # Whole-body containment: the digest must NEVER truncate the RUN
+    # SUMMARY, whatever a future engine quirk throws (D.39 lesson).
+    try {
+        $failedIds = @()
+        foreach ($t in @($Script:PhaseTimings)) {
+            $st = [string]$t.Status
+            if ($st -eq 'failed' -or $st -eq 'FAIL') { $failedIds += [string]$t.Id }
+        }
+        # Windows PowerShell 5.1 engine bug (fixed in PowerShell Core):
+        # Get-Variable -Scope <name> for a variable that does not exist
+        # throws a statement-terminating PSArgumentException ('Argument
+        # types do not match' / ja: 'Arg types mismatch') that
+        # -ErrorAction CANNOT suppress. Field case: the 2026-08-08
+        # WS2019 run truncated the RUN SUMMARY exactly here on the three
+        # sisters that never define $Script:TopLevelException, while the
+        # pwsh-7 harness passed (bug absent in Core) - see SPEC D.39.
+        # try/catch around -ErrorAction Stop is the only 5.1-safe probe.
+        $tleValue = $null
+        try {
+            $tleValue = (Get-Variable -Name TopLevelException -Scope Script -ErrorAction Stop).Value
+        } catch {
+            $tleValue = $null
+        }
+        if ($null -ne $tleValue -and $failedIds.Count -eq 0) {
+            $failedIds += '(top-level error)'
+        }
+        Write-Host ''
+        Write-Host ' Note: [!] lines above are informational / expected-condition notices by' -ForegroundColor DarkYellow
+        Write-Host '       design (e.g. a baseline check on the unpatched source INF, a' -ForegroundColor DarkYellow
+        Write-Host '       documented tool fallback, a certificate not yet trusted before' -ForegroundColor DarkYellow
+        Write-Host '       I01, or a device absent on this host). A REAL failure marks its' -ForegroundColor DarkYellow
+        Write-Host '       phase as failed in the timing table.' -ForegroundColor DarkYellow
+        if ($failedIds.Count -gt 0) {
+            Write-Host (' Install readiness : REVIEW REQUIRED - failed: {0}' -f ($failedIds -join ', ')) -ForegroundColor Red
+        } else {
+            Write-Host ' Install readiness : READY - no failed phases.' -ForegroundColor Green
+        }
+    } catch {
+        Write-Host (' Install readiness : (digest unavailable: {0})' -f $_.Exception.Message) -ForegroundColor Yellow
     }
 }
 
@@ -1914,17 +1934,22 @@ function Get-BootSigningEnvironment {
     # HKLM\SYSTEM\CurrentControlSet\Control\PEFirmwareType:
     #   1 = BIOS (Legacy)
     #   2 = UEFI
-    try {
-        $val = (Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control' `
-                                 -Name 'PEFirmwareType' -ErrorAction Stop).PEFirmwareType
+    # Probe with SilentlyContinue + null-check: the value is absent on
+    # some installs (observed on a WS2019 field host) and an
+    # -ErrorAction Stop probe litters the transcript with a
+    # caught-but-recorded error record (D.39).
+    $fwProp = Get-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control' `
+                               -Name 'PEFirmwareType' -ErrorAction SilentlyContinue
+    if ($null -ne $fwProp) {
+        $val = $fwProp.PEFirmwareType
         switch ([int]$val) {
             1 { $env.FirmwareType = 'BIOS (legacy)'; $env.IsUefi = $false }
             2 { $env.FirmwareType = 'UEFI';          $env.IsUefi = $true  }
             default { $env.FirmwareType = "unknown ($val)" }
         }
-    } catch {
+    } else {
         # Some constrained installs lack PEFirmwareType; fall back to
-        # presence of EFI system partition.
+        # presence of a GPT partition (EFI system partition proxy).
         try {
             $efi = Get-CimInstance -ClassName Win32_DiskPartition -ErrorAction Stop |
                 Where-Object Type -match 'GPT' | Select-Object -First 1
@@ -3288,43 +3313,41 @@ function Get-SecureBootCertificateInventory {
 
     # ---- HKLM:\...\Control\SecureBoot (optional values) ----
     $sbKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot'
+    # Probe with SilentlyContinue + null-check: these values are OPTIONAL
+    # (absent on most hosts, e.g. the entire Servicing tree on a WS2019
+    # field host) and an -ErrorAction Stop probe litters the transcript
+    # with caught-but-recorded error records on every run (D.39).
     foreach ($name in 'HighConfidenceOptOut','MicrosoftUpdateManagedOptIn') {
-        try {
-            $rv = Get-ItemProperty -Path $sbKey -Name $name -ErrorAction Stop
-            $inv.$name = $rv.$name
-        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
+        $rv = Get-ItemProperty -Path $sbKey -Name $name -ErrorAction SilentlyContinue
+        if ($null -ne $rv) { $inv.$name = $rv.$name }
     }
     foreach ($name in 'AvailableUpdates','AvailableUpdatesPolicy') {
-        try {
-            $rv = Get-ItemProperty -Path $sbKey -Name $name -ErrorAction Stop
+        $rv = Get-ItemProperty -Path $sbKey -Name $name -ErrorAction SilentlyContinue
+        if ($null -ne $rv) {
             $inv.$name = $rv.$name
             if ($null -ne $rv.$name) {
                 $hexProp = "${name}Hex"
                 $inv.$hexProp = ('0x{0:X}' -f [int]$rv.$name)
             }
-        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
+        }
     }
 
     # ---- HKLM:\...\Control\SecureBoot\Servicing ----
     $svcKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\Servicing'
     foreach ($name in 'UEFICA2023Status','UEFICA2023Error','UEFICA2023ErrorEvent') {
-        try {
-            $rv = Get-ItemProperty -Path $svcKey -Name $name -ErrorAction Stop
-            $inv.$name = $rv.$name
-        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
+        $rv = Get-ItemProperty -Path $svcKey -Name $name -ErrorAction SilentlyContinue
+        if ($null -ne $rv) { $inv.$name = $rv.$name }
     }
 
     # ---- Servicing\DeviceAttributes ----
     $daKey = 'HKLM:\SYSTEM\CurrentControlSet\Control\SecureBoot\Servicing\DeviceAttributes'
     foreach ($name in 'OEMManufacturerName','OEMModelSystemFamily','OEMModelNumber','FirmwareVersion','FirmwareReleaseDate') {
-        try {
-            $rv = Get-ItemProperty -Path $daKey -Name $name -ErrorAction Stop
-            $inv.$name = $rv.$name
-        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup; no error to surface
+        $rv = Get-ItemProperty -Path $daKey -Name $name -ErrorAction SilentlyContinue
+        if ($null -ne $rv) { $inv.$name = $rv.$name }
     }
+    $rvCaua = Get-ItemProperty -Path $daKey -Name 'CanAttemptUpdateAfter' -ErrorAction SilentlyContinue
     try {
-        $rv = Get-ItemProperty -Path $daKey -Name 'CanAttemptUpdateAfter' -ErrorAction Stop
-        $caua = $rv.CanAttemptUpdateAfter
+        $caua = if ($null -ne $rvCaua) { $rvCaua.CanAttemptUpdateAfter } else { $null }
         if ($null -ne $caua) {
             if ($caua -is [byte[]]) {
                 $ft = [BitConverter]::ToInt64($caua, 0)
