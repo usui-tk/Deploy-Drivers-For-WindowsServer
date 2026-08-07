@@ -5,7 +5,7 @@ This document consolidates the validation results for `Deploy-Drivers-For-Window
 1. **Validation Result 1: ThinkCentre M75q Tiny Gen 2** (Windows Server 2025 physical / Cezanne Zen 3 — chipset & graphics validated)
 2. **Validation Result 2: ThinkPad X13 Gen 1 AMD (2020)** (Windows 11 Enterprise LTSC 2024 / Renoir Zen 2 — chipset & graphics validated)
 3. **Validation Result 3 (NPU script)** — **🆘 NOT YET VALIDATED on physical NPU hardware. See [§3](#3-validation-result-3-npu-script--currently-unverified) for the current limited validation status.**
-4. **Validation Result 4 (BthPan script)** — ⏳ **PLANNED.** ThinkPad + Intel AX210 + Windows Server 2025 build 26100.32860 is the first physical-validation target. See [§4](#4-validation-result-4-bthpan-script--planned) for the planned test sequence.
+4. **Validation Result 4 (BthPan script)** — ⏳ **PLANNED.** ThinkPad + Intel AX210 + Windows Server 2025 build 26100.32860 is the first physical-validation target. See [§4](#4-validation-result-4-bthpan-script--planned) for the planned test sequence. **Update 2026-08-07**: `PrepareVerify` was field-executed on a WS2016 host without a Bluetooth controller (staging-path validation; the AX210 physical-bind validation is still pending) — see [§20](#20-validation-scenario-20-2026-08-07-ws2016--ryzen-5-pro-4650u-field-runs-chipset--graphics--bthpan-prepareverify).
 
 > **Documentation language policy**: This document is maintained in
 > English only. See `README.md` and `README.ja.md` for the bilingual
@@ -20,10 +20,10 @@ This document consolidates the validation results for `Deploy-Drivers-For-Window
 
 | Script | Physical-hardware validation | Real driver install on target HW | Recommended use |
 |---|---|---|---|
-| **Chipset** | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD (see CHANGELOG for per-revision validation history) | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
-| **Graphics** | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD (see CHANGELOG for per-revision validation history) | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
+| **Chipset** | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD; WS2016 + Ryzen 5 PRO 4650U field host (`PrepareVerify`, 2026-08-07 — §20). See CHANGELOG for per-revision validation history | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
+| **Graphics** | ✓ M75q Tiny Gen 2, X13 Gen 1 AMD; WS2016 + Ryzen 5 PRO 4650U field host (`PrepareVerify`, 2026-08-07 — §20; this run surfaced the QuickEdit console-freeze, SPEC D.38). See CHANGELOG for per-revision validation history | ✓ install completed successfully on M75q (WS2025) | Lab + cautious production |
 | **NPU** | ❌ **none** (no physical NPU machine in maintainer's lab) | ❌ **never executed** | **Experimental / research-grade only. Do not deploy in production.** |
-| **BthPan** | ⏳ **planned** — ThinkPad + Intel AX210 + Windows Server 2025 build 26100.32860 is the first target (see §4 below) | ❌ **not yet executed** | New script; physical validation pending. Logic shares the proven Phase / Secure Boot / WDAC framework from the Chipset script (Edit-InfForServer, Get-OsContext, Resolve-PhaseSelection, etc. are verbatim-inherited). |
+| **BthPan** | ⏳ partial — **`PrepareVerify` field-executed 2026-08-07** on WS2016 + Ryzen 5 PRO 4650U (no Bluetooth controller present: staging-path validation only; §20). AX210 device-bind validation still planned (§4) | ❌ **not yet executed** | New script; physical validation pending. Logic shares the proven Phase / Secure Boot / WDAC framework from the Chipset script (Edit-InfForServer, Get-OsContext, Resolve-PhaseSelection, etc. are verbatim-inherited). |
 
 > **Note on the category-priority override** (see SPEC §D.15): The
 > category-priority override changes the install-decision semantics
@@ -591,6 +591,8 @@ The two updates are independent — adding driver support does not require touch
 ---
 
 ## 4. Validation Result 4 (BthPan script) — planned
+
+> **Status update (2026-08-07)**: the prep pipeline (`PrepareVerify`) has since been field-executed on a WS2016 host without a Bluetooth controller — see [§20](#20-validation-scenario-20-2026-08-07-ws2016--ryzen-5-pro-4650u-field-runs-chipset--graphics--bthpan-prepareverify). The planned AX210 device-bind sequence below remains the outstanding validation target and is kept as originally written.
 
 > The BthPan script is brand-new; physical validation has not yet been performed. This section documents the planned first physical-validation run.
 
@@ -2486,3 +2488,24 @@ in the CHANGELOG.md r80 entry. The script preserves UTF-8 BOM,
 CRLF line endings, and applies the same set of regex / literal
 replacements to all four `.ps1` files in one pass.
 
+
+---
+
+## 20. Validation Scenario 20: 2026-08-07 WS2016 + Ryzen 5 PRO 4650U field runs (Chipset / Graphics / BthPan PrepareVerify)
+
+**Fixture**: Windows Server 2016 (build 14393), AMD Ryzen 5 PRO 4650U (Renoir-family APU with integrated Radeon graphics), Windows PowerShell 5.1, operator-driven interactive console session. No Bluetooth controller present on the host. Script generation: the wave-2b builds (Chipset r90 / Graphics r56 / BthPan r38 era).
+
+**Runs** (all `-Action PrepareVerify -CleanWorkRoot`, operator-collected console logs analysed off-host):
+
+| Script | Observed outcome | Consequence |
+|---|---|---|
+| Chipset | P03 URL discovery returned 0 hits on the current AMD landing pages | Root-caused to AMD's 2026-07 installer renaming (`amd_chipset_software_<v>.exe` → `amd_software_<v>.exe`); fixed in r91 with a widened pattern, dual-name cache filter, updated pinned fallback and probe-miss evidence preservation. Post-mortem: SPEC D.37 |
+| Graphics | 18m37s of console silence in P04 immediately after `Extracted with 7-Zip auto-detect`; the operator's Ctrl-C made the run **continue** (nested-MSI extraction + INF discovery completed 0.6s later). A second unnoticed 3m41s silent gap existed in P03 | Root-caused to console QuickEdit mark-mode freeze, not a 7-Zip or script defect (7-Zip had exited 0 eighteen minutes before the release; Ctrl-C in mark mode is copy-and-release). Fixed in r92 with the QuickEdit guard. Post-mortem: SPEC D.38 |
+| BthPan | Every phase ended `done`; the console showed several `[!]` notices (source-INF baseline InfVerif errors 1233/1204, `inf2cat` 22.9.8 refusal → `makecat` fallback, `signtool verify` untrusted-root before I01, no `BTH\MS_BTHPAN` device on the host) and the operator asked whether proceeding to Install was safe | All four notices confirmed expected-condition by design (the script itself classified `REAL failures: 0`); Install on this host would stage the driver only. The presentational gap (no explicit verdict in the RUN SUMMARY) was closed in r92 with the install-readiness digest. Analysis: SPEC D.38.4 |
+
+**Validation value**:
+
+- First field execution of the BthPan prep pipeline on physical hardware. Because the host has no Bluetooth controller, this validates the staging path only (INF patch, catalog generation via the documented `makecat` fallback, signing, expected pre-I01 verification states); the device-bind path still requires the §4 AX210 fixture.
+- First WS2016-generation field fixture for the Chipset / Graphics prep pipelines (earlier physical validation was WS2025 / Win11 LTSC 2024).
+- The two operator reports from these runs drove the r91 (URL discovery) and r92 (QuickEdit guard + readiness digest + run-artifact archive) hardening releases, and the session's evidence-handling needs motivated the r93 configuration-evidence collector.
+- `Install` actions were **not** executed on this fixture as part of these runs.

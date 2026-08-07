@@ -20,6 +20,52 @@ independently.
 
 ---
 
+## [2026-08-07] `docs-refresh-post-r93` — documentation-only (no script changes)
+
+Documentation staleness sweep after the r88-r93 release series. No
+script files were modified; all five `ScriptVersion` identities are
+unchanged (Chipset r93 / Graphics r59 / NPU r37 / BthPan r41 /
+collector c1).
+
+- **README.md / README.ja.md**:
+  - "What's new" rewritten — it was stuck at the 2026-05-27 r87 release;
+    it now covers r93 (collector), r92 (QuickEdit guard / readiness /
+    archive), r91 (auto transcript / URL discovery) and the 2026-07-03
+    vendored-canon waves 1 / 2a / 2b, delegating older releases to
+    CHANGELOG.md. The stale deep prose (r75-r87) and a dead-path link to
+    the pre-reorganisation SpeakerDeck location were removed with it.
+  - "What's in the box", the folder layout and the workspace tree now
+    include the collector, `AGENTS.md` / `CLAUDE.md`, the `logs\` tree
+    (auto transcript, chipset probe-miss evidence, archive plan marker)
+    and `secureboot_ms_sample\`, plus a note about the two artifact
+    families that land next to the script (run-artifact ZIPs r92+,
+    evidence ZIPs r93+).
+  - The output-files table gained rows for the auto transcript,
+    `amd-landing-probe-*.html`, `run-artifact-archive-plan.txt` and
+    `secureboot_ms_sample\*.json`; the ja table additionally received
+    the three BthPan `logs\` rows and the corrected workspace paths
+    (`C:\Temp\Workspace_*` — the ja intro still said the retired
+    `C:\AMD-*-WS` layout).
+  - Quick start gained the optional `-CollectEvidence` pre/post example;
+    the console-output section now shows the r92+ install-readiness
+    verdict block; Troubleshooting gained "hang that Ctrl-C resumes"
+    (QuickEdit; D.38) and "[!] but Done - safe to install?" (D.38.4)
+    entries, and the P03 entry now documents AMD's 2026-07 installer
+    renaming (D.37).
+- **TESTING.md**: the validation-status summary and intro now record the
+  2026-08-07 WS2016 + Ryzen 5 PRO 4650U field runs (first BthPan field
+  execution — staging path only, no BT controller on the host; the
+  operator reports from these runs drove r91/r92); new §20 scenario
+  section; §4 (planned BthPan AX210 validation) received a status
+  pointer while keeping its original text as historical context.
+- **SPEC.md**: the §B.1 present-tense installer-name reference now
+  covers both the legacy and the 2026-07 AMD naming (pointer to D.37).
+- **CONTRIBUTING.md**: the regression checklist now runs `psa.py` on
+  all five scripts (collector included).
+
+---
+
+
 ## [2026-08-07] `windows-server-configuration-evidence-collector` — Chipset r93 / Graphics r59 / NPU r37 / BthPan r41
 
 New standalone evidence collector plus its automatic pre/post invocation

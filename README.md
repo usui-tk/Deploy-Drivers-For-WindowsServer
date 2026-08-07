@@ -104,6 +104,7 @@ For the full at-your-own-risk acknowledgements (BitLocker, anti-cheat software, 
 | `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | Graphics driver pipeline (Display, HD Audio, Audio CoProcessor, ACP, USB-C UCSI, etc.). Source: AMD Adrenalin Edition ~600 MB EXE, ~19 INFs (Vega-Polaris Legacy branch) or ~67 INFs (Main Adrenalin branch for Phoenix+). | **Stable** — same validation hosts as chipset. |
 | **`Deploy-AMDNpuDriverOnWindowsServer.ps1`** | **NPU (Ryzen AI XDNA) driver pipeline (PHX/HPT/STX/KRK).** Source: AMD Ryzen AI Software ZIP, ~250 MB, EULA-gated download (no public direct URL). Kernel-mode driver only — does NOT install Ryzen AI Software user-mode stack. | **🆘 Experimental / research-grade — NOT production-ready.** No physical-NPU validation runs have been performed. AMD account auto-download is best-effort and may break with AMD form changes. Ryzen AI Software is officially unsupported on Windows Server 2025. |
 | `Deploy-MSBthPanInboxOnWindowsServer.ps1` | **Microsoft inbox Bluetooth PAN driver (`bthpan.inf` / `bthpan.sys`) enablement pipeline.** Source: the host's own `C:\Windows\System32\DriverStore\FileRepository\bthpan.inf_amd64_*` directory — **no remote download required.** Single INF, single HWID (`BTH\MS_BTHPAN`). Distinguishes Phantom OK (bth.inf proxy match) from true resolution (Class=Net, Service=BthPan) on Windows Server. | **New** — initial release. Logic shares the same Phase / Secure Boot / WDAC framework as the AMD scripts; INF patch surface is much smaller (1 INF, 1 HWID). Physical validation on ThinkPad + Intel AX210 + WS2025 build 26100.32860 is the planned first test target. |
+| `Collect-WindowsServerConfigurationEvidence.ps1` | **Read-only configuration evidence collector (r93+).** Captures OS / device / driver-store / certificate / boot-security / CodeIntegrity / `setupapi` state into a timestamped evidence ZIP with a PASS / FAIL / REVIEW / INFO assessment report (exit codes 0 / 2 / 1). Runs standalone, or automatically as a pre/post pair via the deploy scripts' `-CollectEvidence` switch. | **New** — behavioural-harness verified; physical-host validation pending. |
 | `README.md` | This document (English; the master). |  |
 | `README.ja.md` | Japanese translation of `README.md`, kept in sync. |  |
 | `SPEC.md` | Developer specification (per-script details, INF parsing strategy, WDAC policy structure). **English only.** |  |
@@ -112,94 +113,24 @@ For the full at-your-own-risk acknowledgements (BitLocker, anti-cheat software, 
 | `CONTRIBUTING.md` | How to file issues, propose changes, and run regression tests. **English only.** |  |
 | `LICENSE` | MIT License. |  |
 
-All four PowerShell scripts share the same 21-phase architecture, the same self-signing model, and the same WDAC authorisation path. They write to separate workspaces (`C:\Temp\Workspace_AMD-Chipset`, `C:\Temp\Workspace_AMD-Graphics`, `C:\Temp\Workspace_AMD-NPU`, `C:\Temp\Workspace_Microsoft-BthPan`) and use separate self-signed certificates + separate WDAC supplemental policy GUIDs so they never collide. All four workspaces sit under `C:\Temp\Workspace_*` for cluster-and-purge convenience; the script auto-creates `C:\Temp` on demand.
+All four PowerShell scripts share the same 21-phase architecture, the same self-signing model, and the same WDAC authorisation path. They write to separate workspaces (`C:\Temp\Workspace_AMD-Chipset`, `C:\Temp\Workspace_AMD-Graphics`, `C:\Temp\Workspace_AMD-NPU`, `C:\Temp\Workspace_Microsoft-BthPan`) and use separate self-signed certificates + separate WDAC supplemental policy GUIDs so they never collide. All four workspaces sit under `C:\Temp\Workspace_*` for cluster-and-purge convenience; the script auto-creates `C:\Temp` on demand. `Collect-WindowsServerConfigurationEvidence.ps1` sits alongside them as a read-only companion: it has no workspace of its own and writes its evidence next to the script (or `C:\Temp`).
 
 ---
 
 ## What's new
 
-**Latest release: `2026-05-27` — Chipset r87 / Graphics r53 / BthPan r35 / NPU r31** (`cross-repo-canon-rename-misleading-helpers`).
-This is a **focused naming-cleanup release** that renames two helpers in the 5-way cross-repo shared utility canon where the function names had drifted from what the implementations actually do. Both renames are mechanical (function bodies unchanged); the entire release is a callsite-only rewrite plus the script-identity bump.
+**Latest release: `2026-08-07` — Chipset r93 / Graphics r59 / NPU r37 / BthPan r41** (`windows-server-configuration-evidence-collector`), which also adds the standalone collector **`Collect-WindowsServerConfigurationEvidence.ps1` (c1)**.
 
-Key changes (see CHANGELOG for the full entry):
+- **New: configuration evidence collector.** A standalone, **read-only** companion script that captures the Windows Server configuration areas the deploy scripts operate on (OS identity, devices, driver store, project certificates, boot security, CodeIntegrity events, `setupapi` logs, script + workspace inventory) into a timestamped evidence ZIP with a color-coded PASS / FAIL / REVIEW / INFO assessment report. All four deploy scripts gained a `-CollectEvidence` switch that takes a **diffable pre/post evidence pair** around the run automatically. See ["Configuration evidence collector (r93+)"](#configuration-evidence-collector-r93) below.
 
-- **`Set-Tls12` → `Set-TlsSecurityProtocol`.** The pre-rename name suggested "set TLS 1.2", but since the r86 hybrid uplift the implementation has been negotiating TLS 1.3 + 1.2 + best-effort 1.1 + 1.0 fallback. The new name reflects what the function actually does: it assigns the `[Net.ServicePointManager]::SecurityProtocol` bitmask for outbound HTTPS calls.
+### Recent releases (2026-07 — 2026-08)
 
-- **`Set-ConsoleUtf8` → `Set-Utf8PipelineEncoding`.** The pre-rename name suggested "set Console to UTF-8", but the implementation sets three distinct things: `[Console]::OutputEncoding`, `[Console]::InputEncoding`, AND the PowerShell-internal `$OutputEncoding` global variable. The third is not a Console property — it controls how PowerShell writes piped data to external tools. The new name captures the broader pipeline-encoding scope.
+- **`2026-08-07` — r92 / r58 / r36 / r40** (`quickedit-guard-readiness-and-artifact-archive`). Three field-driven hardening additions: the **console QuickEdit guard** (an accidental text selection freezes every console write and looks exactly like a mid-phase hang; SPEC D.38 documents the 18m37s field case, including why Ctrl-C "un-hangs" the run instead of stopping it), the explicit **install-readiness verdict** at the end of the RUN SUMMARY, and the **run-artifact archive** — one diagnostics ZIP per run, copied next to the script (`*.pfx` private keys are never included).
+- **`2026-08-07` — r91 / r57 / r35 / r39** (`auto-run-transcript-and-chipset-url-discovery`). Every run is now **transcribed automatically** (no `-LogFile` needed), and the Chipset URL discovery accepts AMD's 2026-07 installer renaming (`amd_chipset_software_<v>.exe` → `amd_software_<v>.exe`; SPEC D.37) with probe-miss evidence preservation under `logs\`.
+- **`2026-07-03` — waves 1 / 2a / 2b: r88-r90 / r54-r56 / r36-r38 (BthPan) / r32-r34 (NPU)** (`cross-repo-canon-vendored-region-markers-wave-*`). The cross-repo shared-helper canon was reframed as machine-verifiable **vendored regions** with `>>> CANONICAL ... <<<` markers (32 units in Chipset / Graphics / BthPan, 29 in NPU), maintained from the central [`ai-generated-artifacts`](https://github.com/usui-tk/ai-generated-artifacts) repository. Improvements to code inside a marked region flow through the central canon, not through direct edits here.
 
-- **Mechanical callsite rewrites.** Both renames are precise `\bName\b` word-boundary replacements: 9 occurrences each (Chipset 2 + Graphics 2 + NPU 3 + BthPan 2 = 9 per rename) in this repo. The matching SpeakerDeck-repo release rewrites the corresponding 3 + 3 = 6 occurrences in `Download-SpeakerDeck.ps1`.
+Older release notes (every release since the initial commit) live in [CHANGELOG.md](./CHANGELOG.md).
 
-- **5-way byte-identity preserved.** All 28 canon functions remain byte-identical across the four AMD scripts and the SpeakerDeck script (the two renamed function bodies are unchanged; only the function name and callsites changed).
-
-- **Historical preservation.** Forward-looking references in SPEC.md §A.5 and §A.11.7 are updated to the new names; historical references in SPEC.md §A.11.5 (PSA8001 history note) and §D.5 / §D.16 (Known Pitfalls) retain the pre-rename names as verbatim historical context, per the repository's policy that past-tense pitfall descriptions reflect implementations as they existed at the time the pitfall was logged.
-
-- **`$Script:ScriptTag` updated to `cross-repo-canon-rename-misleading-helpers`** across all four scripts. **All four scripts pass `psa.py` 4.1.0 with 0 / 0 / 0 / 0**.
-
-### Previous release notes
-
-The **`2026-05-27` Chipset r86 / Graphics r52 / BthPan r34 / NPU r30** release (`cross-repo-shared-utility-canon-write-caution`) established the **5-way cross-repo shared utility canon** that spans the four AMD-family scripts in this repository and the `Download-SpeakerDeck.ps1` script in the sibling repository [`usui-tk/ai-generated-artifacts`](https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/powershell/download-speakerdeck-oracle4engineer). 28 helper functions were made byte-identical across all five scripts (up from 5 prior to the release). The bidirectional best-of-both pass also renamed `Write-Warn2` (AMD canon) and `Write-Warn` (SpeakerDeck canon) to a unified `Write-Caution` and resolved the three remaining NPU-vs-AMD-trio divergences (`Set-Tls12`, `Set-ConsoleUtf8`, `Assert-PowerShellCompatibility`). No runtime behaviour changes.
-
-The **`2026-05-26` Chipset r85 / Graphics r51 / BthPan r33 / NPU r29** release (`npu-state-model-refactor-step-3-tier-b4-helper-canon`) was **stage 3 (the final stage) of the NPU state-model refactor**. The five Tier B-4 helpers (`Get-OrEnsureSecureBootBaseline`, `Get-BootSigningEnvironment`, `Show-BootSigningEnvironment`, `Invoke-Cleanup`, `Resume-CtxFromWorkspace`) were replaced with byte-identical copies of the Chipset canon, the NPU `$Ctx` schema was fully reconciled with Chipset's, and every top-level `$Script:` state assignment was removed. Tier A grew from 38 to 39 functions. The NPU script's `Invoke-Cleanup` semantics changed from cert-subject-CN enumeration to marker-file lookup (post-mortem in SPEC §D.36.1).
-
-The **`2026-05-26` Chipset r84 / Graphics r50 / BthPan r32 / NPU r28** release (`npu-state-model-refactor-step-2-phase-functions-ctx`) was **stage 2 of the NPU state-model refactor** — the bulk of the restructuring work. Every NPU phase function and every non-phase state-touching helper (except the three Tier B-4 helpers slated for stage 3) was migrated to take `$Ctx` as a mandatory parameter and read its runtime state from `$Ctx.Foo` instead of `$Script:Foo`: 184 mechanical replacements across 27 functions, 27 signature changes, 5 caller-site fix-ups. The top-level `$Script:Foo` assignments were kept as transitional dual-carriage state because the three remaining Tier B-4 helpers still read `$Script:` globals; that duplication was removed in stage 3 (r85). Tier A roster remained at 38 functions in this release.
-
-The **`2026-05-26` Chipset r83 / Graphics r49 / BthPan r31 / NPU r27** release (`npu-state-model-refactor-step-1-wdac-helpers`) began the NPU state-model refactor — the multi-stage workstream that brings the NPU script into the same `$Ctx`-based state-passing model used by Chipset / Graphics / BthPan. Stage 1 was a **setup release**: it ported the prerequisite WDAC tooling helpers (`Test-WdacToolsAvailable`, `Get-ActiveCodeIntegrityPolicies` as 4-way Tier A; `Get-AmdSuppPolicyMarkerPath`, `Test-AmdWdacPolicyDeployed`, `Uninstall-AmdWdacPolicy` as 3-way Tier B-3) from Chipset to NPU, and constructed the canonical `$Ctx` skeleton (currently unused; placeholder for stage 2 consumers). Tier A roster grew from 36 → 38 functions. **No runtime behaviour changes**.
-
-The **`2026-05-26` Chipset r81 / Graphics r47 / BthPan r29 / NPU r25** release (`psa-py-v410-three-new-error-rules-baseline`) adopted `psa.py` 4.1.0 — the upstream minor release that adds three new error-severity, default-on static-analysis rules (`PSA1004`, `PSA2012`, `PSA2013`). All four sister scripts passed with a 0 / 0 / 0 / 0 baseline on the full latest-mainline rule set. The release also introduced **SPEC §A.11.7 "Shared helper canon and porting checklist"**.
-
-The **`2026-05-24` Chipset r80 / Graphics r46 / BthPan r28 / NPU r24** release (`psa-py-v4-llm-governance-strict`) **completed the LLM-governance migration** that began at r76 / r42 / r24 / r20. All four sister scripts pass `psa.py` 4.0.2 in **strict mode** (`psap0005_relaxed_mode` removed from `.psa.config.json`) with a **0 / 0 / 0 / 0 baseline** on every rule in the analyzer's rule set at that point:
-
-- `psa.py` 4.0.2 (upstream) extended the `PSAP0005` relaxed-mode coverage with nine new exempt patterns (E1-E9) plus a comment-block-level exempt heuristic; under the new analyzer the four-script relaxed-mode count dropped from 64 to 1.
-- 99 strict-mode-eligible `rNN` references were rewritten in a bulk consolidated change set, shifting historical "added in rNN" / "before rNN" / "rNN (graphics)" / etc. prose to **timeless wording** with cross-references to `SPEC.md` Part D for design rationale. PSA8001 byte-identity on cross-script-shared helpers was preserved.
-- `.psa.config.json` was simplified by omitting the `psap0005_relaxed_mode` key (taking its default `false` value).
-- `$Script:ScriptTag` was updated to `psa-py-v4-llm-governance-strict` across all four scripts.
-- SPEC.md §D.34 documents the full post-mortem of the consolidated release.
-
-See [SPEC §A.13](./SPEC.md#a13-development-workflow) for the LLM-governance steady-state policy and [SPEC §D.34](./SPEC.md#d34-psap0005-strict-mode-migration-r80--r46--r24--r28-2026-05-24) for the migration retrospective.
-
-The **`2026-05-25` Chipset r75 / Graphics r41 / BthPan r23 / NPU r19**
-release (`legacy-ws2019-ps51-japp-correctness-fix`) fixed three
-defects revealed by a follow-up diagnostic on the same WS2019 ja-JP
-+ Renoir bench host that the r74 release investigated, and
-**honestly corrected the proximate-cause diagnosis of two of the r74
-defects**:
-
-- **Defect A** — `Split-Path -LiteralPath ... -Parent` triggers
-  `AmbiguousParameterSet` on Windows PowerShell 5.1 ja-JP. This was the
-  actual source of the `指定された名前のパラメーターを使用してパラメーター セットを解決できません。`
-  warning that r74 misattributed to a `Find-Signtool` typo. Fix: use
-  `[System.IO.Path]::GetDirectoryName($path)`.
-- **Defect B** — `Get-OurSignedOemInfSet` Pass 1 scanned
-  `C:\Windows\INF\` (empty on WS2019 ja-JP) instead of
-  `C:\Windows\System32\CatRoot\{F750E6C3-...}\` (where catalogs
-  actually live). Pass 2 (pnputil cross-reference) therefore never ran
-  and V06's `-KnownOurInfSet` argument received an empty hashtable. Fix:
-  scan CatRoot directly + pnputil Signer Name fallback.
-- **Defect C** — `Invoke-InstPhase00_PreInstallReview` referenced
-  `$ourInfSet` without building it (latent since r74). Fix: mirror the
-  V06 build pattern at the start of I00's per-device loop.
-
-The r75 release also landed two new `psa.py` v3.9.0 static-analysis
-rules (**PSA2010** — undefined-function call detection; **PSA2011** —
-Split-Path -LiteralPath -Parent detection) that would have caught the
-corresponding defects at static-analysis time. The four scripts pass
-`psa.py 3.9.0 --severity error` with 0 errors at the r75 baseline.
-
-See [SPEC §D.33](./SPEC.md#d33-honest-correction-of-d32-and-additional-defects-from-the-2026-05-25-ws2019--renoir-bench-cycle-r75)
-for the full post-incident analysis and
-[TESTING §17](./TESTING.md#17-r75-2026-05-25-ws2019-ja-jp--renoir-test-scenarios-defect-a--b--c)
-for the regression scenarios (TC17.1 — TC17.9).
-
-The r74 release ([2026-05-24] `legacy-ws2019-runtime-correctness-fix`)
-remains the previous reference for §D.32's defect taxonomy; the r74
-fixes for r74 Defect 2 (`signtool /all`) and r74 Defect 4 (I02→I03
-halt) are validated unchanged by the r75 bench cycle.
-
-See [CHANGELOG.md](./CHANGELOG.md) for the chronological per-release entry log
-organised by date and by script — this is the single source of truth for
-what the main branch ships at any given moment. For the architectural
-rationale behind individual fixes, see
-[SPEC.md Part D](./SPEC.md#part-d--known-pitfalls--lessons-learned).
 
 ## Risk classification of the four scripts
 
@@ -290,6 +221,7 @@ Deploy-Drivers-For-WindowsServer/
 ├── Deploy-AMDGraphicsDriverOnWindowsServer.ps1    Graphics driver pipeline (21 phases)
 ├── Deploy-AMDNpuDriverOnWindowsServer.ps1         NPU (Ryzen AI XDNA) pipeline (21 phases)
 ├── Deploy-MSBthPanInboxOnWindowsServer.ps1        Microsoft inbox bthpan pipeline (21 phases)
+├── Collect-WindowsServerConfigurationEvidence.ps1 Read-only configuration evidence collector (r93+)
 ├── README.md                                      This document (English; master)
 ├── README.ja.md                                   Japanese translation, kept in sync
 ├── TESTING.md                                     Physical-hardware validation results (EN only)
@@ -298,6 +230,8 @@ Deploy-Drivers-For-WindowsServer/
 ├── CONTRIBUTING.md                                Issue / PR guidelines (EN only)
 ├── SECURITY.md                                    Vulnerability reporting (EN only)
 ├── CODE_OF_CONDUCT.md                             Community behaviour (EN only)
+├── AGENTS.md                                      Agent-governance bridge (canonical governance lives in the central repo)
+├── CLAUDE.md                                      Pointer to AGENTS.md
 ├── LICENSE                                        MIT License
 ├── .psa.config.json                               psa.py configuration (PSAP rules opt-in)
 ├── .gitattributes                                 Git line-ending normalization
@@ -319,6 +253,11 @@ C:\Temp\Workspace_AMD-Chipset\   (or C:\Temp\Workspace_AMD-Graphics\, C:\Temp\Wo
 │                          (BthPan: patched\bthpan\ — single INF directory)
 ├── cert\                  Self-signed code-signing cert (PFX + CER) +
 │                          WDAC supplemental policy XML/CIP
+├── logs\                  Automatic run transcript (r91+), tool logs,
+│                          probe-miss evidence html (chipset, r91+),
+│                          run-artifact archive plan marker (r92+)
+├── secureboot_ms_sample\  UEFI Secure Boot baseline JSON evidence
+│                          (Microsoft sample-script output)
 └── inf_inventory.csv / inf_inventory_report.txt
                            P05 inventory and per-INF analysis
                            (BthPan: single-row CSV — exactly one INF)
@@ -329,6 +268,8 @@ After `-Action Install` (or phases I01-I04), the script also deploys:
 - The cert to `LocalMachine\Root` + `LocalMachine\TrustedPublisher`.
 - A **WDAC supplemental Code Integrity policy** to `C:\Windows\System32\CodeIntegrity\CiPolicies\Active\` that allowlists this specific cert as a kernel-mode signer. This is activated immediately via `CiTool --update-policy` (no reboot required on Windows Server 2022+ / Windows 11 22H2+).
 - The patched + self-signed drivers via `pnputil /add-driver /install`.
+
+Two artifact families land **next to the script** rather than in the workspace: the per-run diagnostics archive `<ScriptName>_<Action>_run-artifacts_<timestamp>_<PID>.zip` (r92+; excludes `*.pfx`, `download\`, `extracted\` and any file over 50 MB), and — when `-CollectEvidence` is used — the collector's `WindowsServerConfigurationEvidence_<stage>[_<invoker>]_<timestamp>` evidence directories + ZIPs (r93+).
 
 ---
 
@@ -361,6 +302,10 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\Deploy-AMDChipsetDriverOnWindowsServer.ps1   -Action PrepareVerify -CleanWorkRoot
 .\Deploy-AMDGraphicsDriverOnWindowsServer.ps1  -Action PrepareVerify -CleanWorkRoot
 .\Deploy-MSBthPanInboxOnWindowsServer.ps1      -Action PrepareVerify -CleanWorkRoot
+
+# Optional (r93+): wrap any run in a read-only pre/post configuration-evidence pair
+# (two diffable evidence ZIPs land next to the script; see the collector section below)
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1   -Action PrepareVerify -CleanWorkRoot -CollectEvidence
 
 # NPU script — REQUIRES an offline ZIP (or other download source) to actually run P03.
 # On a clean machine without -OfflineZip, P03 will throw "All 4 download tiers exhausted".
@@ -838,6 +783,10 @@ Each script writes the following artifacts under its workspace (`C:\Temp\Workspa
 | `logs\inf2cat_bthpan.log` (BthPan) | inf2cat verbose log; useful for diagnosing catalog generation failures                                                |
 | `logs\pnputil_bthpan.log` (BthPan) | pnputil add-driver/install output                                                                                     |
 | `logs\pnputil_scan-devices.log` (BthPan) | pnputil /scan-devices output (I03 forces PnP rebind)                                                            |
+| `logs\<ScriptName>_<Action>_<yyyyMMdd-HHmmss>_<PID>.log` | Automatic run transcript (r91+); written for every run unless an explicit `-LogFile` overrides the path |
+| `logs\amd-landing-probe-*.html` (chipset)   | Probe-miss evidence: raw AMD landing pages preserved when URL discovery returns 0 hits (r91+; SPEC D.37)         |
+| `logs\run-artifact-archive-plan.txt`        | Marker recording the planned run-artifact ZIP name (r92+; the ZIP carries this marker so it is self-identifying) |
+| `secureboot_ms_sample\*.json`               | UEFI Secure Boot baseline evidence from the Microsoft sample script                                              |
 
 ### CSV column conventions
 
@@ -955,6 +904,17 @@ Continuation lines that sit inside a section-banner table (PowerShell environmen
 ```
 
 The phase header banner (`=` × 72, Magenta) is emitted by the dispatcher; phase functions never print their own banner. The `[+X.XXs]` elapsed-tag is reset at each phase entry so it tracks **time inside the current phase**, not total runtime.
+
+Since r92 the RUN SUMMARY ends with an explicit install-readiness verdict (see SPEC D.38 for the field analysis that motivated it):
+
+```
+ Note: [!] lines above are informational / expected-condition notices by
+       design (e.g. a baseline check on the unpatched source INF, a
+       documented tool fallback, a certificate not yet trusted before
+       I01, or a device absent on this host). A real failure marks its
+       phase as failed in the timing table.
+ Install readiness : READY - no failed phases.
+```
 
 ---
 
@@ -1167,6 +1127,15 @@ By running these scripts, you acknowledge:
 
 You are running on Windows 11 24H2 (which shares NT build 26100 with Windows Server 2025). The script intentionally maps Win11 24H2 to the WS2025 profile because they share kernel ABI. `Install` phases are blocked on Workstation OS by default; use `-Action PrepareVerify` only, or pass `-AllowWorkstationInstall` if you really want to install on Win11 (read the warnings first). See [TESTING.md](./TESTING.md) for the pre-migration verification workflow.
 
+### "The script seems to hang mid-phase — and Ctrl-C makes it CONTINUE instead of stopping it"
+
+That is not a hang: the console was in **QuickEdit mark mode**. Windows consoles (QuickEdit is ON by default on Windows Server) freeze every console write while text is selected, so an accidental click-drag stops all visible progress mid-`Write-Host`; Ctrl-C in mark mode is *copy-and-release*, which unfreezes the run without stopping it — the diagnostic signature of this failure class. r92+ disables QuickEdit for the duration of the run and restores the original console mode on exit, so this can no longer occur. On older revisions, avoid selecting console text during a run (or upgrade). Full post-mortem: SPEC D.38 (an 18m37s field freeze initially reported as a "7-Zip hang").
+
+### "Several [!] warnings appeared but the final state is Done — is it safe to proceed to Install?"
+
+Yes — if the r92+ `Install readiness` line at the end of the RUN SUMMARY says `READY`. `[!]` lines are informational / expected-condition notices by design: source-INF baseline checks (errors on the *unpatched* INF are the baseline measurement), documented tool fallbacks (e.g. BthPan's `inf2cat` 22.9.8 refusal → `makecat`), untrusted-root before I01 imports the certificate, or a target device that is simply absent on this host (Install then stages the driver only). A **real** failure marks its phase as `failed` in the timing table and flips the verdict to `REVIEW REQUIRED - failed: <ids>`. SPEC D.38.4 documents the field analysis behind this.
+
+
 ### "P02 takes 2-3 minutes to install the WDK"
 
 The Windows WDK download is ~2.5 GB. This is a one-time install per machine. Subsequent runs reuse the installed `inf2cat.exe` and complete P02 in under a second.
@@ -1175,6 +1144,7 @@ The Windows WDK download is ~2.5 GB. This is a one-time install per machine. Sub
 
 AMD periodically reorganises their support pages. The script probes 3-6 candidate URLs; if all return 0 hits, the parser broke. Workarounds:
 
+- **2026-07 AMD installer renaming**: AMD renamed newly-published chipset installers from `amd_chipset_software_<version>.exe` to `amd_software_<version>.exe`. r91+ accepts both names and preserves the fetched landing pages as `logs\amd-landing-probe-*.html` when every probe misses; earlier revisions return 0 hits on current AMD pages — upgrade, or use `-InstallerUrl` below. See SPEC D.37.
 - Pass `-InstallerUrl https://drivers.amd.com/drivers/...` to skip URL discovery and download a specific version.
 - Open the `Probe results:` block in P03 output and visit each URL manually to confirm AMD's site changed.
 - File an issue: <https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/issues>

@@ -104,6 +104,7 @@ BitLocker、 アンチチートソフト、 サポート影響、 証明書有�
 | `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | グラフィックスドライバパイプライン (Display、 HD Audio、 Audio CoProcessor、 ACP、 USB-C UCSI 等)。 ソース: AMD Adrenalin Edition EXE 約 600 MB、 INF 約 19 個 (Vega-Polaris Legacy ブランチ) または約 67 個 (Phoenix 以降の Main Adrenalin ブランチ)。 | **安定版** — チップセットスクリプトと同一の検証ホストで検証済み。 |
 | **`Deploy-AMDNpuDriverOnWindowsServer.ps1`** | **NPU (Ryzen AI XDNA) ドライバパイプライン (PHX/HPT/STX/KRK)。** ソース: AMD Ryzen AI Software ZIP 約 250 MB、 EULA gate あり (公開直接 URL なし)。 kernel-mode driver のみ install — Ryzen AI Software user-mode stack は対象外。 | **🆘 実験的・研究用途 — 本番運用不可。** 物理 NPU ハードウェアでの検証は未実施。 AMD アカウント自動ダウンロードは best-effort で AMD 側のフォーム変更で破綻する可能性。 Ryzen AI Software は Windows Server 2025 公式非サポート。 |
 | `Deploy-MSBthPanInboxOnWindowsServer.ps1` | **Microsoft inbox Bluetooth PAN ドライバ (`bthpan.inf` / `bthpan.sys`) 有効化パイプライン。** ソース: ホスト自身の `C:\Windows\System32\DriverStore\FileRepository\bthpan.inf_amd64_*` ディレクトリ — **リモートダウンロード不要**。 単一 INF・ 単一 HWID (`BTH\MS_BTHPAN`)。 Phantom OK (bth.inf による代理マッチ) と真の解消 (Class=Net、 Service=BthPan) を Windows Server 上で明示的に区別します。 | **新規** — 初版リリース。 Phase / Secure Boot / WDAC フレームワークは AMD スクリプトと同一を verbatim 継承。 INF パッチ対象が 1 ファイル・ 1 HWID と非常に小さい。 ThinkPad + Intel AX210 + WS2025 build 26100.32860 が第一の物理検証ターゲット予定。 |
+| `Collect-WindowsServerConfigurationEvidence.ps1` | **読み取り専用の構成情報エビデンス・コレクタ (r93+)。** OS / デバイス / ドライバストア / 証明書 / ブートセキュリティ / CodeIntegrity / `setupapi` の状態をタイムスタンプ付きエビデンス ZIP に採取し、 PASS / FAIL / REVIEW / INFO 評価レポートを出力する (exit code 0 / 2 / 1)。 単体実行のほか、 デプロイスクリプトの `-CollectEvidence` スイッチで pre/post ペアとして自動実行される。 | **New** — 挙動ハーネス検証済み。 実機ホストでの検証は未実施。 |
 | `README.md` | 英語版ドキュメント (マスター)。 |  |
 | `README.ja.md` | 本ドキュメント (日本語版、 `README.md` と同期翻訳)。 |  |
 | `SPEC.md` | 開発者向け仕様書 (スクリプト別詳細、 INF パース戦略、 WDAC policy 構造)。 **英語のみ。** |  |
@@ -112,66 +113,24 @@ BitLocker、 アンチチートソフト、 サポート影響、 証明書有�
 | `CONTRIBUTING.md` | Issue・PR ガイドラインと regression test 手順。 **英語のみ。** |  |
 | `LICENSE` | MIT License。 |  |
 
-4 つの PowerShell スクリプトは同じ 21 phase アーキテクチャ、 同じ自己署名モデル、 同じ WDAC 認可パスを共有します。 それぞれ別ワークスペース (`C:\Temp\Workspace_AMD-Chipset`、 `C:\Temp\Workspace_AMD-Graphics`、 `C:\Temp\Workspace_AMD-NPU`、 `C:\Temp\Workspace_Microsoft-BthPan`)、 別の自己署名証明書、 別の WDAC supplemental policy GUID を使用するため、 相互に干渉しません。 4 つのワークスペースはすべて `C:\Temp\Workspace_*` 配下に配置されています (クラスタ管理および一括削除を容易化する目的)。 `C:\Temp` がない場合はスクリプトが自動作成します。
+4 つの PowerShell スクリプトは同じ 21 phase アーキテクチャ、 同じ自己署名モデル、 同じ WDAC 認可パスを共有します。 それぞれ別ワークスペース (`C:\Temp\Workspace_AMD-Chipset`、 `C:\Temp\Workspace_AMD-Graphics`、 `C:\Temp\Workspace_AMD-NPU`、 `C:\Temp\Workspace_Microsoft-BthPan`)、 別の自己署名証明書、 別の WDAC supplemental policy GUID を使用するため、 相互に干渉しません。 4 つのワークスペースはすべて `C:\Temp\Workspace_*` 配下に配置されています (クラスタ管理および一括削除を容易化する目的)。 `C:\Temp` がない場合はスクリプトが自動作成します。 `Collect-WindowsServerConfigurationEvidence.ps1` は読み取り専用の随伴スクリプトとしてこれらの隣に位置し、 専用ワークスペースを持たず、 エビデンスをスクリプトフォルダ (または `C:\Temp`) に書き出します。
 
 ---
 
 ## 新着情報
 
-**最新リリース: `2026-05-27` — Chipset r87 / Graphics r53 / BthPan r35 / NPU r31** (`cross-repo-canon-rename-misleading-helpers`)。
-本リリースは、 5-way cross-repo shared utility canon 内で関数名と実装の乖離が生じていた 2 つの helper をリネームする **命名整理のリリース**です。 リネームは両方とも機械的な置換で (関数本体は不変)、 リリース全体は callsite 修正とスクリプト識別子の bump のみです。
+**最新リリース: `2026-08-07` — Chipset r93 / Graphics r59 / NPU r37 / BthPan r41** (`windows-server-configuration-evidence-collector`)。 単体実行可能なコレクタ **`Collect-WindowsServerConfigurationEvidence.ps1` (c1)** が新たに追加されました。
 
-主な変更点 (詳細は CHANGELOG を参照):
+- **新規: 構成情報エビデンス・コレクタ。** デプロイスクリプトが操作対象とする Windows Server の構成領域 (OS 識別、 デバイス、 ドライバストア、 プロジェクト証明書、 ブートセキュリティ、 CodeIntegrity イベント、 `setupapi` ログ、 スクリプト + ワークスペース目録) を、 **読み取り専用** でタイムスタンプ付きエビデンス ZIP に採取し、 色付きの PASS / FAIL / REVIEW / INFO 評価レポートを出力します。 デプロイ 4 本には `-CollectEvidence` スイッチが追加され、 実行の前後で **diff 比較可能な pre/post エビデンスペア** を自動採取します。 詳細は後述の 「構成情報エビデンス・コレクタ (r93+)」 節を参照してください。
 
-- **`Set-Tls12` → `Set-TlsSecurityProtocol`**。 リネーム前の名前は「TLS 1.2 を設定する」 と読めましたが、 r86 の hybrid uplift 以降、 実装は TLS 1.3 + 1.2 + best-effort 1.1 + 1.0 fallback を有効化するハイブリッド canon になっていました。 新名は関数が実際に行うこと (outbound HTTPS のための `[Net.ServicePointManager]::SecurityProtocol` ビットマスク設定) を反映します。
+### 最近のリリース (2026-07 — 2026-08)
 
-- **`Set-ConsoleUtf8` → `Set-Utf8PipelineEncoding`**。 リネーム前の名前は「Console を UTF-8 に設定する」 と読めましたが、 実装は (a) `[Console]::OutputEncoding`、 (b) `[Console]::InputEncoding`、 (c) PowerShell 内部変数 `$OutputEncoding` (Global scope) の 3 つを設定しています。 (c) は `[Console]` クラスのプロパティではなく、 PowerShell がパイプデータを外部ツールに書き込むときの encoding を制御します。 新名は「pipeline encoding」 という広い範囲を捉えた表現です。
+- **`2026-08-07` — r92 / r58 / r36 / r40** (`quickedit-guard-readiness-and-artifact-archive`)。 実運用レポートに基づく 3 つの堅牢化: **コンソール QuickEdit ガード** (誤ったテキスト選択がすべてのコンソール出力を凍結させ、 フェーズ途中のハングと見分けがつかない現象。 SPEC D.38 が 18m37s の実測ケースを、 Ctrl-C がスクリプトを停止させずに「ハング解除」する理由も含めて記録)、 RUN SUMMARY 末尾の明示的な **Install readiness 判定**、 および **run-artifact アーカイブ** (実行ごとの診断 ZIP をスクリプトフォルダにコピー。 `*.pfx` 秘密鍵は決して含まれません)。
+- **`2026-08-07` — r91 / r57 / r35 / r39** (`auto-run-transcript-and-chipset-url-discovery`)。 すべての実行が **自動でトランスクリプト記録** されるようになりました (`-LogFile` 指定不要)。 また Chipset の URL 探索が AMD の 2026-07 インストーラ改名 (`amd_chipset_software_<v>.exe` → `amd_software_<v>.exe`。 SPEC D.37) に対応し、 probe-miss 時の証跡保存 (`logs\` 配下) が追加されました。
+- **`2026-07-03` — wave 1 / 2a / 2b: r88-r90 / r54-r56 / r36-r38 (BthPan) / r32-r34 (NPU)** (`cross-repo-canon-vendored-region-markers-wave-*`)。 クロスリポジトリ共有ヘルパー canon が、 `>>> CANONICAL ... <<<` マーカー付きの機械検証可能な **vendored リージョン** として再構成されました (Chipset / Graphics / BthPan は 32 ユニット、 NPU は 29 ユニット)。 canon は中央リポジトリ [`ai-generated-artifacts`](https://github.com/usui-tk/ai-generated-artifacts) で保守され、 マーカー枠内のコード改善は本リポジトリへの直接編集ではなく中央 canon を経由します。
 
-- **callsite の機械的書き換え**。 両方のリネームとも `\bName\b` の word-boundary 置換で正確に実施: 当 repo 内で各 9 occurrences (Chipset 2 + Graphics 2 + NPU 3 + BthPan 2 = 9 件 × 2 リネーム)。 姉妹リポジトリの対応リリースで `Download-SpeakerDeck.ps1` の 3 + 3 = 6 occurrences をリネーム。
+より古いリリースノート (初回コミット以降のすべてのリリース) は [CHANGELOG.md](./CHANGELOG.md) を参照してください。
 
-- **5-way byte-identity 保持**。 28 個の canon 関数は依然 5 スクリプトすべてで byte-identical (リネームした 2 関数の body は不変、 関数名と callsite のみ変更)。
-
-- **歴史的記述の保持**。 SPEC.md §A.5 と §A.11.7 の forward-looking な参照は新名に更新、 SPEC.md §A.11.5 (PSA8001 history note) と §D.5 / §D.16 (Known Pitfalls) の historical な参照はリネーム前の名前を **verbatim 歴史的コンテキスト**として保持しました。 これはリポジトリポリシー (過去形の pitfall 記述は当時の実装名を反映する) に従ったものです。
-
-- **`$Script:ScriptTag` を `cross-repo-canon-rename-misleading-helpers` に更新** (4 スクリプトすべて統一)。 **4 スクリプトすべてが `psa.py 4.1.0` を 0 / 0 / 0 / 0 でパス**します。
-
-### 過去のリリース注記
-
-**`2026-05-27` Chipset r86 / Graphics r52 / BthPan r34 / NPU r30** リリース (`cross-repo-shared-utility-canon-write-caution`) では、 当リポジトリの 4 つの AMD-family スクリプトと、 姉妹リポジトリ [`usui-tk/ai-generated-artifacts`](https://github.com/usui-tk/ai-generated-artifacts/tree/main/scripts/powershell/download-speakerdeck-oracle4engineer) の `Download-SpeakerDeck.ps1` スクリプトをまたがる **5-way の cross-repo shared utility canon** を確立しました。 28 個の helper 関数が 5 スクリプトすべてで byte-identical となりました (リリース前は 5 個のみ 5-way 一致)。 双方向 best-of-both パスにより `Write-Warn2` (AMD canon) と `Write-Warn` (SpeakerDeck canon) は統一名 `Write-Caution` に rename され、 残っていた NPU 対 AMD-trio の 3 関数 (`Set-Tls12` / `Set-ConsoleUtf8` / `Assert-PowerShellCompatibility`) の divergence も解消されました。 実行時動作の変更はなし。
-
-**`2026-05-26` Chipset r85 / Graphics r51 / BthPan r33 / NPU r29** リリース (`npu-state-model-refactor-step-3-tier-b4-helper-canon`) は **NPU state-model refactor の段階 3 (最終段階)** でした。 5 つの Tier B-4 helper (`Get-OrEnsureSecureBootBaseline` / `Get-BootSigningEnvironment` / `Show-BootSigningEnvironment` / `Invoke-Cleanup` / `Resume-CtxFromWorkspace`) を Chipset canon の byte-identical コピーで置換し、 NPU の `$Ctx` schema を Chipset に完全に reconcile し、 すべての top-level `$Script:` 状態代入を削除しました。 Tier A 関数数が 38 → 39 に拡大されました。 NPU スクリプトの `Invoke-Cleanup` 動作は cert-subject-CN 列挙から marker-file 参照へと変更 (post-mortem は SPEC §D.36.1)。
-
-**`2026-05-26` Chipset r84 / Graphics r50 / BthPan r32 / NPU r28** リリース (`npu-state-model-refactor-step-2-phase-functions-ctx`) は **NPU state-model refactor の段階 2** であり、 再構築作業の本体部分でした。 NPU のすべての phase 関数とすべての非 phase 状態保持 helper (段階 3 で扱う 3 つの Tier B-4 helper を除く) が `$Ctx` を必須パラメータとして受け取り、 ランタイム状態を `$Script:Foo` ではなく `$Ctx.Foo` から読むよう移行しました: 27 関数で 184 件の機械的置換、 27 件の signature 変更、 5 件の caller 修正。 top-level の `$Script:Foo` 代入は 3 つの Tier B-4 helper が依然 `$Script:` を読むため transitional dual-carriage state として維持されていましたが、 段階 3 (r85) でこの二重保持は解消されました。 本リリースでは Tier A 関数数は 38 関数のままでした。
-
-**`2026-05-26` Chipset r83 / Graphics r49 / BthPan r31 / NPU r27** リリース (`npu-state-model-refactor-step-1-wdac-helpers`) は NPU state-model refactor の開始リリースでした — NPU スクリプトを Chipset / Graphics / BthPan と同じ `$Ctx` ベースの状態受け渡しモデルに揃える多段階ワークストリームを開始しました。 段階 1 は **準備リリース**として、 必要な WDAC tooling helper (`Test-WdacToolsAvailable`、 `Get-ActiveCodeIntegrityPolicies` を 4-way Tier A として; `Get-AmdSuppPolicyMarkerPath`、 `Test-AmdWdacPolicyDeployed`、 `Uninstall-AmdWdacPolicy` を 3-way Tier B-3 として) を Chipset から NPU に portage し、 canonical な `$Ctx` skeleton を構築 (現時点では未使用、 段階 2 の consumer のためのプレースホルダ) しました。 Tier A 関数数が 36 → 38 に拡大されました。 **実行時動作の変更はなし**。
-
-**`2026-05-26` Chipset r81 / Graphics r47 / BthPan r29 / NPU r25** リリース (`psa-py-v410-three-new-error-rules-baseline`) は `psa.py` 4.1.0 (3 つの新規 error severity / default-on 静的解析ルール `PSA1004` / `PSA2012` / `PSA2013` を追加した upstream の minor リリース) を採用しました。 4 つの sister script はすべて、 新規 3 ルールと前リリースから引き継いだ strict-mode の `PSAP0005` を含む最新 mainline ルールセット全体に対して 0 / 0 / 0 / 0 ベースラインを達成しました。 同リリースで **SPEC §A.11.7 "Shared helper canon and porting checklist"** が新設され、 4 sister script 間の shared helper の canonical な「Chipset からコピーする」ワークフロー (Tier A: PSA8001 で byte-identity 強制 / Tier B: drift-tolerant backlog / Tier C: driver family 固有 / Tier D: 意図的に per-script) が文書化されました。
-
-**`2026-05-24` Chipset r80 / Graphics r46 / BthPan r28 / NPU r24** リリース (`psa-py-v4-llm-governance-strict`) は r76 / r42 / r24 / r20 で開始した **LLM ガバナンスマイグレーションを完了**したリリースでした。 4 つの sister script すべてが `psa.py` 4.0.2 を **strict モード** (`psap0005_relaxed_mode` を `.psa.config.json` から削除) で実行し、 当時のアナライザのルールセット全体に対して **0 / 0 / 0 / 0 ベースライン**を達成しました:
-
-- `psa.py` 4.0.2 (上流) で `PSAP0005` relaxed-mode カバレッジが拡張 — r76 ベースラインで観測された prose パターン (`(rNN / SPEC D.YY)`、 `(Q-X1, rNN)`、 `# rNN (graphics):`、 `predates rNN`、 `r71 adds ...` 等) を扱う 9 つの新規 exempt patterns (E1-E9) と comment-block-level exempt heuristic が追加され、 4 スクリプトの relaxed-mode 件数は 64 から 1 に減少しました。
-- 99 件の strict-mode-eligible な `rNN` 参照を 1 つの統合チェンジセットで一括 rewrite し、 歴史的な "added in rNN" / "before rNN" / "rNN (graphics)" 等の prose を、 設計根拠は `SPEC.md` Part D への相互参照に移しつつ **timeless wording** へ変更しました。 PSA8001 cross-script-shared helpers の byte-identity は維持されています。
-- `.psa.config.json` が簡素化 — `psap0005_relaxed_mode` キーは省略され (デフォルト値 `false` を採用)、 config ヘッダの PSAP0005 セクションは strict-mode 定常状態の説明に書き換えられました。
-- `$Script:ScriptTag` が `psa-py-v4-llm-governance-strict` に更新 (4 スクリプトすべて統一)。
-- SPEC.md §D.34 に統合リリースの post-mortem を記録。
-
-LLM ガバナンス定常状態ポリシーについては [SPEC §A.13](./SPEC.md#a13-development-workflow) (英語のみ) を、 マイグレーション振り返りについては [SPEC §D.34](./SPEC.md#d34-psap0005-strict-mode-migration-r80--r46--r24--r28-2026-05-24) (英語のみ) を参照してください。
-
-**`2026-05-25` Chipset r75 / Graphics r41 / BthPan r23 / NPU r19** リリース (`legacy-ws2019-ps51-japp-correctness-fix`) では、 r74 リリースが調査したのと同じ WS2019 ja-JP + Renoir ベンチホストに対する follow-up 診断で明らかになった 3 つの不具合を修正するとともに、 **r74 で記録した 4 件中 2 件の不具合の真因の診断を誠実に訂正**しました:
-
-- **Defect A** — `Split-Path -LiteralPath ... -Parent` が Windows PowerShell 5.1 ja-JP で `AmbiguousParameterSet` を発生させる。 これが r74 で `Find-Signtool` typo に誤帰属されていた `指定された名前のパラメーターを使用してパラメーター セットを解決できません。` 警告の真の原因。 修正: `[System.IO.Path]::GetDirectoryName($path)` を使用。
-- **Defect B** — `Get-OurSignedOemInfSet` の Pass 1 が `C:\Windows\INF\` (WS2019 ja-JP では空) を走査していた。 実際に catalog が存在するのは `C:\Windows\System32\CatRoot\{F750E6C3-...}\`。 結果として Pass 2 (pnputil クロスリファレンス) が実行されず、 V06 の `-KnownOurInfSet` 引数には空の hashtable が渡されていた。 修正: CatRoot を直接走査 + pnputil Signer Name フォールバック。
-- **Defect C** — `Invoke-InstPhase00_PreInstallReview` が `$ourInfSet` をビルドせずに参照していた (r74 から潜在)。 修正: V06 と同じビルドパターンを I00 のループ先頭に追加。
-
-r75 リリースでは併せて新しい `psa.py` v3.9.0 ルール 2 つ (**PSA2010** — 未定義関数呼び出し検出; **PSA2011** — `Split-Path -LiteralPath -Parent` 検出) も導入されました。 4 スクリプトすべてが r75 ベースラインで `psa.py 3.9.0 --severity error` を 0 errors でパスしました。
-
-詳細な事後分析は [SPEC §D.33](./SPEC.md#d33-honest-correction-of-d32-and-additional-defects-from-the-2026-05-25-ws2019--renoir-bench-cycle-r75) (英語のみ) を、 回帰テストシナリオ (TC17.1 — TC17.9) は [TESTING §17](./TESTING.md#17-r75-2026-05-25-ws2019-ja-jp--renoir-test-scenarios-defect-a--b--c) (英語のみ) を参照してください。
-
-r74 リリース ([2026-05-24] `legacy-ws2019-runtime-correctness-fix`) は §D.32 の不具合分類の参照点として残っています。 r74 Defect 2 (`signtool /all`) と r74 Defect 4 (I02→I03 halt) の修正は r75 ベンチサイクルでも有効性が確認されています。
-
-リリース毎の変更履歴は [CHANGELOG.md](./CHANGELOG.md) (英語のみ) を参照してください。
-日付順・スクリプト別にまとめられており、 main ブランチが現在何を ship しているかの単一の正典情報源です。
-個別の修正の **設計判断の根拠** については [SPEC.md Part D](./SPEC.md#part-d--known-pitfalls--lessons-learned) (英語のみ) を参照ください。
 
 ## 4 スクリプトのリスク分類
 
@@ -264,6 +223,7 @@ Deploy-Drivers-For-WindowsServer/
 ├── Deploy-AMDGraphicsDriverOnWindowsServer.ps1    Graphics ドライバパイプライン (21 phase)
 ├── Deploy-AMDNpuDriverOnWindowsServer.ps1         NPU (Ryzen AI XDNA) パイプライン (21 phase)
 ├── Deploy-MSBthPanInboxOnWindowsServer.ps1        Microsoft inbox bthpan パイプライン (21 phase)
+├── Collect-WindowsServerConfigurationEvidence.ps1 読み取り専用の構成情報エビデンス・コレクタ (r93+)
 ├── README.md                                      本ドキュメント (英語版マスター)
 ├── README.ja.md                                   本ドキュメント (日本語版、 README.md と同期)
 ├── TESTING.md                                     物理ハードウェアでの検証結果 (英語のみ)
@@ -272,6 +232,8 @@ Deploy-Drivers-For-WindowsServer/
 ├── CONTRIBUTING.md                                Issue / PR ガイドライン (英語のみ)
 ├── SECURITY.md                                    脆弱性報告 (英語のみ)
 ├── CODE_OF_CONDUCT.md                             コミュニティ行動規範 (英語のみ)
+├── AGENTS.md                                      エージェント・ガバナンスのブリッジ (正本は中央リポジトリ)
+├── CLAUDE.md                                      AGENTS.md へのポインタ
 ├── LICENSE                                        MIT License
 ├── .psa.config.json                               psa.py の設定 (PSAP ルール opt-in)
 ├── .gitattributes                                 Git 改行コード正規化設定
@@ -293,6 +255,11 @@ C:\Temp\Workspace_AMD-Chipset\   (または C:\Temp\Workspace_AMD-Graphics\・C:
 │                          (BthPan: patched\bthpan\ — 単一 INF ディレクトリ)
 ├── cert\                  自己署名コード署名証明書 (PFX + CER) +
 │                          WDAC supplemental policy XML/CIP
+├── logs\                  自動実行トランスクリプト (r91+)・ツールログ・
+│                          probe-miss 証跡 html (chipset・r91+)・
+│                          run-artifact アーカイブ plan マーカー (r92+)
+├── secureboot_ms_sample\  UEFI Secure Boot ベースラインの JSON 証跡
+│                          (Microsoft サンプルスクリプト出力)
 └── inf_inventory.csv / inf_inventory_report.txt
                            P05 inventory と INF 単位の解析レポート
                            (BthPan: 1 行のみ — INF は 1 ファイル)
@@ -303,6 +270,8 @@ C:\Temp\Workspace_AMD-Chipset\   (または C:\Temp\Workspace_AMD-Graphics\・C:
 - 証明書を `LocalMachine\Root` + `LocalMachine\TrustedPublisher` に import。
 - 当該証明書を kernel-mode 署名者として allowlist する **WDAC supplemental Code Integrity policy** を `C:\Windows\System32\CodeIntegrity\CiPolicies\Active\` に deploy。`CiTool --update-policy` で即時有効化されます (Windows Server 2022+ / Windows 11 22H2+ では再起動不要)。
 - パッチ済み + 自己署名済みのドライバを `pnputil /add-driver /install` で install。
+
+以下の 2 系統の成果物は、 ワークスペースではなく **スクリプトと同じフォルダ** に生成されます: 実行ごとの診断アーカイブ `<ScriptName>_<Action>_run-artifacts_<timestamp>_<PID>.zip` (r92+。 `*.pfx`・`download\`・`extracted\`・50 MB 超のファイルは除外)、 および `-CollectEvidence` 使用時のコレクタ成果物 `WindowsServerConfigurationEvidence_<stage>[_<invoker>]_<timestamp>` エビデンスディレクトリ + ZIP (r93+)。
 
 ---
 
@@ -335,6 +304,10 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 .\Deploy-AMDChipsetDriverOnWindowsServer.ps1   -Action PrepareVerify -CleanWorkRoot
 .\Deploy-AMDGraphicsDriverOnWindowsServer.ps1  -Action PrepareVerify -CleanWorkRoot
 .\Deploy-MSBthPanInboxOnWindowsServer.ps1      -Action PrepareVerify -CleanWorkRoot
+
+# オプション (r93+): 任意の実行を読み取り専用の pre/post 構成情報エビデンスペアで挟む
+# (diff 可能な 2 つのエビデンス ZIP がスクリプトフォルダに生成される。 後述のコレクタ節を参照)
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1   -Action PrepareVerify -CleanWorkRoot -CollectEvidence
 
 # NPU スクリプト — 実機実行には OfflineZip (もしくはその他のダウンロードソース) が必須。
 # クリーン環境で -OfflineZip 未指定の場合、 P03 で "All 4 download tiers exhausted" と throw する。
@@ -780,7 +753,7 @@ $cred = Get-Credential -UserName 'you@example.com' -Message 'AMD アカウント
 
 ## 出力ファイル
 
-各スクリプトは workspace (`C:\AMD-{Chipset,Graphics,NPU}-WS\`) 配下に以下のアーティファクトを書き出します:
+各スクリプトは workspace (`C:\Temp\Workspace_AMD-{Chipset,Graphics,NPU}\` または `C:\Temp\Workspace_Microsoft-BthPan\`) 配下に以下のアーティファクトを書き出します:
 
 | パス (workspace からの相対)                  | 内容                                                                                                          |
 | -------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
@@ -795,6 +768,13 @@ $cred = Get-Credential -UserName 'you@example.com' -Message 'AMD アカウント
 | `cert\MsBthPanSelfSignedSupplementalPolicy.xml` / `.cip` (BthPan) | BthPan 用 WDAC 補助 Code Integrity policy (XML ソース + バイナリ、 `C:\Windows\System32\CodeIntegrity\CiPolicies\Active\` に deploy)。 BthPan 固有 GUID `A6E72D4F-3B98-4C5A-9E1D-7F8B2A4C6E5D` を使用。 |
 | `inf_inventory.csv`                          | P05 で生成される INF 単位 inventory (ファイル名、 provider、 class、 HWID 数、 decoration ステータス等)        |
 | `inf_inventory_report.txt`                   | P05 INF 解析の人間可読サマリ                                                                                  |
+| `logs\inf2cat_bthpan.log` (BthPan)          | inf2cat 詳細ログ。 catalog 生成失敗の診断に有用 |
+| `logs\pnputil_bthpan.log` (BthPan)          | pnputil add-driver/install の出力 |
+| `logs\pnputil_scan-devices.log` (BthPan)    | pnputil /scan-devices の出力 (I03 が PnP 再バインドを強制) |
+| `logs\<ScriptName>_<Action>_<yyyyMMdd-HHmmss>_<PID>.log` | 自動実行トランスクリプト (r91+)。 明示的な `-LogFile` で上書きしない限り、 すべての実行で生成される |
+| `logs\amd-landing-probe-*.html` (chipset)   | probe-miss 証跡: URL 探索が 0 件になった際に取得済み AMD ランディングページを保存 (r91+。 SPEC D.37) |
+| `logs\run-artifact-archive-plan.txt`        | 予定された run-artifact ZIP 名を記録するマーカー (r92+。 ZIP 自身がこのマーカーを内包し自己識別可能) |
+| `secureboot_ms_sample\*.json`               | Microsoft サンプルスクリプトによる UEFI Secure Boot ベースライン証跡 |
 
 ### CSV カラム規約
 
@@ -912,6 +892,17 @@ detect_stdout_extracted.json       - パース済みJSONオブジェクト (Buck
 ```
 
 Phase header banner (`=` × 72、 Magenta) は dispatcher が出力し、 phase 関数自身は banner を出しません。 `[+X.XXs]` の elapsed-tag は各 phase エントリで reset され、 **当該 phase 内の経過時間** (スクリプト全体の経過ではない) を表します。
+
+r92 以降、 RUN SUMMARY の末尾には明示的な Install readiness 判定が出力されます (この判定を導入するきっかけとなった実地解析は SPEC D.38 を参照):
+
+```
+ Note: [!] lines above are informational / expected-condition notices by
+       design (e.g. a baseline check on the unpatched source INF, a
+       documented tool fallback, a certificate not yet trusted before
+       I01, or a device absent on this host). A real failure marks its
+       phase as failed in the timing table.
+ Install readiness : READY - no failed phases.
+```
 
 ---
 
@@ -1126,10 +1117,20 @@ Windows 11 24H2 上で実行しています (Win11 24H2 と Windows Server 2025 
 
 Windows WDK のダウンロードサイズが約 2.5 GB です。マシンごとに一度だけのインストールで、以降の実行ではインストール済みの `inf2cat.exe` を再利用するため、P02 は 1 秒未満で完了します。
 
+### 「スクリプトがフェーズ途中でハングしたように見え、 Ctrl-C を押すと (停止せずに) 続行する」
+
+それはハングではありません — コンソールが **QuickEdit の選択 (マーク) モード** に入っていました。 Windows のコンソール (Windows Server では QuickEdit がデフォルト ON) は、 テキスト選択中すべてのコンソール出力をブロックするため、 誤ったクリックドラッグで進捗表示が `Write-Host` の途中で止まります。 マークモード中の Ctrl-C は *コピー & 選択解除* であり、 実行を停止させずに凍結を解除します — これがこの障害クラスの診断的シグネチャです。 r92+ は実行中 QuickEdit を無効化し、 終了時に元のコンソールモードへ復元するため、 この現象は発生しなくなりました。 それ以前のリビジョンでは、 実行中にコンソールのテキスト選択を避けてください (またはアップグレード)。 完全なポストモーテム: SPEC D.38 (「7-Zip ハング」として報告された 18m37s の実測凍結事例)。
+
+### 「[!] 警告がいくつか出たのに最終ステートは Done — このまま Install に進んで安全?」
+
+はい — r92+ の RUN SUMMARY 末尾の `Install readiness` 行が `READY` であれば安全です。 `[!]` 行は設計上の情報通知です: ソース INF の baseline 測定 (*パッチ前* INF のエラーは意図した基準値)、 文書化済みのツールフォールバック (例: BthPan の `inf2cat` 22.9.8 拒否 → `makecat`)、 I01 で証明書をインポートする前の untrusted-root、 このホストに対象デバイスが物理的に存在しない場合 (Install はステージのみ) など。 **実際の** 失敗はタイミングテーブルで該当フェーズが `failed` になり、 判定が `REVIEW REQUIRED - failed: <ids>` に変わります。 この判定を導入した実地解析は SPEC D.38.4 を参照。
+
+
 ### "P03 が 'no AMD installer URL resolved' で失敗する"
 
 AMD は support page を定期的に再構成します。スクリプトは 3〜6 個の候補 URL をプローブし、全てが 0 hits を返す場合は parser が壊れています。回避策:
 
+- **2026-07 の AMD インストーラ改名**: AMD は新規公開の chipset インストーラを `amd_chipset_software_<version>.exe` から `amd_software_<version>.exe` へ改名しました。 r91+ は両方の名前を受理し、 全 probe が 0 件の際は取得済みランディングページを `logs\amd-landing-probe-*.html` として保存します。 それ以前のリビジョンは現行の AMD ページで 0 件になります — アップグレードするか、 下記の `-InstallerUrl` を使用してください。 SPEC D.37 参照。
 - `-InstallerUrl https://drivers.amd.com/drivers/...` を渡して URL discovery を skip し、特定バージョンを直接ダウンロード。
 - P03 出力の `Probe results:` ブロックを開き、各 URL を手動で訪問して AMD のサイト変更を確認。
 - Issue を起票: <https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/issues>

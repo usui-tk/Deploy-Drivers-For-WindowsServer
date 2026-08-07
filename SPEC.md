@@ -2010,7 +2010,7 @@ Starting with AMD Chipset Software 8.x (first observed in version 8.02.18.557, d
 
 #### Two-layer wrapper structure
 
-The downloaded `amd_chipset_software_*.exe` (~78 MB) is an NSIS self-extracting shell wrapping an InstallShield SFX:
+The downloaded chipset installer — `amd_chipset_software_*.exe`, or `amd_software_*.exe` since AMD's 2026-07 renaming (D.37) — (~78 MB) is an NSIS self-extracting shell wrapping an InstallShield SFX:
 
 ```
 amd_chipset_software_8.02.18.557.exe   (~78 MB)
