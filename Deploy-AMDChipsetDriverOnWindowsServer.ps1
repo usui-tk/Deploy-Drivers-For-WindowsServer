@@ -529,6 +529,16 @@ param(
     # Write-Host coloring on the way through the pipeline.
     [string]$LogFile       = '',
 
+    # === Configuration evidence collection ============================
+    # When set, the standalone configuration-evidence collector that
+    # ships next to this script
+    # (Collect-WindowsServerConfigurationEvidence.ps1) is invoked before
+    # the first phase (stage 'pre') and again at the very end of the run
+    # (stage 'post'), preserving the system state around the deployment
+    # as diffable evidence ZIPs next to the script. Best-effort by
+    # contract: collector problems never affect the deployment run.
+    [switch]$CollectEvidence,
+
     # === Driver-load authorization mode ===============================
     # By default, I02 deploys a WDAC supplemental Code Integrity policy
     # that allowlists this script's self-signed cert as a kernel-mode
@@ -656,8 +666,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.08.07-r92'
-$Script:ScriptTag     = 'quickedit-guard-readiness-and-artifact-archive'
+$Script:ScriptVersion = 'chipset-2026.08.07-r93'
+$Script:ScriptTag     = 'windows-server-configuration-evidence-collector'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -1378,6 +1388,37 @@ function Write-InstallReadinessDigest {
         Write-Host ' Install readiness : READY - no failed phases.' -ForegroundColor Green
     }
 }
+
+function Invoke-ConfigurationEvidenceCollector {
+    # Invokes the standalone configuration-evidence collector that ships
+    # next to this script, in-process, for the given stage. Best-effort
+    # by contract: any collector failure is reported as a warning and
+    # never affects the deployment run or its exit path. The collector
+    # produces its own evidence directory + ZIP next to the script and
+    # prints its own PASS/FAIL/REVIEW/INFO assessment report.
+    param(
+        [Parameter(Mandatory)] [ValidateSet('pre', 'post')] [string]$Stage,
+        [Parameter(Mandatory)] [string]$ActionName
+    )
+    $collectorPath = Join-Path $PSScriptRoot 'Collect-WindowsServerConfigurationEvidence.ps1'
+    if (-not (Test-Path -LiteralPath $collectorPath -PathType Leaf)) {
+        Write-Warning ('[-CollectEvidence] collector not found next to this script: {0}' -f $collectorPath)
+        return
+    }
+    $invokedBy = ('{0}_{1}' -f [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), $ActionName)
+    Write-Host ''
+    Write-Host ('[*] Configuration evidence collection ({0}) via {1}' -f $Stage, (Split-Path $collectorPath -Leaf)) -ForegroundColor DarkGreen
+    try {
+        & $collectorPath -Stage $Stage -InvokedBy $invokedBy
+        $collectorExit = $LASTEXITCODE
+        if ($null -ne $collectorExit -and $collectorExit -ne 0) {
+            Write-Warning ('[-CollectEvidence] collector ({0}) finished with exit code {1} - review its assessment report.' -f $Stage, $collectorExit)
+        }
+    } catch {
+        Write-Warning ('[-CollectEvidence] collector ({0}) failed: {1}' -f $Stage, $_.Exception.Message)
+    }
+}
+
 
 #####################################################################
 # SECTION 1: Logging helpers
@@ -14656,6 +14697,13 @@ $queue = @($mandatory) + @($selected)
 # any Install phase (I01-I04) is queued without re-resolving phases.
 $Ctx.SelectedPhaseIds = @($queue | ForEach-Object Id)
 
+# -CollectEvidence: pre-run configuration evidence (stage 'pre') - runs
+# before the first phase so the evidence reflects the pre-deployment
+# system state. ListPhases performs no system interaction and is skipped.
+if ($CollectEvidence -and $Action -ne 'ListPhases') {
+    Invoke-ConfigurationEvidenceCollector -Stage pre -ActionName $Action
+}
+
 # ----- Execute -----
 # Wrap the whole phase loop + summary in a try/finally so the
 # workspace lock (acquired in P01 via Assert-NoConcurrentRun) is
@@ -14807,6 +14855,14 @@ finally {
             [void][DeployDrivers.ConsoleModeNative]::SetConsoleMode($hIn, [uint32]$Script:ConsoleModeOriginal)
         } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup
         $Script:ConsoleModeChanged = $false
+    }
+
+    # -CollectEvidence: post-run configuration evidence (stage 'post').
+    # Runs LAST - after the run summary, the transcript close, the
+    # run-artifact archive and the console-mode restore - so the
+    # collector's own artifacts are not nested into this run's archive.
+    if ($CollectEvidence -and $Action -ne 'ListPhases') {
+        try { Invoke-ConfigurationEvidenceCollector -Stage post -ActionName $Action } catch { } # psa-disable-line PSA3004 -- best-effort evidence; must not mask the run outcome
     }
 }
 

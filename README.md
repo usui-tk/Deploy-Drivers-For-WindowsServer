@@ -764,6 +764,7 @@ All four scripts share a common parameter contract for `-Action`, `-OnlyPhases`,
 | `-UseTestSigning`          | (off)                | Fall back to `bcdedit /set testsigning on` instead of WDAC supplemental policy. Discouraged       |
 | `-WorkRoot`                | per-script           | Override workspace path (chipset: `C:\Temp\Workspace_AMD-Chipset`, graphics: `C:\Temp\Workspace_AMD-Graphics`, NPU: `C:\Temp\Workspace_AMD-NPU`, BthPan: `C:\Temp\Workspace_Microsoft-BthPan`). Located under `C:\Temp\Workspace_*`; the script auto-creates `C:\Temp` on demand |
 | `-LogFile`                 | auto-generated       | Path of the full console transcript captured via `Start-Transcript` / `Stop-Transcript`. **r91+: when omitted, a transcript is always created automatically** under `<WorkRoot>\\logs\\<ScriptName>_<Action>_<yyyyMMdd-HHmmss>_<PID>.log`, starting before the entry banner so the log contains the banner and the full P00 environment report (survives `-CleanWorkRoot` via a suspend/wipe/resume flow; no opt-out switch). Pass an explicit path to override the location. The file receives every stream (Output / Host / Error / Warning / Verbose / Debug) as plain text; the interactive console keeps its `Write-Host -ForegroundColor` decoration intact. Recommended over the legacy `... \\|*>&1 \\| Tee-Object -FilePath ...` idiom, which strips Write-Host coloring |
+| `-CollectEvidence`         | (off)                | **r93+ (all four).** Invokes `Collect-WindowsServerConfigurationEvidence.ps1` (shipped next to the script) with stage `pre` before the first phase and stage `post` as the last step of the run, producing diffable read-only evidence ZIPs next to the script. Best-effort: collector problems are warnings only and never affect the run. Skipped for `ListPhases` |
 | `-PfxPassword`             | per-script           | Password for the self-signed PFX (chipset/graphics/BthPan: `'ChangeMe!2026'`, NPU: `''`)          |
 | `-WdacPolicyGuid`          | per-script (fixed UUID v4) | Override the fixed WDAC supplemental policy GUID. Default is per-script (chipset: `503860EA-…`, graphics: `85336828-…`, NPU: `8B2C4F12-…`, BthPan: `A6E72D4F-3B98-4C5A-9E1D-7F8B2A4C6E5D`). Used for legacy-deploy cleanup or side-by-side multi-instance deploy |
 | `-ForceUnsafe`             | (off)                | **r69+ (Chipset/Graphics/BthPan only).** Bypass the CRITICAL acknowledgement checklist that I00 PreInstallReview prompts the operator with when conditions C1/C2/C5/C6 fire (display driver replacement on single-display host; BitLocker ON + AMD PSP driver replacement; host hasn't been rebooted in 24+ hours; r71: WHQL co-sign shortfall on Secure-Boot-ON host). Intended for CI/CD automation only; the bypass is logged via `Set-DebugStep` in the run transcript. **Do NOT use in production.** See SPEC §D.28 and §D.31.4 |
@@ -1020,6 +1021,27 @@ Three field-driven hardening additions apply to all four scripts:
 - **Console QuickEdit guard.** Windows Server consoles default to QuickEdit mode, where an accidental click-drag selects text and **freezes every console write** — the script appears to hang mid-phase (an 18m37s freeze was measured in the field; see SPEC D.38). In mark mode Ctrl-C is *copy*, not break: it releases the freeze and the run simply continues. The scripts now clear `ENABLE_QUICK_EDIT_MODE` for the duration of the run and restore the original console mode on exit (ConsoleHost only; fully error-contained; no switch).
 - **Install-readiness verdict.** The RUN SUMMARY now ends with an explicit `Install readiness : READY - no failed phases.` / `REVIEW REQUIRED - failed: <ids>` line derived from per-phase statuses, plus a note that `[!]` lines are informational / expected-condition notices by design (e.g. baseline checks on the unpatched source INF, documented tool fallbacks, untrusted-root before I01, an absent device). A real failure marks its phase as `failed` in the timing table.
 - **Run-artifact archive.** After the summary and after the transcript closes, each run bundles `logs\`, `patched\`, `cert\` (public material only), `secureboot_ms_sample\` and `inf_inventory.csv` into `<ScriptName>_<Action>_run-artifacts_<yyyyMMdd-HHmmss>_<PID>.zip` and copies the zip **next to the script**, so one file can be handed over for analysis. **`*.pfx` private keys are never included**; the bulk `download\` / `extracted\` trees and any file over 50 MB are also excluded. If the script directory is not writable the zip falls back to the WorkRoot root (then `%TEMP%`). A `logs\run-artifact-archive-plan.txt` marker records the planned zip name inside the archive itself. On `Cleanup` runs (workspace already wiped) the archive is skipped.
+
+
+### Configuration evidence collector (r93+)
+
+`Collect-WindowsServerConfigurationEvidence.ps1` is a standalone, **read-only** companion script that captures the Windows Server configuration areas the four deploy scripts operate on, as a timestamped evidence directory + ZIP with a color-coded PASS / FAIL / REVIEW / INFO assessment report (exit codes: 0 = all PASS/INFO, 2 = any FAIL/REVIEW, 1 = fatal error). It is modelled on the iso-project post-install collector.
+
+Collected areas: OS identity (build/UBR), pending-reboot state (advisory vs blocking), PnP inventory incl. problem devices and the AMD/BthPan target families, driver store (`pnputil /enum-drivers` + `Win32_PnPSignedDriver`), project self-sign certificates in Root / TrustedPublisher (**public properties only — private keys are never read**), boot security (Secure Boot, UEFI CA 2023 servicing state, testsigning/nointegritychecks, HVCI, WDAC `SiPolicy.p7b`, `CiTool -lp`), recent CodeIntegrity events, `setupapi` logs (50 MB cap; `-SkipSetupApiLog` to opt out), the repository script inventory (versions + SHA-256) and a WorkRoot / run-artifact inventory (names only).
+
+Run it standalone at any time:
+
+```powershell
+.\Collect-WindowsServerConfigurationEvidence.ps1
+```
+
+Or let a deploy script take a **pre/post evidence pair automatically** with the new `-CollectEvidence` switch — stage `pre` runs before the first phase, stage `post` runs as the very last step after the run-artifact archive, and the stage + invoking script are embedded in the ZIP names so the pair can be diffed:
+
+```powershell
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot -CollectEvidence
+```
+
+Collector problems (missing file, nonzero exit, error) are reported as warnings and never affect the deployment run. `-OutputRoot` accepts only the script directory (default) or `C:\Temp`.
 
 
 ## System requirements

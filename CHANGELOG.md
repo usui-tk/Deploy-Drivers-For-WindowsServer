@@ -20,6 +20,67 @@ independently.
 
 ---
 
+## [2026-08-07] `windows-server-configuration-evidence-collector` — Chipset r93 / Graphics r59 / NPU r37 / BthPan r41
+
+New standalone evidence collector plus its automatic pre/post invocation
+from all four deploy scripts.
+
+### New script: `Collect-WindowsServerConfigurationEvidence.ps1` (c1)
+
+- Standalone, read-only configuration-evidence collector for the areas
+  the four deploy scripts operate on, modelled on the specification and
+  design of the iso-project `Collect-WindowsServerPostInstallEvidence.ps1`
+  (schema-versioned `summary.json`, timestamped evidence directory + ZIP,
+  captured external commands with exit codes, registry snapshots,
+  file evidence with SHA-256 + Authenticode, color-coded PASS / FAIL /
+  REVIEW / INFO assessment report, exit-code contract 0 / 2 / 1).
+- Collects: OS identity (build / UBR), pending-reboot state with
+  advisory-vs-blocking classification, the full PnP inventory plus
+  problem devices and the AMD / BthPan target-HWID families, the driver
+  store (`pnputil /enum-drivers` raw + parsed, `Win32_PnPSignedDriver`),
+  the project self-sign certificates in LocalMachine Root /
+  TrustedPublisher (public properties only — private keys are never
+  read), boot security (Secure Boot, UEFI CA 2023 servicing registry,
+  `bcdedit` testsigning / nointegritychecks, HVCI, WDAC `SiPolicy.p7b`
+  file evidence, `CiTool -lp` where present), recent CodeIntegrity
+  events (3076 / 3077 / 3089 / 3091), `setupapi.dev.log` /
+  `setupapi.setup.log` (50 MB cap, `-SkipSetupApiLog` to opt out), the
+  repository script inventory (ScriptVersion + SHA-256 of the four
+  deploy scripts and the collector itself) and a WorkRoot / run-artifact
+  inventory (names only — bulk payload is never copied).
+- 13 assessment items; FAIL is reserved for collection-machinery
+  failures (e.g. driver-store enumeration), deployment-domain conditions
+  surface as REVIEW / INFO. `-Stage pre|post|standalone` and `-InvokedBy`
+  are recorded in the evidence and the ZIP name so pre/post pairs made
+  around a deployment run can be diffed. `-OutputRoot` is restricted to
+  the script directory or `C:\Temp` (iso-collector parity).
+
+### Automatic pre/post invocation (all four deploy scripts)
+
+- New `-CollectEvidence` switch: when set, the collector is invoked
+  in-process with stage `pre` before the first phase (so the evidence
+  reflects the untouched system) and with stage `post` as the LAST step
+  of the top-level `finally` — after the run summary, the transcript
+  close, the run-artifact archive and the console-mode restore, so the
+  collector's own artifacts are not nested into the run's archive.
+  `ListPhases` is skipped (no system interaction).
+- Best-effort by contract: a missing collector, a nonzero collector exit
+  code or a collector throw produce a warning only and never affect the
+  deployment run or its exit path (`Invoke-ConfigurationEvidenceCollector`
+  helper in SECTION 0.27).
+
+Gates: `psa.py` 0 findings across all five scripts (collector findings
+resolved: `[OutputType()]` on 26 functions, bare-`[Parameter()]` for
+optional parameters, PSA2003 annotations, PSAP0002 script-identity
+variables, `-SkipSetupApiLog` inversion for PSA6006); `ParseFile` clean
+x5; BOM + CRLF preserved; canon frames byte-identical (machine-verified
+diff/frame non-intersection); behavioural harness 27/27 green
+(sanitization / output-root policy, pending-file-rename classification,
+assessment derivation incl. FAIL / REVIEW paths, `&` child exit-code
+propagation, deploy-side invoker containment).
+
+---
+
 ## [2026-08-07] `quickedit-guard-readiness-and-artifact-archive` — Chipset r92 / Graphics r58 / NPU r36 / BthPan r40
 
 Field-driven hardening release with three workstreams, all applied to all

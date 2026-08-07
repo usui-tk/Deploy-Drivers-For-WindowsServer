@@ -738,6 +738,7 @@ $cred = Get-Credential -UserName 'you@example.com' -Message 'AMD アカウント
 | `-UseTestSigning`          | (off)                | WDAC 補助 policy ではなく `bcdedit /set testsigning on` にフォールバック (非推奨)                 |
 | `-WorkRoot`                | スクリプト別         | workspace path を上書き (Chipset: `C:\Temp\Workspace_AMD-Chipset`、 Graphics: `C:\Temp\Workspace_AMD-Graphics`、 NPU: `C:\Temp\Workspace_AMD-NPU`、 BthPan: `C:\Temp\Workspace_Microsoft-BthPan`)。 `C:\Temp\Workspace_*` 配下に配置。 `C:\Temp` がない場合はスクリプトが自動作成 |
 | `-LogFile`                 | 自動生成            | コンソール出力全体を `Start-Transcript` / `Stop-Transcript` でキャプチャするトランスクリプトのパス。 **r91+: 省略時 (デフォルト) は自動的にトランスクリプトが常時作成される** (`<WorkRoot>\\logs\\<ScriptName>_<Action>_<yyyyMMdd-HHmmss>_<PID>.log`)。 エントリバナーより前に開始されるため、 バナーと P00 の実行環境レポート全体がログに含まれる (`-CleanWorkRoot` 時は suspend/wipe/resume フローで wipe を生き延びる。 無効化スイッチはなし)。 明示的にパスを渡せば出力先を上書きできる。 ファイル側は全ストリーム (Output / Host / Error / Warning / Verbose / Debug) をプレーンテキストで受け取り、 インタラクティブコンソール側は `Write-Host -ForegroundColor` の色装飾を維持する。 レガシーな `... \\|*>&1 \\| Tee-Object -FilePath ...` イディオムは Write-Host の色情報がパイプ経由で削除されるが、 こちらは色を保持できるため推奨 |
+| `-CollectEvidence`         | (off)               | **r93+ (4 本共通)。** スクリプトと同じフォルダの `Collect-WindowsServerConfigurationEvidence.ps1` を、 最初のフェーズ前に stage `pre`、 実行の最終ステップで stage `post` として呼び出し、 diff 可能な読み取り専用エビデンス ZIP をスクリプトフォルダに生成する。 ベストエフォート: コレクタ側の問題は警告のみでデプロイ実行には影響しない。 `ListPhases` ではスキップ |
 | `-PfxPassword`             | スクリプト別         | 自己署名 PFX のパスワード (Chipset / Graphics: `'ChangeMe!2026'`、 NPU: `''`)                     |
 | `-WdacPolicyGuid`          | スクリプト別 (固定 UUID v4) | WDAC 補助 policy GUID を上書き。 デフォルトはスクリプト別 (Chipset: `503860EA-…`、 Graphics: `85336828-…`、 NPU: `8B2C4F12-…`)。 レガシー deploy のクリーンアップ、 または並列複数 deploy で使用 |
 | `-ForceUnsafe`             | (off)                | **r69+ (Chipset / Graphics / BthPan のみ)。** I00 PreInstallReview で条件 C1 / C2 / C5 / C6 が成立した場合に表示される CRITICAL 承認チェックリスト (シングルディスプレイホストでの display ドライバ置換、 BitLocker ON + AMD PSP ドライバ置換、 ホストが 24+ 時間 reboot されていない、 r71: Secure-Boot-ON ホストでの WHQL co-sign 不足) をバイパス。 CI / CD 自動化用途のみ。 バイパスは `Set-DebugStep` で run transcript に記録される。 **本番では絶対に使用しないこと。** 詳細は SPEC §D.28 と §D.31.4 |
@@ -977,6 +978,27 @@ ja-JP host でデフォルトのコードページ (932 / Shift-JIS) のまま `
 - **コンソール QuickEdit ガード。** Windows Server のコンソールはデフォルトで QuickEdit モードが有効で、 誤ったクリックドラッグによるテキスト選択が **すべてのコンソール出力をブロック** します — スクリプトはフェーズ途中でハングしたように見えます (実測 18m37s の凍結事例あり。 SPEC D.38 参照)。 選択 (マーク) モード中の Ctrl-C は *コピー* であり break ではないため、 凍結が解除されて実行はそのまま継続します。 r92+ では実行中 `ENABLE_QUICK_EDIT_MODE` を一時的に無効化し、 終了時に元のコンソールモードへ復元します (ConsoleHost のみ。 全工程 try/catch 内包。 スイッチなし)。
 - **Install readiness 判定。** RUN SUMMARY の末尾に、 フェーズごとの status から導出した明示的な `Install readiness : READY - no failed phases.` / `REVIEW REQUIRED - failed: <ids>` 行と、 「`[!]` 行は設計上の情報通知 (パッチ前ソース INF の baseline 測定、 文書化済みツールフォールバック、 I01 前の untrusted-root、 デバイス不在など) である」 旨の注記が出力されます。 実際の失敗はタイミングテーブル上で該当フェーズが `failed` になります。
 - **Run-artifact アーカイブ。** サマリ出力とトランスクリプト停止の後、 各実行は `logs\`・`patched\`・`cert\` (公開素材のみ)・`secureboot_ms_sample\`・`inf_inventory.csv` を `<ScriptName>_<Action>_run-artifacts_<yyyyMMdd-HHmmss>_<PID>.zip` に束ね、 **スクリプトと同じフォルダ** に zip をコピーします — 解析用にファイル 1 個を受け渡せます。 **`*.pfx` (秘密鍵) は決して含まれません**。 巨大な `download\` / `extracted\` ツリーと 50 MB 超のファイルも除外されます。 スクリプトフォルダが書き込み不可の場合は WorkRoot 直下 (さらに失敗時は `%TEMP%`) へフォールバックします。 `logs\run-artifact-archive-plan.txt` マーカーが zip 名をアーカイブ自身の中に記録します。 `Cleanup` 実行時 (ワークスペース消去済み) はアーカイブをスキップします。
+
+
+### 構成情報エビデンス・コレクタ (r93+)
+
+`Collect-WindowsServerConfigurationEvidence.ps1` は、 4 つのデプロイスクリプトが操作対象とする Windows Server の構成領域を **読み取り専用** で採取する単体実行可能な随伴スクリプトです。 タイムスタンプ付きエビデンスディレクトリ + ZIP を生成し、 色付きの PASS / FAIL / REVIEW / INFO 評価レポートを出力します (exit code: 0 = すべて PASS/INFO、 2 = FAIL/REVIEW あり、 1 = 致命エラー)。 iso プロジェクトの post-install コレクタの仕様・設計をベースにしています。
+
+採取領域: OS 識別 (build/UBR)、 pending reboot 状態 (advisory / blocking 分類)、 PnP インベントリ (問題デバイス + AMD/BthPan 対象ファミリ含む)、 ドライバストア (`pnputil /enum-drivers` + `Win32_PnPSignedDriver`)、 Root / TrustedPublisher のプロジェクト自己署名証明書 (**公開プロパティのみ — 秘密鍵は決して読み取りません**)、 ブートセキュリティ (Secure Boot、 UEFI CA 2023 servicing 状態、 testsigning/nointegritychecks、 HVCI、 WDAC `SiPolicy.p7b`、 `CiTool -lp`)、 直近の CodeIntegrity イベント、 `setupapi` ログ (50 MB 上限。 `-SkipSetupApiLog` でスキップ可)、 リポジトリスクリプト目録 (版数 + SHA-256)、 WorkRoot / run-artifact 目録 (名前のみ)。
+
+単体でいつでも実行できます:
+
+```powershell
+.\Collect-WindowsServerConfigurationEvidence.ps1
+```
+
+また、 新しい `-CollectEvidence` スイッチにより、 デプロイスクリプトが **pre/post のエビデンスペアを自動採取** します — stage `pre` は最初のフェーズの前、 stage `post` は run-artifact アーカイブ後の実行最終ステップで走り、 stage と呼び出し元スクリプトが ZIP 名に埋め込まれるためペアを diff 比較できます:
+
+```powershell
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot -CollectEvidence
+```
+
+コレクタ側の問題 (ファイル不在・非ゼロ exit・エラー) は警告として報告されるのみで、 デプロイ実行には決して影響しません。 `-OutputRoot` はスクリプトフォルダ (デフォルト) または `C:\Temp` のみ許可されます。
 
 
 ## システム要件
