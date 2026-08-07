@@ -4138,6 +4138,98 @@ The defect could in principle be detected by other static-analysis approaches:
 
 PSA2009 is the right gate because it is (a) language-aware (models the PSv5 sealed-object semantic accurately), (b) file-level (no need to reason about phase ordering at static-analysis time), (c) conservative against false positives (the hashtable-form drop pass), and (d) zero-cost at runtime (purely a pre-commit / CI artifact). The Chipset r73 / Graphics r39 / BthPan r21 release upstreams the rule into `psa.py` v3.8.0 and codifies its use in the §A.11.5c rule documentation.
 
+### D.31.17 `-SkipNonCosignedDrivers` plan semantics, workspace persistence, and the I01 gate (r96)
+
+The first field execution of the `-SkipNonCosignedDrivers` mechanism (2026-08-08
+WS2019 run, post-mortem in SPEC D.40) found that the r71/r72 implementation had
+never actually produced a working trimmed plan: the P06 trim crashed on the real
+inventory schema, its eligibility rule would have emptied the plan even without
+the crash, and the analysis it depended on did not survive the
+`PrepareVerify` -> `Install` process boundary. This section records the corrected
+contract; D.31.11 remains valid as the design background for the I02
+short-circuit itself.
+
+#### D.31.17.1 Trim eligibility rule
+
+`Get-EligibleInfRecordList` applies the following rule to each candidate record
+when `-SkipNonCosignedDrivers` is set:
+
+| Record | Eligible? | Rationale |
+| --- | --- | --- |
+| Does **not** need patching (`NeedsPatch` false) | **Always** | The vendor-issued WHQL catalog ships unmodified; this pipeline never re-signs it. The trim only has to exclude content the pipeline re-signs (P09). |
+| Needs patching (`NeedsPatch` true) | Only if the P05 analysis classified it **fully WHQL co-signed** | A patched INF gets a project-signed catalog; under Secure Boot ON only WHQL-embedded `.sys` signatures authorise it at kernel CI. |
+| No `NeedsPatch` property (producer-schema record) | Treated as needs-patching | The producer schema is by construction the patch-eligible subset; the co-sign check is the conservative interpretation. |
+
+The pre-r96 rule ("keep only names present in the analysis with
+`IsFullyCoSigned`") violated row 1: the analysis universe is the *patch-needing*
+subset only, so every vendor-catalog (copy-only) record fell outside it and was
+silently dropped — a fully-populated 119-INF inventory would have trimmed to 0.
+
+#### D.31.17.2 Schema-tolerant name resolution
+
+Candidate records arrive in two schemas: the CSV-projected inventory row
+(`Inf` / `RelativePath`; `FullPath` exists in-memory only) and the producer
+record (`InfName` / `InfPath`). Name resolution falls back through
+`InfName` -> `Inf` -> leaf of (`InfPath` | `FullPath` | `RelativePath`).
+A record with no resolvable name is excluded from the plan with a
+`Write-Caution` (never a crash). The pre-r96 implementation assumed the
+producer schema and crashed on inventory rows (`Split-Path -Leaf $null`
+binding error — the field-run signature).
+
+#### D.31.17.3 Workspace persistence (`whql_cosign_analysis.json` / `whql_cosign_plan.json`)
+
+Two best-effort JSON artifacts in the workspace root carry the analysis and the
+post-trim plan across the `PrepareVerify` -> `Install` process boundary:
+
+| File | Producer | Content | Consumers |
+| --- | --- | --- | --- |
+| `whql_cosign_analysis.json` | P05 (Chipset / Graphics / BthPan), immediately after `New-WhqlCoSignAnalysis` | The full per-INF analysis list | I00 C6 (non-co-signed reminder), `Get-WhqlCoSignPlanInfo` fallback |
+| `whql_cosign_plan.json` | P06 trim site (Chipset / Graphics), only when `-SkipNonCosignedDrivers` is set and an analysis exists | Post-trim plan summary: eligible / trimmed INF names and counts, `RemainingNeedsPatchCount`, `PlanAnalysedInfCount`, `PlanNonCoSignedCount` | I01 gate, I02 short-circuit (via `Get-WhqlCoSignPlanInfo`) |
+
+`Get-WhqlCoSignPlanInfo` resolves the effective plan state with the source
+precedence **plan-json > in-process `$Ctx.WhqlCoSignAnalysis` > analysis-json >
+none**, returning `Known`, `Source`, `PlanNeedsSelfSigning`,
+`NonCoSignedCount`, and `AnalysedInfCount`. The `none` state is conservative
+(`PlanNeedsSelfSigning = $true`, `NonCoSignedCount = -1`): I01 runs and I02
+evaluates the full authorization paths. An *empty* persisted analysis (P05
+found zero patch-eligible INFs) is a **known** state distinct from absence.
+
+Staleness rule: `Save-WhqlCoSignAnalysisJson` deletes any existing plan JSON
+when it (re)writes the analysis, so a plan can never outlive the analysis it
+was derived from. All persistence is best-effort: a write failure degrades the
+install phases to their conservative behaviour and never fails P05/P06.
+
+#### D.31.17.4 The I01 gate (Chipset / Graphics)
+
+When `-SkipNonCosignedDrivers` is set and the resolved plan is *known* with
+`PlanNeedsSelfSigning = $false` (no INF in the plan gets a project-signed
+catalog), I01 is skipped entirely: the self-signing certificate is never
+presented to the OS, so importing it into `LocalMachine\Root` +
+`\TrustedPublisher` would only expand the machine trust surface for zero
+benefit — and the PFX precondition would turn the unnecessary step into a hard
+failure on a workspace whose P07 never ran (the field-run secondary failure).
+The skip leaves both stores untouched, writes the I01 phase marker with
+`Reason = 'skipnoncosigned-no-selfsigned'`, and reports the plan source.
+BthPan is deliberately excluded: its single INF is always patched, so its plan
+always needs the certificate. NPU has no `-SkipNonCosignedDrivers` surface.
+
+#### D.31.17.5 The I02 short-circuit condition (supersedes the D.31.11.4 firing condition)
+
+The I02 short-circuit now fires on **`Known -and NonCoSignedCount -eq 0`**
+resolved via `Get-WhqlCoSignPlanInfo` — including plans with *zero* analysed
+INFs (everything trimmed, or nothing needed patching), which the r72 condition
+(`AnalysedInfCount > 0` on the in-process field) rejected. The r72 in-process
+condition was additionally unreachable in the split workflow because
+`$Ctx.WhqlCoSignAnalysis` never survives the process boundary.
+
+Decision matrix (with `-SkipNonCosignedDrivers`, Secure Boot ON):
+
+| Plan state | I01 | I02 |
+| --- | --- | --- |
+| Known, `PlanNeedsSelfSigning = $false`, `NonCoSignedCount = 0` | **Skipped** (stores untouched) | **Short-circuit** (vendor catalogs only) |
+| Known, `PlanNeedsSelfSigning = $true`, `NonCoSignedCount = 0` | Runs (re-signed catalogs need trust) | **Short-circuit** (WHQL `.sys` signatures authorise at kernel CI) |
+| Known, `NonCoSignedCount > 0` | Runs | Full Path A / Path B evaluation |
+| Unknown (`none`) | Runs (conservative) | Full Path A / Path B evaluation (conservative) |
 
 
 ## D.32 Runtime correctness fixes from the 2026-05-24 WS2019 + Renoir bench cycle (`r74`)
@@ -4886,6 +4978,81 @@ The `Install` run aborted at I02 with the designed `PATH B PREREQUISITE NOT MET`
 ### D.39.6 Sister impact
 
 Findings 1-2 fixes apply to all four scripts (identical edits; PSA8001 byte-identity preserved). Finding 3's banner note applies to Chipset / Graphics / BthPan (the NPU I02 has no Path B banner). Release: Chipset r95 / Graphics r61 / NPU r39 / BthPan r43.
+
+
+## D.40 WS2019 field run #2 (2026-08-08): the `-SkipNonCosignedDrivers` plan that never was — schema crash, trim semantics, and the process boundary
+
+### D.40.1 The run
+
+Same fixture as D.39 (Windows Server 2019 build 17763 ja-JP, UEFI Secure Boot
+ON, Windows PowerShell 5.1), same day, second session — this time on the r95
+generation, executing the planned Path A evaluation:
+`PrepareVerify -CleanWorkRoot -SkipNonCosignedDrivers` (04:40) followed by
+`Install -SkipNonCosignedDrivers` (04:42). This was the **first field
+execution ever** of the r71/r72 `-SkipNonCosignedDrivers` mechanism; every
+prior validation of it had been harness-level.
+
+### D.40.2 Finding 1 — P06 crashed on the real inventory schema (primary)
+
+P06 (`PatchInfs`) failed 0.08s in:
+`終了エラー(Split-Path): "引数が null であるため、パラメーター 'Path' にバインドできません。"`.
+`Get-EligibleInfRecordList` read `$rec.InfName` / `$rec.InfPath` (the
+producer schema), but `$Ctx.InfInventory` records carry the CSV-projected
+inventory schema (`Inf` / `RelativePath`); both lookups returned `$null` and
+`Split-Path -Leaf $null` threw a parameter-binding error. The consumer had
+never been run against the producer's real output — a producer/consumer
+schema-wiring gap of exactly the kind D.31.16.2 audits for, on the *read*
+side rather than the initialiser side.
+
+### D.40.3 Finding 2 — the trim rule would have emptied the plan anyway (latent)
+
+Even without the crash, the pre-r96 eligibility rule kept only names present
+in the P05 analysis with `IsFullyCoSigned`. The analysis universe is the
+*patch-needing* subset (this run: 2 records, both `AmdMicroPEP.inf`, both
+classified non-co-signed because the INF references **0 `.sys` files**), so
+all 117 vendor-catalog (copy-only) records fell outside the analysis and
+would have been silently dropped: a 119-INF inventory trimming to 0. The
+corrected semantics (D.31.17.1): copy-only records are always eligible; the
+trim only excludes patch-needing records that are not fully WHQL co-signed.
+
+### D.40.4 Finding 3 — the analysis never crossed the process boundary (structural)
+
+`$Ctx.WhqlCoSignAnalysis` existed only inside the P05 process. In the split
+`PrepareVerify` -> `Install` workflow the Install process always saw `$null`,
+which made the r72 I02 short-circuit unreachable exactly in the workflow it
+was designed for, and left I00 C6 silent. The secondary failure followed: with
+P06 crashed, P07 never produced a PFX, and I01's PFX precondition turned the
+(unnecessary, per D.31.17.4) trust-import step into the hard failure that
+aborted the Install run. Fixed by the workspace persistence + source
+precedence + I01 gate contract in D.31.17.3-D.31.17.5.
+
+### D.40.5 Fixes and verification (r96)
+
+All fixes are specified in D.31.17 (trim semantics, schema tolerance,
+persistence, I01 gate, I02 condition). A 15-case regression harness
+(pwsh 7.4.6 / Linux) covers the field-run replay (crash regression, 119->117
+trim shape, plan JSON round-trip, cross-process I01/I02 conditions), the
+source-precedence table, single-element JSON unwrap tolerance, the
+empty-analysis known state, and the stale-plan purge rule. Field re-execution
+of the WS2019 Path A evaluation is the outstanding confirmation (TESTING §22).
+
+### D.40.6 Observations (deferred)
+
+- `AmdMicroPEP.inf` references 0 `.sys` files (null-driver form) and is
+  therefore classified non-co-signed by the analysis, which excludes it from
+  the Path A plan even though a driver-less INF arguably cannot violate
+  kernel CI at all. Whether 0-`.sys` INFs deserve a distinct
+  "Secure-Boot-safe" classification is recorded as a design question — not
+  landed in r96 (the conservative exclusion stands).
+- `Compress-Archive` backslash entry separators reconfirmed in this run's
+  artifacts (already recorded in D.39.5; cosmetic).
+
+### D.40.7 Sister impact
+
+Fixes 1-3 apply to Chipset r96 / Graphics r62; the shared helpers (including
+the I02 condition rewrite and the persistence functions) are byte-identical
+in BthPan r44, whose I01 is deliberately not gated (D.31.17.4). NPU r39 is
+unchanged — it has no `-SkipNonCosignedDrivers` surface (no empty revisions).
 
 
 ## Appendix: How to seed a new sister script from this SPEC

@@ -2528,3 +2528,20 @@ replacements to all four `.ps1` files in one pass.
 | `Install` | I01 imported the certificate; **I02 aborted by design** with `PATH B PREREQUISITE NOT MET` — Secure Boot ON refuses testsigning, and on WS2019 (pre-1903) the WDAC supplemental path is architecturally unavailable (multiple-policy format requires build 18362+). r95 adds the explicit build-gated note to the banner (SPEC D.39.4). No system modification occurred beyond the I01 certificate import |
 
 **Validation value**: first WS2019-generation fixture; first field confirmation of the r91 URL-discovery fix, the r92 archive and the r94 automatic evidence collection; surfaced the 5.1-only digest defect that the Core-based harness structurally cannot detect (harness false-negative lesson recorded in SPEC D.39.2).
+
+## 22. Validation Scenario 22: 2026-08-08 WS2019 Path A field run (r95) and the r96 fix verification
+
+**Fixture**: same host as Scenario 21 (Windows Server 2019 build 17763, ja-JP, UEFI Secure Boot ON, Windows PowerShell 5.1), same day, second session. Script generation: r95 (`ws2019-ps51-field-fixes`). Planned Path A evaluation per the WS2019 support matrix: `PrepareVerify -CleanWorkRoot -SkipNonCosignedDrivers` followed by `Install -SkipNonCosignedDrivers`. This was the first field execution of the `-SkipNonCosignedDrivers` mechanism.
+
+**Observed**:
+
+| Item | Result |
+|---|---|
+| `PrepareVerify -CleanWorkRoot -SkipNonCosignedDrivers` (04:40) | P00-P05 `done` (119 INFs inventoried; WHQL analysis produced 2 records, both `AmdMicroPEP.inf`, both non-co-signed with **0 `.sys` files**); **P06 `FAILED` in 0.08s**: `終了エラー(Split-Path): 引数が null であるため、パラメーター 'Path' にバインドできません` — the trim consumer read the producer schema (`InfName`/`InfPath`) against inventory rows (`Inf`/`RelativePath`). P07-P09/V01-V06 never ran; no PFX was produced (SPEC D.40.2) |
+| `Install -SkipNonCosignedDrivers` (04:42) | I00 warned `PFX not found ... I01 will fail`; **I01 `FAILED` in 0.02s** on the PFX precondition. The r72 I02 short-circuit was unreachable: `$Ctx.WhqlCoSignAnalysis` does not survive the PrepareVerify -> Install process boundary (SPEC D.40.4). No system modification occurred |
+| Latent defect (analysis) | Even without the crash, the pre-r96 trim rule kept only analysed fully-co-signed names — the 117 copy-only INFs fall outside the analysis universe and the 119-INF plan would have trimmed to 0 (SPEC D.40.3) |
+| r95 in-field confirmations | Superseded/deferred: the digest and probe-noise confirmations planned for this run remain outstanding for the re-run (the Install run aborted at I01; transcripts were not part of this evidence set); the I02 pre-1903 banner item is superseded on Path A by the r96 short-circuit |
+
+**r96 fix verification (sandbox)**: 15-case regression harness (pwsh 7.4.6 / Linux) against the shared helpers extracted from Chipset r96 — schema-crash regression (inventory rows, producer records, path-prop fallback, unresolvable record), trim semantics (copy-only always kept; non-co-signed patch-needing dropped; co-signed patch-needing kept; no-switch and no-analysis pass-through), persistence (analysis/plan JSON round-trip, single-element unwrap tolerance, empty-analysis known state, stale-plan purge), and the cross-process I01/I02 decision matrix including the field-run replay (plan-json source; I01 skips; I02 short-circuits). **15/15 PASS.** Static gates: psa.py 0 findings x 5, `Parser::ParseFile` 0 errors x 4, shared-function byte-identity (Chipset/Graphics/BthPan) for all five plan helpers, canon vendored regions untouched (32 units x 3, all diff hunks outside).
+
+**Outstanding**: field re-execution of the WS2019 Path A evaluation on r96 — expected shape: P06 trims 119 -> 117 with `whql_cosign_plan.json` (`RemainingNeedsPatchCount = 0`), I01 skipped with `Reason = 'skipnoncosigned-no-selfsigned'` and both trust stores untouched, I02 short-circuit via `plan-json`, I03 installs the vendor-catalog subset, plus the deferred r95 digest / probe-noise confirmations.

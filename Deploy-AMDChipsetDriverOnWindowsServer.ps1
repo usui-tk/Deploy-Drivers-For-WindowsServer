@@ -669,8 +669,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.08.08-r95'
-$Script:ScriptTag     = 'ws2019-ps51-field-fixes'
+$Script:ScriptVersion = 'chipset-2026.08.08-r96'
+$Script:ScriptTag     = 'path-a-plan-semantics-fixes'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -5064,7 +5064,12 @@ function Get-CriticalRiskItem {
     # state typically requires manual pnputil intervention from WinRE.
     try {
         $analysisField = $Ctx.WhqlCoSignAnalysis
-        $hasAnalysis = ($null -ne $analysisField -and $analysisField.Count -gt 0)
+        if (-not $analysisField) {
+            # Split-workflow fallback: P05 ran in the PrepareVerify
+            # process; load the analysis it persisted (SPEC §D.31.17).
+            $analysisField = Get-PersistedWhqlCoSignAnalysisList -Ctx $Ctx
+        }
+        $hasAnalysis = ($null -ne $analysisField -and @($analysisField).Count -gt 0)
         if ($hasAnalysis -and -not $Script:SkipNonCosignedDrivers -and -not $Ctx.UseTestSigning) {
             $sbOn = Test-SecureBootEnabledFromFirmware
             $nonCoSignedInfs = @($analysisField | Where-Object { -not $_.IsFullyCoSigned })
@@ -5598,8 +5603,23 @@ function Invoke-PathBPrerequisiteCheck {
 function Get-EligibleInfRecordList { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     # Apply the -SkipNonCosignedDrivers filter (when set) to a candidate
     # INF list, using the WHQL co-sign analysis captured by P05.
-    # Returns the subset eligible for Path A install. When the switch is
-    # off, returns the input unchanged.
+    # Returns the subset eligible for the -SkipNonCosignedDrivers
+    # install plan. When the switch is off, returns the input unchanged.
+    #
+    # Trim semantics (SPEC §D.31.17 / §D.40 - 2026-08-08 WS2019 field run):
+    #   - Records that do NOT need patching keep their vendor-issued
+    #     WHQL catalogs untouched; they are ALWAYS eligible. The trim
+    #     only has to exclude content this pipeline re-signs (P09).
+    #     (An earlier implementation kept only analysed fully-co-signed
+    #     names, which silently dropped every vendor-catalog record
+    #     and emptied the plan.)
+    #   - Records that DO need patching are eligible only when the P05
+    #     analysis classified them fully WHQL co-signed.
+    #   - Records may arrive in the inventory-row schema (Inf /
+    #     RelativePath, optionally FullPath) or the producer schema
+    #     (InfName / InfPath). An earlier implementation assumed the
+    #     producer schema and crashed on inventory rows (Split-Path
+    #     null binding); name resolution is now schema-tolerant.
     [CmdletBinding()]
     [OutputType([pscustomobject[]])]
     param(
@@ -5625,13 +5645,245 @@ function Get-EligibleInfRecordList { # psa-disable-line PSA6003 -- compound noun
     }
     $eligible = New-Object System.Collections.Generic.List[pscustomobject]
     foreach ($rec in $InfRecords) {
-        $name = if ($rec.InfName) { [string]$rec.InfName } else { Split-Path -Leaf $rec.InfPath }
+        # Schema-tolerant INF name resolution (see SPEC §D.40).
+        $name = $null
+        if ($rec.PSObject.Properties['InfName'] -and $rec.InfName) {
+            $name = [string]$rec.InfName
+        } elseif ($rec.PSObject.Properties['Inf'] -and $rec.Inf) {
+            $name = [string]$rec.Inf
+        } else {
+            foreach ($pathProp in @('InfPath', 'FullPath', 'RelativePath')) {
+                if ($rec.PSObject.Properties[$pathProp] -and $rec.$pathProp) {
+                    $name = Split-Path -Leaf ([string]$rec.$pathProp)
+                    break
+                }
+            }
+        }
+        if (-not $name) {
+            Write-Caution '  Get-EligibleInfRecordList: record without a resolvable INF name skipped (kept out of the trimmed plan).'
+            continue
+        }
+        # Vendor-catalog records (no patch) are always eligible; only
+        # records this pipeline re-signs must pass the co-sign check.
+        # Records without a NeedsPatch property (producer schema) are
+        # by construction the patch-eligible subset: apply the check.
+        $needsCoSignCheck = $true
+        if ($rec.PSObject.Properties['NeedsPatch']) {
+            $needsCoSignCheck = ($rec.NeedsPatch -eq $true -or $rec.NeedsPatch -eq 'True')
+        }
+        if (-not $needsCoSignCheck) {
+            $eligible.Add($rec)
+            continue
+        }
         if ($coSignedLookup.Contains($name)) {
             $eligible.Add($rec)
         }
     }
     return ,@($eligible.ToArray())
 }
+
+function Save-WhqlCoSignAnalysisJson {
+    # Persist the P05 WHQL co-sign analysis to the workspace so the
+    # install phases can read it in the split PrepareVerify -> Install
+    # workflow, where the in-process $Ctx.WhqlCoSignAnalysis does not
+    # survive the process boundary (SPEC §D.31.17 / §D.40).
+    # Best-effort: a write failure degrades the split-workflow
+    # consumers (I00 C6, I01 gate, I02 short-circuit) to their
+    # conservative no-analysis behaviour and never fails P05.
+    # Also removes any stale Path A plan JSON from a previous run so a
+    # plan can never outlive the analysis it was derived from (P06
+    # rewrites the plan on the next -SkipNonCosignedDrivers trim).
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)] $Ctx,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]]$Analyses
+    )
+    try {
+        if (-not $Ctx.Paths -or -not $Ctx.Paths.Root) { return }
+        $jsonPath = Join-Path $Ctx.Paths.Root 'whql_cosign_analysis.json'
+        $doc = [pscustomobject]@{
+            SchemaVersion = 1
+            GeneratedAt   = (Get-Date).ToString('o')
+            ScriptVersion = $Script:ScriptVersion
+            Analyses      = @($Analyses)
+        }
+        $doc | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $jsonPath -Encoding UTF8
+        $planPath = Join-Path $Ctx.Paths.Root 'whql_cosign_plan.json'
+        if (Test-Path -LiteralPath $planPath) {
+            Remove-Item -LiteralPath $planPath -Force -ErrorAction SilentlyContinue
+        }
+        Set-DebugStep ('Save-WhqlCoSignAnalysisJson: wrote {0} analysis record(s)' -f @($Analyses).Count)
+    } catch {
+        Set-DebugStep ('Save-WhqlCoSignAnalysisJson: write failed (non-fatal): {0}' -f $_.Exception.Message)
+    }
+}
+
+function Get-PersistedWhqlCoSignAnalysisList { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
+    # Load the WHQL co-sign analysis persisted by P05 (see
+    # Save-WhqlCoSignAnalysisJson) from the workspace. Returns $null
+    # when the file is absent or unreadable; callers fall back to
+    # their conservative no-analysis behaviour. An empty persisted
+    # analysis (P05 found zero patch-eligible INFs) loads as an empty
+    # array, which is a KNOWN state distinct from $null.
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param([Parameter(Mandatory)] $Ctx)
+    try {
+        if (-not $Ctx.Paths -or -not $Ctx.Paths.Root) { return $null }
+        $jsonPath = Join-Path $Ctx.Paths.Root 'whql_cosign_analysis.json'
+        if (-not (Test-Path -LiteralPath $jsonPath)) { return $null }
+        $doc = Get-Content -LiteralPath $jsonPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($null -eq $doc -or -not $doc.PSObject.Properties['Analyses']) { return $null }
+        if ($null -eq $doc.Analyses) { return ,@() }
+        return ,@($doc.Analyses)
+    } catch {
+        Set-DebugStep ('Get-PersistedWhqlCoSignAnalysisList: load failed: {0}' -f $_.Exception.Message)
+        return $null
+    }
+}
+
+function Save-WhqlCoSignPlanJson {
+    # Persist the post-trim Path A (-SkipNonCosignedDrivers) plan
+    # summary produced by the P06 trim, so the install phases (I01
+    # skip gate, I02 short-circuit) can read it across the
+    # PrepareVerify -> Install process boundary via
+    # Get-WhqlCoSignPlanInfo (SPEC §D.31.17 / §D.40).
+    # Best-effort: a write failure never fails P06; the install phases
+    # then fall back to the persisted P05 analysis (conservative).
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)] $Ctx,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]]$PreTrimRecords,
+        [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]]$EligibleRecords
+    )
+    try {
+        if (-not $Ctx.Paths -or -not $Ctx.Paths.Root) { return }
+        $eligibleNames = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($rec in $EligibleRecords) {
+            $n = $null
+            if ($rec.PSObject.Properties['InfName'] -and $rec.InfName) { $n = [string]$rec.InfName }
+            elseif ($rec.PSObject.Properties['Inf'] -and $rec.Inf) { $n = [string]$rec.Inf }
+            if ($n) { [void]$eligibleNames.Add($n) }
+        }
+        $trimmedNames = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($rec in $PreTrimRecords) {
+            $n = $null
+            if ($rec.PSObject.Properties['InfName'] -and $rec.InfName) { $n = [string]$rec.InfName }
+            elseif ($rec.PSObject.Properties['Inf'] -and $rec.Inf) { $n = [string]$rec.Inf }
+            if ($n -and -not $eligibleNames.Contains($n)) { [void]$trimmedNames.Add($n) }
+        }
+        $remainingNeedsPatch = 0
+        foreach ($rec in $EligibleRecords) {
+            if ($rec.PSObject.Properties['NeedsPatch'] -and ($rec.NeedsPatch -eq $true -or $rec.NeedsPatch -eq 'True')) {
+                $remainingNeedsPatch++
+            }
+        }
+        $planAnalysed = 0
+        $planNonCoSigned = 0
+        if ($Ctx.WhqlCoSignAnalysis) {
+            foreach ($a in $Ctx.WhqlCoSignAnalysis) {
+                if ($a.InfName -and $eligibleNames.Contains([string]$a.InfName)) {
+                    $planAnalysed++
+                    if (-not $a.IsFullyCoSigned) { $planNonCoSigned++ }
+                }
+            }
+        }
+        $doc = [pscustomobject]@{
+            SchemaVersion            = 1
+            GeneratedAt              = (Get-Date).ToString('o')
+            ScriptVersion            = $Script:ScriptVersion
+            SkipNonCosignedDrivers   = $true
+            EligibleInfCount         = $eligibleNames.Count
+            TrimmedInfCount          = $trimmedNames.Count
+            RemainingNeedsPatchCount = $remainingNeedsPatch
+            PlanAnalysedInfCount     = $planAnalysed
+            PlanNonCoSignedCount     = $planNonCoSigned
+            EligibleInfNames         = @(@($eligibleNames) | Sort-Object)
+            TrimmedInfNames          = @(@($trimmedNames) | Sort-Object)
+        }
+        $doc | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $Ctx.Paths.Root 'whql_cosign_plan.json') -Encoding UTF8
+        Set-DebugStep ('Save-WhqlCoSignPlanJson: eligible={0} trimmed={1} remainingNeedsPatch={2} planNonCoSigned={3}' -f $eligibleNames.Count, $trimmedNames.Count, $remainingNeedsPatch, $planNonCoSigned)
+    } catch {
+        Set-DebugStep ('Save-WhqlCoSignPlanJson: write failed (non-fatal): {0}' -f $_.Exception.Message)
+    }
+}
+
+function Get-WhqlCoSignPlanInfo {
+    # Resolve the effective -SkipNonCosignedDrivers plan/analysis state
+    # for the install phases (I01 skip gate, I02 short-circuit),
+    # tolerant of the PrepareVerify -> Install process boundary (SPEC
+    # §D.31.17 / §D.40). Source precedence:
+    #   1. whql_cosign_plan.json     (post-trim plan persisted by P06)
+    #   2. $Ctx.WhqlCoSignAnalysis   (in-process, e.g. -Action All)
+    #   3. whql_cosign_analysis.json (P05 analysis persisted pre-trim)
+    # Returns a record with:
+    #   Known                - $true when any source was available
+    #   Source               - 'plan-json' / 'ctx' / 'analysis-json' / 'none'
+    #   PlanNeedsSelfSigning - $true when the plan retains content that
+    #                          this pipeline re-signs (I01 required)
+    #   NonCoSignedCount     - non-fully-co-signed INFs in the plan
+    #                          (-1 when unknown)
+    #   AnalysedInfCount     - analysed INFs attributable to the plan
+    # When no source is available, PlanNeedsSelfSigning=$true is the
+    # conservative default (I01 runs, I02 evaluates the full paths).
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter(Mandatory)] $Ctx)
+    try {
+        if ($Ctx.Paths -and $Ctx.Paths.Root) {
+            $planPath = Join-Path $Ctx.Paths.Root 'whql_cosign_plan.json'
+            if (Test-Path -LiteralPath $planPath) {
+                $plan = Get-Content -LiteralPath $planPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                if ($null -ne $plan -and $plan.SkipNonCosignedDrivers) {
+                    return [pscustomobject]@{
+                        Known                = $true
+                        Source               = 'plan-json'
+                        PlanNeedsSelfSigning = ([int]$plan.RemainingNeedsPatchCount -gt 0)
+                        NonCoSignedCount     = [int]$plan.PlanNonCoSignedCount
+                        AnalysedInfCount     = [int]$plan.PlanAnalysedInfCount
+                    }
+                }
+            }
+        }
+    } catch {
+        Set-DebugStep ('Get-WhqlCoSignPlanInfo: plan JSON load failed: {0}' -f $_.Exception.Message)
+    }
+    $source = ''
+    $analyses = $null
+    if ($Ctx.WhqlCoSignAnalysis) {
+        $analyses = @($Ctx.WhqlCoSignAnalysis)
+        $source = 'ctx'
+    } else {
+        $loaded = Get-PersistedWhqlCoSignAnalysisList -Ctx $Ctx
+        if ($null -ne $loaded) {
+            $analyses = @($loaded)
+            $source = 'analysis-json'
+        }
+    }
+    if ($null -ne $analyses) {
+        $non = 0
+        foreach ($a in $analyses) {
+            if (-not $a.IsFullyCoSigned) { $non++ }
+        }
+        return [pscustomobject]@{
+            Known                = $true
+            Source               = $source
+            PlanNeedsSelfSigning = ($analyses.Count -gt 0)
+            NonCoSignedCount     = $non
+            AnalysedInfCount     = $analyses.Count
+        }
+    }
+    return [pscustomobject]@{
+        Known                = $false
+        Source               = 'none'
+        PlanNeedsSelfSigning = $true
+        NonCoSignedCount     = -1
+        AnalysedInfCount     = 0
+    }
+}
+
 
 
 function Get-OsContext {
@@ -9063,6 +9315,9 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     try {
         $Ctx.WhqlCoSignAnalysis = New-WhqlCoSignAnalysis -InfRecords $whqlInfRecords
         Show-WhqlCoSignAnalysisReport -Analyses $Ctx.WhqlCoSignAnalysis
+        # Persist for the split PrepareVerify -> Install workflow
+        # (I00 C6 / I01 gate / I02 short-circuit; SPEC §D.31.17).
+        Save-WhqlCoSignAnalysisJson -Ctx $Ctx -Analyses $Ctx.WhqlCoSignAnalysis
     } catch {
         Write-Caution ('  r71: WHQL co-sign analysis failed: {0}' -f $_.Exception.Message)
         Write-Caution '  r71: I00 C6 condition and -SkipNonCosignedDrivers will operate on an empty analysis.'
@@ -9097,6 +9352,7 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
     # when -SkipNonCosignedDrivers is absent. See SPEC SS D.31.
     if ($Script:SkipNonCosignedDrivers) {
         $beforeCount = @($Ctx.InfInventory).Count
+        $preTrimRecords = @($Ctx.InfInventory)
         $Ctx.InfInventory = Get-EligibleInfRecordList -Ctx $Ctx -InfRecords $Ctx.InfInventory -SkipNonCosignedDrivers
         $afterCount = @($Ctx.InfInventory).Count
         $skipped = $beforeCount - $afterCount
@@ -9107,6 +9363,14 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
             Set-DebugStep ('r71 SkipNonCosignedDrivers: trimmed {0} -> {1} INF(s)' -f $beforeCount, $afterCount)
         } else {
             Write-Detail '  r71: -SkipNonCosignedDrivers set but inventory is already fully WHQL co-signed (no trim).'
+        }
+        # Persist the post-trim plan summary so the install phases
+        # (I01 gate, I02 short-circuit) can read it across the
+        # PrepareVerify -> Install process boundary (SPEC §D.31.17).
+        if ($Ctx.WhqlCoSignAnalysis) {
+            Save-WhqlCoSignPlanJson -Ctx $Ctx -PreTrimRecords $preTrimRecords -EligibleRecords @($Ctx.InfInventory)
+        } else {
+            Write-Caution '  -SkipNonCosignedDrivers: no WHQL analysis available; plan summary not persisted (install phases stay conservative).'
         }
     }
 
@@ -13023,6 +13287,29 @@ function Invoke-InstPhase01_TrustCertificate {
     param($Ctx)
     Write-PhaseHeader 'I01' 'TrustCertificate' 'Inst'
 
+    # ---- -SkipNonCosignedDrivers gate: no self-signed catalogs in the plan ----
+    # When the operator passed -SkipNonCosignedDrivers and the post-P06
+    # plan retains no INFs that this pipeline re-signs (P09), the
+    # self-signing certificate is never presented to the OS. Importing
+    # it into LocalMachine\Root + \TrustedPublisher would only expand
+    # the machine trust surface for zero benefit, and the PFX
+    # precondition below would turn an unnecessary step into a hard
+    # failure (observed on the 2026-08-08 WS2019 field run where a
+    # PatchInfs crash left the workspace without a PFX; SPEC §D.40). Skip I01
+    # entirely and leave both stores untouched.
+    Set-DebugStep 'r96: -SkipNonCosignedDrivers no-self-signed-content gate'
+    if ($Script:SkipNonCosignedDrivers) {
+        $planInfo = Get-WhqlCoSignPlanInfo -Ctx $Ctx
+        if ($planInfo.Known -and -not $planInfo.PlanNeedsSelfSigning) {
+            Write-Ok '  Trimmed install plan contains no re-signed catalogs - certificate trust import is not required.'
+            Write-Detail '  LocalMachine\Root and LocalMachine\TrustedPublisher are left unmodified by this run.'
+            Write-Detail ('  (plan source: {0})' -f $planInfo.Source)
+            Set-PhaseMarker -Ctx $Ctx -PhaseId 'I01' -Metadata @{ Skipped = $true; Reason = 'skipnoncosigned-no-selfsigned'; PlanSource = $planInfo.Source }
+            Write-PhaseFooter 'I01' 'skipped'
+            return
+        }
+    }
+
     # ---- Resume-after-reboot: skip if cert is already trusted ----
     # State validator inspects LocalMachine\Root and \TrustedPublisher
     # directly. If both already contain our thumbprint, I01 is a no-op
@@ -13134,18 +13421,31 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     # through to Path B which would abort on the Path B prerequisite
     # check). See SPEC SS D.31.11 for the design contract, including
     # the firing conditions and resume-after-reboot semantics.
-    Set-DebugStep 'r72 short-circuit evaluation'
-    if (-not $Ctx.UseTestSigning -and $Script:SkipNonCosignedDrivers -and $Ctx.WhqlCoSignAnalysis) {
-        $nonCoSignedAfterTrim = @($Ctx.WhqlCoSignAnalysis | Where-Object { -not $_.IsFullyCoSigned })
-        if ($nonCoSignedAfterTrim.Count -eq 0 -and $Ctx.WhqlCoSignAnalysis.Count -gt 0) {
-            Write-Host '--- I02 short-circuit (r72): install plan is fully WHQL co-signed ---' -ForegroundColor Green
-            Write-Ok ('  All {0} INF(s) in the trimmed install plan carry Microsoft Windows Hardware Compatibility co-signatures.' -f $Ctx.WhqlCoSignAnalysis.Count)
+    Set-DebugStep 'r72/r96 short-circuit evaluation'
+    if (-not $Ctx.UseTestSigning -and $Script:SkipNonCosignedDrivers) {
+        # Resolve the post-trim plan state via Get-WhqlCoSignPlanInfo,
+        # which survives the PrepareVerify -> Install process boundary by
+        # falling back to the plan/analysis JSON persisted in the
+        # workspace (SPEC §D.31.17 / §D.40). The original in-process condition
+        # ($Ctx.WhqlCoSignAnalysis) was always $null in the split
+        # workflow, making this short-circuit unreachable there. A plan
+        # with ZERO re-signed INFs (everything trimmed, or nothing needed
+        # patching) also short-circuits: vendor WHQL catalogs need no
+        # kernel-mode signer authorization at all.
+        $planInfo = Get-WhqlCoSignPlanInfo -Ctx $Ctx
+        if ($planInfo.Known -and $planInfo.NonCoSignedCount -eq 0) {
+            Write-Host '--- I02 short-circuit (r72/r96): install plan is fully WHQL co-signed ---' -ForegroundColor Green
+            if ($planInfo.AnalysedInfCount -gt 0) {
+                Write-Ok ('  All {0} re-signed INF(s) in the trimmed install plan carry Microsoft Windows Hardware Compatibility co-signatures.' -f $planInfo.AnalysedInfCount)
+            } else {
+                Write-Ok '  The trimmed install plan contains no re-signed content (vendor WHQL catalogs only).'
+            }
             Write-Detail '  No kernel-mode signer authorization is required:'
             Write-Detail '    - WHQL embedded signatures will authorize these drivers at kernel CI (Secure Boot can stay ON).'
-            Write-Detail '    - Trust-store import (I01) is sufficient for pnputil to accept the re-signed catalogs at I03.'
+            Write-Detail '    - Vendor/WHQL catalogs are accepted by pnputil without trust-store changes; re-signed catalogs (if any) rely on the I01 trust-store import.'
             Write-Detail '  No WDAC supplemental policy will be deployed; no bcdedit testsigning flag will be set.'
-            Set-PhaseMarker -Ctx $Ctx -PhaseId 'I02' -Metadata @{ ShortCircuit = $true; Reason = 'all-whql-skip'; AnalysedInfCount = $Ctx.WhqlCoSignAnalysis.Count }
-            Set-DebugStep ('I02 short-circuit: SkipNonCosignedDrivers={0} UseTestSigning={1} AnalysedInfCount={2} NonCoSignedAfterTrim={3}' -f $Script:SkipNonCosignedDrivers, [bool]$Ctx.UseTestSigning, $Ctx.WhqlCoSignAnalysis.Count, $nonCoSignedAfterTrim.Count)
+            Set-PhaseMarker -Ctx $Ctx -PhaseId 'I02' -Metadata @{ ShortCircuit = $true; Reason = 'all-whql-skip'; AnalysedInfCount = $planInfo.AnalysedInfCount; PlanSource = $planInfo.Source }
+            Set-DebugStep ('I02 short-circuit: SkipNonCosignedDrivers={0} UseTestSigning={1} AnalysedInfCount={2} NonCoSignedCount={3} PlanSource={4}' -f $Script:SkipNonCosignedDrivers, [bool]$Ctx.UseTestSigning, $planInfo.AnalysedInfCount, $planInfo.NonCoSignedCount, $planInfo.Source)
             Write-PhaseFooter 'I02' 'short-circuit'
             return
         }

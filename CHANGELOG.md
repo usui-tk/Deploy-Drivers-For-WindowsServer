@@ -20,6 +20,68 @@ independently.
 
 ---
 
+## [2026-08-08] `path-a-plan-semantics-fixes` — Chipset r96 / Graphics r62 / NPU r39 (unchanged) / BthPan r44
+
+Fixes from the second Windows Server 2019 field run (2026-08-08, same host,
+r95 generation) — the first field execution of the `-SkipNonCosignedDrivers`
+mechanism, which failed before installing anything. Full post-mortem:
+SPEC D.40; corrected contract: SPEC D.31.17. NPU is unchanged (no
+`-SkipNonCosignedDrivers` surface; no empty revisions).
+
+### Fix 1 — `Get-EligibleInfRecordList` schema crash (Chipset / Graphics / BthPan)
+
+- P06 failed in 0.08s with `引数が null であるため、パラメーター 'Path' に
+  バインドできません` (Split-Path null binding): the trim consumer read the
+  producer schema (`InfName` / `InfPath`) but `$Ctx.InfInventory` rows carry
+  the CSV-projected schema (`Inf` / `RelativePath`). Name resolution is now
+  schema-tolerant (`InfName` -> `Inf` -> path-leaf fallback across
+  `InfPath` / `FullPath` / `RelativePath`); an unresolvable record is
+  excluded with a `Write-Caution`, never a crash.
+
+### Fix 2 — trim semantics kept only analysed names and emptied the plan (Chipset / Graphics / BthPan)
+
+- The analysis universe is the patch-needing subset, so the previous rule
+  ("keep analysed fully-co-signed names only") silently dropped every
+  vendor-catalog (copy-only) record — a 119-INF inventory would have trimmed
+  to 0. Corrected semantics (SPEC D.31.17.1): records that do not need
+  patching are always eligible (their vendor WHQL catalogs ship unmodified);
+  patch-needing records require the fully-co-signed classification; records
+  without a `NeedsPatch` property get the conservative co-sign check.
+
+### Fix 3 — plan/analysis persistence across the PrepareVerify -> Install boundary (Chipset / Graphics / BthPan)
+
+- `$Ctx.WhqlCoSignAnalysis` never survived the process boundary, making the
+  r72 I02 short-circuit unreachable in the split workflow it was designed
+  for. P05 now persists `whql_cosign_analysis.json` and the P06 trim
+  persists `whql_cosign_plan.json` (Chipset / Graphics) in the workspace
+  root; the new `Get-WhqlCoSignPlanInfo` resolves the effective plan state
+  with source precedence plan-json > in-process > analysis-json > none
+  (conservative). I00 C6 falls back to the persisted analysis; the I02
+  short-circuit condition is now `Known -and NonCoSignedCount -eq 0`,
+  including zero-re-signed-content plans. Writes are best-effort and a fresh
+  P05 analysis purges any stale plan JSON.
+
+### Fix 4 — I01 skip gate for plans with no self-signed catalogs (Chipset / Graphics)
+
+- When `-SkipNonCosignedDrivers` is set and the resolved plan retains no
+  patch-needing INFs, I01 is skipped: the self-signing certificate is never
+  presented to the OS, so importing it into `LocalMachine\Root` +
+  `\TrustedPublisher` would only expand the trust surface — and the PFX
+  precondition had turned that unnecessary step into the run-aborting hard
+  failure on the field host (P06 crash -> no P07 -> no PFX). The skip leaves
+  both stores untouched and records `Reason =
+  'skipnoncosigned-no-selfsigned'` in the phase marker. BthPan is
+  deliberately not gated (its single INF is always patched).
+
+### Verification
+
+- 15-case regression harness (pwsh 7.4.6 / Linux) incl. the field-run
+  replay: 15/15 PASS (TESTING §22). Gates: psa.py 0 findings x 5;
+  `Parser::ParseFile` 0 errors x 4; shared-helper byte-identity across
+  Chipset / Graphics / BthPan; canon vendored regions untouched (32 x 3).
+- Field re-execution of the WS2019 Path A evaluation is the outstanding
+  confirmation (expected shape recorded in TESTING §22).
+
 ## [2026-08-08] `ws2019-ps51-field-fixes` — Chipset r95 / Graphics r61 / NPU r39 / BthPan r43
 
 Fixes from the first Windows Server 2019 field run (2026-08-08, ja-JP,
