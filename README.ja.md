@@ -970,6 +970,15 @@ ja-JP host でデフォルトのコードページ (932 / Shift-JIS) のまま `
 
 ---
 
+### コンソール QuickEdit ガード・readiness 判定・run-artifact アーカイブ (r92+)
+
+実運用レポートに基づく 3 つの堅牢化が 4 スクリプト共通で追加されました:
+
+- **コンソール QuickEdit ガード。** Windows Server のコンソールはデフォルトで QuickEdit モードが有効で、 誤ったクリックドラッグによるテキスト選択が **すべてのコンソール出力をブロック** します — スクリプトはフェーズ途中でハングしたように見えます (実測 18m37s の凍結事例あり。 SPEC D.38 参照)。 選択 (マーク) モード中の Ctrl-C は *コピー* であり break ではないため、 凍結が解除されて実行はそのまま継続します。 r92+ では実行中 `ENABLE_QUICK_EDIT_MODE` を一時的に無効化し、 終了時に元のコンソールモードへ復元します (ConsoleHost のみ。 全工程 try/catch 内包。 スイッチなし)。
+- **Install readiness 判定。** RUN SUMMARY の末尾に、 フェーズごとの status から導出した明示的な `Install readiness : READY - no failed phases.` / `REVIEW REQUIRED - failed: <ids>` 行と、 「`[!]` 行は設計上の情報通知 (パッチ前ソース INF の baseline 測定、 文書化済みツールフォールバック、 I01 前の untrusted-root、 デバイス不在など) である」 旨の注記が出力されます。 実際の失敗はタイミングテーブル上で該当フェーズが `failed` になります。
+- **Run-artifact アーカイブ。** サマリ出力とトランスクリプト停止の後、 各実行は `logs\`・`patched\`・`cert\` (公開素材のみ)・`secureboot_ms_sample\`・`inf_inventory.csv` を `<ScriptName>_<Action>_run-artifacts_<yyyyMMdd-HHmmss>_<PID>.zip` に束ね、 **スクリプトと同じフォルダ** に zip をコピーします — 解析用にファイル 1 個を受け渡せます。 **`*.pfx` (秘密鍵) は決して含まれません**。 巨大な `download\` / `extracted\` ツリーと 50 MB 超のファイルも除外されます。 スクリプトフォルダが書き込み不可の場合は WorkRoot 直下 (さらに失敗時は `%TEMP%`) へフォールバックします。 `logs\run-artifact-archive-plan.txt` マーカーが zip 名をアーカイブ自身の中に記録します。 `Cleanup` 実行時 (ワークスペース消去済み) はアーカイブをスキップします。
+
+
 ## システム要件
 
 - **CPU**: AMD Ryzen 4000 シリーズ以降 (スクリプトの `Get-AmdChipsetPlatform` heuristic は 4000 → AI 300、AI Max 300 を認識します。それより古い silicon でも動作はしますが未検証)。NPU スクリプト用には Ryzen 7040 / 8040 / AI 300 / AI Max 300 / AI 200 シリーズ (NPU 内蔵) が必要。

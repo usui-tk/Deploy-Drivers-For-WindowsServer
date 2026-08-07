@@ -20,6 +20,78 @@ independently.
 
 ---
 
+## [2026-08-07] `quickedit-guard-readiness-and-artifact-archive` — Chipset r92 / Graphics r58 / NPU r36 / BthPan r40
+
+Field-driven hardening release with three workstreams, all applied to all
+four scripts. The two triggering operator reports and their root-cause
+analyses are recorded in SPEC D.38.
+
+### Console QuickEdit guard (all four)
+
+- Root cause of the reported "7-Zip hang" on a 2026-08-07 Graphics run:
+  the Windows console was in QuickEdit mark mode (default ON on
+  WS2016) — an accidental text selection blocks every console write, so
+  the run froze for 18m37s between two adjacent `Write-Host` calls in
+  P04 while 7-Zip had long since exited with code 0. Ctrl-C released the
+  freeze WITHOUT terminating the script (in mark mode Ctrl-C is copy,
+  not break), which is the diagnostic signature of this failure class.
+  A second 3m41s silent gap in the same run's P03 fits the same
+  mechanism. Full post-mortem: SPEC D.38.
+- New SECTION 0.27 inline guard: `ENABLE_QUICK_EDIT_MODE` is cleared on
+  the stdin console handle for the duration of the run (P/Invoke
+  `GetConsoleMode` / `SetConsoleMode`, `ENABLE_EXTENDED_FLAGS` set as
+  required; ConsoleHost only; fully try/catch-contained) and the
+  ORIGINAL console mode is restored in the top-level `finally`.
+
+### Install-readiness digest in RUN SUMMARY (all four)
+
+- Trigger: a 2026-08-07 BthPan run printed several `[!]` notices
+  (source-INF baseline InfVerif errors, inf2cat 22.9.8 → makecat
+  fallback, untrusted-root before I01, absent BT device) yet every phase
+  ended `done`; the operator could not tell from the summary whether
+  proceeding to Install was safe. Analysis: it was — all four notices
+  are expected-condition by design (SPEC D.38.4).
+- New `Write-InstallReadinessDigest` appended to the RUN SUMMARY: a
+  fixed note that `[!]` lines are informational / expected-condition
+  notices by design, plus an explicit verdict line
+  `Install readiness : READY - no failed phases.` /
+  `REVIEW REQUIRED - failed: <ids>` derived from per-phase statuses
+  (`failed` on the sister trio, `FAIL` on NPU) and a
+  `$Script:TopLevelException` probe.
+- Governance scope reduction: the originally-planned per-phase `[!]`
+  counters would require a hook inside the canonical `write-caution`
+  unit; vendored canon regions are not edited in this repository. The
+  counter hook is recorded as a central-canon reflux candidate instead.
+
+### Run-artifact archive (all four)
+
+- After the RUN SUMMARY and after the transcript closes, each run now
+  bundles `logs\**`, `patched\**`, `cert\**` (public material only),
+  `secureboot_ms_sample\**` and `inf_inventory.csv` into
+  `<ScriptName>_<Action>_run-artifacts_<yyyyMMdd-HHmmss>_<PID>.zip` and
+  copies the zip next to the script, so a single file can be handed over
+  for analysis. **`*.pfx` private keys are never included**; the bulk
+  `download\` / `extracted\` trees and any file over 50 MB are also
+  excluded. Fallback destinations: WorkRoot root when the script
+  directory is not writable, `%TEMP%` as last resort.
+- A `logs\run-artifact-archive-plan.txt` marker with the zip filename
+  is written BEFORE the transcript stops (marker-first ordering), so the
+  plan is recorded in the transcript and the archive carries its own
+  identity even if the cosmetic announce line fails.
+- Wiring: Chipset/Graphics/BthPan around the existing `Stop-Transcript`
+  in the top-level `finally`; NPU after `Show-RunSummary` with an
+  explicit idempotent transcript stop (the pre-existing per-branch stops
+  become no-ops).
+
+Gates: `psa.py` 0/0/0/0 across all four; `ParseFile` clean; canon frames
+byte-identical (machine-verified diff/frame non-intersection); 22/22
+behavioural harness assertions green (archive content selection incl.
+pfx / bulk / oversize exclusion, destination fallback, readiness
+verdicts incl. NPU `FAIL` and top-level-exception paths, QuickEdit guard
+catch containment, announce/marker wiring).
+
+---
+
 ## [2026-08-07] `auto-run-transcript-and-chipset-url-discovery` — Chipset r91 / Graphics r57 / NPU r35 / BthPan r39
 
 Two workstreams in one release. (1) **Automatic run transcript on all four

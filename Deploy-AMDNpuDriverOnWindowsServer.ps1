@@ -327,8 +327,8 @@ param(
 #   * PhaseResults - per-phase outcome registry (write side from
 #     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.08.07-r35'
-$Script:ScriptTag           = 'auto-run-transcript-and-chipset-url-discovery'
+$Script:ScriptVersion       = 'npu-2026.08.07-r36'
+$Script:ScriptTag           = 'quickedit-guard-readiness-and-artifact-archive'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the
@@ -902,6 +902,183 @@ $Script:PhaseResults = @{}
 # Sub-section: Write-SubHeader (Cyan '=' x72) - in-phase Level-1 banner
 # Sub-section: Write-SubHeader2 (DarkCyan '-' x72) - in-phase Level-2 banner
 # =============================================================================
+#####################################################################
+# SECTION 0.27: Console QuickEdit guard + run-artifact archive helpers
+#####################################################################
+# --- QuickEdit guard (executes inline, right here) -----------------
+# Windows Server consoles default to QuickEdit mode. Selecting text
+# (even a single accidental click-drag) puts the console into mark
+# mode, which BLOCKS every write to the console - the script appears
+# to hang inside whatever Write-Host it reached. Crucially, Ctrl-C in
+# mark mode is COPY (it releases the freeze and the script continues;
+# it does NOT stop the pipeline), which is how this failure mode was
+# identified in the field: a 2026-08-07 Graphics run froze for 18m37s
+# between two adjacent Write-Host calls in P04 and resumed instantly
+# on Ctrl-C, with 7-Zip long since exited (exit 0). See SPEC D.38.
+#
+# Guard: clear ENABLE_QUICK_EDIT_MODE on the stdin console handle for
+# the duration of the run; the ORIGINAL mode is restored in the
+# top-level finally. No-op when the host is not ConsoleHost, stdin is
+# redirected, or GetConsoleMode fails (e.g. no attached console).
+$Script:ConsoleModeOriginal = $null
+$Script:ConsoleModeChanged  = $false
+if ($Host.Name -eq 'ConsoleHost') {
+    try {
+        if (-not ('DeployDrivers.ConsoleModeNative' -as [type])) {
+            Add-Type -Namespace DeployDrivers -Name ConsoleModeNative -MemberDefinition @'
+[DllImport("kernel32.dll", SetLastError = true)]
+public static extern IntPtr GetStdHandle(int nStdHandle);
+[DllImport("kernel32.dll", SetLastError = true)]
+public static extern bool GetConsoleMode(IntPtr hConsoleHandle, out uint lpMode);
+[DllImport("kernel32.dll", SetLastError = true)]
+public static extern bool SetConsoleMode(IntPtr hConsoleHandle, uint dwMode);
+'@ -ErrorAction Stop
+        }
+        $hStdin = [DeployDrivers.ConsoleModeNative]::GetStdHandle(-10)  # STD_INPUT_HANDLE
+        if ($hStdin -ne [IntPtr]::Zero -and $hStdin -ne ([IntPtr](-1))) {
+            $conMode = [uint32]0
+            if ([DeployDrivers.ConsoleModeNative]::GetConsoleMode($hStdin, [ref]$conMode)) {
+                $QUICK_EDIT = [uint32]0x0040   # ENABLE_QUICK_EDIT_MODE
+                $EXT_FLAGS  = [uint32]0x0080   # ENABLE_EXTENDED_FLAGS (required to change QuickEdit)
+                if (($conMode -band $QUICK_EDIT) -ne 0) {
+                    $newMode = [uint32](($conMode -band ([uint32]::MaxValue -bxor $QUICK_EDIT)) -bor $EXT_FLAGS)
+                    if ([DeployDrivers.ConsoleModeNative]::SetConsoleMode($hStdin, $newMode)) {
+                        $Script:ConsoleModeOriginal = $conMode
+                        $Script:ConsoleModeChanged  = $true
+                        Write-Host '[*] Console QuickEdit temporarily disabled for this run (accidental text selection would freeze all output; original mode is restored on exit).' -ForegroundColor DarkGreen
+                    }
+                }
+            }
+        }
+    } catch {
+        Write-Warning ('QuickEdit guard skipped: {0}' -f $_.Exception.Message)
+    }
+}
+
+function New-RunArtifactArchive {
+    # Bundle run diagnostics + small artifacts into a single zip and
+    # copy it next to the script, so the operator can hand over one
+    # file for analysis without hunting through the workspace.
+    #
+    # INCLUDED (relative to -WorkRootPath):
+    #   logs\**                  transcript, debugtrace.jsonl, tool logs,
+    #                            probe-miss evidence html
+    #   patched\**               patched INFs / .cat / .cdf (small)
+    #   cert\**                  public certificate material only
+    #   secureboot_ms_sample\**  MS sample-script JSON evidence
+    #   inf_inventory.csv        INF analysis inventory
+    # EXCLUDED:
+    #   *.pfx                    PRIVATE KEY - must never leave the host
+    #                            inside a hand-over archive
+    #   download\ / extracted\  bulk payload (hundreds of MB - GB)
+    #   any file > 50 MB         defensive size cap
+    #
+    # Copy target is -DestinationDir (the script directory). When that
+    # copy fails (e.g. read-only location), falls back to the WorkRoot
+    # root; when even that fails, returns the %TEMP% path. Returns the
+    # final zip path, or $null when there is nothing to collect.
+    # Contract: best-effort - the caller wraps this in try/catch and a
+    # failure must never mask the run's original outcome.
+    param(
+        [Parameter(Mandatory)] [string]$WorkRootPath,
+        [Parameter(Mandatory)] [string]$ZipName,
+        [Parameter(Mandatory)] [string]$DestinationDir
+    )
+    $includeDirs  = @('logs','patched','cert','secureboot_ms_sample')
+    $includeFiles = @('inf_inventory.csv')
+    $maxBytes     = 50MB
+    $staging = Join-Path $env:TEMP ('run-artifact-staging-{0}' -f $PID)
+    if (Test-Path -LiteralPath $staging) {
+        Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    New-Item -ItemType Directory -Path $staging -Force | Out-Null
+    $rootLen = $WorkRootPath.TrimEnd('\').Length
+    $copied = 0
+    foreach ($d in $includeDirs) {
+        $src = Join-Path $WorkRootPath $d
+        if (-not (Test-Path -LiteralPath $src)) { continue }
+        $files = @(Get-ChildItem -LiteralPath $src -Recurse -File -Force -ErrorAction SilentlyContinue |
+                   Where-Object { $_.Extension -ne '.pfx' -and $_.Length -le $maxBytes })
+        foreach ($fi in $files) {
+            $rel = $fi.FullName.Substring($rootLen).TrimStart('\')
+            $dst = Join-Path $staging $rel
+            $dstDir = Split-Path -Path $dst -Parent
+            if (-not (Test-Path -LiteralPath $dstDir)) {
+                New-Item -ItemType Directory -Path $dstDir -Force | Out-Null
+            }
+            Copy-Item -LiteralPath $fi.FullName -Destination $dst -Force -ErrorAction SilentlyContinue
+            $copied++
+        }
+    }
+    foreach ($fn in $includeFiles) {
+        $src = Join-Path $WorkRootPath $fn
+        if (Test-Path -LiteralPath $src) {
+            Copy-Item -LiteralPath $src -Destination (Join-Path $staging $fn) -Force -ErrorAction SilentlyContinue
+            $copied++
+        }
+    }
+    if ($copied -eq 0) {
+        Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+        return $null
+    }
+    $zipTmp = Join-Path $env:TEMP $ZipName
+    if (Test-Path -LiteralPath $zipTmp) {
+        Remove-Item -LiteralPath $zipTmp -Force -ErrorAction SilentlyContinue
+    }
+    Compress-Archive -Path (Join-Path $staging '*') -DestinationPath $zipTmp -CompressionLevel Optimal -Force
+    Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+    $final = Join-Path $DestinationDir $ZipName
+    try {
+        Copy-Item -LiteralPath $zipTmp -Destination $final -Force -ErrorAction Stop
+    } catch {
+        $final = Join-Path $WorkRootPath $ZipName
+        Copy-Item -LiteralPath $zipTmp -Destination $final -Force -ErrorAction SilentlyContinue
+        if (-not (Test-Path -LiteralPath $final)) {
+            return $zipTmp   # last resort: leave the archive in %TEMP% and report that path
+        }
+    }
+    Remove-Item -LiteralPath $zipTmp -Force -ErrorAction SilentlyContinue
+    return $final
+}
+
+function Write-InstallReadinessDigest {
+    # Explicit install-readiness verdict at the end of the RUN SUMMARY,
+    # derived from per-phase statuses in $Script:PhaseTimings.
+    #
+    # WHY (field question, 2026-08-07 BthPan run): several [!] lines
+    # appeared (source-INF baseline errors, inf2cat 22.9.8 -> makecat
+    # fallback, untrusted-root before I01, absent device) yet every
+    # phase ended 'done' - the operator could not tell from the summary
+    # whether proceeding to Install was safe. It was: all of those are
+    # expected-condition notices. This digest states the verdict
+    # explicitly instead of leaving it implicit.
+    #
+    # SCOPE NOTE: a per-phase [!] event counter was considered and
+    # deferred - counting would need a hook inside the canonical
+    # write-caution unit, and vendored canon regions are not edited in
+    # this repository (improvements flow through the central canon).
+    $failedIds = @()
+    foreach ($t in @($Script:PhaseTimings)) {
+        $st = [string]$t.Status
+        if ($st -eq 'failed' -or $st -eq 'FAIL') { $failedIds += [string]$t.Id }
+    }
+    $tle = Get-Variable -Name TopLevelException -Scope Script -ErrorAction SilentlyContinue
+    if ($tle -and $null -ne $tle.Value -and $failedIds.Count -eq 0) {
+        $failedIds += '(top-level error)'
+    }
+    Write-Host ''
+    Write-Host ' Note: [!] lines above are informational / expected-condition notices by' -ForegroundColor DarkYellow
+    Write-Host '       design (e.g. a baseline check on the unpatched source INF, a' -ForegroundColor DarkYellow
+    Write-Host '       documented tool fallback, a certificate not yet trusted before' -ForegroundColor DarkYellow
+    Write-Host '       I01, or a device absent on this host). A REAL failure marks its' -ForegroundColor DarkYellow
+    Write-Host '       phase as failed in the timing table.' -ForegroundColor DarkYellow
+    if ($failedIds.Count -gt 0) {
+        Write-Host (' Install readiness : REVIEW REQUIRED - failed: {0}' -f ($failedIds -join ', ')) -ForegroundColor Red
+    } else {
+        Write-Host ' Install readiness : READY - no failed phases.' -ForegroundColor Green
+    }
+}
+
 # >>> CANONICAL unit_id=pwsh.helper.format-elapsed version=1.0.0 hash=b63f12c32ee28520 policy=canonical binding=follow-latest >>>
 function Format-Elapsed {
     # Render a TimeSpan in a compact human-readable form.
@@ -7424,6 +7601,7 @@ function Show-RunSummary {
     }
     Write-Host ($fmt -f ('-' * 4), ('-' * 5), ('-' * 28), ('-' * 6), ('-' * 10)) -ForegroundColor DarkGray
     Write-Host ($fmt -f '', '', 'Sum of executed phases', '', (Format-Elapsed ([TimeSpan]::FromSeconds($sumSeconds)))) -ForegroundColor White
+    Write-InstallReadinessDigest
     Write-Host ('=' * 72) -ForegroundColor Magenta
     Write-Host ''
 }
@@ -7694,6 +7872,59 @@ finally {
             Write-Caution ('Could not render run summary: {0}' -f $_.Exception.Message)
         }
     }
+
+    # ----- Run-artifact archive + console-mode restore (SECTION 0.27) -----
+    # Announce first (recorded in the transcript), then stop the
+    # transcript HERE (idempotent - the per-branch stops below become
+    # no-ops) so the zip contains the complete transcript file, then
+    # create the archive and restore the console input mode.
+    # ----- Run-artifact archive: announce (recorded in the transcript) -----
+    # The archive itself is created AFTER Stop-Transcript below, so the
+    # zip contains the COMPLETE transcript file. A plan marker with the
+    # zip filename is dropped into logs\ first, so the archive carries
+    # its own identity. Best-effort; must not mask the original outcome.
+    $Script:RunArchivePlan = $null
+    try {
+        $wrEff   = if ($Ctx -and $Ctx.WorkRoot) { $Ctx.WorkRoot } else { $WorkRoot }
+        $logsEff = if ($Ctx -and $Ctx.Paths -and $Ctx.Paths.Logs) { $Ctx.Paths.Logs } else { Join-Path $wrEff 'logs' }
+        if (-not [string]::IsNullOrWhiteSpace($wrEff) -and (Test-Path -LiteralPath $logsEff)) {
+            $zipName = ('{0}_{1}_run-artifacts_{2}_{3}.zip' -f [IO.Path]::GetFileNameWithoutExtension($PSCommandPath), $Action, (Get-Date -Format 'yyyyMMdd-HHmmss'), $PID)
+            $Script:RunArchivePlan = [pscustomobject]@{ WorkRoot = $wrEff; ZipName = $zipName }
+            # Marker FIRST (functional), announce second (cosmetic): if the
+            # announce line ever fails, the archive still carries its identity.
+            Set-Content -LiteralPath (Join-Path $logsEff 'run-artifact-archive-plan.txt') -Value $zipName -Encoding ASCII -ErrorAction SilentlyContinue
+            Write-Host ('[*] Run artifacts will be archived after the transcript closes -> {0}' -f (Join-Path $PSScriptRoot $zipName)) -ForegroundColor DarkGreen
+        }
+    } catch { } # psa-disable-line PSA3004 -- best-effort announce; archive creation below reports its own errors
+
+    if ($Script:LogFileActive) {
+        try { Stop-Transcript -ErrorAction SilentlyContinue | Out-Null } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup
+        $Script:LogFileActive = $false
+    }
+
+    # ----- Run-artifact archive: create + copy next to the script -----
+    if ($Script:RunArchivePlan) {
+        try {
+            $zipOut = New-RunArtifactArchive -WorkRootPath $Script:RunArchivePlan.WorkRoot -ZipName $Script:RunArchivePlan.ZipName -DestinationDir $PSScriptRoot
+            if ($zipOut) {
+                Write-Host ('[+] Run artifacts archived -> {0}' -f $zipOut) -ForegroundColor Green
+            } else {
+                Write-Host '[!] Run-artifact archive skipped (nothing to collect).' -ForegroundColor Yellow
+            }
+        } catch {
+            Write-Warning ('Run-artifact archive failed: {0}' -f $_.Exception.Message)
+        }
+    }
+
+    # ----- Restore console input mode (SECTION 0.27 QuickEdit guard) -----
+    if ($Script:ConsoleModeChanged -and $null -ne $Script:ConsoleModeOriginal) {
+        try {
+            $hIn = [DeployDrivers.ConsoleModeNative]::GetStdHandle(-10)
+            [void][DeployDrivers.ConsoleModeNative]::SetConsoleMode($hIn, [uint32]$Script:ConsoleModeOriginal)
+        } catch { } # psa-disable-line PSA3004 -- intentional best-effort cleanup
+        $Script:ConsoleModeChanged = $false
+    }
+
 
     # Final exit code: non-zero if there was an exception
     if ($Script:TopLevelException) {

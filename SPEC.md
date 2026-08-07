@@ -574,6 +574,14 @@ Operators on a ja-JP host with the default cp932 console code page who pipe `-Lo
 
 ---
 
+### Run-artifact archive and install-readiness digest (r92+)
+
+Every run ends with two additional logging-adjacent behaviours, wired in the top-level `finally` (all four scripts):
+
+- **Install-readiness digest.** The RUN SUMMARY ends with `Install readiness : READY - no failed phases.` or `Install readiness : REVIEW REQUIRED - failed: <ids>`, preceded by a fixed note that `[!]` lines are informational / expected-condition notices by design. Derivation: any `$Script:PhaseTimings` entry with status `failed` (Chipset/Graphics/BthPan) or `FAIL` (NPU), plus a `$Script:TopLevelException` probe (`Get-Variable`-based, so the absence of the variable on the sister trio is the normal case).
+- **Run-artifact archive.** After the transcript is stopped, `logs\`, `patched\`, `cert\` (excluding `*.pfx`), `secureboot_ms_sample\` and `inf_inventory.csv` are zipped to `<ScriptName>_<Action>_run-artifacts_<yyyyMMdd-HHmmss>_<PID>.zip` next to the script (fallback: WorkRoot root, then `%TEMP%`). Files over 50 MB and the `download\` / `extracted\` trees are excluded. A `logs\run-artifact-archive-plan.txt` marker is written before the transcript stops, so the plan is recorded in the transcript and the archive carries its own identity. The archive step is best-effort by contract and never masks the run's outcome. Field context: D.38.
+
+
 ## A.6 Parameter Conventions
 
 ### Common switches (use these names verbatim)
@@ -4805,6 +4813,40 @@ The silent-fallback design made the failure invisible: the operator had to notic
 ### D.37.5 Sister impact
 
 Chipset-only. Graphics discovers via an alternation that already includes `software` (`adrenalin|software|radeon`) and is unaffected by the rename. NPU acquires its package through the AMD-account gated flow (no landing-page scraping). BthPan ships a Microsoft inbox driver (no download step at all). The auto-transcript workstream in the same release (see CHANGELOG) touches all four scripts; this URL-discovery workstream touches only Chipset.
+
+
+## D.38 Console QuickEdit freeze (2026-08): the "7-Zip hang" that was not a hang
+
+### D.38.1 Symptom
+
+A 2026-08-07 operator run of the Graphics script (Windows Server 2016 / PowerShell 5.1 / Ryzen 5 PRO 4650U, `-Action PrepareVerify -CleanWorkRoot`) appeared to hang in P04 ExtractInstaller. The console showed `Extracted with 7-Zip auto-detect` at phase-relative +11.47s and then nothing for 18m37s; the operator pressed Ctrl-C, after which the run *continued* and completed the remaining nested-MSI extraction and INF discovery within 0.6s. A second, unnoticed 3m41s silent gap exists in the same run's P03 between `Downloaded:` and the phase footer.
+
+### D.38.2 Root cause
+
+Console QuickEdit mark-mode freeze — an operator-console state, not a script or 7-Zip defect. Windows consoles (QuickEdit is ON by default on Windows Server 2016) enter mark mode on any click-drag selection; while in mark mode **every write to the console blocks**, so the script freezes inside whichever `Write-Host` it reached. Both silent gaps sit between two adjacent `Write-Host` calls with no intervening slow operation: in P04 the only code between the two messages is a function `return` and a `Write-Ok`, and 7-Zip had exited with code 0 (payload check already passed) eighteen minutes before the freeze released. The operator's log-collection habit — selecting console text to copy it — is exactly the gesture that triggers mark mode. The operator-side console state cannot be proven from logs alone, but the script-side code contains nothing that can account for the gaps, and every observable matches the mark-mode mechanism.
+
+### D.38.3 Diagnostic significance of Ctrl-C
+
+The decisive evidence is that **Ctrl-C did not terminate the script**. Outside mark mode, Ctrl-C during a running pipeline stops the script. Inside mark mode, Ctrl-C is *copy-selection-and-release*: the freeze ends, no break signal reaches the pipeline, and execution resumes as if nothing happened — precisely what was observed (instant completion after 18m37s of silence). Rule of thumb: "Ctrl-C un-hung my script without killing it" is a near-certain signature of a console mark-mode freeze, not of a stuck child process.
+
+### D.38.4 The companion report: "failures yet Done" (BthPan)
+
+The same operator session raised a second concern: a BthPan `PrepareVerify` run printed several apparent failures yet ended with every phase `done` and asked whether proceeding to Install was safe. Analysis confirmed all four notices are expected-condition by design: (1) the V01 InfVerif errors (1233 missing CatalogFile, 1204 Provider=Microsoft) are the *baseline* measurement of the unpatched source INF — V02 shows the patched INF passing with exit 0; (2) `inf2cat` rule 22.9.8 refuses to catalog Microsoft inbox binaries by policy, and the script falls back to `makecat` exactly as designed (catalog generated and signed); (3) the V03 `signtool verify` untrusted-root failure is expected before I01 imports the certificate — the script itself classifies it (`expected failures: 1, REAL failures: 0`); (4) V05/V06 report that no `BTH\MS_BTHPAN` device exists on the host, so Install merely stages the driver for future binding (risk class LOW). The final `done` state was therefore correct and Install was safe; the gap was presentational — the RUN SUMMARY offered no explicit verdict. r92 closes that gap (D.38.5).
+
+### D.38.5 Fix (r92 family)
+
+- **SECTION 0.27 QuickEdit guard (all four):** clear `ENABLE_QUICK_EDIT_MODE` on the stdin console handle at startup via P/Invoke `GetConsoleMode` / `SetConsoleMode` (setting `ENABLE_EXTENDED_FLAGS` as required), remember the original mode, and restore it in the top-level `finally`. ConsoleHost-only; every step is try/catch-contained so a guard failure can never affect the run.
+- **Install-readiness digest (all four):** `Write-InstallReadinessDigest` appends the design note about `[!]` semantics and the explicit `READY` / `REVIEW REQUIRED - failed: <ids>` verdict (see A.5 addendum). Scope note: per-phase `[!]` counters were deliberately deferred — they would require a hook inside the canonical `write-caution` unit, and vendored canon regions are not edited in this repository; the hook is recorded as a central-canon reflux candidate.
+- **Run-artifact archive (all four):** one zip per run, next to the script, `*.pfx` / bulk / oversize excluded, marker-first ordering so the archive carries its own identity even when the cosmetic announce line fails (see A.5 addendum and README "Run log capture").
+
+### D.38.6 Generalised rules
+
+- **Long-running interactive scripts must assume the console can block them.** Any script expected to run unattended for minutes should either disable QuickEdit for its lifetime (this fix) or route progress through a transcript/file channel the operator is told to watch instead.
+- **An explicit verdict beats implicit severity.** When a pipeline intentionally prints expected failures (baselines, documented fallbacks, pre-trust states), the final summary must state in one line whether the run is safe to act on; otherwise every `[!]` becomes an operator support question.
+
+### D.38.7 Sister impact
+
+All three fixes apply to all four scripts (Chipset r92 / Graphics r58 / NPU r36 / BthPan r40). NPU's wiring differs mechanically — the digest call sits inside `Show-RunSummary`, and the archive + console-mode restore are inserted after the summary in its `finally` with an explicit idempotent transcript stop (the pre-existing per-branch stops become no-ops) — but the operator-visible behaviour is identical across the four.
 
 
 ## Appendix: How to seed a new sister script from this SPEC

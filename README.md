@@ -1013,6 +1013,15 @@ If you redirect output to a file (whether via `-LogFile` or `Tee-Object`) on a j
 
 ---
 
+### Console QuickEdit guard, readiness verdict, and run-artifact archive (r92+)
+
+Three field-driven hardening additions apply to all four scripts:
+
+- **Console QuickEdit guard.** Windows Server consoles default to QuickEdit mode, where an accidental click-drag selects text and **freezes every console write** — the script appears to hang mid-phase (an 18m37s freeze was measured in the field; see SPEC D.38). In mark mode Ctrl-C is *copy*, not break: it releases the freeze and the run simply continues. The scripts now clear `ENABLE_QUICK_EDIT_MODE` for the duration of the run and restore the original console mode on exit (ConsoleHost only; fully error-contained; no switch).
+- **Install-readiness verdict.** The RUN SUMMARY now ends with an explicit `Install readiness : READY - no failed phases.` / `REVIEW REQUIRED - failed: <ids>` line derived from per-phase statuses, plus a note that `[!]` lines are informational / expected-condition notices by design (e.g. baseline checks on the unpatched source INF, documented tool fallbacks, untrusted-root before I01, an absent device). A real failure marks its phase as `failed` in the timing table.
+- **Run-artifact archive.** After the summary and after the transcript closes, each run bundles `logs\`, `patched\`, `cert\` (public material only), `secureboot_ms_sample\` and `inf_inventory.csv` into `<ScriptName>_<Action>_run-artifacts_<yyyyMMdd-HHmmss>_<PID>.zip` and copies the zip **next to the script**, so one file can be handed over for analysis. **`*.pfx` private keys are never included**; the bulk `download\` / `extracted\` trees and any file over 50 MB are also excluded. If the script directory is not writable the zip falls back to the WorkRoot root (then `%TEMP%`). A `logs\run-artifact-archive-plan.txt` marker records the planned zip name inside the archive itself. On `Cleanup` runs (workspace already wiped) the archive is skipped.
+
+
 ## System requirements
 
 - **CPU**: For AMD scripts: AMD Ryzen 4000 series or newer (the script's `Get-AmdChipsetPlatform` heuristic recognises 4000 → AI 300, AI Max 300; older silicon may run but is untested). For the NPU script: Ryzen 7040 / 8040 / AI 300 / AI Max 300 / AI 200 series with an integrated NPU. For the BthPan script: any CPU; the prerequisite is a bound Bluetooth host controller (vendor-agnostic — Intel AX2xx, Realtek RTL88xx, MediaTek MT79xx, Broadcom BCM43xx all qualify).
