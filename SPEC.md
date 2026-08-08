@@ -5823,6 +5823,186 @@ change reaches every script; no sister revision is required and none is
 taken.
 
 
+## D.45 Three defects in the collector, one measurement that ended a design question, and the test suite that should have preceded all of it
+
+### D.45.1 The run
+
+Windows Server 2019, clean install, r99 / collector c3, `PrepareVerify
+-SkipNonCosignedDrivers`. The evidence collector aborted at stage 9 of 12,
+produced no archive, and left a loose directory of partial results. The
+PrepareVerify run then failed at P09. The operator's assessment - that this
+was worse than the previous run - is correct on both counts.
+
+### D.45.2 Defect 1 — a parameter that does not exist
+
+```
+Get-NamedRegistryValue: パラメーター名 'Path' に一致するパラメーターが見つかりません。   (x9)
+```
+
+`Get-NamedRegistryValue` takes a `-Snapshot` produced by
+`Get-RegistryKeySnapshot`. The device-load diagnostics called it with
+`-Path`. Every problem device hit the exception; the surrounding `try`
+swallowed it and set an empty service name.
+
+The consequence deserves stating plainly: the previous release fixed three
+mangled string literals in this same block and claimed the diagnostic now
+worked. **It did not.** The literals were correct and the call was wrong, so
+`ServiceName` still resolved to nothing, `ImagePathExists` was still never
+populated, and `Driver binary presence` still reported PASS. Two consecutive
+releases shipped the same non-functional check, the second one having
+"verified" it.
+
+### D.45.3 Defect 2 — a wildcard pattern that cannot compile
+
+```
+Get-SetupApiFailureEvidence: 指定されたワイルドカード文字パターンは無効です: >>>*[Device Install*
+FATAL: configuration evidence collection failed
+```
+
+In a PowerShell wildcard `[` opens a character class. `'>>>*[Device Install*'`
+never closes it, so the pattern is rejected before it is matched against
+anything - on the first line of the first log. Reproduced out of band: the
+same string throws, `'>>>*`[Device Install*'` returns `$true`, and
+`.Contains('[Device Install')` returns `$true`.
+
+Three tests in that function used `-like` where a substring test was meant.
+All three are now `.StartsWith` / `.Contains`, which carry no pattern
+semantics to get wrong.
+
+### D.45.4 Defect 3 — one stage failing cost the whole bundle
+
+The collector ran all twelve stages inside a single `try` whose `catch`
+skipped past the archive step. Stage 9 threw, so stages 10 to 12 never ran,
+the assessment never ran, and `Compress-Archive` never ran. The operator was
+left with a partial directory and no ZIP to hand over.
+
+The four deploy scripts already archive their run artifacts from a top-level
+`finally` regardless of outcome - the r98 field run failed at I02 and still
+produced its archive. The collector was the one script not holding that
+contract. The operator identified this as a specification/implementation gap
+before we did, and was right.
+
+Two changes. Each stage now runs through `Invoke-EvidenceStage`, which
+catches, records the failure in a ledger, returns a typed empty fallback, and
+lets collection continue. And the archive moved to a top-level `finally` that
+runs on every path, wrapped in its own `try` so a failing archive cannot mask
+the original outcome or throw out of a `finally`.
+
+A new artefact, `stage-results.json`, records which stages ran and which did
+not, and a new assessment row - **`Collection completeness`, deliberately
+first in the report** - states it in the console output. Every other row is
+only as trustworthy as the stage that produced it; a bundle that is missing a
+stage should say so before it says anything else.
+
+### D.45.5 The measurement: D.41.5 premise 2, answered
+
+Not a defect. The r99 analysis-population widening did exactly what it was
+built to do, and the answer it returned closes a question open since D.41.5:
+
+```
+-SkipNonCosignedDrivers: analysing all 55 in-scope INF(s), not just the 2 patch-needing one(s).
+--- WHQL co-signature analysis ---
+  Fully WHQL co-signed INFs   : 0
+  No WHQL co-signature        : 55
+  Inventory trimmed: 7 INF(s) eligible / 112 skipped
+```
+
+**Zero of 55.** Not one in-scope INF in this AMD chipset package carries a
+Microsoft Windows Hardware Compatibility co-signature on every kernel binary
+it references.
+
+This is a measurement, not a fallback verdict: `signtool` was present and
+resolved (`Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe`), so the
+conservative signtool-absent path documented in D.31 did not apply.
+
+The consequence for the feature is total. `-SkipNonCosignedDrivers` promises
+to install the WHQL-co-signed subset and skip the rest so Secure Boot can
+stay on. On this package that subset is empty, so **Path A cannot install
+anything here**. Every earlier run that appeared to succeed did so because
+the analysis population was the patch-needing subset - two records - and two
+records that happen to be absent from the plan cannot contradict anything.
+
+This does not invalidate Path A as a design. It establishes that this
+hardware and this driver package are not a case Path A can serve, and that
+the honest outcome is to say so.
+
+### D.45.6 What P09 did with that, and what it should do
+
+P06 trimmed to 7 records, P08 generated 0 catalogs (its 5 remaining
+candidates were the phantom-reference INFs it correctly skips), and P09 threw:
+
+```
+P09: no .cat files found - run P08 (GenerateCatalogs) first.
+```
+
+P08 had run. It had nothing to do. The message points the operator at a phase
+that already executed, and reports a correct measurement as a script failure.
+
+P06 now detects the degenerate case - zero catalog-eligible records after the
+trim - and stops there with an explanation and the three options in the order
+this project recommends them (vendor or Windows Update drivers first, Path B
+second, leave the devices unbound third). It closes as `skipped`, sets
+`$Ctx.DegeneratePlan`, and P08 and P09 honour the flag rather than failing on
+an empty working set.
+
+An empty plan is a result. Reporting it as a crash costs the operator the
+finding.
+
+### D.45.7 The test suite
+
+All three defects share a property: **each one throws or misbehaves on the
+first call, and none is visible to a static analyzer.** `psa.py` reported 0
+errors / 0 warnings / 0 info across five scripts on the exact file that
+aborted in the field. A parameter name that does not exist on the callee, a
+wildcard containing an unterminated character class, and a `try` block whose
+scope is wrong are all well-formed PowerShell.
+
+The repository had no executable tests. It now has `tests/`, documented in
+`tests/README.md`:
+
+- `Invoke-TestSuite.ps1` discovers and runs `cases/Test-*.ps1`, exits with the
+  number of failing cases.
+- `lib/TestHarness.psm1` provides assertions and AST-based function
+  extraction. Tests pull functions out of the real files; nothing is copied,
+  because a copy drifts silently and a test passing against a stale copy is
+  worse than no test.
+- Three cases at introduction: collector path resolution and code decoding,
+  setupapi failure extraction, and cross-sister invariants (shared-helper
+  byte identity, ValidateSet call-site conformance, and `@( )` never applied
+  to a `List[object]`).
+
+`Assert-NoThrow` exists specifically because two of these defects were
+exceptions rather than wrong answers, and the first assertion in the setupapi
+case is simply that the function runs at all.
+
+The suite earned its place during its own construction. It caught a scoping
+bug in the harness itself, a fourth collector defect nobody had noticed -
+setupapi sections whose only failure signal is a `!!!` marker and a CM
+problem code were being dropped, which is precisely the shape of the section
+that recorded the `amdi2c` load failure in D.43 - and an `@( )` over a
+`List[object]` in the stage ledger written minutes earlier in this same
+change.
+
+Negative control, because a check that has never failed has not been shown to
+be capable of failing: run against the previous release, the suite fails on
+the fatal wildcard defect and passes after the fix.
+
+### D.45.8 Sister impact
+
+Chipset r100 / Graphics r66 carry the degenerate-plan handling; NPU r43 and
+BthPan r48 carry the `$Ctx` declaration for cross-sister consistency (neither
+has a `-SkipNonCosignedDrivers` surface). Collector c4, schema 1.3.
+
+### D.45.9 Still unverified
+
+- **Everything in this release is unexercised on Windows.** The suite runs on
+  Linux pwsh against extracted functions and fixtures; CIM queries, registry
+  enumeration, `Compress-Archive`, and the degenerate-plan path have not run
+  on a host.
+- The `vwifibus` prediction from D.44 remains untested: the collector aborted
+  before the service stage, so `services.json` has never been produced.
+
+
 ## Appendix: How to seed a new sister script from this SPEC
 
 If you are creating a 5th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1`):

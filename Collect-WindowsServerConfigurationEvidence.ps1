@@ -87,14 +87,18 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
-$Script:ScriptVersion  = 'collector-2026.08.08-c3'
+$Script:ScriptVersion  = 'collector-2026.08.08-c4'
 $Script:ScriptTag      = 'windows-server-configuration-evidence-collector'
 $Script:ScriptHash     = 'unavailable'
 try {
     $Script:ScriptHash = (Get-FileHash -LiteralPath $MyInvocation.MyCommand.Path -Algorithm SHA256 -ErrorAction Stop).Hash.Substring(0, 12).ToLowerInvariant()
 } catch { } # psa-disable-line PSA3004 -- self-hash is identity metadata only; collection must proceed without it
 $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash)
-$script:SchemaVersion = 'windows-server-configuration-evidence/1.2'
+$script:SchemaVersion = 'windows-server-configuration-evidence/1.3'
+# Per-stage outcome ledger (SPEC D.45). Populated by Invoke-EvidenceStage,
+# written to stage-results.json, and surfaced in the assessment so a bundle
+# always declares its own completeness.
+$script:StageResults = New-Object 'System.Collections.Generic.List[object]'
 $script:CollectorVersion = $Script:ScriptVersion
 $script:MaxCopiedLogBytes = 50MB
 
@@ -703,7 +707,13 @@ function Get-SetupApiFailureEvidence {
     $missing = New-Object 'System.Collections.Generic.List[object]'
     $startIndexes = New-Object 'System.Collections.Generic.List[int]'
     for ($i = 0; $i -lt $lines.Count; $i++) {
-        if ($lines[$i] -like '>>>*[Device Install*') { $startIndexes.Add($i) | Out-Null }
+        # Substring test, not -like: in a PowerShell wildcard '[' opens a
+        # character class, so '>>>*[Device Install*' is an unterminated
+        # class and throws WildcardPatternException on the first line it
+        # is applied to. .Contains carries no pattern semantics at all,
+        # which is what this test actually wants.
+        $lineText = [string]$lines[$i]
+        if ($lineText.StartsWith('>>>') -and $lineText.Contains('[Device Install')) { $startIndexes.Add($i) | Out-Null }
     }
     $result.SectionsScanned = $startIndexes.Count
 
@@ -720,7 +730,7 @@ function Get-SetupApiFailureEvidence {
         $failed = $false
         for ($j = $start; $j -le $end; $j++) {
             $line = [string]$lines[$j]
-            if ($line -like '>>>*Section start*') {
+            if ($line.StartsWith('>>>') -and $line.Contains('Section start')) {
                 $timestamp = ($line -split 'Section start')[-1].Trim()
             }
             if ($line -match 'Error 0x[0-9a-fA-F]+') {
@@ -743,7 +753,14 @@ function Get-SetupApiFailureEvidence {
                 $problem = [string]([Convert]::ToInt32($Matches[1], 16))
                 $problemStatus = '0x' + $Matches[2]
             }
-            if ($line -like '*[Exit status: FAILURE*') { $failed = $true }
+            if ($line.Contains('[Exit status: FAILURE')) { $failed = $true }
+            # A '!!!' marker is setupapi's own failure flag and is the ONLY
+            # failure signal some sections carry: a device that installs
+            # cleanly but will not START logs '!!! Device not started' with a
+            # CM problem code and still exits SUCCESS. Those sections are the
+            # load failures - exactly what this extract is for - and keying
+            # only off 'Error 0x' and the exit status silently drops them.
+            if ($line.StartsWith('!!!')) { $failed = $true }
         }
         if (-not $failed) { continue }
         $sections.Add([pscustomobject][ordered]@{
@@ -815,26 +832,26 @@ function Get-DeviceLoadDiagnosticEvidence {
             $driverProvider = [string](Get-PropertyValue -InputObject $sd -Name 'DriverProviderName')
         }
         # The device's service name lives under the device's Enum key.
+        # Resolve the device's service via the registry snapshot helper.
+        # Get-NamedRegistryValue takes a SNAPSHOT produced by
+        # Get-RegistryKeySnapshot, not a path - passing -Path binds nothing
+        # and throws ParameterBindingException at every problem device.
         $imagePath = ''
         $imagePathResolved = ''
         $imagePathExists = $null
         $serviceStartType = ''
         try {
-            $enumKey = 'HKLM:\SYSTEM\CurrentControlSet\Enum\' + $id
-            if (Test-Path -LiteralPath $enumKey) {
-                $serviceName = [string](Get-NamedRegistryValue -Path $enumKey -Name 'Service')
-            }
+            $enumSnapshot = Get-RegistryKeySnapshot -Path ('HKLM:\SYSTEM\CurrentControlSet\Enum\' + $id)
+            $serviceName = [string](Get-NamedRegistryValue -Snapshot $enumSnapshot -Name 'Service' -DefaultValue '')
         } catch {
             $serviceName = ''
         }
         if (-not [string]::IsNullOrWhiteSpace($serviceName)) {
             try {
-                $svcKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\' + $serviceName
-                if (Test-Path -LiteralPath $svcKey) {
-                    $imagePath = [string](Get-NamedRegistryValue -Path $svcKey -Name 'ImagePath')
-                    $startValue = Get-NamedRegistryValue -Path $svcKey -Name 'Start'
-                    if ($null -ne $startValue) { $serviceStartType = [string]$startValue }
-                }
+                $svcSnapshot = Get-RegistryKeySnapshot -Path ('HKLM:\SYSTEM\CurrentControlSet\Services\' + $serviceName)
+                $imagePath = [string](Get-NamedRegistryValue -Snapshot $svcSnapshot -Name 'ImagePath' -DefaultValue '')
+                $startValue = Get-NamedRegistryValue -Snapshot $svcSnapshot -Name 'Start'
+                if ($null -ne $startValue) { $serviceStartType = [string]$startValue }
             } catch {
                 $imagePath = ''
             }
@@ -1266,6 +1283,76 @@ function Get-ServerFeatureServiceEvidence {
         BinaryMissingWatchCount = $atRisk
         WatchedServices = $findings.ToArray()
         Features = $features
+    }
+}
+
+function Invoke-EvidenceStage {
+    # Run one collection stage in isolation.
+    #
+    # WHY (SPEC D.45): the collector previously ran all stages inside a
+    # single try block whose catch skipped straight past the archive step.
+    # One stage throwing therefore cost every later stage AND the evidence
+    # ZIP - the operator was left with a loose directory of partial results
+    # and no bundle to hand over. The four deploy scripts already archive
+    # their run artifacts from a top-level finally regardless of outcome;
+    # this brings the collector to the same contract.
+    #
+    # A stage that throws is recorded as a failed stage and collection
+    # continues. Evidence collection is diagnostic: partial evidence with an
+    # honest note about what is missing beats no evidence at all.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)] [ValidateNotNullOrEmpty()] [string]$Label,
+        [Parameter(Mandatory = $true)] [ValidateNotNullOrEmpty()] [scriptblock]$Body,
+        [Parameter()] [AllowNull()] [object]$Fallback = $null
+    )
+    Write-Host $Label -ForegroundColor DarkGray
+    try {
+        $value = & $Body
+        $script:StageResults.Add([pscustomobject][ordered]@{
+            Label = $Label
+            Succeeded = $true
+            ErrorMessage = ''
+        }) | Out-Null
+        return $value
+    }
+    catch {
+        $message = $_.Exception.Message
+        Write-Host ('    STAGE FAILED: {0}' -f $message) -ForegroundColor Red
+        if ($null -ne $_.ScriptStackTrace) {
+            foreach ($line in (($_.ScriptStackTrace -split "`n") | Select-Object -First 4)) {
+                Write-Host ('      {0}' -f $line.TrimEnd()) -ForegroundColor DarkRed
+            }
+        }
+        Write-Host '    Collection continues; this stage''s evidence will be absent from the bundle.' -ForegroundColor DarkYellow
+        $script:StageResults.Add([pscustomobject][ordered]@{
+            Label = $Label
+            Succeeded = $false
+            ErrorMessage = [string]$message
+        }) | Out-Null
+        return $Fallback
+    }
+}
+
+function Get-StageFailureEvidence {
+    # Machine-readable record of which stages ran and which did not. Written
+    # unconditionally so a bundle always states its own completeness rather
+    # than leaving the reader to infer it from missing files.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+    # .ToArray(), never @( ): the array-subexpression binder throws
+    # ArgumentException on a List[object] - that exact element type, even
+    # when empty (SPEC SS D.42.4).
+    $stages = $script:StageResults.ToArray()
+    $failed = @($stages | Where-Object { -not $_.Succeeded })
+    return [pscustomobject][ordered]@{
+        CollectedAtUtc = Get-UtcTimestamp
+        StageCount = $stages.Count
+        FailedStageCount = $failed.Count
+        Complete = ($failed.Count -eq 0)
+        Stages = $stages
     }
 }
 
@@ -1747,7 +1834,8 @@ function Get-ConfigurationAssessment {
         [Parameter(Mandatory = $true)] [object]$ServiceEvidence,
         [Parameter(Mandatory = $true)] [object]$FeatureServices,
         [Parameter(Mandatory = $true)] [object]$ScriptInventory,
-        [Parameter(Mandatory = $true)] [object]$BthPanRuntime
+        [Parameter(Mandatory = $true)] [object]$BthPanRuntime,
+        [Parameter(Mandatory = $true)] [object]$StageEvidence
     )
 
     $items = New-Object 'System.Collections.Generic.List[object]'
@@ -1766,6 +1854,22 @@ function Get-ConfigurationAssessment {
     }
     $items.Add((New-AssessmentItem -Name 'Pending reboot state' -Status $pendingStatus `
         -Detail ('classification={0}; cbs={1}; wu={2}; pfroBlocking={3}' -f $PendingReboot.Classification, $PendingReboot.CbsRebootPending, $PendingReboot.WindowsUpdateRebootPending, ($PendingReboot.PendingFileRenamePresent -and -not $PendingReboot.PendingFileRenameOperations.AdvisoryCleanupOnly)))) | Out-Null
+
+
+    # 0) Collection completeness. Placed first because every row below is
+    # only as trustworthy as the stage that produced it: a bundle with a
+    # failed stage can still show PASS everywhere else and mean much less
+    # than it appears to.
+    $stageFailed = [int]$StageEvidence.FailedStageCount
+    $stageDetail = if ($stageFailed -eq 0) {
+        ('all {0} collection stage(s) completed' -f $StageEvidence.StageCount)
+    }
+    else {
+        $names = @($StageEvidence.Stages | Where-Object { -not $_.Succeeded } | ForEach-Object { $_.Label.Trim() })
+        ('{0} of {1} stage(s) FAILED - this bundle is incomplete: {2}' -f $stageFailed, $StageEvidence.StageCount, ($names -join '; '))
+    }
+    $items.Add((New-AssessmentItem -Name 'Collection completeness' `
+        -Status $(if ($stageFailed -eq 0) { 'PASS' } else { 'FAIL' }) -Detail $stageDetail)) | Out-Null
 
     # 3) Problem PnP devices
     $problemCount = [int]$PnpEvidence.ProblemDeviceCount
@@ -2017,6 +2121,10 @@ else {
 }
 
 $exitCode = 1
+# Read by the top-level finally, which archives whatever was collected even
+# when a stage or the assessment threw (SPEC D.45).
+$evidenceDir = ''
+$zipPath = ''
 try {
     $resolvedOutputRoot = Resolve-OutputRoot -Requested $OutputRoot -ScriptDirectory $scriptDirectory
     $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
@@ -2037,76 +2145,109 @@ try {
     Write-Host ('Evidence directory: {0}' -f $evidenceDir)
     Write-Host ''
 
-    Write-Host '[1/12] Operating system identity...' -ForegroundColor DarkGray
-    $osEvidence = Get-OperatingSystemEvidence
-    Write-EvidenceJson -InputObject $osEvidence -Directory $evidenceDir -FileName 'environment.json'
-
-    Write-Host '[2/12] Pending reboot state...' -ForegroundColor DarkGray
-    $pendingReboot = Get-PendingRebootEvidence
-    Write-EvidenceJson -InputObject $pendingReboot -Directory $evidenceDir -FileName 'pending-reboot.json'
-
-    Write-Host '[3/12] PnP device inventory...' -ForegroundColor DarkGray
-    $pnpEvidence = Get-PnpDeviceEvidence
-    Write-EvidenceJson -InputObject $pnpEvidence -Directory $evidenceDir -FileName 'pnp-devices.json'
-
-    Write-Host '[4/12] Driver store inventory...' -ForegroundColor DarkGray
-    $driverStore = Get-DriverStoreEvidence -EvidenceDirectory $evidenceDir
-    Write-EvidenceJson -InputObject $driverStore -Directory $evidenceDir -FileName 'driver-store.json'
-
-    Write-Host '[5/12] Project certificate stores...' -ForegroundColor DarkGray
-    $certificateEvidence = Get-ProjectCertificateEvidence
-    Write-EvidenceJson -InputObject $certificateEvidence -Directory $evidenceDir -FileName 'project-certificates.json'
-
-    Write-Host '[6/12] Boot security state...' -ForegroundColor DarkGray
-    $bootSecurity = Get-BootSecurityEvidence -EvidenceDirectory $evidenceDir
-    Write-EvidenceJson -InputObject $bootSecurity -Directory $evidenceDir -FileName 'boot-security.json'
-
-    Write-Host '[7/12] CodeIntegrity events...' -ForegroundColor DarkGray
-    $codeIntegrityEvents = Get-CodeIntegrityEventEvidence -EvidenceDirectory $evidenceDir
-    Write-EvidenceJson -InputObject $codeIntegrityEvents -Directory $evidenceDir -FileName 'codeintegrity-events.json'
-
-    Write-Host '[8/12] Driver setup logs...' -ForegroundColor DarkGray
-    $setupLogEvidence = if (-not $SkipSetupApiLog) {
-        Get-DriverSetupLogEvidence -EvidenceDirectory $evidenceDir
+    $osEvidence = Invoke-EvidenceStage -Label '[1/12] Operating system identity...' -Body {
+        $v = Get-OperatingSystemEvidence
+        Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'environment.json'
+        $v
     }
-    else {
-        [pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; Logs = @() }
+
+    $pendingReboot = Invoke-EvidenceStage -Label '[2/12] Pending reboot state...' -Body {
+        $v = Get-PendingRebootEvidence
+        Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'pending-reboot.json'
+        $v
     }
-    Write-EvidenceJson -InputObject $setupLogEvidence -Directory $evidenceDir -FileName 'driver-setup-logs.json'
 
-    Write-Host '[9/12] Device load diagnostics...' -ForegroundColor DarkGray
-    # Reads the copy inside the bundle when one was made, so the parse and
-    # the archived text are the same bytes; falls back to the live log when
-    # the copy was skipped (size cap) or -SkipSetupApiLog was passed.
-    $setupApiForParse = Join-Path (Join-Path $evidenceDir 'setupapi') 'setupapi.dev.log'
-    if (-not (Test-Path -LiteralPath $setupApiForParse)) {
-        $setupApiForParse = Join-Path $env:SystemRoot 'INF\setupapi.dev.log'
-    }
-    $loadDiagnostics = Get-DeviceLoadDiagnosticEvidence -PnpEvidence $pnpEvidence -SetupApiLogPath $setupApiForParse
-    Write-EvidenceJson -InputObject $loadDiagnostics -Directory $evidenceDir -FileName 'device-load-diagnostics.json'
+    $pnpEvidence = Invoke-EvidenceStage -Label '[3/12] PnP device inventory...' -Body {
+        $v = Get-PnpDeviceEvidence
+        Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'pnp-devices.json'
+        $v
+    } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; DeviceCount = 0; ProblemDeviceCount = 0; TargetedDeviceCount = 0; ProblemDevices = @(); TargetedDevices = @(); Devices = @() })
 
-    Write-Host '[10/12] Windows service configuration...' -ForegroundColor DarkGray
-    $serviceEvidence = Get-ServiceConfigurationEvidence
-    Write-EvidenceJson -InputObject $serviceEvidence -Directory $evidenceDir -FileName 'services.json'
-    $featureServices = Get-ServerFeatureServiceEvidence -ServiceEvidence $serviceEvidence
-    Write-EvidenceJson -InputObject $featureServices -Directory $evidenceDir -FileName 'server-feature-services.json'
+    $driverStore = Invoke-EvidenceStage -Label '[4/12] Driver store inventory...' -Body {
+        $v = Get-DriverStoreEvidence -EvidenceDirectory $evidenceDir
+        Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'driver-store.json'
+        $v
+    } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; PnputilExitCode = $null; PackageCount = 0; SignedDriverCount = 0; Packages = @() })
 
-    Write-Host '[11/12] Repository script and workspace inventory...' -ForegroundColor DarkGray
-    $scriptInventory = Get-DeployScriptInventory -ScriptDirectory $scriptDirectory
-    Write-EvidenceJson -InputObject $scriptInventory -Directory $evidenceDir -FileName 'deploy-scripts.json'
-    $workspaceInventory = Get-WorkspaceInventoryEvidence -ScriptDirectory $scriptDirectory
-    Write-EvidenceJson -InputObject $workspaceInventory -Directory $evidenceDir -FileName 'workspace-inventory.json'
+    $certificateEvidence = Invoke-EvidenceStage -Label '[5/12] Project certificate stores...' -Body {
+        $v = Get-ProjectCertificateEvidence
+        Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'project-certificates.json'
+        $v
+    } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; CertificateCount = 0; StoresConsistent = $null; StoreErrors = @('stage failed'); RootThumbprints = @(); TrustedPublisherThumbprints = @(); ThumbprintsOnlyInRoot = @(); ThumbprintsOnlyInTrustedPublisher = @(); Certificates = @() })
 
-    Write-Host '[12/12] BthPan runtime state...' -ForegroundColor DarkGray
-    $bthPanRuntime = Get-BthPanRuntimeEvidence
-    Write-EvidenceJson -InputObject $bthPanRuntime -Directory $evidenceDir -FileName 'bthpan-runtime.json'
+    $bootSecurity = Invoke-EvidenceStage -Label '[6/12] Boot security state...' -Body {
+        $v = Get-BootSecurityEvidence -EvidenceDirectory $evidenceDir
+        Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'boot-security.json'
+        $v
+    } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; SecureBootEnabled = $null; TestSigningEnabled = $null; NoIntegrityChecksEnabled = $null; BcdCaptured = $false; WdacPolicyPresent = $null })
+
+    $codeIntegrityEvents = Invoke-EvidenceStage -Label '[7/12] CodeIntegrity events...' -Body {
+        $v = Get-CodeIntegrityEventEvidence -EvidenceDirectory $evidenceDir
+        Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'codeintegrity-events.json'
+        $v
+    } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; EventCount = 0; EnforcementBlockEventCount = 0; AuditEventCount = 0; QueryError = 'stage failed' })
+
+    $setupLogEvidence = Invoke-EvidenceStage -Label '[8/12] Driver setup logs...' -Body {
+        $v = if (-not $SkipSetupApiLog) {
+            Get-DriverSetupLogEvidence -EvidenceDirectory $evidenceDir
+        }
+        else {
+            [pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; Logs = @() }
+        }
+        Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'driver-setup-logs.json'
+        $v
+    } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; Logs = @() })
+
+    $loadDiagnostics = Invoke-EvidenceStage -Label '[9/12] Device load diagnostics...' -Body {
+        # Reads the copy inside the bundle when one was made, so the parse and
+        # the archived text are the same bytes; falls back to the live log when
+        # the copy was skipped (size cap) or -SkipSetupApiLog was passed.
+        $setupApiForParse = Join-Path (Join-Path $evidenceDir 'setupapi') 'setupapi.dev.log'
+        if (-not (Test-Path -LiteralPath $setupApiForParse)) {
+            $setupApiForParse = Join-Path $env:SystemRoot 'INF\setupapi.dev.log'
+        }
+        $v = Get-DeviceLoadDiagnosticEvidence -PnpEvidence $pnpEvidence -SetupApiLogPath $setupApiForParse
+        Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'device-load-diagnostics.json'
+        $v
+    } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; ProblemDeviceCount = 0; MissingServiceBinaryCount = 0; SignatureRelatedFailureCount = 0; ProblemDevices = @(); SetupApi = [pscustomobject][ordered]@{ LogPresent = $false; SectionsScanned = 0; FailureSections = @(); MissingServiceBinaries = @(); ParseError = 'stage failed' } })
+
+    $serviceEvidence = Invoke-EvidenceStage -Label '[10/12] Windows service configuration...' -Body {
+        $v = Get-ServiceConfigurationEvidence
+        Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'services.json'
+        $v
+    } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; ServiceCount = 0; DriverServiceCount = 0; RunningCount = 0; DisabledCount = 0; MissingBinaryCount = 0; CollectionErrors = @('stage failed'); MissingBinaryServices = @(); DependencyIndex = @(); Services = @() })
+
+    $featureServices = Invoke-EvidenceStage -Label '[10/12] Server feature-to-service mapping...' -Body {
+        $v = Get-ServerFeatureServiceEvidence -ServiceEvidence $serviceEvidence
+        Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'server-feature-services.json'
+        $v
+    } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; FeatureQueryError = 'stage failed'; FeatureCount = 0; InstalledFeatureCount = 0; BinaryMissingWatchCount = 0; WatchedServices = @(); Features = @() })
+
+    $scriptInventory = Invoke-EvidenceStage -Label '[11/12] Repository script and workspace inventory...' -Body {
+        $v = Get-DeployScriptInventory -ScriptDirectory $scriptDirectory
+        Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'deploy-scripts.json'
+        $workspaceInventory = Get-WorkspaceInventoryEvidence -ScriptDirectory $scriptDirectory
+        Write-EvidenceJson -InputObject $workspaceInventory -Directory $evidenceDir -FileName 'workspace-inventory.json'
+        $v
+    } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; PresentCount = 0; ExpectedCount = 0; Scripts = @() })
+
+    $bthPanRuntime = Invoke-EvidenceStage -Label '[12/12] BthPan runtime state...' -Body {
+        $v = Get-BthPanRuntimeEvidence
+        Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'bthpan-runtime.json'
+        $v
+    } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; BthPanSysPresent = $false; ServiceKeyPresent = $false; PanAdapterCount = 0 })
+
+    # Stage ledger is written before the assessment so the bundle states its
+    # own completeness even if a later step fails (SPEC D.45).
+    $stageEvidence = Get-StageFailureEvidence
+    Write-EvidenceJson -InputObject $stageEvidence -Directory $evidenceDir -FileName 'stage-results.json'
 
     $assessmentItems = Get-ConfigurationAssessment `
         -OsEvidence $osEvidence -PendingReboot $pendingReboot -PnpEvidence $pnpEvidence `
         -DriverStore $driverStore -CertificateEvidence $certificateEvidence -BootSecurity $bootSecurity `
         -CodeIntegrityEvents $codeIntegrityEvents -SetupLogEvidence $setupLogEvidence `
         -LoadDiagnostics $loadDiagnostics -ServiceEvidence $serviceEvidence -FeatureServices $featureServices `
-        -ScriptInventory $scriptInventory -BthPanRuntime $bthPanRuntime
+        -ScriptInventory $scriptInventory -BthPanRuntime $bthPanRuntime -StageEvidence $stageEvidence
 
     $failCount = @($assessmentItems | Where-Object { $_.Status -eq 'FAIL' }).Count
     $reviewCount = @($assessmentItems | Where-Object { $_.Status -eq 'REVIEW' }).Count
@@ -2148,8 +2289,6 @@ try {
         -ExitCode $exitCode -EvidenceDirectory $evidenceDir -ZipPath $zipPath |
         Set-Content -LiteralPath (Join-Path $evidenceDir 'assessment-report.txt') -Encoding UTF8
 
-    if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
-    Compress-Archive -Path (Join-Path $evidenceDir '*') -DestinationPath $zipPath -CompressionLevel Optimal -Force
 
     Write-AssessmentConsoleReport -AssessmentItems @($assessmentItems) -OverallStatus $overallStatus `
         -ExitCode $exitCode -EvidenceDirectory $evidenceDir -ZipPath $zipPath
@@ -2163,6 +2302,33 @@ catch {
         }
     }
     $exitCode = 1
+}
+finally {
+    # ALWAYS archive (SPEC D.45). The four deploy scripts archive their run
+    # artifacts from a top-level finally regardless of outcome; the collector
+    # previously archived from inside the try, so any failure cost the
+    # operator the bundle as well as the run. Whatever was collected before
+    # the failure is worth handing over - it is usually the part that
+    # explains the failure.
+    try {
+        if (-not [string]::IsNullOrWhiteSpace($evidenceDir) -and (Test-Path -LiteralPath $evidenceDir)) {
+            if (-not (Test-Path -LiteralPath (Join-Path $evidenceDir 'stage-results.json'))) {
+                Write-EvidenceJson -InputObject (Get-StageFailureEvidence) -Directory $evidenceDir -FileName 'stage-results.json'
+            }
+            if (-not [string]::IsNullOrWhiteSpace($zipPath)) {
+                if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue }
+                Compress-Archive -Path (Join-Path $evidenceDir '*') -DestinationPath $zipPath -CompressionLevel Optimal -Force -ErrorAction Stop
+                Write-Host ''
+                Write-Host ('EVIDENCE ZIP  : {0}' -f $zipPath) -ForegroundColor Cyan
+            }
+        }
+    }
+    catch {
+        # The archive itself failing must not mask the original outcome, and
+        # must not throw out of a finally block.
+        Write-Host ('WARNING: evidence archive could not be created: {0}' -f $_.Exception.Message) -ForegroundColor Yellow
+        Write-Host ('         The evidence directory is still on disk: {0}' -f $evidenceDir) -ForegroundColor Yellow
+    }
 }
 
 exit $exitCode

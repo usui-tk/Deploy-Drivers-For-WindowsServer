@@ -1,0 +1,21 @@
+>>>  [Device Install (DiInstallDriver) - C:\Windows\System32\DriverStore\FileRepository\amdgpio2.inf_amd64_x\amdgpio2.inf]
+>>>  Section start 2026/01/01 12:00:00.000
+      cmd: "pnputil.exe" /add-driver "C:\Temp\amdgpio2.inf" /install
+      dvi: Install Device: Starting device completed.
+<<<  Section end 2026/01/01 12:00:01.000
+<<<  [Exit status: SUCCESS]
+
+>>>  [Device Install (Hardware initiated) - PCI\VEN_8086&DEV_2725&SUBSYS_00248086&REV_1A\4&2238fc98&0&0013]
+>>>  Section start 2026/01/01 12:00:02.000
+      inf:                          {Add Service: vwifibus}
+!!!  dvi:                          Add Service: Binary 'C:\Windows\system32\DRIVERS\vwifibus.sys' for service 'vwifibus' is not present.
+!!!  dvi:                          Error 0xe0000217: A service installation section in this INF is invalid.
+<<<  Section end 2026/01/01 12:00:03.000
+<<<  [Exit status: FAILURE(0xe0000217)]
+
+>>>  [Device Install (DiShowUpdateDevice) - ACPI\AMDI0010\0]
+>>>  Section start 2026/01/01 12:00:04.000
+      dvi:                     Device Status: 0x01802400, Problem: 0x27 (0xc0000263)
+!!!  dvi:                     Device not started: Device has problem: 0x27 (CM_PROB_DRIVER_FAILED_LOAD), problem status: 0xc0000263.
+<<<  Section end 2026/01/01 12:00:05.000
+<<<  [Exit status: SUCCESS]

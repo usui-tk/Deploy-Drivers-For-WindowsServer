@@ -34,6 +34,13 @@ inf_inventory_report.txt
 # (e.g. amd-chipset_PrepareVerify_20260517-143022.log).
 *.log
 
+# ...except test fixtures. The rule above exists to keep per-run logs out of
+# the repository; a checked-in sample under tests/fixtures/ is the opposite
+# of a run artifact - it is synthetic input the test suite needs in order to
+# run at all, carries no host identifiers, and must be versioned with the
+# parser it exercises.
+!tests/fixtures/*.log
+
 # ----- Python tool artefacts -------------------------------------------------
 __pycache__/
 *.py[cod]

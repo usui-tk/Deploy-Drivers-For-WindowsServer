@@ -455,8 +455,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-$Script:ScriptVersion = 'msbthpan-2026.08.08-r47'
-$Script:ScriptTag     = 'plan-coverage-collateral-health-and-load-diagnostics'
+$Script:ScriptVersion = 'msbthpan-2026.08.08-r48'
+$Script:ScriptTag     = 'evidence-resilience-and-degenerate-plan-handling'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -12152,6 +12152,11 @@ $Ctx = [pscustomobject]@{
     # [pscustomobject] is sealed, so a '.' assignment to an undeclared
     # property throws at the assignment site (PSA2009).
     CollateralDeviceHealth = $null
+    # Set by P06 when the -SkipNonCosignedDrivers trim leaves nothing this
+    # pipeline can catalog (SPEC SS D.45.4). Downstream Prepare phases read
+    # it and skip cleanly instead of failing on an empty working set.
+    # Pre-declared because [pscustomobject] is sealed (PSA2009).
+    DegeneratePlan = $false
 }
 
 # ----- Cleanup short-circuit -----

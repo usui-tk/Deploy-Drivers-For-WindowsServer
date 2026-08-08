@@ -804,8 +804,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'graphics-2026.08.08-r65'
-$Script:ScriptTag     = 'plan-coverage-collateral-health-and-load-diagnostics'
+$Script:ScriptVersion = 'graphics-2026.08.08-r66'
+$Script:ScriptTag     = 'evidence-resilience-and-degenerate-plan-handling'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -9767,6 +9767,52 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
         } else {
             Write-Detail '  r71: -SkipNonCosignedDrivers set but inventory is already fully WHQL co-signed (no trim).'
         }
+        # DEGENERATE PLAN (SPEC D.45.4). When the trim leaves nothing this
+        # pipeline can catalog, the run cannot produce a signed driver set -
+        # and that is a RESULT, not a malfunction. It means the selected
+        # driver package carries no WHQL-co-signed kernel content this host
+        # can install with Secure Boot left on.
+        #
+        # Saying so here matters. Left to run on, P08 generates zero
+        # catalogs and P09 throws 'no .cat files found - run P08 first',
+        # which points the operator at a phase that did run and had nothing
+        # to do, and reports a correct measurement as a script failure.
+        $catalogEligible = 0
+        foreach ($rec in @($Ctx.InfInventory)) {
+            $ok = $true
+            if ($rec.PSObject.Properties['EligibleForCatalog']) {
+                $ok = ($rec.EligibleForCatalog -eq $true -or $rec.EligibleForCatalog -eq 'True')
+            }
+            if ($ok) { $catalogEligible++ }
+        }
+        if ($catalogEligible -eq 0) {
+            $Ctx.DegeneratePlan = $true
+            Write-Host ''
+            Write-Host '+----------------------------------------------------------------------+' -ForegroundColor Yellow
+            Write-Host '|  RESULT: -SkipNonCosignedDrivers leaves an empty install plan        |' -ForegroundColor Yellow
+            Write-Host '+----------------------------------------------------------------------+' -ForegroundColor Yellow
+            Write-Detail ('  Analysed {0} in-scope INF(s); none carry a Microsoft Windows Hardware' -f @($Ctx.WhqlCoSignAnalysis).Count)
+            Write-Detail  '  Compatibility co-signature on every kernel binary they reference.'
+            Write-Detail  '  Nothing remains that this pipeline can catalog and sign, so the'
+            Write-Detail  '  remaining Prepare phases have no work and the Install phases would'
+            Write-Detail  '  have nothing to install.'
+            Write-Host ''
+            Write-Detail  '  This is a measurement of the driver package, not a script failure.'
+            Write-Detail  '  Options, in the order this project recommends them:'
+            Write-Detail  '    1. Obtain the devices'' drivers from the vendor or Windows Update -'
+            Write-Detail  '       MS-signed drivers load with Secure Boot ON and no policy change.'
+            Write-Detail  '    2. Re-run WITHOUT -SkipNonCosignedDrivers and accept Path B, which'
+            Write-Detail  '       requires disabling Secure Boot in firmware (see I00 guidance).'
+            Write-Detail  '    3. Leave the affected devices unbound.'
+            Write-Host ''
+            Set-DebugStep 'P06: degenerate plan - zero catalog-eligible INFs after trim'
+            Set-PhaseMarker -Ctx $Ctx -PhaseId 'P06' -Metadata @{ DegeneratePlan = $true; AnalysedInfCount = @($Ctx.WhqlCoSignAnalysis).Count; EligibleInfCount = $afterCount }
+            if ($Ctx.WhqlCoSignAnalysis) {
+                Save-WhqlCoSignPlanJson -Ctx $Ctx -PreTrimRecords $preTrimRecords -EligibleRecords @($Ctx.InfInventory)
+            }
+            Write-PhaseFooter 'P06' 'skipped'
+            return
+        }
         # Persist the post-trim plan summary so the install phases
         # (I01 gate, I02 short-circuit) can read it across the
         # PrepareVerify -> Install process boundary (SPEC §D.31.17).
@@ -10464,6 +10510,15 @@ function Invoke-PrepPhase09_SignCatalogs { # psa-disable-line PSA6003 -- compoun
         return
     }
 
+    # A degenerate plan (SPEC SS D.45.4) reaches here with nothing to sign.
+    # P06 already reported why and closed as skipped; repeating the analysis
+    # would be noise, and throwing would report a measurement as a failure.
+    if ($Ctx.DegeneratePlan) {
+        Write-Skip 'P09: nothing to sign - the -SkipNonCosignedDrivers plan is empty (see P06).'
+        Write-PhaseFooter 'P09' 'skipped'
+        return
+    }
+
     Set-DebugStep 'enumerate .cat files under patched/'
     $cats = Get-ChildItem -Path $Ctx.Paths.Patched -Recurse -Filter *.cat -ErrorAction SilentlyContinue
     if ($cats.Count -eq 0) {
@@ -10820,6 +10875,12 @@ function Invoke-VerifyPhase03_VerifyCatalogs { # psa-disable-line PSA6003 -- com
         'No signature was present in the subject',
         'Number of files successfully Verified: 0'        # signtool's count line
     )
+
+    if ($Ctx.DegeneratePlan) {
+        Write-Skip 'P08: nothing to catalog - the -SkipNonCosignedDrivers plan is empty (see P06).'
+        Write-PhaseFooter 'P08' 'skipped'
+        return
+    }
 
     $okCount = 0
     $failExpected = 0     # untrusted root etc - expected when cert not yet imported
@@ -15062,6 +15123,11 @@ $Ctx = [pscustomobject]@{
     # [pscustomobject] is sealed, so a '.' assignment to an undeclared
     # property throws at the assignment site (PSA2009).
     CollateralDeviceHealth = $null
+    # Set by P06 when the -SkipNonCosignedDrivers trim leaves nothing this
+    # pipeline can catalog (SPEC SS D.45.4). Downstream Prepare phases read
+    # it and skip cleanly instead of failing on an empty working set.
+    # Pre-declared because [pscustomobject] is sealed (PSA2009).
+    DegeneratePlan = $false
 }
 
 # ----- Cleanup short-circuit -----

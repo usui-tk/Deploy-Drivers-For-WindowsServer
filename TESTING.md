@@ -2670,3 +2670,91 @@ Problem-device totals moved 9 (8x code 28 + 1x code 51) -> 8 (7x code 28 + 1x co
 4. **`server-feature-services.json`**: `Wireless-Networking` install state recorded, and the `vwifibus` entry classified `ServiceKeyPresentBinaryMissing` (key exists, binary absent) or `ServiceKeyAbsent`. Which of the two it is determines whether `Install-WindowsFeature` is the remedy.
 5. **Assessment rows**: `Service binary integrity` and `Server feature-dependent services` appear in the report, and `Driver binary presence` now reports something other than an unconditional PASS.
 6. **Locale**: the host is ja-JP. Confirm `ConfigManagerErrorName` and the service type/start type names render from the numeric values rather than from localized strings.
+
+## 27. Automated test suite (`tests/`)
+
+`TESTING.md` records **physical-hardware validation**: what a human ran on real
+metal and what happened. The suite under `tests/` is the other half — checks a
+machine can run in seconds, with no hardware, before anything reaches a host.
+The two are complementary and neither substitutes for the other.
+
+### Running it
+
+```powershell
+./tests/Invoke-TestSuite.ps1                    # everything
+./tests/Invoke-TestSuite.ps1 -Name '*Collector*'  # one subject area
+```
+
+Exit code is the number of failing cases. Windows PowerShell 5.1 or
+PowerShell 7.x, Windows or Linux, nothing to install. Full contributor
+documentation is in [`tests/README.md`](./tests/README.md).
+
+Nothing in the suite executes a deploy script or touches driver state. Cases
+extract the functions they exercise from the real files by AST and run them
+against fixtures.
+
+### Why it exists
+
+Three defects shipped to a production host while the static gate battery
+reported 0 errors / 0 warnings / 0 info across all five scripts (SPEC §D.45):
+
+| Defect | Why static analysis could not see it |
+|---|---|
+| `Get-NamedRegistryValue -Path` — parameter does not exist on the callee | A call with a wrong parameter name is well-formed PowerShell; binding fails at runtime |
+| `-like '>>>*[Device Install*'` — unterminated wildcard character class | A valid string literal. The pattern is only rejected when applied |
+| All twelve collection stages inside one `try`, archive inside it too | Correct syntax. The scope is the bug |
+
+Each throws or misbehaves on the **first call**. The common property is that
+executing the code once would have caught all three, and nothing in the
+pipeline executed any of it.
+
+### Cases at introduction
+
+| Case | Assertions | Covers |
+|---|---|---|
+| `Test-CollectorPathResolution.ps1` | 21 | `Resolve-ServiceImagePath` across every `ImagePath` shape observed in the field (`\SystemRoot\...`, `\??\...`, relative, quoted/unquoted exe with arguments, absolute); explicit regression guards that the resolver does not return its input unchanged; CM_PROB decoding; NTSTATUS decoding with signature failures separated from look-alike API mismatches |
+| `Test-CollectorSetupApiParser.ps1` | 16 | `Get-SetupApiFailureEvidence` against a fixture reproducing the field log's structures: section detection, missing service binaries, SetupAPI error codes, CM problem codes with NT status, absent-log handling. First assertion is simply that the function does not throw |
+| `Test-SisterConsistency.ps1` | 18 | Shared-helper byte identity (4-way and 3-way per SPEC §A.11.5b); ValidateSet call-site conformance repo-wide; `@( )` never applied to a `List[object]`; every script parses and declares a version |
+
+**55 assertions, 3 cases, all passing.**
+
+### Negative control
+
+A check that has never failed has not been shown to be capable of failing.
+Run against the previous release, `Test-CollectorSetupApiParser.ps1` fails on
+the first assertion with the exact exception that aborted the field run:
+
+```
+FAIL  parsing a log with [Device Install] section headers does not throw
+        threw: The specified wildcard character pattern is not valid: >>>*[Device Install*
+```
+
+Against the current tree it passes. Any case added to this suite should be
+shown to fail against the defective version before it is considered done.
+
+### What it found during its own construction
+
+Four defects, three of them previously unknown:
+
+1. A scoping bug in the harness — a module function that dot-sources defines
+   into the module's scope, where the test file cannot see the result.
+2. The fatal wildcard defect (already known, now guarded).
+3. **A new collector defect**: setupapi sections whose only failure signal is
+   a `!!!` marker and a CM problem code were being dropped by the extractor,
+   because it keyed only off `Error 0x` and the exit status. That is exactly
+   the shape of the section recording the `amdi2c` load failure in SPEC
+   §D.43 — the extract would have silently omitted the evidence it exists to
+   surface.
+4. **An `@( )` over a `List[object]`** in the stage ledger written minutes
+   earlier in the same change (SPEC §D.42.4). Caught before it left the
+   working tree.
+
+### Scope and limits
+
+- **Linux-executable subset only.** CIM queries, registry enumeration,
+  `Compress-Archive`, and anything requiring a live driver store are out of
+  scope and remain verified by field runs recorded in the numbered scenarios
+  above.
+- **Fixtures are synthetic.** No host identifiers, no captured customer data.
+- The suite does not replace `psa.py` or `Parser::ParseFile`; it covers the
+  class of defect those two cannot see.

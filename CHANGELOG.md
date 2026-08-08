@@ -20,6 +20,145 @@ independently.
 
 ---
 
+## [2026-08-08] `evidence-resilience-and-degenerate-plan-handling` — Chipset r100 / Graphics r66 / NPU r43 / BthPan r48 / Collector c4 (schema 1.3)
+
+Fixes from a clean-install Windows Server 2019 run on the r99 / c3 generation.
+The evidence collector aborted at stage 9 of 12 and produced no archive; the
+PrepareVerify run then failed at P09. Post-mortem: SPEC D.45. The release also
+introduces `tests/`, the repository's first executable test suite.
+
+### Fix 1 — collector called `Get-NamedRegistryValue` with a parameter it does not have
+
+- `Get-NamedRegistryValue` takes a `-Snapshot` from `Get-RegistryKeySnapshot`.
+  The device-load diagnostics passed `-Path`. Nine exceptions per run, one per
+  problem device, swallowed by the surrounding `try`.
+- **The previous release claimed to have fixed this block and had not.** c3
+  corrected three mangled string literals here; the literals were then right
+  and the call was still wrong, so `ServiceName` resolved to nothing,
+  `ImagePathExists` was never populated, and `Driver binary presence` still
+  reported PASS. Two consecutive releases shipped the same non-functional
+  check, the second having "verified" it.
+
+### Fix 2 — a wildcard pattern that cannot compile (this is what killed the run)
+
+- `-like '>>>*[Device Install*'`: in a PowerShell wildcard `[` opens a
+  character class, and this one never closes. The pattern is rejected before
+  matching, on the first line of the first log. Reproduced out of band.
+- Three `-like` tests in the setupapi extractor were substring tests written
+  as patterns. All three are now `.StartsWith` / `.Contains`, which carry no
+  pattern semantics to get wrong.
+
+### Fix 3 — one stage failing cost the whole evidence bundle
+
+- All twelve stages ran inside a single `try` whose `catch` skipped past the
+  archive. Stage 9 threw, so stages 10-12, the assessment, and
+  `Compress-Archive` never ran: a partial directory and no ZIP.
+- The four deploy scripts already archive from a top-level `finally`
+  regardless of outcome — the r98 field run failed at I02 and still produced
+  its archive. The collector was the one script not holding that contract.
+  **The operator identified this gap before we did.**
+- Each stage now runs through `Invoke-EvidenceStage`: catches, records the
+  failure, returns a typed empty fallback, and lets collection continue. The
+  archive moved to a top-level `finally`, itself wrapped so a failing archive
+  cannot mask the original outcome or throw out of a `finally`.
+- New artefact `stage-results.json`, and a new assessment row **`Collection
+  completeness` placed first in the report** — every other row is only as
+  trustworthy as the stage that produced it.
+
+### Fix 4 — an empty plan is a result, not a crash (Chipset / Graphics)
+
+- P06 now detects zero catalog-eligible records after the
+  `-SkipNonCosignedDrivers` trim, explains the finding, lists the options in
+  the order this project recommends them, closes as `skipped`, and sets
+  `$Ctx.DegeneratePlan`. P08 and P09 honour the flag.
+- Previously P09 threw `no .cat files found - run P08 (GenerateCatalogs)
+  first` — pointing the operator at a phase that had run and had nothing to
+  do, and reporting a correct measurement as a script failure.
+
+### Measurement — D.41.5 premise 2 is answered, and the answer is zero
+
+Not a defect. The r99 population widening did what it was built to do:
+
+```
+-SkipNonCosignedDrivers: analysing all 55 in-scope INF(s), not just the 2 patch-needing one(s).
+  Fully WHQL co-signed INFs   : 0
+  No WHQL co-signature        : 55
+  Inventory trimmed: 7 eligible / 112 skipped
+```
+
+**Zero of 55.** No in-scope INF in this AMD chipset package carries a
+Microsoft Windows Hardware Compatibility co-signature on every kernel binary
+it references. `signtool` was present and resolved, so this is a measurement
+and not the conservative signtool-absent verdict documented in D.31.
+
+Consequence: **`-SkipNonCosignedDrivers` cannot install anything on this
+package.** Every earlier run that appeared to succeed did so because the
+analysis population was two records, and two records absent from the plan
+cannot contradict anything. Path A remains sound as a design; this hardware
+and this driver package are not a case it can serve, and the honest outcome
+is to say so. See SPEC D.45.5.
+
+### New — `tests/`, the repository's first executable test suite
+
+All three collector defects share a property: each throws or misbehaves on
+the **first call**, and none is visible to a static analyzer. `psa.py`
+reported 0 errors / 0 warnings / 0 info across five scripts on the exact file
+that aborted in the field.
+
+- `tests/Invoke-TestSuite.ps1` — discovers and runs `cases/Test-*.ps1`, exits
+  with the number of failing cases.
+- `tests/lib/TestHarness.psm1` — assertions plus AST-based function
+  extraction. Tests pull functions out of the real files; nothing is copied,
+  because a copy drifts silently and a test passing against a stale copy is
+  worse than no test. `Assert-NoThrow` exists because two of these defects
+  were exceptions rather than wrong answers.
+- Three cases, 55 assertions: collector path resolution and code decoding
+  (21), setupapi failure extraction (16), cross-sister invariants (18).
+- No dependencies. Windows PowerShell 5.1 or 7.x, Windows or Linux. Nothing
+  executes a deploy script or touches driver state.
+- Contributor documentation in `tests/README.md`; scope and rationale in
+  `TESTING.md` §27. `CONTRIBUTING.md` gains the suite as step 2 of the
+  pre-PR checklist.
+- `.gitignore` gains a narrowly scoped `!tests/fixtures/*.log`. The blanket
+  `*.log` rule exists to keep per-run logs out of the repository; a checked-in
+  synthetic sample is the opposite of a run artifact and has to be versioned
+  alongside the parser it exercises.
+
+**It earned its place during its own construction**, catching a scoping bug in
+the harness, a previously unknown collector defect (setupapi sections whose
+only failure signal is a `!!!` marker and a CM problem code were being dropped
+— exactly the shape that recorded the `amdi2c` load failure in D.43), and an
+`@( )` over a `List[object]` written minutes earlier in this same change.
+
+**Negative control**: run against the previous release the suite fails on the
+fatal wildcard defect; against this tree it passes. Any case added should be
+shown to fail against the defective version before it is considered done.
+
+### Verification
+
+`psa.py` 0 errors / 0 warnings / 0 info across **all ten** PowerShell files
+(five scripts plus the suite; test files carry a documented `psa-disable-file
+PSAP0002` because they ship no runtime identity); `Parser::ParseFile` 0 errors
+x 5; test suite 3/3 cases, 55/55 assertions; canon integrity via the central
+authoritative tooling per SPEC A.11.8a — 125 dd observation records, drift
+121 `match` + 4 `forked-frozen`, zero differences on every non-volatile field.
+
+### Known limitations
+
+- **Everything in this release is unexercised on Windows.** The suite runs on
+  Linux pwsh against extracted functions and fixtures. CIM queries, registry
+  enumeration, `Compress-Archive`, and the degenerate-plan path have not run
+  on a host.
+- The `vwifibus` prediction from D.44 remains untested — the collector aborted
+  before the service stage, so `services.json` has never been produced on any
+  host.
+- **`-SkipNonCosignedDrivers` is now known to be unusable on this driver
+  package.** The flag is not withdrawn, because the measurement is
+  package-specific and other packages may differ, but no run on this hardware
+  will produce an installable plan.
+
+---
+
 ## [2026-08-08] `service-configuration-evidence-and-path-resolution-fix` — Collector c3 (schema 1.2)
 
 Collector-only release. All four deploy scripts invoke the collector, so a

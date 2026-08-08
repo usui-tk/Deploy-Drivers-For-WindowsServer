@@ -340,8 +340,8 @@ param(
 #   * PhaseResults - per-phase outcome registry (write side from
 #     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.08.08-r42'
-$Script:ScriptTag           = 'plan-coverage-collateral-health-and-load-diagnostics'
+$Script:ScriptVersion       = 'npu-2026.08.08-r43'
+$Script:ScriptTag           = 'evidence-resilience-and-degenerate-plan-handling'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the
@@ -7991,6 +7991,10 @@ function Invoke-MainEntryPoint {
         # Pre-declared because [pscustomobject] is sealed and a '.'
         # assignment to an undeclared property throws (PSA2009).
         CollateralDeviceHealth = $null
+        # Set by P06 when the -SkipNonCosignedDrivers trim leaves nothing
+        # this pipeline can catalog (SPEC SS D.45.4). Pre-declared because
+        # [pscustomobject] is sealed (PSA2009).
+        DegeneratePlan = $false
     }
 
     # Banner (sister-script-aligned: include ScriptTag and ScriptHash)
