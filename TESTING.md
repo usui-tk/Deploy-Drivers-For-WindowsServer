@@ -2880,3 +2880,100 @@ The `WDF_VIOLATION` loop that prompted the Secure Boot OFF reinstall could not b
 2. **`crash-evidence.json`** — `CrashDumpEnabled` first. If it is `0`, no dump was ever written and an empty minidump directory needs no further theory. If bugcheck events exist, the **first parameter of a `0x10D` stop code** names the kind of framework contract violated and is the fastest route to a cause.
 3. If the host bugchecks again and will not boot, use **`Collect-OfflineRecoveryEvidence.cmd`** from WinRE (Troubleshoot → Command Prompt). Find the Windows volume with `diskpart` / `list volume` — it is usually not `C:` in WinRE — and write output to removable media, never to the offline volume.
 4. With `signtool` absent, **do not read a WHQL co-signature count from this host as a measurement.** Install the SDK first or treat the result as a conservative default (SPEC §D.31).
+
+## 31. Using `Collect-OfflineRecoveryEvidence.cmd` when the host will not boot
+
+The PowerShell collector needs a running Windows. When a host bugchecks in a
+reboot loop there is none, and **the Windows Recovery Environment has no
+PowerShell**. This is the procedure for that case.
+
+### Before you need it
+
+Copy `Collect-OfflineRecoveryEvidence.cmd` onto the USB stick you boot from,
+**while the machine still works**. A recovery environment has no network and
+no way to fetch it.
+
+### Running it
+
+1. Boot the installation media, or hold Shift while choosing Restart.
+2. **Troubleshoot → Command Prompt.**
+3. Run it from the stick:
+
+```
+E:\Collect-OfflineRecoveryEvidence.cmd
+```
+
+With no arguments it finds the Windows volume and a writable destination and
+asks you to confirm before writing anything. To name them explicitly:
+
+```
+E:\Collect-OfflineRecoveryEvidence.cmd D: E:
+```
+
+Add `/Y` to skip the confirmation.
+
+Drive letters in WinRE are not the letters Windows uses. The Windows volume
+is usually **not** `C:`, and `X:` is WinRE's own RAM disk. The script accounts
+for both; `diskpart` → `list volume` → `exit` confirms by hand if needed.
+
+### What it produces
+
+`<destination>\MSLogs-<timestamp>\` containing the full set Microsoft asks
+for in a no-boot report — bcdedit in four forms, diskpart layout, a full
+system-drive file listing, every event log, setupapi / CBS / DISM /
+WindowsUpdate / USOShared logs, `SrtTrail.txt`, `ReportingEvents.log`, raw
+SYSTEM / SOFTWARE / COMPONENTS / RegBack hives, `dism` package, driver and
+feature inventories, `pagefile.sys` and `MEMORY.DMP` — plus this project's
+own additions: driver framework binary versions, a boot-start driver
+enumeration, minidumps, Panther logs and pending-servicing markers.
+
+Two files are worth opening first:
+
+- **`00-collection-manifest.txt`** — what was collected, with key values
+  inlined (boot flags, CrashControl, disk layout).
+- **`00-collection-errors.txt`** — what was not, and why. **An entry here is
+  not a failed collection.** Microsoft's guidance is to send what was
+  collected even when some commands failed, and absence is frequently the
+  finding: `RegBack` empty is normal on newer builds, no `SrtTrail.txt` means
+  startup repair never ran, no minidump alongside `CrashDumpEnabled = 0`
+  means no dump was ever written.
+
+### Large files
+
+`pagefile.sys` and `MEMORY.DMP` are size-checked against `MAXCOPYMB` (default
+16384 MB) and skipped with the actual size recorded rather than filling the
+destination mid-run. To collect a skipped file, raise `MAXCOPYMB` at the top
+of the script and re-run — the earlier output directory is timestamped and is
+not overwritten.
+
+### Reading the result
+
+The bugcheck parameters are the fastest route to a cause. On a working
+machine open `EventLogs\System.evtx` and find event ID 1001 from
+`WER-SystemErrorReporting`. For **`WDF_VIOLATION` (0x10D)** the **first
+parameter** names the kind of framework contract that was violated, which
+decides where to look next.
+
+If the bugcheck happens before anything can be logged, `registry\
+boot-start-drivers.txt` lists the services with `Start=0` or `Start=1` —
+almost always one of them.
+
+`framework\driver-framework.txt` carries the KMDF/UMDF runtime versions. A
+driver package requesting a newer `KmdfLibraryVersion` than the runtime
+present cannot load regardless of signing, and `inf2cat /os:Server2016_X64`
+does not lower that requirement.
+
+### Then
+
+Compress the output folder and send it. If the case goes to Microsoft, the
+directory layout already matches what they ask for.
+
+### Status
+
+**This script has never run in a real recovery environment.** It is validated
+structurally by `Test-CollectorFrameworkAndOffline.ps1` — encoding, control
+flow, `reg load` balance, `setlocal` discipline, offline-hive correctness,
+and all 22 Microsoft-required invocations asserted individually — but
+structural validation is not execution. Treat the first real run as a test of
+the script as much as of the host, and record what happened in a new scenario
+section here.

@@ -20,6 +20,119 @@ independently.
 
 ---
 
+## [2026-08-08] `offline-collector-microsoft-noboot-coverage` — Chipset r103 / Graphics r69 / NPU r46 / BthPan r51
+
+Brings `Collect-OfflineRecoveryEvidence.cmd` up to the full set Microsoft
+asks for when a no-boot case is reported, and corrects the line endings the
+r102 patch lost in transit. Post-mortem: SPEC D.48; operating procedure:
+TESTING §31.
+
+### Fix — the r102 `.cmd` landed with LF endings
+
+`.gitattributes` marks `*.cmd` as `-text` so CRLF is preserved in the blob
+itself. `git am` strips carriage returns from patch bodies by default, so
+applying r102 without `--keep-cr` produced a file cmd.exe would mis-parse —
+in the recovery environment, where there is no second chance. The tree hash
+did not match; this release restores the file. **Apply with
+`git am --keep-cr`.**
+
+### Coverage — 13 of 17 Microsoft-required items were missing
+
+The first version was written from first principles: what this project would
+want from a host that will not boot. Measured against Microsoft's published
+list, it collected 4 of 17 items.
+
+The pattern in the misses is worth naming: it gathered what was needed to
+diagnose a *driver* problem and skipped almost everything about *servicing*.
+`CBS.persist.log`, the DISM logs, the WindowsUpdate and USOShared logs and
+`ReportingEvents.log` are how an interrupted update is diagnosed, and an
+interrupted update is one of the commonest reasons a Server stops booting
+after a configuration-change reboot — the reported symptom.
+
+Now collected, matching Microsoft's list item for item:
+
+- `bcdedit /enum` in all four forms; `diskpart` disk and volume list
+- `dir /t:c /a /s /c /n` of the whole system drive
+- **every** event log (`winevt\Logs\*.*`), not just System and Application
+- `inf\Setupapi*.log`; `Logs\CBS\*.*` **including `CBS.persist.log`**
+- `LogFiles\Srt\SrtTrail.txt`; `Logs\WindowsUpdate`;
+  `ProgramData\USOShared\Logs`; `Logs\DISM`
+- `SoftwareDistribution\ReportingEvents.log`
+- **raw copies** of `config\SYSTEM`, `SOFTWARE`, `COMPONENTS` and the
+  `RegBack` pair. The previous version loaded the hive and exported chosen
+  keys, which reads more easily and discards everything nobody thought to ask
+  about on the night
+- `dism /get-packages`, plus `/get-drivers` and `/get-features`
+- `pagefile.sys`, `swapfile.sys`, `MEMORY.DMP`, minidumps
+
+Retained beyond the Microsoft list: driver framework binary versions,
+boot-start driver enumeration, Panther logs, and pending-servicing markers
+(`pending.xml`, `poqexec.log`).
+
+### Destination handling — runs with no arguments
+
+Drive letters in WinRE are not the letters Windows uses, and some volumes —
+frequently including boot media — are mounted read-only.
+
+- The Windows volume is found by looking for
+  `Windows\System32\config\SYSTEM`, the marker an installed Windows always
+  has and WinRE's own `X:` RAM disk does not.
+- The destination is found by **writing a probe file and checking it exists**,
+  not by assuming a volume is writable. The search runs from `Z:` downward,
+  because removable media tends to land on higher letters and searching down
+  avoids picking a second fixed disk ahead of the stick the operator booted
+  from.
+- Both can still be named explicitly, in any order, alongside `/Y`.
+- Writing onto the offline volume is refused: it may be the failing device.
+
+### Size accounting
+
+`pagefile.sys` and `MEMORY.DMP` are each potentially many gigabytes, and a
+copy that fills the destination half way through costs the whole collection.
+`:copylarge` checks the size first and skips anything over `MAXCOPYMB`
+(default 16 GB, a single variable at the top), **recording the actual size
+and source path in the manifest** so the cap can be raised and that one file
+re-collected.
+
+### Absence is recorded
+
+Every copy goes through `:copyone` or `:copytree`, which write the outcome to
+`00-collection-manifest.txt` either way and append failures to
+`00-collection-errors.txt`. An absent file is frequently the finding —
+`RegBack` empty is normal on newer builds, no `SrtTrail.txt` means startup
+repair never ran, no minidump alongside `CrashDumpEnabled = 0` means no dump
+was ever written. The script says on completion that an error entry is not a
+failed collection, matching Microsoft's own guidance to send what was
+collected.
+
+### Verification
+
+`psa.py` 0 errors / 0 warnings / 0 info across twelve PowerShell files;
+`Parser::ParseFile` 0 errors × 5; **test suite 5 cases, 155 assertions**, all
+passing; canon integrity via the central authoritative tooling per SPEC
+A.11.8a — 125 dd observation records, zero differences.
+
+The script cannot be executed here, so the test case checks it structurally,
+with each check corresponding to a way it could be silently broken: encoding
+(no BOM, plain ASCII, CRLF, no bare LF); every `goto` and `call` target
+resolving; `reg load` balance counted as commands rather than as text inside
+an `echo`; every subroutine exit releasing its `setlocal`;
+`CurrentControlSet` never used in a command while permitted in the comment
+explaining why; and **all 22 Microsoft-required invocations asserted
+individually**, so dropping one produces a named failure.
+
+Negative control: against the previous version the case reports six failures.
+
+### Known limitations
+
+- **The script has never run in a real recovery environment.** Structural
+  validation is not execution. Treat the first real run as a test of the
+  script as much as of the host.
+- The four sisters take a version bump for release consistency; none of their
+  behaviour changes.
+
+---
+
 ## [2026-08-08] `driver-framework-crash-evidence-and-offline-collector` — Chipset r102 / Graphics r68 / NPU r45 / BthPan r50 / Collector c6 (schema 1.5)
 
 Driven by a `WDF_VIOLATION` bugcheck loop reported on Windows Server 2016

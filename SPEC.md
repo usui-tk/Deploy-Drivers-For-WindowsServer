@@ -6376,6 +6376,147 @@ Collector c6 / schema 1.5, plus the new offline collector. The four sisters
 take a version bump for release consistency; none of their behaviour changes.
 
 
+## D.48 Bringing the offline collector up to the Microsoft no-boot requirement
+
+### D.48.1 What was missing
+
+The offline collector introduced in D.47.6 was written from first principles:
+what would *this project* want from a host that will not boot. Microsoft
+publishes an explicit list of what it asks for when a no-boot case is
+reported, and measuring the script against that list found **13 of 17 items
+absent**.
+
+| Requirement | Present in the first version |
+|---|---|
+| `bcdedit /enum` in four forms | yes |
+| `diskpart` disk and volume list | yes |
+| `dir /t:c /a /s /c /n` of the system drive | **no** |
+| **all** event logs (`winevt\Logs\*.*`) | no — only System and Application |
+| `inf\Setupapi*.log` | no — only the two `setupapi.dev/setup` files |
+| `Logs\CBS\*.*` | no — only `CBS.log`, not `CBS.persist.log` |
+| `LogFiles\Srt\SrtTrail.txt` | **no** |
+| `Logs\WindowsUpdate` | **no** |
+| `ProgramData\USOShared\Logs` | **no** |
+| `Logs\DISM` | **no** |
+| `SoftwareDistribution\ReportingEvents.log` | **no** |
+| raw `config\SYSTEM` and `config\SOFTWARE` copies | no — the hive was loaded and queried, never copied |
+| `config\RegBack\*` | **no** |
+| `dism /get-packages` | yes |
+| `pagefile.sys` | **no** |
+| `MEMORY.DMP` | yes |
+
+The pattern in the misses is worth naming: the first version collected what
+*this project* needed to diagnose a driver problem, and skipped almost
+everything about **servicing**. `CBS.persist.log`, the DISM logs, the
+WindowsUpdate and USOShared logs and `ReportingEvents.log` are how an
+interrupted update is diagnosed, and an interrupted update is one of the
+commonest reasons a Server stops booting after a configuration-change reboot
+— which is exactly the reported symptom.
+
+Copying the raw hives was the other significant gap. The first version loaded
+`SYSTEM` with `reg load` and exported specific keys, which is more convenient
+to read but throws away everything not anticipated. A raw hive copy can be
+examined offline against questions nobody thought to ask on the night.
+
+### D.48.2 Destination handling
+
+The requirement is that an unbootable machine's evidence lands on the USB
+stick the operator booted from. Two things make that harder than it sounds in
+WinRE: drive letters are reassigned, so the Windows volume is usually not
+`C:` and the USB stick is not where it was under Windows; and some volumes,
+frequently including boot media, are mounted read-only.
+
+The script now runs with no arguments. It finds the Windows volume by looking
+for `Windows\System32\config\SYSTEM` — the marker an installed Windows always
+has, and WinRE's own `X:` RAM disk does not — and finds a destination by
+**writing a probe file and checking it exists**, rather than assuming a
+writable volume. The destination search runs from `Z:` downward, because
+removable media tends to land on higher letters and searching down avoids
+picking a second fixed disk ahead of the stick the operator is holding.
+
+Both can still be named explicitly, and the argument parser accepts them in
+any order alongside `/Y`. Writing onto the offline volume is refused: that
+volume may be the failing device, and writing to it can lose the evidence and
+worsen the fault.
+
+### D.48.3 Size accounting
+
+`pagefile.sys` and `MEMORY.DMP` are each potentially many gigabytes. A copy
+that fills the destination half way through costs the whole collection, so
+`:copylarge` checks the size first and skips anything over `MAXCOPYMB`,
+**recording the actual size and the source path in the manifest**. The
+operator can then raise the cap and re-run for that one file rather than
+discovering the problem as a truncated output directory.
+
+The default is 16 GB, which fits a modern page file on a 128 GB stick while
+leaving room for everything else. It is a single variable at the top of the
+script.
+
+### D.48.4 Absence is recorded, not ignored
+
+Every copy goes through `:copyone` or `:copytree`, which write the outcome to
+the manifest either way and append failures to a separate error log. An
+absent file is frequently the finding: `RegBack` empty is normal on builds
+where Windows stopped populating it, no `SrtTrail.txt` means startup repair
+never ran, no minidump alongside `CrashDumpEnabled = 0` means no dump was
+ever written and there is nothing to look for.
+
+Microsoft's own guidance is to send what was collected even when commands
+failed. The script says so on completion, so an operator seeing errors does
+not conclude the collection is worthless.
+
+### D.48.5 What is checked, and what cannot be
+
+The script cannot be executed in this repository's test environment — there
+is no WinRE and no offline Windows volume. `Test-CollectorFrameworkAndOffline.ps1`
+therefore checks it structurally, and the checks are chosen so that each one
+corresponds to a way the script could be silently broken:
+
+- **Encoding**: no BOM (cmd.exe treats one as part of the first command),
+  plain ASCII, CRLF with no bare LF.
+- **Control flow**: every `goto` and `call` target has a label; `setlocal
+  enabledelayedexpansion` precedes its use.
+- **`reg load` balance**, counted as commands rather than as text inside an
+  `echo`: an unbalanced load leaves the hive mounted and holds a handle on
+  the volume under investigation.
+- **Subroutine `endlocal`**: every exit inside a subroutine releases its
+  `setlocal`, or the environment leaks across calls and `MANIFEST` stops
+  resolving. Scoped to the subroutine section, because the argument
+  validation at the top exits before any `setlocal` is entered.
+- **`CurrentControlSet` never used in a command**, while permitted in a
+  comment explaining why — the `Current` alias is synthesised by a running
+  system and does not exist offline.
+- **Coverage**: all 22 Microsoft-required invocations asserted individually,
+  so dropping one produces a named failure rather than a quieter one.
+
+Negative control: run against the previous version, the case reports six
+failures.
+
+### D.48.6 Verification
+
+`psa.py` 0 errors / 0 warnings / 0 info across twelve PowerShell files;
+`Parser::ParseFile` 0 errors across five; test suite **5 cases, 155
+assertions**, all passing; canon integrity via the central authoritative
+tooling per §A.11.8a — 125 dd observation records, zero differences.
+
+**The script has still never run in WinRE.** Structural validation is not
+execution, and the first real run should be treated as a test of the script
+as much as of the host.
+
+### D.48.7 A note on patch delivery
+
+`.cmd` is stored `-text` (verbatim CRLF) rather than `text eol=crlf`, because
+the file reaches the recovery environment by being copied to a USB stick,
+sometimes from a downloaded archive that never ran a checkout filter, and
+CRLF is a functional requirement for cmd.exe.
+
+**A consequence of that choice was observed in the field**: r102 was applied
+with a plain `git am`, which strips carriage returns from patch bodies by
+default, and the landed file arrived with LF endings. The tree hash did not
+match, and this release corrects the file. `git am --keep-cr` is required for
+any patch that touches a `-text` file with CRLF content.
+
+
 ## Appendix: How to seed a new sister script from this SPEC
 
 If you are creating a 5th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1`):

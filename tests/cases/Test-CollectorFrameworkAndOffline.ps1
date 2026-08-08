@@ -79,29 +79,101 @@ Assert-True 'the offline collector exists' (Test-Path -LiteralPath $offline)
 $bytes = [System.IO.File]::ReadAllBytes($offline)
 Assert-False 'no UTF-8 BOM (cmd.exe treats it as part of the first command)' `
     ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)
-$nonAscii = @($bytes | Where-Object { $_ -gt 127 }).Count
-Assert-Equal 'plain ASCII only' 0 $nonAscii
+Assert-Equal 'plain ASCII only' 0 @($bytes | Where-Object { $_ -gt 127 }).Count
 $text = [System.Text.Encoding]::ASCII.GetString($bytes)
 Assert-True 'CRLF line endings' ($text.Contains("`r`n"))
-Assert-False 'no bare LF' ($text -replace "`r`n", '').Contains("`n")
-Assert-True  'delayed expansion is enabled before it is used' `
-    ($text.ToLower().Contains('setlocal enabledelayedexpansion'))
-Assert-True  'endlocal present' ($text.ToLower().Contains('endlocal'))
-# An unbalanced reg load leaves the hive mounted, which blocks the next run
-# and can hold a file handle on the volume under investigation.
-$loads = ([regex]::Matches($text, 'reg load')).Count
-$unloads = ([regex]::Matches($text, 'reg unload')).Count
-Assert-Equal 'every reg load has a matching reg unload' $loads $unloads
-$gotoTargets = @([regex]::Matches($text, 'goto :(\w+)') | ForEach-Object { $_.Groups[1].Value })
-$labels = @([regex]::Matches($text, '(?m)^:(\w+)') | ForEach-Object { $_.Groups[1].Value })
-foreach ($g in $gotoTargets) {
-    Assert-True ('goto target :{0} has a label' -f $g) ($labels -contains $g)
+Assert-False 'no bare LF' (($text -replace "`r`n", '').Contains("`n"))
+Assert-True 'delayed expansion enabled before use' ($text.ToLower().Contains('setlocal enabledelayedexpansion'))
+
+Write-TestSection 'Batch control flow resolves'
+$cmdLines = @($text -split "`r`n")
+$commandLines = @($cmdLines | Where-Object { $_.Trim() -and -not $_.Trim().ToLower().StartsWith('rem ') })
+$labels = @([regex]::Matches($text, '(?m)^:(\w+)\s*$') | ForEach-Object { $_.Groups[1].Value })
+foreach ($t in @([regex]::Matches($text, 'goto :(\w+)') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)) {
+    Assert-True ('goto :{0} has a label' -f $t) ($labels -contains $t)
 }
-# The offline volume may be the failing device; writing evidence onto it can
-# lose the evidence and worsen the fault.
-Assert-True 'refuses to write output onto the offline volume' ($text.Contains('output directory is on the offline Windows volume'))
-Assert-True 'uses ControlSet001, not CurrentControlSet (no Current alias offline)' `
-    ($text.Contains('ControlSet001') -and -not $text.Contains('OFFSYS\CurrentControlSet'))
+foreach ($t in @([regex]::Matches($text, 'call :(\w+)') | ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique)) {
+    Assert-True ('call :{0} has a label' -f $t) ($labels -contains $t)
+}
+# reg load counted as a COMMAND, not as text inside an echo. An unbalanced
+# load leaves the hive mounted and holds a handle on the very volume under
+# investigation.
+$loads = @($commandLines | Where-Object { $_ -match '^\s*reg load\b' }).Count
+$unloads = @($commandLines | Where-Object { $_ -match '^\s*reg unload\b' }).Count
+Assert-True  'at least one reg load is present' ($loads -ge 1)
+Assert-Equal 'every reg load command has a matching reg unload' $loads $unloads
+# Every subroutine exit must release its own setlocal, or the environment
+# leaks across calls and MANIFEST / ERRLOG stop resolving.
+foreach ($sub in @('copyone', 'copytree', 'copylarge')) {
+    Assert-True ('subroutine :{0} exists' -f $sub) ($labels -contains $sub)
+}
+# Only exits INSIDE a subroutine need to release a setlocal. The argument
+# validation at the top of the script exits before any subroutine is entered
+# and correctly has no endlocal, so the check starts at the first subroutine
+# label rather than counting indentation.
+$firstSubLine = ($cmdLines | Select-String -Pattern '^:copyone\s*$').LineNumber
+Assert-True 'subroutine section located' ($null -ne $firstSubLine)
+$subSection = @($cmdLines[($firstSubLine - 1)..($cmdLines.Count - 1)])
+$leakyExits = @($subSection | Where-Object { $_ -match 'exit /b' -and $_ -notmatch 'endlocal' }).Count
+Assert-Equal 'every subroutine exit releases its setlocal' 0 $leakyExits
+
+Write-TestSection 'Offline-hive and destination discipline'
+Assert-True 'uses ControlSet001' ($text.Contains('ControlSet001'))
+# CurrentControlSet may appear in a comment explaining why it is not used; it
+# must never appear in an actual command, because the Current alias is
+# synthesised by a running system and does not exist offline.
+Assert-Equal 'CurrentControlSet never used in a command' 0 `
+    @($commandLines | Where-Object { $_.Contains('CurrentControlSet') }).Count
+Assert-True 'refuses to write output onto the offline volume' `
+    ($text.Contains('the destination is the offline Windows volume'))
+Assert-True 'auto-detects the Windows volume' ($text.Contains('Searching for the offline Windows installation'))
+Assert-True 'auto-detects a writable destination' ($text.Contains('Searching for a writable destination'))
+Assert-True 'proves destination writability by writing' ($text.Contains('_offlinecollect_probe.tmp'))
+Assert-True 'caps single-file copies' ($text.Contains('MAXCOPYMB'))
+Assert-True 'records a skipped large file rather than failing' ($text.Contains('SKIPPED at'))
+Assert-True 'writes an error log alongside the manifest' ($text.Contains('00-collection-errors.txt'))
+
+Write-TestSection 'Microsoft no-boot requirement coverage'
+# Each entry is an item Microsoft asks for when a no-boot case is reported.
+# Dropping one silently would mean an incomplete submission, discovered only
+# after the machine has been rebuilt and the evidence is gone.
+$required = [ordered]@{
+    'bcdedit /enum'            = 'bcdedit /enum >'
+    'bcdedit /enum /v'         = 'bcdedit /enum /v'
+    'bcdedit /enum all'        = 'bcdedit /enum all >'
+    'bcdedit /enum all /v'     = 'bcdedit /enum all /v'
+    'diskpart list disk'       = 'list disk | diskpart'
+    'diskpart list volume'     = 'list volume | diskpart'
+    'system drive dir listing' = 'dir /t:c /a /s /c /n'
+    'all event logs'           = 'winevt\Logs\*.*'
+    'setupapi logs'            = 'Setupapi*.log'
+    'CBS logs'                 = 'Logs\CBS'
+    'SrtTrail.txt'             = 'SrtTrail.txt'
+    'WindowsUpdate logs'       = 'Logs\WindowsUpdate'
+    'USOShared logs'           = 'USOShared\Logs'
+    'DISM logs'                = 'Logs\DISM'
+    'ReportingEvents.log'      = 'ReportingEvents.log'
+    'SYSTEM hive'              = 'config\SYSTEM'
+    'SOFTWARE hive'            = 'config\SOFTWARE'
+    'RegBack SYSTEM'           = 'RegBack\SYSTEM'
+    'RegBack SOFTWARE'         = 'RegBack\SOFTWARE'
+    'dism /get-packages'       = '/get-packages'
+    'pagefile.sys'             = 'pagefile.sys'
+    'MEMORY.DMP'               = 'MEMORY.DMP'
+}
+foreach ($k in $required.Keys) {
+    Assert-True ('collects: {0}' -f $k) ($text.Contains($required[$k]))
+}
+
+Write-TestSection 'This project''s own additions beyond the Microsoft list'
+Assert-True 'COMPONENTS hive (pending component operations)' ($text.Contains('config\COMPONENTS'))
+Assert-True 'dism /get-drivers' ($text.Contains('/get-drivers'))
+Assert-True 'dism /get-features' ($text.Contains('/get-features'))
+Assert-True 'Panther logs' ($text.Contains('Panther'))
+Assert-True 'pending.xml / poqexec.log' ($text.Contains('pending.xml') -and $text.Contains('poqexec.log'))
+Assert-True 'driver framework binaries' ($text.Contains('Wdf01000.sys'))
+Assert-True 'boot-start driver enumeration' ($text.Contains('boot-start-drivers.txt'))
+Assert-True 'minidump directory' ($text.Contains('Minidump'))
 
 $result = Get-TestResult
 Write-Host ''
