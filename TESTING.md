@@ -2758,3 +2758,72 @@ Four defects, three of them previously unknown:
 - **Fixtures are synthetic.** No host identifiers, no captured customer data.
 - The suite does not replace `psa.py` or `Parser::ParseFile`; it covers the
   class of defect those two cannot see.
+
+## 28. Validation Scenario 28: 2026-08-08 WS2019 clean-install run (r100) and the r101 fixes
+
+**Fixture**: freshly installed Windows Server 2019 (build 17763, UBR 9020, ja-JP), UEFI Secure Boot ON, PowerShell 5.1.17763.9020. Generation r100 / collector c4. Three scripts run in sequence with `-Action PrepareVerify -SkipNonCosignedDrivers`: Chipset (15:25), Graphics (15:27), BthPan (15:28).
+
+### What worked — the collector, completely, for the first time
+
+| Check | Result |
+|---|---|
+| Stage isolation and archive | `stage-results.json` on all three runs: **13 stages, 0 failed, `Complete = True`**, full artefact set, ZIP produced |
+| `services.json` | **560 services**, from all three sources: `Win32_SystemDriver` 343 / `Win32_Service` 206 / **`Registry` 11**. The union is doing real work — 11 services exist only as registry keys |
+| `ImagePathExists` | **560 / 560 populated.** In c2 and c3 this field was never set at all |
+| `vwifibus` | `Wireless-Networking` = `Installed` on this host, so the service is `Healthy`. Consistent with the SPEC §D.44 recovery hypothesis, though this is a rebuilt host and not the damaged one |
+
+`MissingBinaryServices` is empty. That is not a refutation of §D.43.3: the host that carried the damaged Intel adapter was reinstalled, so the prediction lost its subject rather than failing.
+
+### What failed
+
+| Defect | Evidence |
+|---|---|
+| **P08 degenerate guard never reached** (Chipset, Graphics) | P06 detected the empty plan, printed the explanation and closed `SKIPPED`; P08 then threw `patched directory has no INFs to catalog. Run preparation phases first` — naming a phase that had run. The r100 guards were inserted into `Invoke-PrepPhase09_SignCatalogs` and `Invoke-VerifyPhase03_VerifyCatalogs` (SPEC §D.46.1) |
+| **BthPan P01 pre-flight fired on its own default** | `-LogFile` was not passed; the script auto-placed the transcript under `<WorkRoot>\logs\` and then refused to run because the transcript was inside `-WorkRoot`. Only BthPan carries this check, so the same invocation succeeded for Chipset and Graphics (SPEC §D.46.2) |
+| 9 problem devices, code 28 | Expected on a clean install with no vendor drivers yet. Not script-attributable |
+
+The degenerate plan itself is not a defect — it is §D.45.5 reproducing on a clean OS: 55 in-scope INFs analysed, 0 fully WHQL co-signed.
+
+### r101 verification
+
+- **Test suite: 4 cases, 79 assertions, all passing.** New case `Test-CollectorOsCapability.ps1` (27) calls both new evidence functions rather than reading their source.
+- **Negative control**: against r100 the suite reports exactly three failures — the two misplaced P08 guards and the BthPan pre-flight — and passes against this tree. The guard-placement check derives its scope from which sisters call `Get-EligibleInfRecordList`, so BthPan is excluded by measurement rather than by a hard-coded list.
+- Static: `psa.py` 0/0/0 across eleven files; `Parser::ParseFile` 0 errors × 5; canon integrity via the central authoritative tooling per SPEC §A.11.8a — 125 records, zero differences.
+- **Three defects were found by executing the new code** after it passed every static gate: empty `$env:TEMP`, `Split-Path -Qualifier` on a qualifier-less path, and a JSON literal on the left of `-f` (SPEC §D.46.5). All three are now regression guards.
+
+## 29. Windows Server 2016 validation campaign — what to collect and what to compare
+
+WS2016 (build 14393) is the OS this project adapts to most, and the campaign is expected to run several times. The point of this section is that each run should end with **data that settles a question**, not a transcript that invites a guess.
+
+### Before anything else: run the collector standalone
+
+```powershell
+.\Collect-WindowsServerConfigurationEvidence.ps1
+```
+
+Read-only, stage-isolated, and it produces a ZIP even if a stage fails. Doing this **first** gives a baseline bundle for the untouched host, which is what every later comparison is against.
+
+### The four questions a WS2016 bundle should answer without further investigation
+
+1. **Did the scripts see the OS they think they saw?** `os-capability.json` → `ProfileCode` should be `WS2016`, `ProfileExactBuildMatch` `true`, `ExpectedInf2catOsArg` `Server2016_X64`, `ExpectedCertKeyLength` `2048`, `ExpectedCertValidYears` `3`. A `false` on the exact-match flag means the build fell back to a lower profile and every OS-dependent decision below is suspect.
+2. **Which capabilities are actually absent here?** `os-capability.json` → `MissingCmdlets` should contain `Restart-PnpDevice` (documented WS2019+ boundary) and `MissingCimClasses` should contain `PS_UpdateAndCompareCIPolicy`. If either is *present* on WS2016, the SPEC §D.46.4 matrix is wrong and the rebind and policy paths need re-reading. If something *else* is missing, that is a new finding.
+3. **Is `signtool` present?** `os-capability.json` → `Tools`. A WHQL verdict produced without it is a conservative default, not a measurement, and the difference decides whether a `0 co-signed` result means anything.
+4. **Will the bundle survive?** `archive-capability.json` → `ProbeSucceeded`. WS2016 ships the oldest PowerShell 5.1 in the supported set; if `Compress-Archive` is going to be a problem, this says so before the real archive is attempted, with `ErrorMessage`, `MaxPathLengthSeen`, `LongPathsEnabled` and free space alongside.
+
+### Feature names
+
+`server-feature-services.json` → `UnknownFeatureNames`. The watch list is written from WS2019 naming. Any entry appearing here is a name that does not exist on WS2016, and the corresponding row is not a check — it is a blank. Report it rather than reading `Unknown` as "not installed".
+
+### Comparing WS2016 against WS2019
+
+The WS2019 bundles from Scenario 28 are the reference. Diffing `os-capability.json` between the two is the fastest way to see which differences are real on these hosts versus documented-but-unverified. Rows that differ are expected; rows that *match* where the matrix predicts a difference are the interesting ones.
+
+### Expected shape of a WS2016 `-SkipNonCosignedDrivers` run
+
+Based on the WS2019 measurement, expect P06 to report the same finding: analysis over the whole install scope, few or no fully co-signed INFs, and a degenerate plan closing `SKIPPED` with the options banner. **P08 and P09 must close `skipped`, not fail** — that is the r101 fix under test. If P08 throws `no INFs to catalog`, the guards are misplaced again.
+
+A different co-signature count on WS2016 would itself be a finding worth recording: the analysis is over the same driver package, so the count should not depend on the host OS unless the variant selection differs.
+
+### Scope for this campaign
+
+Chipset, Graphics and BthPan. NPU refuses `Install` on legacy Server SKUs by design (SPEC §D.27) and has no NPU hardware here.

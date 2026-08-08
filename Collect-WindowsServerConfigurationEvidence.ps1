@@ -87,14 +87,14 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
-$Script:ScriptVersion  = 'collector-2026.08.08-c4'
+$Script:ScriptVersion  = 'collector-2026.08.08-c5'
 $Script:ScriptTag      = 'windows-server-configuration-evidence-collector'
 $Script:ScriptHash     = 'unavailable'
 try {
     $Script:ScriptHash = (Get-FileHash -LiteralPath $MyInvocation.MyCommand.Path -Algorithm SHA256 -ErrorAction Stop).Hash.Substring(0, 12).ToLowerInvariant()
 } catch { } # psa-disable-line PSA3004 -- self-hash is identity metadata only; collection must proceed without it
 $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash)
-$script:SchemaVersion = 'windows-server-configuration-evidence/1.3'
+$script:SchemaVersion = 'windows-server-configuration-evidence/1.4'
 # Per-stage outcome ledger (SPEC D.45). Populated by Invoke-EvidenceStage,
 # written to stage-results.json, and surfaced in the assessment so a bundle
 # always declares its own completeness.
@@ -1241,9 +1241,15 @@ function Get-ServerFeatureServiceEvidence {
 
     $findings = New-Object 'System.Collections.Generic.List[object]'
     foreach ($entry in $watchList) {
+        # FeatureNameKnown separates 'this feature is not installed' from
+        # 'this feature name does not exist on this SKU'. The watch list is
+        # written from one Server version's naming; a name that is simply
+        # absent elsewhere would otherwise report Unknown forever and quietly
+        # stop being a check (SPEC SS D.46.3).
         $state = 'Unknown'
+        $featureNameKnown = $false
         foreach ($f in $features) {
-            if ($f.Name -eq $entry.Feature) { $state = $f.InstallState; break }
+            if ($f.Name -eq $entry.Feature) { $state = $f.InstallState; $featureNameKnown = $true; break }
         }
         foreach ($svcName in @($entry.Services)) {
             if ([string]::IsNullOrWhiteSpace($svcName)) { continue }
@@ -1260,6 +1266,7 @@ function Get-ServerFeatureServiceEvidence {
                 else { 'Indeterminate' }
             $findings.Add([pscustomobject][ordered]@{
                 Feature = [string]$entry.Feature
+                FeatureNameKnown = $featureNameKnown
                 FeatureInstallState = [string]$state
                 ServiceName = [string]$svcName
                 ServiceKeyPresent = $present
@@ -1271,8 +1278,12 @@ function Get-ServerFeatureServiceEvidence {
     }
 
     $atRisk = 0
+    $unknownNames = New-Object 'System.Collections.Generic.List[string]'
     foreach ($f in $findings) {
         if ($f.Classification -eq 'ServiceKeyPresentBinaryMissing') { $atRisk++ }
+        if (-not $f.FeatureNameKnown -and -not $unknownNames.Contains([string]$f.Feature)) {
+            $unknownNames.Add([string]$f.Feature) | Out-Null
+        }
     }
 
     return [pscustomobject][ordered]@{
@@ -1281,6 +1292,8 @@ function Get-ServerFeatureServiceEvidence {
         FeatureCount = @($features).Count
         InstalledFeatureCount = @($features | Where-Object { $_.InstallState -eq 'Installed' }).Count
         BinaryMissingWatchCount = $atRisk
+        UnknownFeatureNameCount = $unknownNames.Count
+        UnknownFeatureNames = $unknownNames.ToArray()
         WatchedServices = $findings.ToArray()
         Features = $features
     }
@@ -1354,6 +1367,318 @@ function Get-StageFailureEvidence {
         Complete = ($failed.Count -eq 0)
         Stages = $stages
     }
+}
+
+function Get-OsCapabilityEvidence {
+    # Record the OS-version-dependent facts this project's scripts branch on,
+    # measured rather than inferred.
+    #
+    # WHY: the deploy scripts adapt to the host OS in several places - the
+    # inf2cat target name, certificate parameters, which PnP cmdlets exist,
+    # whether a CIM class is present, which optional-feature names are valid.
+    # Every one of those is currently something a troubleshooter has to look
+    # up in SPEC and then assume held on the host in front of them. When a
+    # run misbehaves on a Server SKU nobody has exercised recently, the first
+    # question is always "which of these differed", and the bundle could not
+    # answer it.
+    #
+    # Nothing here is a judgement about whether a capability SHOULD be
+    # present. It records what IS present, so a later diagnosis can be
+    # checked against the host instead of against an expectation.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+
+    $build = 0
+    $caption = ''
+    $ubr = $null
+    try {
+        $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
+        $caption = [string](Get-PropertyValue -InputObject $os -Name 'Caption')
+        $buildText = [string](Get-PropertyValue -InputObject $os -Name 'BuildNumber')
+        if ($buildText -match '^\d+$') { $build = [int]$buildText }
+    } catch {
+        $caption = ''
+    }
+    try {
+        $cv = Get-RegistryKeySnapshot -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion'
+        $ubrValue = Get-NamedRegistryValue -Snapshot $cv -Name 'UBR'
+        if ($null -ne $ubrValue) { $ubr = [int]$ubrValue }
+    } catch {
+        $ubr = $null
+    }
+
+    # Build-to-profile mapping mirrored from the deploy scripts. Recorded so a
+    # bundle states which profile the scripts WOULD select on this host,
+    # without the troubleshooter having to run one to find out.
+    $profileTable = @{
+        14393 = @{ Code = 'WS2016'; Inf2catOsArg = 'Server2016_X64'; CertKeyLength = 2048; CertValidYears = 3 }
+        17763 = @{ Code = 'WS2019'; Inf2catOsArg = 'ServerRS5_X64';  CertKeyLength = 4096; CertValidYears = 5 }
+        20348 = @{ Code = 'WS2022'; Inf2catOsArg = 'ServerFE_X64';   CertKeyLength = 4096; CertValidYears = 5 }
+        26100 = @{ Code = 'WS2025'; Inf2catOsArg = 'Server2025_X64'; CertKeyLength = 4096; CertValidYears = 5 }
+    }
+    $matched = $null
+    $exactMatch = $false
+    if ($profileTable.ContainsKey($build)) {
+        $matched = $profileTable[$build]
+        $exactMatch = $true
+    }
+    else {
+        $lower = @($profileTable.Keys | Sort-Object | Where-Object { $_ -le $build })
+        if ($lower.Count -gt 0) { $matched = $profileTable[$lower[-1]] }
+    }
+
+    # Cmdlets the scripts probe for and degrade around. Restart-PnpDevice is
+    # the documented WS2019+ boundary; the rest are recorded because a
+    # missing one changes which rebind strategy runs.
+    $cmdletNames = @(
+        'Restart-PnpDevice', 'Disable-PnpDevice', 'Enable-PnpDevice',
+        'Get-PnpDevice', 'Get-WindowsDriver', 'Get-WindowsFeature',
+        'Install-WindowsFeature', 'Compress-Archive', 'Expand-Archive',
+        'Get-AuthenticodeSignature', 'New-SelfSignedCertificate',
+        'Get-CimInstance', 'ConvertTo-Json', 'Get-FileHash'
+    )
+    $cmdlets = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($n in $cmdletNames) {
+        $cmd = $null
+        try { $cmd = Get-Command -Name $n -ErrorAction SilentlyContinue } catch { $cmd = $null }
+        $cmdlets.Add([pscustomobject][ordered]@{
+            Name = $n
+            Present = ($null -ne $cmd)
+            Source = $(if ($null -ne $cmd) { [string]$cmd.Source } else { '' })
+            Version = $(if ($null -ne $cmd -and $cmd.Version) { [string]$cmd.Version } else { '' })
+        }) | Out-Null
+    }
+
+    # CIM classes the scripts try and catch around. A class that is absent is
+    # the difference between an immediate-activate policy path and a reboot
+    # fallback, and the two look nothing alike in a log.
+    $classNames = @(
+        @{ Namespace = 'root\Microsoft\Windows\CI'; Class = 'PS_UpdateAndCompareCIPolicy' },
+        @{ Namespace = 'root\cimv2'; Class = 'Win32_PnPEntity' },
+        @{ Namespace = 'root\cimv2'; Class = 'Win32_PnPSignedDriver' },
+        @{ Namespace = 'root\cimv2'; Class = 'Win32_SystemDriver' },
+        @{ Namespace = 'root\cimv2'; Class = 'Win32_Service' },
+        @{ Namespace = 'root\wmi';   Class = 'MS_SystemInformation' }
+    )
+    $classes = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($entry in $classNames) {
+        $present = $false
+        $errorText = ''
+        try {
+            $null = Get-CimClass -Namespace $entry.Namespace -ClassName $entry.Class -ErrorAction Stop
+            $present = $true
+        } catch {
+            $errorText = $_.Exception.Message
+        }
+        $classes.Add([pscustomobject][ordered]@{
+            Namespace = [string]$entry.Namespace
+            Class = [string]$entry.Class
+            Present = $present
+            ErrorMessage = $errorText
+        }) | Out-Null
+    }
+
+    # signtool / inf2cat: the two tools P05 and P08 depend on. Their absence
+    # changes the WHQL verdict from a measurement to a conservative default,
+    # which is a distinction the analysis output alone does not make obvious.
+    $tools = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($tool in @('signtool.exe', 'inf2cat.exe', 'pnputil.exe', 'bcdedit.exe', 'certutil.exe')) {
+        $found = ''
+        try {
+            $cmd = Get-Command -Name $tool -ErrorAction SilentlyContinue
+            if ($null -ne $cmd) { $found = [string]$cmd.Source }
+        } catch {
+            $found = ''
+        }
+        if ([string]::IsNullOrWhiteSpace($found)) {
+            foreach ($root in @('C:\Program Files (x86)\Windows Kits\10\bin', 'C:\Program Files\Windows Kits\10\bin')) {
+                if (-not (Test-Path -LiteralPath $root)) { continue }
+                try {
+                    $hit = Get-ChildItem -LiteralPath $root -Filter $tool -Recurse -ErrorAction SilentlyContinue |
+                           Where-Object { $_.FullName -like '*x64*' } | Select-Object -First 1
+                    if ($null -ne $hit) { $found = [string]$hit.FullName; break }
+                } catch {
+                    continue
+                }
+            }
+        }
+        $version = ''
+        if (-not [string]::IsNullOrWhiteSpace($found) -and (Test-Path -LiteralPath $found)) {
+            try { $version = [string](Get-Item -LiteralPath $found).VersionInfo.ProductVersion } catch { $version = '' }
+        }
+        $tools.Add([pscustomobject][ordered]@{
+            Tool = [string]$tool
+            Path = $found
+            Present = (-not [string]::IsNullOrWhiteSpace($found))
+            ProductVersion = $version
+        }) | Out-Null
+    }
+
+    $missingCmdlets = @($cmdlets | Where-Object { -not $_.Present } | ForEach-Object { $_.Name })
+    $missingClasses = @($classes | Where-Object { -not $_.Present } | ForEach-Object { $_.Class })
+    $missingTools = @($tools | Where-Object { -not $_.Present } | ForEach-Object { $_.Tool })
+
+    return [pscustomobject][ordered]@{
+        CollectedAtUtc = Get-UtcTimestamp
+        OsCaption = $caption
+        OsBuild = $build
+        Ubr = $ubr
+        PowerShellVersion = [string]$PSVersionTable.PSVersion
+        PowerShellEdition = [string]$PSVersionTable.PSEdition
+        Culture = [string](Get-Culture).Name
+        ProfileCode = $(if ($null -ne $matched) { [string]$matched.Code } else { '' })
+        ProfileExactBuildMatch = $exactMatch
+        ExpectedInf2catOsArg = $(if ($null -ne $matched) { [string]$matched.Inf2catOsArg } else { '' })
+        ExpectedCertKeyLength = $(if ($null -ne $matched) { [int]$matched.CertKeyLength } else { 0 })
+        ExpectedCertValidYears = $(if ($null -ne $matched) { [int]$matched.CertValidYears } else { 0 })
+        MissingCmdletCount = $missingCmdlets.Count
+        MissingCmdlets = $missingCmdlets
+        MissingCimClassCount = $missingClasses.Count
+        MissingCimClasses = $missingClasses
+        MissingToolCount = $missingTools.Count
+        MissingTools = $missingTools
+        Cmdlets = $cmdlets.ToArray()
+        CimClasses = $classes.ToArray()
+        Tools = $tools.ToArray()
+    }
+}
+
+function Get-ArchiveCapabilityEvidence {
+    # Prove, on this host, that the archive mechanism the collector depends on
+    # actually works - by using it.
+    #
+    # WHY: the bundle's own ZIP is produced by Compress-Archive in a finally
+    # block. If that call fails, the finally reports a warning and the
+    # operator gets a loose directory. Working out afterwards WHY it failed
+    # means guessing at PowerShell version, item count, path length, or free
+    # space. This probe writes a handful of small files to a temp directory,
+    # compresses them, reads the result back, and records what happened -
+    # measured on the host, before the real archive is attempted.
+    #
+    # The probe is deliberately tiny. It answers "does this work at all here",
+    # not "how does it scale", and it must never be the reason a collection
+    # fails: every path is caught.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+
+    $result = [pscustomobject][ordered]@{
+        CollectedAtUtc = Get-UtcTimestamp
+        CompressArchiveAvailable = $false
+        CompressArchiveVersion = ''
+        ProbeAttempted = $false
+        ProbeSucceeded = $false
+        ProbeEntryCount = 0
+        ProbeArchiveBytes = 0
+        MaxPathLengthSeen = 0
+        LongPathsEnabled = $null
+        TempPath = ''
+        FreeBytesOnTempDrive = $null
+        ErrorMessage = ''
+    }
+
+    try {
+        $cmd = Get-Command -Name 'Compress-Archive' -ErrorAction SilentlyContinue
+        if ($null -ne $cmd) {
+            $result.CompressArchiveAvailable = $true
+            if ($cmd.Version) { $result.CompressArchiveVersion = [string]$cmd.Version }
+        }
+    } catch {
+        $result.CompressArchiveAvailable = $false
+    }
+
+    try {
+        $lp = Get-RegistryKeySnapshot -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem'
+        $lpValue = Get-NamedRegistryValue -Snapshot $lp -Name 'LongPathsEnabled'
+        if ($null -ne $lpValue) { $result.LongPathsEnabled = ([int]$lpValue -eq 1) }
+    } catch {
+        $result.LongPathsEnabled = $null
+    }
+
+    # $env:TEMP can be empty (service contexts, constrained runspaces, and
+    # non-Windows hosts running the extracted functions under test). An empty
+    # value makes every Join-Path below throw on a mandatory parameter, which
+    # would report 'archive unavailable' when the real answer is 'nowhere to
+    # probe'. Fall back through the documented alternatives and record which
+    # one was used.
+    $temp = [string]$env:TEMP
+    if ([string]::IsNullOrWhiteSpace($temp)) { $temp = [string]$env:TMP }
+    if ([string]::IsNullOrWhiteSpace($temp)) {
+        try { $temp = [string][System.IO.Path]::GetTempPath() } catch { $temp = '' }
+    }
+    $result.TempPath = $temp
+    # Free space is best-effort. Split-Path -Qualifier throws outright on a
+    # path with no drive qualifier, so the qualifier is matched rather than
+    # parsed - free space is a diagnostic detail and must never be the reason
+    # this probe reports failure.
+    try {
+        if ($temp -match '^(?<q>[A-Za-z]):') {
+            $drive = Get-PSDrive -Name $Matches['q'] -ErrorAction Stop
+            if ($null -ne $drive.Free) { $result.FreeBytesOnTempDrive = [int64]$drive.Free }
+        }
+    } catch {
+        $result.FreeBytesOnTempDrive = $null
+    }
+
+    if (-not $result.CompressArchiveAvailable) {
+        $result.ErrorMessage = 'Compress-Archive is not available on this host'
+        return $result
+    }
+
+    if ([string]::IsNullOrWhiteSpace($temp)) {
+        $result.ErrorMessage = 'no writable temp directory could be resolved (TEMP, TMP and GetTempPath all empty)'
+        return $result
+    }
+
+    $probeDir = ''
+    $probeZip = ''
+    try {
+        $result.ProbeAttempted = $true
+        $stamp = (Get-Date).ToString('yyyyMMddHHmmssfff')
+        $probeDir = Join-Path $temp ('evidence-archive-probe-{0}' -f $stamp)
+        $probeZip = Join-Path $temp ('evidence-archive-probe-{0}.zip' -f $stamp)
+        $null = New-Item -Path $probeDir -ItemType Directory -Force -ErrorAction Stop
+        $nested = Join-Path $probeDir 'nested'
+        $null = New-Item -Path $nested -ItemType Directory -Force -ErrorAction Stop
+        for ($i = 1; $i -le 3; $i++) {
+            $leaf = Join-Path $probeDir ('probe-{0}.json' -f $i)
+            # Plain concatenation, not -f: the format operator treats { and }
+            # as placeholder delimiters, so a JSON literal on its left side
+            # fails to parse before any file is written.
+            Set-Content -LiteralPath $leaf -Value ('probe ' + $i) -Encoding UTF8 -ErrorAction Stop
+            if ($leaf.Length -gt $result.MaxPathLengthSeen) { $result.MaxPathLengthSeen = $leaf.Length }
+        }
+        $deep = Join-Path $nested 'probe-nested.txt'
+        Set-Content -LiteralPath $deep -Value 'nested' -Encoding UTF8 -ErrorAction Stop
+        if ($deep.Length -gt $result.MaxPathLengthSeen) { $result.MaxPathLengthSeen = $deep.Length }
+
+        Compress-Archive -Path (Join-Path $probeDir '*') -DestinationPath $probeZip -Force -ErrorAction Stop
+
+        if (Test-Path -LiteralPath $probeZip) {
+            $result.ProbeArchiveBytes = [int64](Get-Item -LiteralPath $probeZip).Length
+            try {
+                Add-Type -AssemblyName 'System.IO.Compression.FileSystem' -ErrorAction SilentlyContinue
+                $zip = [System.IO.Compression.ZipFile]::OpenRead($probeZip)
+                try { $result.ProbeEntryCount = $zip.Entries.Count } finally { $zip.Dispose() }
+            } catch {
+                # Entry count is a bonus; producing the archive is the claim.
+                $result.ProbeEntryCount = 0
+            }
+            $result.ProbeSucceeded = ($result.ProbeArchiveBytes -gt 0)
+        }
+    }
+    catch {
+        $result.ErrorMessage = $_.Exception.Message
+    }
+    finally {
+        foreach ($path in @($probeDir, $probeZip)) {
+            if (-not [string]::IsNullOrWhiteSpace($path)) {
+                try { Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue } catch { $null = $null }
+            }
+        }
+    }
+    return $result
 }
 
 function Get-DriverStoreEvidence {
@@ -1835,7 +2160,9 @@ function Get-ConfigurationAssessment {
         [Parameter(Mandatory = $true)] [object]$FeatureServices,
         [Parameter(Mandatory = $true)] [object]$ScriptInventory,
         [Parameter(Mandatory = $true)] [object]$BthPanRuntime,
-        [Parameter(Mandatory = $true)] [object]$StageEvidence
+        [Parameter(Mandatory = $true)] [object]$StageEvidence,
+        [Parameter(Mandatory = $true)] [object]$OsCapability,
+        [Parameter(Mandatory = $true)] [object]$ArchiveCapability
     )
 
     $items = New-Object 'System.Collections.Generic.List[object]'
@@ -1901,6 +2228,29 @@ function Get-ConfigurationAssessment {
     $items.Add((New-AssessmentItem -Name 'Driver load failure classification' `
         -Status $(if ($setupFailSections -eq 0) { 'PASS' } elseif ($sigFail -gt 0) { 'FAIL' } else { 'REVIEW' }) `
         -Detail ('setupapi failure sections={0}; signature-attributable={1}' -f $setupFailSections, $sigFail))) | Out-Null
+    # 3d) OS capability matrix. Reported as INFO rather than PASS/FAIL because
+    # a capability absent on an older Server SKU is expected, not a fault. The
+    # value is that the bundle STATES it, so a cross-version diagnosis rests
+    # on the host's own measurements instead of on an assumption about what
+    # that SKU has.
+    $capDetail = ('{0} (build {1}); missing cmdlets={2} CIM classes={3} tools={4}' -f `
+        $OsCapability.ProfileCode, $OsCapability.OsBuild, `
+        $OsCapability.MissingCmdletCount, $OsCapability.MissingCimClassCount, $OsCapability.MissingToolCount)
+    if ($OsCapability.MissingToolCount -gt 0) {
+        $capDetail += ('; tools absent: {0}' -f (@($OsCapability.MissingTools) -join ', '))
+    }
+    $items.Add((New-AssessmentItem -Name 'OS capability matrix' `
+        -Status $(if ($OsCapability.MissingToolCount -gt 0) { 'REVIEW' } else { 'INFO' }) -Detail $capDetail)) | Out-Null
+
+    # 3e) Archive capability. The collector's own ZIP depends on this working.
+    # Probing it explicitly turns 'the archive did not appear' from a guess
+    # into a recorded fact with a reason attached.
+    $archiveDetail = if (-not $ArchiveCapability.CompressArchiveAvailable) { 'Compress-Archive is not available on this host' }
+    elseif ($ArchiveCapability.ProbeSucceeded) { ('probe archived {0} entry/entries, {1} byte(s)' -f $ArchiveCapability.ProbeEntryCount, $ArchiveCapability.ProbeArchiveBytes) }
+    else { ('probe FAILED: {0}' -f $ArchiveCapability.ErrorMessage) }
+    $items.Add((New-AssessmentItem -Name 'Archive capability' `
+        -Status $(if ($ArchiveCapability.ProbeSucceeded) { 'PASS' } else { 'FAIL' }) -Detail $archiveDetail)) | Out-Null
+
 
     # 3b) Service binary integrity. Distinct from the device-level check
     # above: a service can be declared, referenced by an INF, and have no
@@ -2145,49 +2495,49 @@ try {
     Write-Host ('Evidence directory: {0}' -f $evidenceDir)
     Write-Host ''
 
-    $osEvidence = Invoke-EvidenceStage -Label '[1/12] Operating system identity...' -Body {
+    $osEvidence = Invoke-EvidenceStage -Label '[1/14] Operating system identity...' -Body {
         $v = Get-OperatingSystemEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'environment.json'
         $v
     }
 
-    $pendingReboot = Invoke-EvidenceStage -Label '[2/12] Pending reboot state...' -Body {
+    $pendingReboot = Invoke-EvidenceStage -Label '[2/14] Pending reboot state...' -Body {
         $v = Get-PendingRebootEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'pending-reboot.json'
         $v
     }
 
-    $pnpEvidence = Invoke-EvidenceStage -Label '[3/12] PnP device inventory...' -Body {
+    $pnpEvidence = Invoke-EvidenceStage -Label '[3/14] PnP device inventory...' -Body {
         $v = Get-PnpDeviceEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'pnp-devices.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; DeviceCount = 0; ProblemDeviceCount = 0; TargetedDeviceCount = 0; ProblemDevices = @(); TargetedDevices = @(); Devices = @() })
 
-    $driverStore = Invoke-EvidenceStage -Label '[4/12] Driver store inventory...' -Body {
+    $driverStore = Invoke-EvidenceStage -Label '[4/14] Driver store inventory...' -Body {
         $v = Get-DriverStoreEvidence -EvidenceDirectory $evidenceDir
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'driver-store.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; PnputilExitCode = $null; PackageCount = 0; SignedDriverCount = 0; Packages = @() })
 
-    $certificateEvidence = Invoke-EvidenceStage -Label '[5/12] Project certificate stores...' -Body {
+    $certificateEvidence = Invoke-EvidenceStage -Label '[5/14] Project certificate stores...' -Body {
         $v = Get-ProjectCertificateEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'project-certificates.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; CertificateCount = 0; StoresConsistent = $null; StoreErrors = @('stage failed'); RootThumbprints = @(); TrustedPublisherThumbprints = @(); ThumbprintsOnlyInRoot = @(); ThumbprintsOnlyInTrustedPublisher = @(); Certificates = @() })
 
-    $bootSecurity = Invoke-EvidenceStage -Label '[6/12] Boot security state...' -Body {
+    $bootSecurity = Invoke-EvidenceStage -Label '[6/14] Boot security state...' -Body {
         $v = Get-BootSecurityEvidence -EvidenceDirectory $evidenceDir
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'boot-security.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; SecureBootEnabled = $null; TestSigningEnabled = $null; NoIntegrityChecksEnabled = $null; BcdCaptured = $false; WdacPolicyPresent = $null })
 
-    $codeIntegrityEvents = Invoke-EvidenceStage -Label '[7/12] CodeIntegrity events...' -Body {
+    $codeIntegrityEvents = Invoke-EvidenceStage -Label '[7/14] CodeIntegrity events...' -Body {
         $v = Get-CodeIntegrityEventEvidence -EvidenceDirectory $evidenceDir
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'codeintegrity-events.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; EventCount = 0; EnforcementBlockEventCount = 0; AuditEventCount = 0; QueryError = 'stage failed' })
 
-    $setupLogEvidence = Invoke-EvidenceStage -Label '[8/12] Driver setup logs...' -Body {
+    $setupLogEvidence = Invoke-EvidenceStage -Label '[8/14] Driver setup logs...' -Body {
         $v = if (-not $SkipSetupApiLog) {
             Get-DriverSetupLogEvidence -EvidenceDirectory $evidenceDir
         }
@@ -2198,7 +2548,7 @@ try {
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; Logs = @() })
 
-    $loadDiagnostics = Invoke-EvidenceStage -Label '[9/12] Device load diagnostics...' -Body {
+    $loadDiagnostics = Invoke-EvidenceStage -Label '[9/14] Device load diagnostics...' -Body {
         # Reads the copy inside the bundle when one was made, so the parse and
         # the archived text are the same bytes; falls back to the live log when
         # the copy was skipped (size cap) or -SkipSetupApiLog was passed.
@@ -2211,19 +2561,19 @@ try {
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; ProblemDeviceCount = 0; MissingServiceBinaryCount = 0; SignatureRelatedFailureCount = 0; ProblemDevices = @(); SetupApi = [pscustomobject][ordered]@{ LogPresent = $false; SectionsScanned = 0; FailureSections = @(); MissingServiceBinaries = @(); ParseError = 'stage failed' } })
 
-    $serviceEvidence = Invoke-EvidenceStage -Label '[10/12] Windows service configuration...' -Body {
+    $serviceEvidence = Invoke-EvidenceStage -Label '[10/14] Windows service configuration...' -Body {
         $v = Get-ServiceConfigurationEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'services.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; ServiceCount = 0; DriverServiceCount = 0; RunningCount = 0; DisabledCount = 0; MissingBinaryCount = 0; CollectionErrors = @('stage failed'); MissingBinaryServices = @(); DependencyIndex = @(); Services = @() })
 
-    $featureServices = Invoke-EvidenceStage -Label '[10/12] Server feature-to-service mapping...' -Body {
+    $featureServices = Invoke-EvidenceStage -Label '[10/14] Server feature-to-service mapping...' -Body {
         $v = Get-ServerFeatureServiceEvidence -ServiceEvidence $serviceEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'server-feature-services.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; FeatureQueryError = 'stage failed'; FeatureCount = 0; InstalledFeatureCount = 0; BinaryMissingWatchCount = 0; WatchedServices = @(); Features = @() })
 
-    $scriptInventory = Invoke-EvidenceStage -Label '[11/12] Repository script and workspace inventory...' -Body {
+    $scriptInventory = Invoke-EvidenceStage -Label '[11/14] Repository script and workspace inventory...' -Body {
         $v = Get-DeployScriptInventory -ScriptDirectory $scriptDirectory
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'deploy-scripts.json'
         $workspaceInventory = Get-WorkspaceInventoryEvidence -ScriptDirectory $scriptDirectory
@@ -2231,11 +2581,24 @@ try {
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; PresentCount = 0; ExpectedCount = 0; Scripts = @() })
 
-    $bthPanRuntime = Invoke-EvidenceStage -Label '[12/12] BthPan runtime state...' -Body {
+    $bthPanRuntime = Invoke-EvidenceStage -Label '[12/14] BthPan runtime state...' -Body {
         $v = Get-BthPanRuntimeEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'bthpan-runtime.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; BthPanSysPresent = $false; ServiceKeyPresent = $false; PanAdapterCount = 0 })
+
+
+    $osCapability = Invoke-EvidenceStage -Label '[13/14] OS capability matrix...' -Body {
+        $v = Get-OsCapabilityEvidence
+        Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'os-capability.json'
+        $v
+    } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; OsBuild = 0; ProfileCode = ''; MissingCmdletCount = 0; MissingCmdlets = @(); MissingCimClassCount = 0; MissingCimClasses = @(); MissingToolCount = 0; MissingTools = @(); Cmdlets = @(); CimClasses = @(); Tools = @() })
+
+    $archiveCapability = Invoke-EvidenceStage -Label '[14/14] Archive capability probe...' -Body {
+        $v = Get-ArchiveCapabilityEvidence
+        Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'archive-capability.json'
+        $v
+    } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; CompressArchiveAvailable = $false; ProbeAttempted = $false; ProbeSucceeded = $false; ErrorMessage = 'stage failed' })
 
     # Stage ledger is written before the assessment so the bundle states its
     # own completeness even if a later step fails (SPEC D.45).
@@ -2247,7 +2610,8 @@ try {
         -DriverStore $driverStore -CertificateEvidence $certificateEvidence -BootSecurity $bootSecurity `
         -CodeIntegrityEvents $codeIntegrityEvents -SetupLogEvidence $setupLogEvidence `
         -LoadDiagnostics $loadDiagnostics -ServiceEvidence $serviceEvidence -FeatureServices $featureServices `
-        -ScriptInventory $scriptInventory -BthPanRuntime $bthPanRuntime -StageEvidence $stageEvidence
+        -ScriptInventory $scriptInventory -BthPanRuntime $bthPanRuntime -StageEvidence $stageEvidence `
+        -OsCapability $osCapability -ArchiveCapability $archiveCapability
 
     $failCount = @($assessmentItems | Where-Object { $_.Status -eq 'FAIL' }).Count
     $reviewCount = @($assessmentItems | Where-Object { $_.Status -eq 'REVIEW' }).Count

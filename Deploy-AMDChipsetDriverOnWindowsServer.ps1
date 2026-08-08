@@ -669,8 +669,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.08.08-r100'
-$Script:ScriptTag     = 'evidence-resilience-and-degenerate-plan-handling'
+$Script:ScriptVersion = 'chipset-2026.08.08-r101'
+$Script:ScriptTag     = 'guard-placement-preflight-and-os-capability-evidence'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -10012,6 +10012,18 @@ function Get-Inf2catSupportedOsValues { # psa-disable-line PSA6003 -- compound n
 
 function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     param($Ctx)
+
+    # DEGENERATE PLAN (SPEC SS D.45.4 / SS D.46.1). P06 already reported
+    # that the -SkipNonCosignedDrivers trim left nothing this pipeline can
+    # catalog, and closed as skipped. Without this guard P08 falls through
+    # to its empty-patched-root diagnostic and throws 'run preparation
+    # phases first' - naming a phase that DID run and had nothing to do,
+    # and turning a correct measurement into a phase failure.
+    if ($Ctx.DegeneratePlan) {
+        Write-Skip 'P08: nothing to catalog - the -SkipNonCosignedDrivers plan is empty (see P06).'
+        Write-PhaseFooter 'P08' 'skipped'
+        return
+    }
     Write-PhaseHeader 'P08' 'GenerateCatalogs' 'Prep'
 
     Set-DebugStep 'precondition: Patched dir + inf2cat available'
@@ -10523,6 +10535,14 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
 
 function Invoke-PrepPhase09_SignCatalogs { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
     param($Ctx)
+
+    # DEGENERATE PLAN (SPEC SS D.45.4 / SS D.46.1). Mirrors the P08 guard:
+    # nothing was cataloged, so there is nothing to sign.
+    if ($Ctx.DegeneratePlan) {
+        Write-Skip 'P09: nothing to sign - the -SkipNonCosignedDrivers plan is empty (see P06).'
+        Write-PhaseFooter 'P09' 'skipped'
+        return
+    }
     Write-PhaseHeader 'P09' 'SignCatalogs' 'Prep'
 
     Set-DebugStep 'precondition: signtool + PFX available'
@@ -10538,15 +10558,6 @@ function Invoke-PrepPhase09_SignCatalogs { # psa-disable-line PSA6003 -- compoun
     if (Test-PhaseMarker -Ctx $Ctx -PhaseId 'P09') {
         Write-Skip "Catalogs already signed (cached)."
         Write-PhaseFooter 'P09' 'cached'
-        return
-    }
-
-    # A degenerate plan (SPEC SS D.45.4) reaches here with nothing to sign.
-    # P06 already reported why and closed as skipped; repeating the analysis
-    # would be noise, and throwing would report a measurement as a failure.
-    if ($Ctx.DegeneratePlan) {
-        Write-Skip 'P09: nothing to sign - the -SkipNonCosignedDrivers plan is empty (see P06).'
-        Write-PhaseFooter 'P09' 'skipped'
         return
     }
 
@@ -10973,12 +10984,6 @@ function Invoke-VerifyPhase03_VerifyCatalogs { # psa-disable-line PSA6003 -- com
         'No signature was present in the subject',
         'Number of files successfully Verified: 0'        # signtool's count line
     )
-
-    if ($Ctx.DegeneratePlan) {
-        Write-Skip 'P08: nothing to catalog - the -SkipNonCosignedDrivers plan is empty (see P06).'
-        Write-PhaseFooter 'P08' 'skipped'
-        return
-    }
 
     $okCount = 0
     $failExpected = 0     # untrusted root etc - expected when cert not yet imported
