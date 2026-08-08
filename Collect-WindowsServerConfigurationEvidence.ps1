@@ -87,7 +87,7 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
-$Script:ScriptVersion  = 'collector-2026.08.08-c7'
+$Script:ScriptVersion  = 'collector-2026.08.09-c8'
 $Script:ScriptTag      = 'windows-server-configuration-evidence-collector'
 $Script:ScriptHash     = 'unavailable'
 try {
@@ -1769,11 +1769,16 @@ function Get-DriverFrameworkEvidence {
         $parts = $kmdf.FileVersionRaw.Split('.')
         if ($parts.Count -ge 2) { $kmdfLibraryVersion = ('{0}.{1}' -f $parts[0], $parts[1]) }
     }
+    # UMDF has no binary that carries the library version, and this code
+    # used to invent one. Measured on Windows Server 2019: WudfPf.sys,
+    # WUDFRd.sys and WUDFHost.exe all report 10.0.17763.9020 - the operating
+    # system version - while the documented UMDF version for that build is
+    # 2.27. Keeping the first two parts of one of them produced '10.0',
+    # which is not a UMDF version, and which compares ABOVE every real
+    # requirement - so a consumer of this field satisfies every UMDF driver
+    # it looks at. Reported as unknown. The raw file versions below are kept
+    # because they are evidence; the derived number was not.
     $umdfLibraryVersion = ''
-    if ($umdfRd.Exists -and -not [string]::IsNullOrWhiteSpace($umdfRd.FileVersionRaw)) {
-        $parts = $umdfRd.FileVersionRaw.Split('.')
-        if ($parts.Count -ge 2) { $umdfLibraryVersion = ('{0}.{1}' -f $parts[0], $parts[1]) }
-    }
 
     # Co-installer DLLs shipped by the WDK. A driver package that carries a
     # co-installer for a framework version the host does not have is the
@@ -2818,7 +2823,7 @@ function Get-ConfigurationAssessment {
         'KMDF runtime version could not be read'
     }
     else {
-        ('KMDF {0} (Wdf01000.sys {1}); UMDF {2}' -f $DriverFramework.KmdfLibraryVersion, $DriverFramework.KmdfRuntime.FileVersionRaw, $DriverFramework.UmdfLibraryVersion)
+        ('KMDF {0} (Wdf01000.sys {1}); UMDF version is not readable from any binary - see the raw UmdfReflector / UmdfHost entries in driver-framework.json' -f $DriverFramework.KmdfLibraryVersion, $DriverFramework.KmdfRuntime.FileVersionRaw)
     }
     $items.Add((New-AssessmentItem -Name 'Driver framework versions' `
         -Status $(if ([string]::IsNullOrWhiteSpace($DriverFramework.KmdfLibraryVersion)) { 'REVIEW' } else { 'INFO' }) `

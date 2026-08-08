@@ -28,7 +28,8 @@ Reset-TestState
 
 $chipset = Join-Path $RepoRoot 'Deploy-AMDChipsetDriverOnWindowsServer.ps1'
 . (Get-ScriptFunctionBlock -Path $chipset -Name @(
-    'ConvertTo-WdfVersionNumber', 'Get-RecordFieldText', 'Get-WdfShortfallSummary'))
+    'ConvertTo-WdfVersionNumber', 'Get-RecordFieldText', 'Get-WdfShortfallSummary',
+    'Get-BinaryLibraryVersion', 'Get-HostWdfRuntime'))
 
 function New-InfRecord {
     param($Path, $Kmdf = '', $Umdf = '')
@@ -132,6 +133,44 @@ $noPath = @([pscustomobject]@{ FullPath = ''; KmdfLibraryVersion = '1.33'; UmdfL
 $r = Get-WdfShortfallSummary -InfRecord $noPath -HostKmdfVersion '1.19' -HostUmdfVersion '2.19'
 Assert-Equal 'it is flagged' 1 $r.ExceedingCount
 Assert-Pattern 'under an explicit placeholder rather than an empty name' 'unnamed INF' (@($r.ExceedingNames)[0])
+
+
+Write-TestSection 'An unknown host version is counted as unjudged, not as a pass'
+# A field defect. The host UMDF version used to be read from WudfRd.sys, which
+# carries the OS version (10.0 on Windows Server 2019), and 10.0 compares
+# ABOVE every real UMDF requirement - so every UMDF driver silently passed.
+# The fix reports UMDF as unknown; the point of these assertions is that
+# "unknown" must not read as "fine".
+$umdfNeeding = @(
+    (New-InfRecord -Path 'C:\pkg\a.inf' -Kmdf '1.15' -Umdf '2.15'),
+    (New-InfRecord -Path 'C:\pkg\b.inf' -Umdf '2.33'),
+    (New-InfRecord -Path 'C:\pkg\c.inf' -Kmdf '1.15')
+)
+$r = Get-WdfShortfallSummary -InfRecord $umdfNeeding -HostKmdfVersion '1.27' -HostUmdfVersion ''
+Assert-Equal 'nothing is reported as exceeding' 0 $r.ExceedingCount
+Assert-Equal 'the two UMDF requirements are counted as unjudged' 2 $r.UnjudgedUmdfCount
+Assert-Equal 'and the KMDF ones were judged' 0 $r.UnjudgedKmdfCount
+
+Write-TestSection 'The same, with the host KMDF version unknown'
+$r = Get-WdfShortfallSummary -InfRecord $umdfNeeding -HostKmdfVersion '' -HostUmdfVersion '2.27'
+Assert-Equal 'the two KMDF requirements are unjudged' 2 $r.UnjudgedKmdfCount
+Assert-Equal 'the UMDF ones were judged' 0 $r.UnjudgedUmdfCount
+Assert-Equal 'and 2.33 above a 2.27 host is still caught' 1 $r.ExceedingCount
+
+Write-TestSection 'A judged requirement is never also counted as unjudged'
+$r = Get-WdfShortfallSummary -InfRecord @((New-InfRecord -Path 'C:\p\a.inf' -Kmdf '1.33')) `
+    -HostKmdfVersion '1.19' -HostUmdfVersion '2.19'
+Assert-Equal 'flagged' 1 $r.ExceedingCount
+Assert-Equal 'not also unjudged' 0 $r.UnjudgedKmdfCount
+
+Write-TestSection 'The host probe does not claim a UMDF version'
+# WudfPf.sys / WUDFRd.sys / WUDFHost.exe all carry the OS version, so there is
+# nothing to read. The probe must say so rather than derive a number from a
+# file that does not hold one.
+$runtime = Get-HostWdfRuntime
+Assert-Equal 'UMDF is reported as unknown' '' $runtime.UmdfLibraryVersion
+Assert-False 'and explicitly marked unmeasurable' $runtime.UmdfMeasurable
+Assert-NoThrow 'the probe does not throw off-Windows' { Get-HostWdfRuntime }
 
 $result = Get-TestResult
 Write-Host ''

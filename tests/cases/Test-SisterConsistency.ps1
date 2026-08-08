@@ -170,7 +170,11 @@ Write-TestSection 'Phase guards live inside the phases they guard'
 # empty plan still failed P08 with a message naming a phase that had run.
 $guardMap = @(
     @{ Function = 'Invoke-PrepPhase08_GenerateCatalogs'; Marker = "'P08' 'skipped'" },
-    @{ Function = 'Invoke-PrepPhase09_SignCatalogs';     Marker = "'P09' 'skipped'" }
+    @{ Function = 'Invoke-PrepPhase09_SignCatalogs';     Marker = "'P09' 'skipped'" },
+    # Added after a field run ended V01 FAILED on a correct empty plan
+    # while P06/P08/P09 all closed as designed. The Prepare side had the
+    # guard and the Verify side did not, and nothing here noticed.
+    @{ Function = 'Invoke-VerifyPhase04_VerifyInfs';     Marker = "'V04' 'skipped'" }
 )
 # Scope: the sisters that actually CALL Get-EligibleInfRecordList and can
 # therefore reach an empty plan. BthPan carries the shared helper for
@@ -197,6 +201,23 @@ foreach ($script in $trimmers) {
         Assert-True ('{0}: {1} contains its own degenerate guard' -f (Split-Path -Leaf $script), $g.Function) `
             ($body.Contains($g.Marker) -and $body.Contains('$Ctx.DegeneratePlan'))
     }
+}
+
+Write-TestSection 'V01 treats an empty plan as expected, not as a missing artifact'
+# V01 keeps running - the certificate and the inventory are real things to
+# verify - so it does not close as skipped. What it must not do is call the
+# absence of patched INFs a failure when P06 decided there would be none.
+foreach ($script in $trimmers) {
+    $t = $null; $e = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $script).Path, [ref]$t, [ref]$e)
+    $lines = Get-Content -LiteralPath $script
+    $fn = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true) |
+          Where-Object { $_.Name -eq 'Invoke-VerifyPhase01_VerifyArtifacts' } | Select-Object -First 1
+    Assert-True ('{0}: V01 exists' -f (Split-Path -Leaf $script)) ($null -ne $fn)
+    if ($null -eq $fn) { continue }
+    $body = ($lines[($fn.Extent.StartLineNumber - 1)..($fn.Extent.EndLineNumber - 1)]) -join "`n"
+    Assert-True ('{0}: V01 consults the degenerate plan' -f (Split-Path -Leaf $script)) `
+        ($body.Contains('$Ctx.DegeneratePlan'))
 }
 
 Write-TestSection 'The BthPan pre-flight excludes the auto-generated transcript path'

@@ -20,6 +20,104 @@ independently.
 
 ---
 
+## [2026-08-09] `degenerate-plan-verify-and-umdf-measurement-fix` — Chipset r110 / Graphics r76 / NPU r53 / BthPan r58 / Collector c8
+
+Two defects found by one clean Windows Server 2019 run. Nothing was installed;
+Chipset and Graphics ended with V01 FAILED. Post-mortem: SPEC D.55.
+
+### Fixed — the Verify side treated a correct empty plan as a failure
+
+`-SkipNonCosignedDrivers` found no WHQL co-signature on any in-scope INF, so
+P06 closed as `skipped` and P08/P09 consulted `$Ctx.DegeneratePlan` and did
+the same. All correct: an empty trimmed plan is a measurement of the driver
+package, not a failure (SPEC D.45.6).
+
+Then V01 looked for patched INFs, found none, and threw
+`run earlier phases first`. The phase it named had run, had decided
+correctly, and had said so. The run aborted and **V02 through V06 never
+executed** — certificate verification, catalog checks, dry-run and hardware
+impact analysis all lost to a phase reporting an expected condition as an
+error. V04 carried the same defect one phase later.
+
+The guard was written when the degenerate path was built and only Prepare
+phases were considered. The Prepare side and the Verify side disagreed about
+whether an empty plan was an error, and only one of them was right.
+
+- **V01** keeps running — the certificate and inventory CSV are real artifacts
+  and are still verified. Only the patched-INF check changes: under a
+  degenerate plan their absence is expected, not a failure.
+- **V04** exists only to verify patched INFs, so it closes `skipped`, exactly
+  as P08 and P09 do.
+
+### Fixed — the host UMDF version was never measurable, and the wrong value passed everything
+
+The comparison shipped in the previous release read the host UMDF version
+from `WudfRd.sys` the same way it reads KMDF from `Wdf01000.sys`. On this host
+that produced `UMDF 10.0`, which is the operating system version. Measured in
+the same run: `Wdf01000.sys` is `1.27.17763.1192` (KMDF 1.27, correct), while
+`WudfPf.sys`, `WUDFRd.sys` and `WUDFHost.exe` are all `10.0.17763.9020`. The
+documented UMDF version for build 17763 is 2.27 and **no binary carries it**.
+
+The consequence was worse than a wrong display: `10.0` maps to 10000 and every
+real UMDF requirement lands between 2000 and 2099, so **every UMDF driver
+compared as satisfied, on every host** — a false negative that produces no
+output and no complaint.
+
+UMDF is now reported as unknown, and requirements that could not be judged are
+counted separately and stated in P05's output. An unjudged requirement is not
+a pass; it is a question that was not asked.
+
+Deriving UMDF from the OS build is possible and deliberately not done here:
+that is an expectation table, and SPEC D.47.2 records what happens when one is
+read as fact. Left as an open decision.
+
+The collector carried the same derivation and put `ActualUmdfVersion: "10.0"`
+next to `ExpectedUmdfVersion: "2.27"` in its own assessment JSON. Corrected in
+the same pass. Only KMDF was ever compared there, so no verdict was wrong —
+but a wrong number in an evidence bundle is worse than an empty one.
+
+### Added — regression cover for both
+
+`Test-WdfShortfall` gains assertions that an unknown host version is counted
+as unjudged rather than passing, in both the KMDF and UMDF directions, and
+that the host probe reports UMDF as unmeasurable. `Test-SisterConsistency`
+extends the guard table that already covered P08 and P09 to V04, and asserts
+V01 consults the degenerate plan.
+
+**Negative control**: run against the tree that produced the field failures,
+the UMDF assertions failed with `The property 'UnjudgedUmdfCount' cannot be
+found on this object` and the guard assertions failed four times, naming V01
+and V04 in Chipset and Graphics. All pass on the corrected tree.
+
+### Note — why the existing tests missed both
+
+`Get-WdfShortfallSummary` is a pure function, was tested from both directions
+of the ordering trap, and passed because it was correct. The host version
+arrives as an argument and nothing tested where that argument came from: the
+one part of the path that could not be exercised on Linux was the part that
+was wrong. The guard test asserted the exact scope of the original thinking —
+a table of Prepare phases — and could never have found a phase missing from
+its own list.
+
+### Note — first real-hardware reading of the WDF requirement columns
+
+Recorded in SPEC D.55.5. Chipset declares KMDF 1.13/1.15/1.19 and UMDF 2.15
+across 36 WDF drivers in 119 rows; Graphics 1.15 across 8 of 19; BthPan none.
+The highest requirement in the package is **1.19**, below the 1.27 this host
+provides. **No INF references a WDF co-installer**, so the open question in
+D.53.2 does not occur in this package.
+
+### Verification
+
+`psa.py` 0 errors / 0 warnings / 0 info across fifteen PowerShell files;
+`Parser::ParseFile` 0 errors; **test suite 8 cases, 379 assertions** (measured,
+PowerShell 7.4.6 Core on Linux); canonical drift scanner 125 records,
+121 `match` + 4 `forked-frozen`, zero differences. The P05 notice was replayed
+against the field run's real inventory shape. No vendored canon region was
+touched.
+
+---
+
 ## [2026-08-08] `wdf-requirement-vs-host` — Chipset r109 / Graphics r75 / NPU r52 / BthPan r57
 
 Both halves of the framework question existed and nothing put them together.

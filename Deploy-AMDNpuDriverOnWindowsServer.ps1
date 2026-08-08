@@ -340,8 +340,8 @@ param(
 #   * PhaseResults - per-phase outcome registry (write side from
 #     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.08.08-r52'
-$Script:ScriptTag           = 'wdf-requirement-vs-host'
+$Script:ScriptVersion       = 'npu-2026.08.09-r53'
+$Script:ScriptTag           = 'degenerate-plan-verify-and-umdf-measurement-fix'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the
@@ -5701,20 +5701,28 @@ function Get-InfWdfRequirement {
 function Get-HostWdfRuntime {
     # What framework version THIS host provides.
     #
-    # The INF side says what a package requires; this says what is available
-    # to satisfy it. The runtime binaries carry the library version in their
-    # first two version parts, which is the same major.minor an INF declares,
-    # so the two can be compared directly instead of assumed compatible.
+    # KMDF is measurable: Wdf01000.sys carries the library version in its own
+    # file version, and a Windows Server 2019 host reads 1.27.17763.1192 -
+    # the 1.27 an INF would ask for.
     #
-    # Deliberately small. The collector's Get-DriverFramework records the
-    # service key, the co-installer inventory and the dependent services as
-    # well; none of that is needed to answer "will this package load", and
-    # copying it here would duplicate a large function to use two lines of
-    # it.
+    # UMDF IS NOT. The obvious candidates all report the OPERATING SYSTEM
+    # version, not the framework version. Measured on the same host:
+    # WudfPf.sys, WUDFRd.sys and WUDFHost.exe are all 10.0.17763.9020 while
+    # the documented UMDF version for that build is 2.27. Reading one of them
+    # and keeping the first two parts yields "10.0", which is not a UMDF
+    # version at all - and because it compares ABOVE every real requirement,
+    # it silently satisfies every UMDF driver on the machine. A false
+    # negative, in the one direction nothing complains about.
+    #
+    # So UMDF is reported as unknown and the requirement is left unjudged and
+    # visibly so. An empty column is a question; "10.0" was an answer, and a
+    # wrong one. Deriving it from the OS build is possible - the collector
+    # already maps build to expected version - but that is an expectation
+    # table, and D.47.2 is the record of what happens when one is read as
+    # fact. That change needs its own decision, not a quiet substitution.
     #
     # Best-effort by contract: an unreadable binary yields Probed = $false and
-    # empty versions, never an exception. A run must not fail because a
-    # diagnostic could not be taken.
+    # empty versions, never an exception.
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param()
@@ -5723,8 +5731,8 @@ function Get-HostWdfRuntime {
         Probed             = $false
         KmdfLibraryVersion = ''
         UmdfLibraryVersion = ''
+        UmdfMeasurable     = $false
         KmdfPath           = ''
-        UmdfPath           = ''
     }
 
     # $env:SystemRoot can be empty outside a normal Windows session, and
@@ -5736,10 +5744,8 @@ function Get-HostWdfRuntime {
     $drivers = $winRoot.TrimEnd('\') + '\System32\drivers'
 
     $result.KmdfPath = $drivers + '\Wdf01000.sys'
-    $result.UmdfPath = $drivers + '\WudfRd.sys'
     $result.KmdfLibraryVersion = Get-BinaryLibraryVersion -Path $result.KmdfPath
-    $result.UmdfLibraryVersion = Get-BinaryLibraryVersion -Path $result.UmdfPath
-    $result.Probed = (($result.KmdfLibraryVersion -ne '') -or ($result.UmdfLibraryVersion -ne ''))
+    $result.Probed = ($result.KmdfLibraryVersion -ne '')
     return $result
 }
 
@@ -5796,6 +5802,11 @@ function Get-WdfShortfallSummary {
 
     $exceeding = New-Object 'System.Collections.Generic.List[string]'
     $evaluated = 0
+    # A requirement the host version is unknown for is NOT a pass. It is a
+    # question that was not asked, and it is counted separately so the
+    # difference stays visible in the output (SPEC D.55.3).
+    $unjudgedKmdf = 0
+    $unjudgedUmdf = 0
     $hostKmdf = ConvertTo-WdfVersionNumber -Version $HostKmdfVersion
     $hostUmdf = ConvertTo-WdfVersionNumber -Version $HostUmdfVersion
     $probed = (($HostKmdfVersion -ne '') -or ($HostUmdfVersion -ne ''))
@@ -5809,13 +5820,17 @@ function Get-WdfShortfallSummary {
         $needKmdf = Get-RecordFieldText -Record $record -Name 'KmdfLibraryVersion'
         $needUmdf = Get-RecordFieldText -Record $record -Name 'UmdfLibraryVersion'
         $short = @()
-        if ($needKmdf -ne '' -and $HostKmdfVersion -ne '' -and
-            (ConvertTo-WdfVersionNumber -Version $needKmdf) -gt $hostKmdf) {
-            $short += ('KMDF {0} > {1}' -f $needKmdf, $HostKmdfVersion)
+        if ($needKmdf -ne '') {
+            if ($HostKmdfVersion -eq '') { $unjudgedKmdf++ }
+            elseif ((ConvertTo-WdfVersionNumber -Version $needKmdf) -gt $hostKmdf) {
+                $short += ('KMDF {0} > {1}' -f $needKmdf, $HostKmdfVersion)
+            }
         }
-        if ($needUmdf -ne '' -and $HostUmdfVersion -ne '' -and
-            (ConvertTo-WdfVersionNumber -Version $needUmdf) -gt $hostUmdf) {
-            $short += ('UMDF {0} > {1}' -f $needUmdf, $HostUmdfVersion)
+        if ($needUmdf -ne '') {
+            if ($HostUmdfVersion -eq '') { $unjudgedUmdf++ }
+            elseif ((ConvertTo-WdfVersionNumber -Version $needUmdf) -gt $hostUmdf) {
+                $short += ('UMDF {0} > {1}' -f $needUmdf, $HostUmdfVersion)
+            }
         }
         if ($short.Count -gt 0) {
             [void]$exceeding.Add(('{0} ({1})' -f $name, ($short -join ', ')))
@@ -5829,6 +5844,8 @@ function Get-WdfShortfallSummary {
         EvaluatedCount     = $evaluated
         ExceedingCount     = $exceeding.Count
         ExceedingNames     = $exceeding.ToArray()
+        UnjudgedKmdfCount  = $unjudgedKmdf
+        UnjudgedUmdfCount  = $unjudgedUmdf
     }
 }
 
@@ -5855,7 +5872,9 @@ function Show-WdfShortfallNotice {
     # Operator-facing notice at the point the inventory is built.
     #
     # Says nothing when nothing is wrong: a line that appears on every run is
-    # read as decoration and stops carrying information.
+    # read as decoration and stops carrying information. It does, however,
+    # always say what was NOT judged - an unasked question that looks like a
+    # pass is the failure this whole surface exists to avoid.
     [CmdletBinding()]
     [OutputType([void])]
     param(
@@ -5863,23 +5882,31 @@ function Show-WdfShortfallNotice {
     )
     if ($null -eq $Summary) { return }
     if (-not $Summary.Probed) {
-        Write-Host '   WDF requirement check : host framework version could not be read; skipped.' -ForegroundColor DarkGray
+        Write-Host '   WDF requirement check : host KMDF version could not be read; not judged.' -ForegroundColor DarkGray
         return
     }
-    Write-Host ('   WDF runtime on this host : KMDF {0} / UMDF {1}' -f `
-        $(if ($Summary.HostKmdfVersion) { $Summary.HostKmdfVersion } else { '(unknown)' }), `
-        $(if ($Summary.HostUmdfVersion) { $Summary.HostUmdfVersion } else { '(unknown)' })) -ForegroundColor DarkGray
+    Write-Host ('   WDF runtime on this host : KMDF {0} (UMDF is not readable from any binary; see SPEC D.55)' -f `
+        $Summary.HostKmdfVersion) -ForegroundColor DarkGray
     if ($Summary.ExceedingCount -le 0) {
-        Write-Host ('   WDF requirement check : all {0} inventoried INF(s) are within it.' -f $Summary.EvaluatedCount) -ForegroundColor DarkGray
-        return
+        Write-Host ('   WDF requirement check : all {0} inventoried INF(s) are within the host KMDF version.' -f $Summary.EvaluatedCount) -ForegroundColor DarkGray
+    } else {
+        Write-Caution ('WDF requirement exceeds this host for {0} of {1} inventoried INF(s).' -f `
+            $Summary.ExceedingCount, $Summary.EvaluatedCount)
+        Write-Host '       These packages cannot load here even after cataloguing and signing.' -ForegroundColor DarkYellow
+        Write-Host '       inf2cat sets the catalog target OS; it does not lower a KMDF' -ForegroundColor DarkYellow
+        Write-Host '       requirement, so neither Path A nor Path B changes this outcome.' -ForegroundColor DarkYellow
+        foreach ($entry in $Summary.ExceedingNames) {
+            Write-Host ('         - {0}' -f $entry) -ForegroundColor DarkYellow
+        }
     }
-    Write-Caution ('WDF requirement exceeds this host for {0} of {1} inventoried INF(s).' -f `
-        $Summary.ExceedingCount, $Summary.EvaluatedCount)
-    Write-Host '       These packages cannot load here even after cataloguing and signing.' -ForegroundColor DarkYellow
-    Write-Host '       inf2cat sets the catalog target OS; it does not lower a KMDF' -ForegroundColor DarkYellow
-    Write-Host '       requirement, so neither Path A nor Path B changes this outcome.' -ForegroundColor DarkYellow
-    foreach ($entry in $Summary.ExceedingNames) {
-        Write-Host ('         - {0}' -f $entry) -ForegroundColor DarkYellow
+    if ($Summary.UnjudgedUmdfCount -gt 0) {
+        Write-Host ('   NOT JUDGED : {0} INF(s) declare a UMDF requirement. The host UMDF version' -f $Summary.UnjudgedUmdfCount) -ForegroundColor DarkYellow
+        Write-Host '                is not readable from any binary, so these were not compared.' -ForegroundColor DarkYellow
+        Write-Host '                Read UmdfLibraryVersion in inf_inventory.csv and compare it by' -ForegroundColor DarkYellow
+        Write-Host '                hand against the version documented for this build.' -ForegroundColor DarkYellow
+    }
+    if ($Summary.UnjudgedKmdfCount -gt 0) {
+        Write-Host ('   NOT JUDGED : {0} INF(s) declare a KMDF requirement that was not compared.' -f $Summary.UnjudgedKmdfCount) -ForegroundColor DarkYellow
     }
 }
 

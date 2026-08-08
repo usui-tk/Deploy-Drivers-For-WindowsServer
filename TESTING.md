@@ -3335,3 +3335,66 @@ gating decision waits on (SPEC D.54.6), so it is worth taking deliberately:
 
 Nothing in the pipeline changes on the strength of this reading yet. The point
 of taking it is to know the numbers before deciding whether it should.
+
+---
+
+## 38. Re-running after the 2026-08-09 field failures
+
+### 38.1 What changed for the operator
+
+Nothing in how the scripts are invoked. The same command that failed now
+completes:
+
+```powershell
+.\Deploy-AMDChipsetDriverOnWindowsServer.ps1 -Action PrepareVerify -CleanWorkRoot -SkipNonCosignedDrivers
+```
+
+### 38.2 What the re-run should look like
+
+With this driver package on this host the plan is still empty — that is a
+property of the package, not something the fix changes. The difference is
+where the run ends:
+
+| Phase | Before | After |
+|---|---|---|
+| P06 | `SKIPPED` (empty plan) | `SKIPPED` — unchanged |
+| P08 / P09 | `SKIPPED` | `SKIPPED` — unchanged |
+| V01 | **`FAILED`** | `done`, with a `[SKIP]` line for patched INFs |
+| V02–V06 | **never ran** | run to completion |
+
+If V01 still fails, the guard did not take effect and the tree is not the one
+that was patched — check `Script version` in the run header.
+
+### 38.3 What to read in P05
+
+The WDF line now names only KMDF as measured, and states separately what it
+could not judge:
+
+```
+   WDF runtime on this host : KMDF 1.27 (UMDF is not readable from any binary; see SPEC D.55)
+   WDF requirement check : all 119 inventoried INF(s) are within the host KMDF version.
+   NOT JUDGED : 8 INF(s) declare a UMDF requirement. ...
+```
+
+A `NOT JUDGED` line is not a warning about the package; it is a statement
+about the check. To close it by hand, read `UmdfLibraryVersion` in
+`inf_inventory.csv` and compare it against the UMDF version documented for the
+host build (Windows Server 2019 / build 17763: UMDF 2.27).
+
+If the previous output said `UMDF 10.0`, that was the operating system version
+being read as a framework version, and it silently satisfied every UMDF
+driver. Any earlier run's UMDF verdict should be treated as never having been
+made.
+
+### 38.4 What is still expected to be reported
+
+These are correct outcomes on this host and package, not regressions:
+
+- **P06 empty plan.** No in-scope INF carries a WHQL co-signature. Path A
+  cannot proceed; the options are the vendor / Windows Update route, Path B
+  with Secure Boot off, or leaving the devices unbound.
+- **`Install readiness : NOT READY`** on a run that does produce a plan, while
+  Secure Boot is on and the certificate is not yet trusted. That is the
+  boot-signing gate doing its job.
+- **Phantom file references** in the chipset package (AmdAppCompat, AmdAS4,
+  AMDCIR, usbfilter). Documented in SPEC D.24.
