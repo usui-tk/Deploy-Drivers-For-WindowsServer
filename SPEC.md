@@ -4138,32 +4138,47 @@ The defect could in principle be detected by other static-analysis approaches:
 
 PSA2009 is the right gate because it is (a) language-aware (models the PSv5 sealed-object semantic accurately), (b) file-level (no need to reason about phase ordering at static-analysis time), (c) conservative against false positives (the hashtable-form drop pass), and (d) zero-cost at runtime (purely a pre-commit / CI artifact). The Chipset r73 / Graphics r39 / BthPan r21 release upstreams the rule into `psa.py` v3.8.0 and codifies its use in the §A.11.5c rule documentation.
 
-### D.31.17 `-SkipNonCosignedDrivers` plan semantics, workspace persistence, and the I01 gate (r96)
+### D.31.17 `-SkipNonCosignedDrivers` plan semantics, workspace persistence, and the install-phase gates (r96, revised r97)
 
-The first field execution of the `-SkipNonCosignedDrivers` mechanism (2026-08-08
-WS2019 run, post-mortem in SPEC D.40) found that the r71/r72 implementation had
-never actually produced a working trimmed plan: the P06 trim crashed on the real
-inventory schema, its eligibility rule would have emptied the plan even without
-the crash, and the analysis it depended on did not survive the
-`PrepareVerify` -> `Install` process boundary. This section records the corrected
-contract; D.31.11 remains valid as the design background for the I02
-short-circuit itself.
+Two field executions of the `-SkipNonCosignedDrivers` mechanism (2026-08-08,
+post-mortems in D.40 and D.41) shaped this contract. The first (D.40) found
+the trim crashing on the real inventory schema, an eligibility rule that
+would have emptied the plan, and an analysis that never crossed the
+`PrepareVerify` -> `Install` process boundary. The second (D.41) found the
+first revision of this contract built on a wrong model of the catalog
+pipeline and an aggregation scope that let out-of-scope variant rows poison
+the plan counts. This section records the corrected contract; D.31.11
+remains valid as the design background for the I02 short-circuit itself.
+
+#### D.31.17.0 The catalog model this contract rests on (D.41 clarification)
+
+`NeedsPatch` marks INFs whose *text* needs Server decoration patching —
+nothing more. Catalogs are a separate axis: P08 regenerates a catalog with
+`inf2cat /os:ServerRS5_X64` for **every** in-scope, catalog-eligible INF
+(patched or not; vendor catalogs do not cover the Windows Server OS target
+and are discarded), and P09 signs **all** of them with the project
+certificate. Consequently the I01 trust import is required whenever the
+plan carries at least one such catalog — in practice, on any non-degenerate
+plan — regardless of how many INFs needed text patching. Kernel CI under
+Secure Boot is the orthogonal axis: it evaluates the `.sys` **embedded**
+signatures (WHQL), which this pipeline never modifies.
 
 #### D.31.17.1 Trim eligibility rule
 
-`Get-EligibleInfRecordList` applies the following rule to each candidate record
-when `-SkipNonCosignedDrivers` is set:
+`Get-EligibleInfRecordList` applies the following rule to each candidate
+record when `-SkipNonCosignedDrivers` is set:
 
 | Record | Eligible? | Rationale |
 | --- | --- | --- |
-| Does **not** need patching (`NeedsPatch` false) | **Always** | The vendor-issued WHQL catalog ships unmodified; this pipeline never re-signs it. The trim only has to exclude content the pipeline re-signs (P09). |
-| Needs patching (`NeedsPatch` true) | Only if the P05 analysis classified it **fully WHQL co-signed** | A patched INF gets a project-signed catalog; under Secure Boot ON only WHQL-embedded `.sys` signatures authorise it at kernel CI. |
+| Does **not** need patching (`NeedsPatch` false) | **Always** | Its `.sys` files are vendor-signed kernel content; the trim only has to exclude content whose kernel-CI verdict the P05 analysis found non-co-signed. |
+| Needs patching (`NeedsPatch` true) | Only if the P05 analysis classified it **fully WHQL co-signed** | Its `.sys` files must carry WHQL embedded signatures to load under Secure Boot ON. |
 | No `NeedsPatch` property (producer-schema record) | Treated as needs-patching | The producer schema is by construction the patch-eligible subset; the co-sign check is the conservative interpretation. |
 
 The pre-r96 rule ("keep only names present in the analysis with
-`IsFullyCoSigned`") violated row 1: the analysis universe is the *patch-needing*
-subset only, so every vendor-catalog (copy-only) record fell outside it and was
-silently dropped — a fully-populated 119-INF inventory would have trimmed to 0.
+`IsFullyCoSigned`") violated row 1: the analysis universe is the
+*patch-needing* subset only, so every no-patch record fell outside it and
+was silently dropped — a fully-populated 119-INF inventory would have
+trimmed to 0.
 
 #### D.31.17.2 Schema-tolerant name resolution
 
@@ -4174,64 +4189,76 @@ record (`InfName` / `InfPath`). Name resolution falls back through
 A record with no resolvable name is excluded from the plan with a
 `Write-Caution` (never a crash). The pre-r96 implementation assumed the
 producer schema and crashed on inventory rows (`Split-Path -Leaf $null`
-binding error — the field-run signature).
+binding error — the D.40 field-run signature).
 
-#### D.31.17.3 Workspace persistence (`whql_cosign_analysis.json` / `whql_cosign_plan.json`)
+#### D.31.17.3 Workspace persistence (`whql_cosign_analysis.json` / `whql_cosign_plan.json` v2)
 
-Two best-effort JSON artifacts in the workspace root carry the analysis and the
-post-trim plan across the `PrepareVerify` -> `Install` process boundary:
+Two best-effort JSON artifacts in the workspace root carry the analysis and
+the post-trim plan across the `PrepareVerify` -> `Install` process boundary:
 
 | File | Producer | Content | Consumers |
 | --- | --- | --- | --- |
 | `whql_cosign_analysis.json` | P05 (Chipset / Graphics / BthPan), immediately after `New-WhqlCoSignAnalysis` | The full per-INF analysis list | I00 C6 (non-co-signed reminder), `Get-WhqlCoSignPlanInfo` fallback |
-| `whql_cosign_plan.json` | P06 trim site (Chipset / Graphics), only when `-SkipNonCosignedDrivers` is set and an analysis exists | Post-trim plan summary: eligible / trimmed INF names and counts, `RemainingNeedsPatchCount`, `PlanAnalysedInfCount`, `PlanNonCoSignedCount` | I01 gate, I02 short-circuit (via `Get-WhqlCoSignPlanInfo`) |
+| `whql_cosign_plan.json` (SchemaVersion 2) | P06 trim site (Chipset / Graphics), only when `-SkipNonCosignedDrivers` is set and an analysis exists | Post-trim plan summary: eligible / trimmed INF names and counts, `RemainingNeedsPatchCount`, `PlanCatalogSignCount`, `PlanAnalysedInfCount`, `PlanNonCoSignedCount` | I01 gate, I02 short-circuit (via `Get-WhqlCoSignPlanInfo`) |
+
+**Scope rule (r97, D.41.3)**: only records selected for the host's install
+scope (`VariantSelected`) participate in the plan name sets and counts.
+Out-of-scope variant rows (e.g. W11x64 rows on a host that installs WTx64)
+otherwise collide by INF name with trimmed in-scope rows and poison the
+counts — the D.41 field failure. Records without a `VariantSelected`
+property are included conservatively.
+
+**`PlanCatalogSignCount` (r97)**: the number of in-scope eligible records
+that will receive a pipeline-regenerated, self-signed catalog at P08/P09
+(catalog-eligible and no missing referenced files). This is the I01 gate
+criterion per D.31.17.0.
 
 `Get-WhqlCoSignPlanInfo` resolves the effective plan state with the source
-precedence **plan-json > in-process `$Ctx.WhqlCoSignAnalysis` > analysis-json >
-none**, returning `Known`, `Source`, `PlanNeedsSelfSigning`,
-`NonCoSignedCount`, and `AnalysedInfCount`. The `none` state is conservative
-(`PlanNeedsSelfSigning = $true`, `NonCoSignedCount = -1`): I01 runs and I02
-evaluates the full authorization paths. An *empty* persisted analysis (P05
-found zero patch-eligible INFs) is a **known** state distinct from absence.
-
-Staleness rule: `Save-WhqlCoSignAnalysisJson` deletes any existing plan JSON
-when it (re)writes the analysis, so a plan can never outlive the analysis it
-was derived from. All persistence is best-effort: a write failure degrades the
-install phases to their conservative behaviour and never fails P05/P06.
+precedence **plan-json (SchemaVersion >= 2 only) > in-process
+`$Ctx.WhqlCoSignAnalysis` > analysis-json > none**, returning `Known`,
+`Source`, `PlanNeedsSelfSigning`, `PlanCatalogSignCount`,
+`NonCoSignedCount`, and `AnalysedInfCount`. Pre-v2 plan files are ignored
+(a stale plan can never justify skipping I01). Only the v2 plan JSON can
+report `PlanNeedsSelfSigning = $false`; the ctx / analysis-json / none
+sources always report `$true`, because the analysis alone cannot prove the
+plan carries no self-signed catalogs. Staleness rule: a fresh P05 analysis
+write purges any existing plan JSON. All persistence is best-effort.
 
 #### D.31.17.4 The I01 gate (Chipset / Graphics)
 
 When `-SkipNonCosignedDrivers` is set and the resolved plan is *known* with
-`PlanNeedsSelfSigning = $false` (no INF in the plan gets a project-signed
-catalog), I01 is skipped entirely: the self-signing certificate is never
-presented to the OS, so importing it into `LocalMachine\Root` +
-`\TrustedPublisher` would only expand the machine trust surface for zero
-benefit — and the PFX precondition would turn the unnecessary step into a hard
-failure on a workspace whose P07 never ran (the field-run secondary failure).
-The skip leaves both stores untouched, writes the I01 phase marker with
-`Reason = 'skipnoncosigned-no-selfsigned'`, and reports the plan source.
-BthPan is deliberately excluded: its single INF is always patched, so its plan
-always needs the certificate. NPU has no `-SkipNonCosignedDrivers` surface.
+`PlanNeedsSelfSigning = $false` — which after r97 requires the v2 plan JSON
+with `PlanCatalogSignCount = 0`, i.e. a degenerate plan in which **no**
+catalog will be self-signed (everything trimmed or every survivor
+catalog-ineligible) — I01 is skipped: the certificate is never presented to
+the OS, the trust stores stay untouched, and the PFX precondition cannot
+turn the unnecessary step into a hard failure (the D.40 secondary failure
+class). On every non-degenerate plan I01 **runs**, because all plan
+catalogs are project-signed (D.31.17.0) — the r96 criterion
+(`RemainingNeedsPatchCount = 0`) wrongly skipped I01 on exactly such a plan
+(D.41.2). The skip records `Reason = 'skipnoncosigned-no-selfsigned'` in
+the phase marker. BthPan is deliberately not gated (its single INF is
+always patched). NPU has no `-SkipNonCosignedDrivers` surface.
 
 #### D.31.17.5 The I02 short-circuit condition (supersedes the D.31.11.4 firing condition)
 
-The I02 short-circuit now fires on **`Known -and NonCoSignedCount -eq 0`**
-resolved via `Get-WhqlCoSignPlanInfo` — including plans with *zero* analysed
-INFs (everything trimmed, or nothing needed patching), which the r72 condition
-(`AnalysedInfCount > 0` on the in-process field) rejected. The r72 in-process
-condition was additionally unreachable in the split workflow because
-`$Ctx.WhqlCoSignAnalysis` never survives the process boundary.
+The I02 short-circuit fires on **`Known -and NonCoSignedCount -eq 0`**
+resolved via `Get-WhqlCoSignPlanInfo` — including plans whose analysed
+subset is empty (every patch-needing INF was trimmed, or nothing needed
+patching). The claim it certifies is a *kernel CI* claim: no
+non-WHQL-co-signed `.sys` content remains in the plan scope, so neither a
+WDAC supplemental policy nor `bcdedit` testsigning is needed and Secure
+Boot stays ON. Self-signed **catalogs** are a driver-store concern handled
+by the I01 trust import, not a kernel CI concern.
 
 Decision matrix (with `-SkipNonCosignedDrivers`, Secure Boot ON):
 
-| Plan state | I01 | I02 |
+| Plan state (v2 plan JSON) | I01 | I02 |
 | --- | --- | --- |
-| Known, `PlanNeedsSelfSigning = $false`, `NonCoSignedCount = 0` | **Skipped** (stores untouched) | **Short-circuit** (vendor catalogs only) |
-| Known, `PlanNeedsSelfSigning = $true`, `NonCoSignedCount = 0` | Runs (re-signed catalogs need trust) | **Short-circuit** (WHQL `.sys` signatures authorise at kernel CI) |
-| Known, `NonCoSignedCount > 0` | Runs | Full Path A / Path B evaluation |
-| Unknown (`none`) | Runs (conservative) | Full Path A / Path B evaluation (conservative) |
-
-
+| `PlanCatalogSignCount = 0` (degenerate), `NonCoSignedCount = 0` | **Skipped** (stores untouched) | **Short-circuit** |
+| `PlanCatalogSignCount > 0`, `NonCoSignedCount = 0` (the normal Path A shape) | **Runs** (all plan catalogs are self-signed) | **Short-circuit** |
+| `NonCoSignedCount > 0` | Runs | Full Path A / Path B evaluation |
+| No v2 plan JSON (ctx / analysis-json / none source) | Runs (conservative) | Short-circuit only if the source reports `NonCoSignedCount = 0`; otherwise full evaluation |
 ## D.32 Runtime correctness fixes from the 2026-05-24 WS2019 + Renoir bench cycle (`r74`)
 
 ### D.32.1 Summary
@@ -5053,6 +5080,104 @@ Fixes 1-3 apply to Chipset r96 / Graphics r62; the shared helpers (including
 the I02 condition rewrite and the persistence functions) are byte-identical
 in BthPan r44, whose I01 is deliberately not gated (D.31.17.4). NPU r39 is
 unchanged — it has no `-SkipNonCosignedDrivers` surface (no empty revisions).
+
+
+## D.41 WS2019 field run #3 (2026-08-08): the plan that skipped the wrong phase — catalog model, aggregation scope, and the digest that still would not speak
+
+### D.41.1 The run
+
+Same fixture as D.39/D.40 (Windows Server 2019 build 17763 ja-JP, UEFI
+Secure Boot ON, Windows PowerShell 5.1), third session of the day, now on
+the r96 generation: `PrepareVerify -CleanWorkRoot -SkipNonCosignedDrivers`
+(08:55) followed by `Install -SkipNonCosignedDrivers` (09:01). PrepareVerify
+completed all phases (P00-V06 `done`) with the D.40 fixes visibly working:
+the P06 trim survived the real schema and trimmed 119 -> 117, and the plan
+JSON was written and later loaded by the install phases (`plan source:
+plan-json`). The Install run then failed in a new way: I01 was **skipped**
+and I02 fell through to the Path B prerequisite check and aborted
+(`reason=secure-boot-on`) — the by-design refusal the operator reported as
+"Secure Boot NG".
+
+### D.41.2 Finding 1 — `NeedsPatch` is not a self-signing proxy (I01 wrongly skipped)
+
+The run log states the catalog model plainly: P06 "Patching **0** INF
+file(s) / Copying **58** already-Server-compatible INF file(s)", then P08
+"Catalog generation: **53** ok / 5 skipped (using /os:ServerRS5_X64)" and
+P09 signs all 53 — V03 records "53 expected failure(s) - cert not yet
+imported by I01". Catalogs are regenerated and self-signed for the whole
+selected scope because vendor catalogs do not cover the Server OS target;
+`NeedsPatch` (2 rows, both `AmdMicroPEP.inf`) only marks INF-text patching.
+The r96 I01 gate used `RemainingNeedsPatchCount = 0` as its skip criterion
+and therefore skipped I01 on a plan carrying 53 self-signed catalogs. Had
+I02 not aborted first, I03 would have failed on every catalog. Corrected
+criterion: `PlanCatalogSignCount = 0` (D.31.17.4).
+
+### D.41.3 Finding 2 — out-of-scope variant rows poisoned the plan counts (I02 short-circuit refused)
+
+`inf_inventory.csv` carries both variants (60 WTx64 rows selected, 59
+W11x64 rows with `VariantSelected = False`). `AmdMicroPEP.inf` appears four
+times: two WTx64 rows (`NeedsPatch = True`, trimmed) and two W11x64 rows
+(`NeedsPatch = False`, surviving as no-patch records). The r96 plan
+aggregation built its name set over all surviving rows, so the surviving
+out-of-scope W11 rows re-introduced the trimmed name, and the two
+non-co-signed analysis records matched it: `PlanNonCoSignedCount = 2`. The
+I02 short-circuit condition (`NonCoSignedCount -eq 0`) was therefore
+refused; I02 fell into normal path evaluation, WS2019 (build 17763,
+pre-1903) has no WDAC supplemental path, Path B was selected, and the
+Secure Boot prerequisite aborted the run by design. Corrected by the
+install-scope aggregation rule (D.31.17.3): with `VariantSelected`
+filtering, the same inventory yields `PlanNonCoSignedCount = 0` and
+`PlanCatalogSignCount = 53` (machine-replayed against the field CSV in the
+regression harness).
+
+### D.41.4 Finding 3 — the digest still would not speak on 5.1
+
+The RUN SUMMARY now completes (the D.39 whole-body containment held: no
+truncation), but the verdict line printed `Install readiness : (digest
+unavailable: 引数の型が一致しません)` — a PSArgumentException escaped from
+somewhere *outside* the probe's try/catch, so the D.39.2 root-cause
+attribution was incomplete and the pwsh-7 harness false-negative lesson
+applies to the fix itself as well. r97 responds without guessing: the probe
+is rewritten onto the `variable:` provider (`Test-Path` /
+`Get-Item -ErrorAction SilentlyContinue`), which has no exception path at
+all and removes the probe as a candidate thrower entirely; and the
+containment is made self-locating — it now reports the exception type, the
+script line number, and the throwing statement text, so the next field log
+alone pinpoints any residual 5.1-only thrower.
+
+### D.41.5 Scenario validity
+
+The Path A + Secure Boot ON scenario on WS2019 is **not** invalidated. The
+abort the operator saw is I02's by-design Path B refusal, reached only
+because Findings 1-2 blocked the intended short-circuit route. Two proofs
+remain outstanding for the re-run: (a) I03 — pnputil accepting the 53
+self-signed catalogs after a real I01 import; (b) kernel-CI coverage of the
+no-patch subset — the P05 analysis universe is the patch-needing subset
+only, so the WHQL *embedded*-signature status of the 56 no-patch INFs'
+`.sys` files is unverified; a `.sys` whose WHQL authorization lived only in
+the discarded vendor catalog would fail to load under Secure Boot after
+install. Extending the analysis universe to the whole selected scope is
+recorded as a deferred design question (cost: signtool over the full driver
+set at P05).
+
+### D.41.6 Fixes and verification (r97)
+
+Plan aggregation scope + `PlanCatalogSignCount` (SchemaVersion 2,
+pre-v2 plans ignored), I01 gate criterion, install-phase message accuracy
+(catalogs are self-signed — earlier texts claimed vendor catalogs were
+preserved), digest probe + self-locating containment. Verified by a
+22-case harness (pwsh 7.4.6 / Linux) including a replay against the actual
+field `inf_inventory.csv` (119 rows -> 117 eligible, `PlanCatalogSignCount
+= 53`, `PlanNonCoSignedCount = 0`, I01 runs, I02 short-circuits) and the
+degenerate / pre-v2 / no-`VariantSelected` edge cases. Field re-execution
+is the outstanding confirmation (TESTING §23).
+
+### D.41.7 Sister impact
+
+Chipset r97 / Graphics r63 / BthPan r45 (plan helpers byte-identical
+3-way; I01 gate in Chipset/Graphics only). The digest fix touches all four
+sisters, so NPU ships r40 in this release (a non-empty revision, unlike
+D.40.7 where NPU had no surface).
 
 
 ## Appendix: How to seed a new sister script from this SPEC

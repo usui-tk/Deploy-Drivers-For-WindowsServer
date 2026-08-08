@@ -20,6 +20,76 @@ independently.
 
 ---
 
+## [2026-08-08] `path-a-scope-and-digest-fixes` — Chipset r97 / Graphics r63 / NPU r40 / BthPan r45
+
+Fixes from the third Windows Server 2019 field run (2026-08-08, same host,
+r96 generation) — PrepareVerify completed end-to-end for the first time
+under `-SkipNonCosignedDrivers`, but the Install run skipped I01 that it
+needed and refused the I02 short-circuit it was owed. Post-mortem: SPEC
+D.41; revised contract: SPEC D.31.17. The digest fix touches all four
+sisters, so NPU ships r40 in this release.
+
+### Fix 1 — I01 gate criterion: `NeedsPatch` is not a self-signing proxy (Chipset / Graphics)
+
+- The field log states the catalog model plainly: P06 "Patching 0 /
+  Copying 58", P08 regenerates 53 catalogs with `/os:ServerRS5_X64`, P09
+  self-signs all of them — vendor catalogs do not cover the Server OS
+  target and are discarded, so the I01 trust import is required on any
+  non-degenerate plan regardless of how many INFs needed text patching.
+  The r96 gate skipped I01 on `RemainingNeedsPatchCount = 0` while 53
+  self-signed catalogs sat in the plan. The criterion is now
+  `PlanCatalogSignCount = 0` (v2 plan JSON only): I01 skips only on a
+  degenerate plan with nothing to self-sign.
+
+### Fix 2 — plan aggregation scope: out-of-scope variant rows poisoned the counts (Chipset / Graphics / BthPan)
+
+- The inventory carries both variants; surviving W11x64 rows
+  (`VariantSelected = False`) re-introduced the trimmed `AmdMicroPEP.inf`
+  name into the plan name set, producing `PlanNonCoSignedCount = 2` and
+  refusing the I02 short-circuit — the run then fell through to the Path B
+  prerequisite check and aborted by design (`reason=secure-boot-on`), the
+  "Secure Boot NG" the operator reported. `Save-WhqlCoSignPlanJson` now
+  aggregates over the install scope only (`VariantSelected` filtering;
+  records without the property included conservatively), writes
+  SchemaVersion 2 with `PlanCatalogSignCount`, and
+  `Get-WhqlCoSignPlanInfo` ignores pre-v2 plan files and reports
+  `PlanNeedsSelfSigning = $true` on every non-plan source (the analysis
+  alone cannot prove the plan carries no self-signed catalogs).
+
+### Fix 3 — install-phase message accuracy (Chipset / Graphics / BthPan)
+
+- The I01 gate and I02 short-circuit texts claimed vendor WHQL catalogs
+  were preserved / accepted without trust-store changes; they are not —
+  all plan catalogs are pipeline-signed. Messages now state the two axes
+  correctly: WHQL embedded signatures authorise the `.sys` files at kernel
+  CI; self-signed catalogs rely on the I01 trust import for pnputil
+  acceptance at I03.
+
+### Fix 4 — readiness digest: exception-free probe + self-locating containment (all four)
+
+- The r95 digest fix held the RUN SUMMARY together (no truncation) but the
+  verdict still printed `digest unavailable: 引数の型が一致しません` on
+  5.1 — the PSArgumentException escaped from outside the probe's
+  try/catch, so the r95 root-cause attribution was incomplete and cannot
+  be re-verified on the pwsh-7 harness (SPEC D.39.2 false-negative lesson,
+  reaffirmed). The probe is rewritten onto the `variable:` provider
+  (`Test-Path` + `Get-Item -ErrorAction SilentlyContinue`), which has no
+  exception path at all; the containment now reports the exception type,
+  script line number, and throwing statement so the next field log alone
+  pinpoints any residual thrower.
+
+### Verification
+
+- 22-case regression harness (pwsh 7.4.6 / Linux) incl. a replay against
+  the actual field `inf_inventory.csv` (119 -> 117; `PlanCatalogSignCount
+  = 53`; `PlanNonCoSignedCount = 0`; I01 runs; I02 short-circuits):
+  22/22 PASS (TESTING §23). Gates: psa.py 0 findings x 5;
+  `Parser::ParseFile` 0 errors x 4; plan helpers byte-identical 3-way and
+  digest 4-way; canon vendored regions untouched.
+- Field re-execution on r97 is the outstanding confirmation (expected
+  shape in TESTING §23), including the first I03 proof that pnputil
+  accepts the self-signed catalogs.
+
 ## [2026-08-08] `path-a-plan-semantics-fixes` — Chipset r96 / Graphics r62 / NPU r39 (unchanged) / BthPan r44
 
 Fixes from the second Windows Server 2019 field run (2026-08-08, same host,

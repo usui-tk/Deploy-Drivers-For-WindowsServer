@@ -340,8 +340,8 @@ param(
 #   * PhaseResults - per-phase outcome registry (write side from
 #     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.08.08-r39'
-$Script:ScriptTag           = 'ws2019-ps51-field-fixes'
+$Script:ScriptVersion       = 'npu-2026.08.08-r40'
+$Script:ScriptTag           = 'path-a-scope-and-digest-fixes'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the
@@ -1078,20 +1078,18 @@ function Write-InstallReadinessDigest {
             $st = [string]$t.Status
             if ($st -eq 'failed' -or $st -eq 'FAIL') { $failedIds += [string]$t.Id }
         }
-        # Windows PowerShell 5.1 engine bug (fixed in PowerShell Core):
-        # Get-Variable -Scope <name> for a variable that does not exist
-        # throws a statement-terminating PSArgumentException ('Argument
-        # types do not match' / ja: 'Arg types mismatch') that
-        # -ErrorAction CANNOT suppress. Field case: the 2026-08-08
-        # WS2019 run truncated the RUN SUMMARY exactly here on the three
-        # sisters that never define $Script:TopLevelException, while the
-        # pwsh-7 harness passed (bug absent in Core) - see SPEC D.39.
-        # try/catch around -ErrorAction Stop is the only 5.1-safe probe.
+        # Windows PowerShell 5.1 engine quirk (SPEC D.39.2; follow-up
+        # field run in SPEC D.41): a PSArgumentException still surfaced
+        # inside this digest body on 5.1 even after the probe was
+        # wrapped in try/catch around -ErrorAction Stop. The variable:
+        # provider existence test below has no exception path at all
+        # (Test-Path never throws for a missing item), removing this
+        # probe as a candidate thrower entirely; the self-locating
+        # containment at the bottom of this function pinpoints any
+        # residual thrower from the field log alone.
         $tleValue = $null
-        try {
-            $tleValue = (Get-Variable -Name TopLevelException -Scope Script -ErrorAction Stop).Value
-        } catch {
-            $tleValue = $null
+        if (Test-Path -Path 'variable:TopLevelException') {
+            $tleValue = (Get-Item -Path 'variable:TopLevelException' -ErrorAction SilentlyContinue).Value
         }
         if ($null -ne $tleValue -and $failedIds.Count -eq 0) {
             $failedIds += '(top-level error)'
@@ -1108,7 +1106,19 @@ function Write-InstallReadinessDigest {
             Write-Host ' Install readiness : READY - no failed phases.' -ForegroundColor Green
         }
     } catch {
-        Write-Host (' Install readiness : (digest unavailable: {0})' -f $_.Exception.Message) -ForegroundColor Yellow
+        # Self-locating containment (SPEC D.41): report the exception
+        # type and the throwing statement so a field log alone can
+        # pinpoint any residual 5.1-only thrower in this body.
+        $digestErr = $_
+        $digestWhere = ''
+        try {
+            if ($digestErr.InvocationInfo -and $digestErr.InvocationInfo.ScriptLineNumber) {
+                $digestWhere = (' at line {0}: {1}' -f $digestErr.InvocationInfo.ScriptLineNumber, ([string]$digestErr.InvocationInfo.Line).Trim())
+            }
+        } catch {
+            $digestWhere = ''
+        }
+        Write-Host (' Install readiness : (digest unavailable: [{0}] {1}{2})' -f $digestErr.Exception.GetType().FullName, $digestErr.Exception.Message, $digestWhere) -ForegroundColor Yellow
     }
 }
 
