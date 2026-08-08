@@ -6934,12 +6934,18 @@ An earlier session stated, in conversation and in planning, that the in-box
 KMDF on Windows Server 2016 is 1.15. **That is wrong.** From Microsoft's KMDF
 and UMDF version history:
 
-| OS build | KMDF | UMDF |
-|---|---|---|
-| 14393 — Windows Server 2016 / Windows 10 1607 | **1.19** | **2.19** |
-| 17763 — Windows Server 2019 / Windows 10 1809 | 1.27 | 2.27 |
-| 20348 — Windows Server 2022 | 1.33 | 2.33 |
-| 26100 — Windows Server 2025 | 1.33 | 2.33 |
+| OS build | Documented KMDF | Documented UMDF | Kind | Observed KMDF (measured) |
+|---|---|---|---|---|
+| 14393 — Windows Server 2016 / Windows 10 1607 | **1.19** | **2.19** | IncludedVersion | not yet measured |
+| 17763 — Windows Server 2019 / Windows 10 1809 | 1.27 | 2.27 | IncludedVersion | **1.27** (agrees) |
+| 20348 — Windows Server 2022 | 1.33 | 2.33 | IncludedVersion | not yet measured |
+| 26100 — Windows Server 2025 | 1.33 | 2.33 | PublishedReference | **1.35** (exceeds) |
+
+The right-hand column was added after a Windows Server 2025 host measured
+KMDF 1.35 against a published 1.33 (D.56). The documented columns are not
+edited to match: they record what Microsoft publishes, and their only use
+is to be compared against the measurement beside them. Writing the measured
+value into them would leave nothing to compare.
 
 1.15 is the Windows 10 1507 value. The error came from recalling a number
 rather than reading the table, on a question where the number is the whole
@@ -7511,6 +7517,175 @@ could not fire.
 BthPan carries the trim helper and the guards but has never produced an empty
 plan: it drives a single Microsoft inbox INF that is co-signed. The guards
 there are insurance, not a fix.
+
+## D.56 Observed and documented are different columns
+
+### D.56.1 Where the previous model ran out
+
+D.55 stopped reading the host UMDF version because no binary carries it, and
+left UMDF requirements unjudged. That was correct and incomplete: it removed a
+false negative without putting anything in its place, so a package declaring
+UMDF 2.15 on a host documented at 2.27 went uncompared for want of a number.
+
+Independent field measurement supplied what was missing. Three Windows
+releases were measured directly:
+
+| Release | Build | `Wdf01000.sys` numeric fields | KMDF observed | KMDF published |
+|---|---:|---|---:|---:|
+| Windows Server 2019 | 17763.9020 | `1.27.17763.1192` | 1.27 | 1.27 |
+| Windows Server 2025 | 26100.33158 | `1.35.26100.3323` | 1.35 | **1.33** |
+
+The 2025 measurement is the important one. It means the capability table in
+D.46.4 and D.52.2, which lists Windows Server 2022 and 2025 together at
+1.33/2.33, is **wrong as a statement about 2025** — a third instance of the
+D.47.2 lesson, after `PS_UpdateAndCompareCIPolicy` and the KMDF 1.15 error.
+
+The fix is not to write 1.35 into the table. That would keep a single column
+doing two jobs and make the next disagreement just as invisible. The table is
+split.
+
+### D.56.2 The two columns
+
+**Observed** is what this machine reports. It is measured, it wins, and it can
+legitimately be newer than anything Microsoft has published.
+
+**Documented** is what Microsoft publishes for a base build. It never receives
+a measured value, however good the measurement, because its entire use is to
+be compared against measurement — a column that absorbs its own comparison
+input stops being able to disagree, which is the only thing it is for.
+
+`Get-WdfDocumentedBaseline` holds the published values and labels each row
+with how firm it is:
+
+| Build | Release | Documented KMDF | Documented UMDF | Kind | Confidence |
+|---:|---|---:|---:|---|---|
+| 14393 | Windows Server 2016 | 1.19 | 2.19 | IncludedVersion | High |
+| 17763 | Windows Server 2019 | 1.27 | 2.27 | IncludedVersion | High |
+| 20348 | Windows Server 2022 | 1.33 | 2.33 | IncludedVersion | High |
+| 26100 | Windows Server 2025 | 1.33 | 2.33 | **PublishedReference** | Medium |
+
+Server 2025 is `PublishedReference` because Microsoft's version history does
+not list it as an included-in release; a measured 1.35 sits **above** that row
+rather than contradicting it. An unmapped build documents nothing and says so.
+
+### D.56.3 When the documented UMDF may be used, and how that is decided
+
+UMDF still cannot be measured. Using the documented value regardless would
+trade the old false negative for a new false positive: on Server 2025 the
+documented UMDF is 2.33 from the same table whose KMDF is already known to be
+two revisions behind the machine, so a driver requiring 2.35 would be declared
+unloadable on a host that may well carry it.
+
+The decision is made from evidence rather than assumed. **The documented UMDF
+is used only when this host's measured KMDF equals its documented KMDF.** That
+equality is the observable proof that the published table has kept up with
+this particular build, and the UMDF entry beside it comes from the same table
+and the same revision of it.
+
+| Measured vs documented KMDF | UMDF treatment |
+|---|---|
+| Equal | Documented UMDF adopted, labelled as documented and corroborated |
+| Measured newer | UMDF left unjudged — the table is demonstrably behind this build |
+| Measured older | UMDF left unjudged, and the KMDF gap itself is flagged |
+| Not measurable | Nothing judged |
+
+Deriving UMDF as `2.<measured KMDF minor>` was considered and rejected. The
+pairing holds across every generation in the table, which is exactly what
+makes it tempting, but it is an inference from a pattern rather than a reading
+of anything, and the source research explicitly declines to conclude a UMDF
+minor version from available evidence. An inference that looks like a
+measurement is the failure this section exists to prevent.
+
+The UMDF 2 framework library `WUDFx02000.dll` is probed for presence, in both
+documented locations. Presence is real evidence that a UMDF 2 runtime exists;
+its file version is a Windows component version and is recorded without being
+converted.
+
+### D.56.4 A PE carries its version twice, and the two disagree
+
+On the Windows Server 2019 field host, one file at one moment:
+
+```
+FileVersion (string resource) : 1.27.17763.1 (WinBuild.160101.0800)
+ProductVersion                : 1.27.17763.1
+numeric version fields        : 1.27.17763.1192
+```
+
+The string resource is typically written once at RTM and left alone; the
+numeric fields move with servicing. Both are genuine, and a reader given only
+one of them cannot tell which they have.
+
+This resolves an ambiguity in the source research, which recorded
+`1.27.17763.1192` and `1.27.17763.1` as observations from two different
+environments. They need not be: a single host produces both. The research's
+conclusion — that a full four-part file version must not be used as a fixed
+identity for a framework generation — is right, and the reason is stronger
+than stated, because it does not depend on having two machines.
+
+Two consequences for this repository:
+
+1. **Derivation uses the numeric fields.** The previous implementation split
+   the FileVersion **string**, which happens to give 1.27 here and fails
+   outright on the comma-separated form some binaries carry
+   (`1, 27, 17763, 1` splits on `.` into one element).
+2. **Both readings are recorded and shown.** `Get-BinaryVersionFact` returns
+   the numeric version, the string and the product version separately, and
+   P05 prints both, so the displayed evidence can be used to check the derived
+   answer instead of being a third thing the reader has to trust.
+
+### D.56.5 What P05 says now
+
+On a build where the table is current — Server 2016, 2019, 2022:
+
+```
+   WDF runtime on this host : KMDF 1.27 measured / UMDF 2.27 (documented, corroborated by the KMDF match)
+       Wdf01000.sys 1.27.17763.1192 (numeric fields); version string reads 1.27.17763.1 (WinBuild.160101.0800)
+   WDF requirement check : all 119 inventoried INF(s) are within the host.
+```
+
+On a build where measurement has moved past the table — Server 2025:
+
+```
+   WDF runtime on this host : KMDF 1.35 measured / UMDF runtime present, version not readable from any binary
+       Measured KMDF is newer than the published 1.33 for Windows Server 2025. That is not an
+       error - the measurement wins - but it means the published UMDF for this
+       build is the same age, so UMDF requirements are left unjudged.
+   NOT JUDGED : 8 INF(s) declare a UMDF requirement that was not compared.
+```
+
+The second output is the point of the design: it neither invents a number nor
+pretends the question was answered.
+
+### D.56.6 Collector
+
+The collector probes `WUDFx02000.dll` and records it as
+`Umdf2FrameworkLibrary` / `Umdf2RuntimePresent` — the library a UMDF 2 driver
+binds to, as opposed to `WudfPf.sys`, `WUDFRd.sys` and `WUDFHost.exe`, which
+are the platform driver, the reflector and the host process. Its assessment
+gains `KmdfDocumentationComparison` and `DocumentedUmdfUsable`, carrying the
+same rule so the evidence bundle and the sisters answer the question the same
+way. Its KMDF derivation already used the numeric fields and is unchanged.
+
+### D.56.7 Verification
+
+`psa.py` 0 errors / 0 warnings / 0 info across fifteen PowerShell files;
+`Parser::ParseFile` 0 errors; test suite **8 cases, 401 assertions** measured
+on PowerShell 7.4.6 (Core) on Linux; canon integrity per A.11.8a — 125 dd
+observation records, 121 `match` + 4 `forked-frozen`, zero differences.
+
+**Negative control**: the extended case was run against the previous tree and
+failed with `function(s) not found: Get-BinaryVersionFact,
+Get-WdfDocumentedBaseline`.
+
+**Executed, not only parsed**: P05's notice was run through all three measured
+builds — 2016 and 2019 where the documented UMDF is adopted, and 2025 where it
+is refused — against the real 119-record inventory shape from the field run.
+
+### D.56.8 Sister impact
+
+Chipset r111 / Graphics r77 / NPU r54 / BthPan r59 / collector c9. Eight WDF
+helpers are byte-identical across the four sisters and asserted so by
+`Test-SisterConsistency`.
 
 ## Appendix: How to seed a new sister script from this SPEC
 

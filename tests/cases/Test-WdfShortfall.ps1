@@ -29,7 +29,7 @@ Reset-TestState
 $chipset = Join-Path $RepoRoot 'Deploy-AMDChipsetDriverOnWindowsServer.ps1'
 . (Get-ScriptFunctionBlock -Path $chipset -Name @(
     'ConvertTo-WdfVersionNumber', 'Get-RecordFieldText', 'Get-WdfShortfallSummary',
-    'Get-BinaryLibraryVersion', 'Get-HostWdfRuntime'))
+    'Get-BinaryVersionFact', 'Get-WdfDocumentedBaseline', 'Get-HostWdfRuntime'))
 
 function New-InfRecord {
     param($Path, $Kmdf = '', $Umdf = '')
@@ -163,14 +163,61 @@ $r = Get-WdfShortfallSummary -InfRecord @((New-InfRecord -Path 'C:\p\a.inf' -Kmd
 Assert-Equal 'flagged' 1 $r.ExceedingCount
 Assert-Equal 'not also unjudged' 0 $r.UnjudgedKmdfCount
 
-Write-TestSection 'The host probe does not claim a UMDF version'
-# WudfPf.sys / WUDFRd.sys / WUDFHost.exe all carry the OS version, so there is
-# nothing to read. The probe must say so rather than derive a number from a
-# file that does not hold one.
-$runtime = Get-HostWdfRuntime
-Assert-Equal 'UMDF is reported as unknown' '' $runtime.UmdfLibraryVersion
-Assert-False 'and explicitly marked unmeasurable' $runtime.UmdfMeasurable
-Assert-NoThrow 'the probe does not throw off-Windows' { Get-HostWdfRuntime }
+Write-TestSection 'The documented baseline table holds published values only'
+# Windows Server 2025 measures KMDF 1.35 while Microsoft publishes 1.33. The
+# table must keep saying 1.33: its whole use is to be compared against
+# measurement, and writing a measured value into it makes the comparison
+# compare a number with itself (SPEC D.47.2, D.56).
+$b2025 = Get-WdfDocumentedBaseline -BuildNumber 26100
+Assert-Equal '2025 documented KMDF stays at the published value' '1.33' $b2025.DocumentedKmdf
+Assert-Equal '2025 is a published reference, not an included version' 'PublishedReference' $b2025.DocumentationKind
+$b2019 = Get-WdfDocumentedBaseline -BuildNumber 17763
+Assert-Equal '2019 documented KMDF' '1.27' $b2019.DocumentedKmdf
+Assert-Equal '2019 documented UMDF' '2.27' $b2019.DocumentedUmdf
+Assert-Equal '2019 is an included version' 'IncludedVersion' $b2019.DocumentationKind
+$b2016 = Get-WdfDocumentedBaseline -BuildNumber 14393
+Assert-Equal '2016 documented KMDF' '1.19' $b2016.DocumentedKmdf
+Assert-Equal '2016 documented UMDF' '2.19' $b2016.DocumentedUmdf
+$b2022 = Get-WdfDocumentedBaseline -BuildNumber 20348
+Assert-Equal '2022 documented KMDF' '1.33' $b2022.DocumentedKmdf
+$bUnknown = Get-WdfDocumentedBaseline -BuildNumber 99999
+Assert-Equal 'an unmapped build documents nothing' '' $bUnknown.DocumentedKmdf
+Assert-Equal 'and says so' 'None' $bUnknown.DocumentationKind
+
+Write-TestSection 'Ordering of measured against documented, on the three measured builds'
+# Windows Server 2019 measured 1.27 against documented 1.27; Windows Server
+# 2025 measured 1.35 against documented 1.33. Neither is an error.
+Assert-Equal '1.27 equals documented 1.27' 0 `
+    ((ConvertTo-WdfVersionNumber -Version '1.27') - (ConvertTo-WdfVersionNumber -Version '1.27'))
+Assert-True '1.35 ranks above documented 1.33' `
+    ((ConvertTo-WdfVersionNumber -Version '1.35') -gt (ConvertTo-WdfVersionNumber -Version '1.33'))
+Assert-True '1.19 ranks above 1.9, which string ordering gets backwards' `
+    ((ConvertTo-WdfVersionNumber -Version '1.19') -gt (ConvertTo-WdfVersionNumber -Version '1.9'))
+
+Write-TestSection 'The version fact keeps the numeric fields and the string apart'
+# A PE carries its version twice and the two disagree. On Windows Server 2019
+# Wdf01000.sys reads 1.27.17763.1192 in the numeric fields while the string
+# resource still says 1.27.17763.1 - same file, same moment. Derivation uses
+# the numeric fields; splitting the string is brittle in its own right,
+# because some binaries carry it comma-separated.
+$fact = Get-BinaryVersionFact -Path ''
+Assert-False 'an empty path yields a non-existent fact' $fact.Exists
+Assert-Equal 'with no major.minor' '' $fact.MajorMinor
+Assert-NoThrow 'a missing file does not throw' { Get-BinaryVersionFact -Path 'X:\nowhere\Wdf01000.sys' }
+$missing = Get-BinaryVersionFact -Path 'X:\nowhere\Wdf01000.sys'
+Assert-False 'and reports it as absent' $missing.Exists
+# The comma-separated form that defeats string splitting.
+$commaParts = '1, 27, 17763, 1'.Split('.')
+Assert-Equal 'splitting the comma form on a dot yields one element' 1 $commaParts.Count
+
+Write-TestSection 'The host probe answers off-Windows without throwing'
+Assert-NoThrow 'no exception away from a Windows host' { Get-HostWdfRuntime -BuildNumber 17763 }
+$rt = Get-HostWdfRuntime -BuildNumber 17763
+Assert-Equal 'the documented KMDF still comes through' '1.27' $rt.KmdfDocumented
+Assert-Equal 'the documented UMDF still comes through' '2.27' $rt.UmdfDocumented
+Assert-False 'nothing was measured here' $rt.Probed
+Assert-Equal 'so no UMDF version is adopted' '' $rt.UmdfObserved
+Assert-False 'and the documented UMDF is not marked usable' $rt.UmdfDocumentedUsable
 
 $result = Get-TestResult
 Write-Host ''

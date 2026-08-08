@@ -340,8 +340,8 @@ param(
 #   * PhaseResults - per-phase outcome registry (write side from
 #     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.08.09-r53'
-$Script:ScriptTag           = 'degenerate-plan-verify-and-umdf-measurement-fix'
+$Script:ScriptVersion       = 'npu-2026.08.09-r54'
+$Script:ScriptTag           = 'wdf-observed-vs-documented'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the
@@ -5698,41 +5698,154 @@ function Get-InfWdfRequirement {
         WdfSectionCount     = $sectionCount
     }
 }
-function Get-HostWdfRuntime {
-    # What framework version THIS host provides.
+function Get-BinaryVersionFact {
+    # Everything a framework binary can be asked about its version, kept apart.
     #
-    # KMDF is measurable: Wdf01000.sys carries the library version in its own
-    # file version, and a Windows Server 2019 host reads 1.27.17763.1192 -
-    # the 1.27 an INF would ask for.
+    # A PE carries the version twice and the two disagree. The FileVersion
+    # string is a resource that is typically written once at RTM and left
+    # alone; the numeric fields move with servicing. On a Windows Server 2019
+    # host at 17763.9020, Wdf01000.sys reads:
     #
-    # UMDF IS NOT. The obvious candidates all report the OPERATING SYSTEM
-    # version, not the framework version. Measured on the same host:
-    # WudfPf.sys, WUDFRd.sys and WUDFHost.exe are all 10.0.17763.9020 while
-    # the documented UMDF version for that build is 2.27. Reading one of them
-    # and keeping the first two parts yields "10.0", which is not a UMDF
-    # version at all - and because it compares ABOVE every real requirement,
-    # it silently satisfies every UMDF driver on the machine. A false
-    # negative, in the one direction nothing complains about.
+    #   FileVersion (string) : 1.27.17763.1 (WinBuild.160101.0800)
+    #   numeric fields       : 1.27.17763.1192
     #
-    # So UMDF is reported as unknown and the requirement is left unjudged and
-    # visibly so. An empty column is a question; "10.0" was an answer, and a
-    # wrong one. Deriving it from the OS build is possible - the collector
-    # already maps build to expected version - but that is an expectation
-    # table, and D.47.2 is the record of what happens when one is read as
-    # fact. That change needs its own decision, not a quiet substitution.
-    #
-    # Best-effort by contract: an unreadable binary yields Probed = $false and
-    # empty versions, never an exception.
+    # Same file, same moment. Derivation therefore uses the numeric fields,
+    # and the string is kept beside it so a reader can see both rather than
+    # having to trust one. Parsing the string is also brittle in its own
+    # right: some binaries carry it comma-separated ('1, 27, 17763, 1'),
+    # which splits on '.' into a single element and yields nothing.
     [CmdletBinding()]
     [OutputType([pscustomobject])]
-    param()
+    param(
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]$Path
+    )
+
+    $fact = [pscustomobject]@{
+        Path              = [string]$Path
+        Exists            = $false
+        MajorMinor        = ''
+        NumericFileVersion = ''
+        FileVersionString = ''
+        ProductVersion    = ''
+    }
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $fact }
+    try {
+        if (-not (Test-Path -LiteralPath $Path)) { return $fact }
+        $item = Get-Item -LiteralPath $Path -ErrorAction Stop
+        $fact.Exists = $true
+        $info = $item.VersionInfo
+        if ($null -eq $info) { return $fact }
+        $fact.FileVersionString = [string]$info.FileVersion
+        $fact.ProductVersion = [string]$info.ProductVersion
+        $fact.NumericFileVersion = '{0}.{1}.{2}.{3}' -f `
+            [int]$info.FileMajorPart, [int]$info.FileMinorPart, `
+            [int]$info.FileBuildPart, [int]$info.FilePrivatePart
+        $fact.MajorMinor = '{0}.{1}' -f [int]$info.FileMajorPart, [int]$info.FileMinorPart
+        return $fact
+    }
+    catch {
+        return $fact
+    }
+}
+
+function Get-WdfDocumentedBaseline {
+    # What Microsoft PUBLISHES for a Windows base build. Not what the machine
+    # has - that is what Get-HostWdfRuntime measures - and the two can differ.
+    #
+    # This table holds published values only. A measured value never gets
+    # written into it, however good the measurement, because the whole use of
+    # the column is to be compared against measurement. Merging the two is how
+    # a capability table stops being checkable (SPEC D.47.2).
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter()] [int]$BuildNumber = 0
+    )
+    $row = [pscustomobject]@{
+        Release           = 'Unknown'
+        DocumentedKmdf    = ''
+        DocumentedUmdf    = ''
+        DocumentationKind = 'None'
+        Confidence        = 'None'
+    }
+    switch ($BuildNumber) {
+        14393 {
+            $row.Release = 'Windows Server 2016'
+            $row.DocumentedKmdf = '1.19'; $row.DocumentedUmdf = '2.19'
+            $row.DocumentationKind = 'IncludedVersion'; $row.Confidence = 'High'
+        }
+        17763 {
+            $row.Release = 'Windows Server 2019'
+            $row.DocumentedKmdf = '1.27'; $row.DocumentedUmdf = '2.27'
+            $row.DocumentationKind = 'IncludedVersion'; $row.Confidence = 'High'
+        }
+        20348 {
+            $row.Release = 'Windows Server 2022'
+            $row.DocumentedKmdf = '1.33'; $row.DocumentedUmdf = '2.33'
+            $row.DocumentationKind = 'IncludedVersion'; $row.Confidence = 'High'
+        }
+        26100 {
+            # Microsoft's published WDF version history tops out at 1.33/2.33
+            # and does not list Server 2025 as an included-in release. A
+            # measured 1.35 on this build is therefore expected to sit ABOVE
+            # this row rather than to contradict it.
+            $row.Release = 'Windows Server 2025'
+            $row.DocumentedKmdf = '1.33'; $row.DocumentedUmdf = '2.33'
+            $row.DocumentationKind = 'PublishedReference'; $row.Confidence = 'Medium'
+        }
+        default { }
+    }
+    return $row
+}
+
+function Get-HostWdfRuntime {
+    # What framework version THIS host provides, separated by how well it can
+    # be known.
+    #
+    # KMDF is measurable. Wdf01000.sys carries the library version in its own
+    # numeric version fields, and the first two are the major.minor an INF
+    # asks for.
+    #
+    # UMDF IS NOT. WUDFx02000.dll is the UMDF 2 framework library and its
+    # presence is real evidence, but its version is a Windows component
+    # version - 10.0.<build>.<revision> - not a framework version. Measured on
+    # Windows Server 2019: 10.0.17763.x while the documented UMDF for that
+    # build is 2.27. Keeping the first two parts yields '10.0', which compares
+    # above every real requirement and silently satisfies every UMDF driver on
+    # the machine. The presence is recorded; the number is not invented.
+    #
+    # For UMDF the documented value is used instead, but only when the same
+    # host's KMDF measurement agrees with its documented KMDF. That agreement
+    # is the evidence that the published table has kept up with this build. On
+    # a build where measured KMDF already exceeds the documented one, the
+    # documented UMDF is the same table and the same age, so it is treated as
+    # stale and nothing is judged against it.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter()] [int]$BuildNumber = 0
+    )
+
+    $documented = Get-WdfDocumentedBaseline -BuildNumber $BuildNumber
 
     $result = [pscustomobject]@{
-        Probed             = $false
-        KmdfLibraryVersion = ''
-        UmdfLibraryVersion = ''
-        UmdfMeasurable     = $false
-        KmdfPath           = ''
+        Probed                 = $false
+        Release                = $documented.Release
+        BuildNumber            = $BuildNumber
+        KmdfObserved           = ''
+        KmdfNumericFileVersion = ''
+        KmdfFileVersionString  = ''
+        KmdfDocumented         = $documented.DocumentedKmdf
+        KmdfComparison         = 'NotCompared'
+        UmdfBinaryPresent      = $false
+        UmdfFileVersionString  = ''
+        UmdfObserved           = ''
+        UmdfDocumented         = $documented.DocumentedUmdf
+        UmdfDocumentationKind  = $documented.DocumentationKind
+        UmdfDocumentedUsable   = $false
+        UmdfSource             = 'None'
     }
 
     # $env:SystemRoot can be empty outside a normal Windows session, and
@@ -5741,38 +5854,49 @@ function Get-HostWdfRuntime {
     $winRoot = [string]$env:SystemRoot
     if ([string]::IsNullOrWhiteSpace($winRoot)) { $winRoot = [string]$env:windir }
     if ([string]::IsNullOrWhiteSpace($winRoot)) { return $result }
-    $drivers = $winRoot.TrimEnd('\') + '\System32\drivers'
+    $winRoot = $winRoot.TrimEnd('\')
+    $system32 = $winRoot + '\System32'
 
-    $result.KmdfPath = $drivers + '\Wdf01000.sys'
-    $result.KmdfLibraryVersion = Get-BinaryLibraryVersion -Path $result.KmdfPath
-    $result.Probed = ($result.KmdfLibraryVersion -ne '')
+    $kmdfFact = Get-BinaryVersionFact -Path ($system32 + '\drivers\Wdf01000.sys')
+    if ($kmdfFact.Exists -and $kmdfFact.MajorMinor -ne '') {
+        # Only a 1.x file is a KMDF library version; anything else means the
+        # assumption behind this reading no longer holds and it is dropped.
+        if ($kmdfFact.MajorMinor -like '1.*') {
+            $result.KmdfObserved = $kmdfFact.MajorMinor
+        }
+        $result.KmdfNumericFileVersion = $kmdfFact.NumericFileVersion
+        $result.KmdfFileVersionString = $kmdfFact.FileVersionString
+    }
+    $result.Probed = ($result.KmdfObserved -ne '')
+
+    # UMDF 2 framework library, in either documented location.
+    $umdfFact = Get-BinaryVersionFact -Path ($system32 + '\WUDFx02000.dll')
+    if (-not $umdfFact.Exists) {
+        $umdfFact = Get-BinaryVersionFact -Path ($system32 + '\drivers\UMDF\WUDFx02000.dll')
+    }
+    $result.UmdfBinaryPresent = $umdfFact.Exists
+    $result.UmdfFileVersionString = $umdfFact.FileVersionString
+
+    if ($result.KmdfObserved -ne '' -and $result.KmdfDocumented -ne '') {
+        $observedNumber = ConvertTo-WdfVersionNumber -Version $result.KmdfObserved
+        $documentedNumber = ConvertTo-WdfVersionNumber -Version $result.KmdfDocumented
+        if ($observedNumber -eq $documentedNumber) { $result.KmdfComparison = 'Match' }
+        elseif ($observedNumber -gt $documentedNumber) { $result.KmdfComparison = 'ObservedNewerThanDocumented' }
+        else { $result.KmdfComparison = 'ObservedOlderThanDocumented' }
+    }
+
+    # The documented UMDF is usable only where the documented KMDF was just
+    # confirmed by measurement on this same host.
+    if ($result.UmdfBinaryPresent -and $result.UmdfDocumented -ne '' -and $result.KmdfComparison -eq 'Match') {
+        $result.UmdfObserved = $result.UmdfDocumented
+        $result.UmdfDocumentedUsable = $true
+        $result.UmdfSource = 'DocumentedAndCorroboratedByKmdfMatch'
+    }
+    elseif ($result.UmdfBinaryPresent) {
+        $result.UmdfSource = 'PresenceOnly'
+    }
+
     return $result
-}
-
-function Get-BinaryLibraryVersion {
-    # major.minor from a driver binary's file version, or '' if unreadable.
-    [CmdletBinding()]
-    [OutputType([string])]
-    param(
-        [Parameter()]
-        [AllowEmptyString()]
-        [string]$Path
-    )
-    if ([string]::IsNullOrWhiteSpace($Path)) { return '' }
-    try {
-        if (-not (Test-Path -LiteralPath $Path)) { return '' }
-        $item = Get-Item -LiteralPath $Path -ErrorAction Stop
-        $info = $item.VersionInfo
-        if ($null -eq $info) { return '' }
-        $raw = [string]$info.FileVersion
-        if ([string]::IsNullOrWhiteSpace($raw)) { return '' }
-        $parts = $raw.Trim().Split('.')
-        if ($parts.Count -lt 2) { return '' }
-        return ('{0}.{1}' -f $parts[0].Trim(), $parts[1].Trim())
-    }
-    catch {
-        return ''
-    }
 }
 
 function Get-WdfShortfallSummary {
@@ -5871,24 +5995,45 @@ function Get-RecordFieldText {
 function Show-WdfShortfallNotice {
     # Operator-facing notice at the point the inventory is built.
     #
-    # Says nothing when nothing is wrong: a line that appears on every run is
-    # read as decoration and stops carrying information. It does, however,
-    # always say what was NOT judged - an unasked question that looks like a
-    # pass is the failure this whole surface exists to avoid.
+    # Says nothing when nothing is wrong, and always says what was NOT judged.
+    # An unasked question that reads as a pass is the failure this surface
+    # exists to avoid.
     [CmdletBinding()]
     [OutputType([void])]
     param(
-        [Parameter()] [object]$Summary
+        [Parameter()] [object]$Summary,
+        [Parameter()] [object]$Runtime
     )
     if ($null -eq $Summary) { return }
+    if ($null -ne $Runtime) {
+        $kmdfText = $(if ($Runtime.KmdfObserved -ne '') { $Runtime.KmdfObserved } else { '(unreadable)' })
+        $umdfText = switch ($Runtime.UmdfSource) {
+            'DocumentedAndCorroboratedByKmdfMatch' { '{0} (documented, corroborated by the KMDF match)' -f $Runtime.UmdfDocumented }
+            'PresenceOnly' { 'runtime present, version not readable from any binary' }
+            default { 'not detected' }
+        }
+        Write-Host ('   WDF runtime on this host : KMDF {0} measured / UMDF {1}' -f $kmdfText, $umdfText) -ForegroundColor DarkGray
+        if ($Runtime.KmdfNumericFileVersion -ne '') {
+            Write-Host ('       Wdf01000.sys {0} (numeric fields); version string reads {1}' -f `
+                $Runtime.KmdfNumericFileVersion, $Runtime.KmdfFileVersionString) -ForegroundColor DarkGray
+        }
+        if ($Runtime.KmdfComparison -eq 'ObservedNewerThanDocumented') {
+            Write-Host ('       Measured KMDF is newer than the published {0} for {1}. That is not an' -f `
+                $Runtime.KmdfDocumented, $Runtime.Release) -ForegroundColor DarkGray
+            Write-Host '       error - the measurement wins - but it means the published UMDF for this' -ForegroundColor DarkGray
+            Write-Host '       build is the same age, so UMDF requirements are left unjudged.' -ForegroundColor DarkGray
+        }
+        elseif ($Runtime.KmdfComparison -eq 'ObservedOlderThanDocumented') {
+            Write-Caution ('Measured KMDF {0} is BELOW the published {1} for {2}. Worth checking servicing state.' -f `
+                $Runtime.KmdfObserved, $Runtime.KmdfDocumented, $Runtime.Release)
+        }
+    }
     if (-not $Summary.Probed) {
         Write-Host '   WDF requirement check : host KMDF version could not be read; not judged.' -ForegroundColor DarkGray
         return
     }
-    Write-Host ('   WDF runtime on this host : KMDF {0} (UMDF is not readable from any binary; see SPEC D.55)' -f `
-        $Summary.HostKmdfVersion) -ForegroundColor DarkGray
     if ($Summary.ExceedingCount -le 0) {
-        Write-Host ('   WDF requirement check : all {0} inventoried INF(s) are within the host KMDF version.' -f $Summary.EvaluatedCount) -ForegroundColor DarkGray
+        Write-Host ('   WDF requirement check : all {0} inventoried INF(s) are within the host.' -f $Summary.EvaluatedCount) -ForegroundColor DarkGray
     } else {
         Write-Caution ('WDF requirement exceeds this host for {0} of {1} inventoried INF(s).' -f `
             $Summary.ExceedingCount, $Summary.EvaluatedCount)
@@ -5900,10 +6045,9 @@ function Show-WdfShortfallNotice {
         }
     }
     if ($Summary.UnjudgedUmdfCount -gt 0) {
-        Write-Host ('   NOT JUDGED : {0} INF(s) declare a UMDF requirement. The host UMDF version' -f $Summary.UnjudgedUmdfCount) -ForegroundColor DarkYellow
-        Write-Host '                is not readable from any binary, so these were not compared.' -ForegroundColor DarkYellow
+        Write-Host ('   NOT JUDGED : {0} INF(s) declare a UMDF requirement that was not compared.' -f $Summary.UnjudgedUmdfCount) -ForegroundColor DarkYellow
         Write-Host '                Read UmdfLibraryVersion in inf_inventory.csv and compare it by' -ForegroundColor DarkYellow
-        Write-Host '                hand against the version documented for this build.' -ForegroundColor DarkYellow
+        Write-Host '                hand against the UMDF version documented for this build.' -ForegroundColor DarkYellow
     }
     if ($Summary.UnjudgedKmdfCount -gt 0) {
         Write-Host ('   NOT JUDGED : {0} INF(s) declare a KMDF requirement that was not compared.' -f $Summary.UnjudgedKmdfCount) -ForegroundColor DarkYellow
@@ -7066,11 +7210,11 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     # List[psobject]; .ToArray() is used rather than @( ) out of the habit
     # SPEC D.42.4 earned, since the binder defect there is silent about which
     # list types it strikes.
-    $wdfHostRuntime = Get-HostWdfRuntime
+    $wdfHostRuntime = Get-HostWdfRuntime -BuildNumber ([int][Environment]::OSVersion.Version.Build)
     $Script:WdfShortfall = Get-WdfShortfallSummary -InfRecord $inventory.ToArray() `
-        -HostKmdfVersion $wdfHostRuntime.KmdfLibraryVersion `
-        -HostUmdfVersion $wdfHostRuntime.UmdfLibraryVersion
-    Show-WdfShortfallNotice -Summary $Script:WdfShortfall
+        -HostKmdfVersion $wdfHostRuntime.KmdfObserved `
+        -HostUmdfVersion $wdfHostRuntime.UmdfObserved
+    Show-WdfShortfallNotice -Summary $Script:WdfShortfall -Runtime $wdfHostRuntime
 
     # ---- Write inf_inventory_report.txt (text-format inventory + Secure Boot baseline appendix) ----
     # Previously, $Ctx.InventoryReportPath was declared but never written.

@@ -3398,3 +3398,67 @@ These are correct outcomes on this host and package, not regressions:
   boot-signing gate doing its job.
 - **Phantom file references** in the chipset package (AmdAppCompat, AmdAS4,
   AMDCIR, usbfilter). Documented in SPEC D.24.
+
+---
+
+## 39. Reading the WDF runtime line after the observed/documented split
+
+### 39.1 Two shapes, and which one you are looking at
+
+**The published table is current for this build** — Server 2016, 2019, 2022:
+
+```
+   WDF runtime on this host : KMDF 1.27 measured / UMDF 2.27 (documented, corroborated by the KMDF match)
+       Wdf01000.sys 1.27.17763.1192 (numeric fields); version string reads 1.27.17763.1 (WinBuild.160101.0800)
+```
+
+Both frameworks are being judged. The UMDF figure is labelled `documented`
+because nothing on the machine reports it; it is used because the measured
+KMDF agreed with the documented KMDF on this same host, which is the evidence
+that the published table has kept up with this build.
+
+**Measurement has moved past the table** — seen on Server 2025:
+
+```
+   WDF runtime on this host : KMDF 1.35 measured / UMDF runtime present, version not readable from any binary
+       Measured KMDF is newer than the published 1.33 for Windows Server 2025. ...
+   NOT JUDGED : 8 INF(s) declare a UMDF requirement that was not compared.
+```
+
+This is not an error and needs no action. The measurement wins; the published
+UMDF beside it is the same age as the published KMDF that was just overtaken,
+so it is not used. To close the gap by hand, read `UmdfLibraryVersion` in
+`inf_inventory.csv` and compare it against the UMDF version documented for
+the build.
+
+### 39.2 The two version readings, and why both are printed
+
+The second line prints the numeric fields and the string resource separately
+because they disagree on real hosts. On Windows Server 2019 at 17763.9020 the
+same `Wdf01000.sys` reads `1.27.17763.1192` numerically and
+`1.27.17763.1 (WinBuild.160101.0800)` as a string: the string is written at
+RTM and left alone while the numeric fields move with servicing.
+
+The derived KMDF version comes from the **numeric** fields. If the two lines
+disagree in their first two parts, that is worth reporting — it would mean the
+assumption behind the reading no longer holds.
+
+Do not use the four-part version as an identity for a framework generation.
+Two hosts of the same generation legitimately differ in the last part, and so
+do the two readings of a single file.
+
+### 39.3 What to capture on Server 2016 and Server 2022
+
+Neither has been measured yet; the observed column in SPEC D.52.2 is empty for
+both. When a host of either is available, the whole measurement is one line of
+the P05 output plus one field:
+
+```
+   WDF runtime on this host : KMDF <observed> measured / UMDF ...
+       Wdf01000.sys <numeric> (numeric fields); version string reads <string>
+```
+
+Expected: 1.19 on build 14393 and 1.33 on 20348, both agreeing with the
+documented column. **An observation that exceeds the documented value is not a
+failure** — it is the Server 2025 case, and it should be recorded in D.52.2
+rather than corrected.

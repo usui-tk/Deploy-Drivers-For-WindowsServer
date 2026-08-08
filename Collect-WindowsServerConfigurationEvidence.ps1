@@ -87,7 +87,7 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
-$Script:ScriptVersion  = 'collector-2026.08.09-c8'
+$Script:ScriptVersion  = 'collector-2026.08.09-c9'
 $Script:ScriptTag      = 'windows-server-configuration-evidence-collector'
 $Script:ScriptHash     = 'unavailable'
 try {
@@ -1760,6 +1760,16 @@ function Get-DriverFrameworkEvidence {
     $umdfPf = Get-FileVersionInfoSafe -Path $(if ($drivers) { $drivers + '\WudfPf.sys' } else { '' })
     $umdfRd = Get-FileVersionInfoSafe -Path $(if ($drivers) { $drivers + '\WUDFRd.sys' } else { '' })
     $umdfHost = Get-FileVersionInfoSafe -Path $(if ($system32) { $system32 + '\WUDFHost.exe' } else { '' })
+    # The UMDF 2 framework library itself. WudfPf/WUDFRd/WUDFHost are the
+    # platform driver, reflector and host process; this is the library an
+    # UMDF 2 driver actually binds to, so its presence is the evidence that
+    # a UMDF 2 runtime exists at all. Its version is a Windows component
+    # version and is still not a framework version - it is recorded, not
+    # converted.
+    $umdfLib = Get-FileVersionInfoSafe -Path $(if ($system32) { $system32 + '\WUDFx02000.dll' } else { '' })
+    if (-not $umdfLib.Exists -and $drivers) {
+        $umdfLib = Get-FileVersionInfoSafe -Path ($drivers + '\UMDF\WUDFx02000.dll')
+    }
 
     # The KMDF library version an INF may request is expressed as major.minor
     # (1.15, 1.31, ...). The runtime binary carries that in its first two
@@ -1822,6 +1832,8 @@ function Get-DriverFrameworkEvidence {
         UmdfPlatformDriver = $umdfPf
         UmdfReflector = $umdfRd
         UmdfHost = $umdfHost
+        Umdf2FrameworkLibrary = $umdfLib
+        Umdf2RuntimePresent = $umdfLib.Exists
         KmdfService = $kmdfService
         CoInstallerCount = $coInstallers.Count
         CoInstallers = $coInstallers.ToArray()
@@ -2233,6 +2245,22 @@ function Get-WdfAssessment {
         ExpectedUmdfVersion = [string]$expected.ExpectedUmdfVersion
         ActualKmdfVersion = $actualKmdf
         ActualUmdfVersion = $actualUmdf
+        # Observed and documented are kept apart on purpose. The UMDF value
+        # below is documented only, and is marked usable only when THIS
+        # host's measured KMDF equals its documented KMDF - that agreement
+        # is the evidence the published table has kept up with this build.
+        # Where measured KMDF already exceeds the documented one, the
+        # documented UMDF comes from the same table and is the same age.
+        KmdfDocumentationComparison = $(
+            if ([string]::IsNullOrWhiteSpace($actualKmdf) -or [string]::IsNullOrWhiteSpace([string]$expected.ExpectedKmdfVersion)) { 'NotCompared' }
+            elseif ($actualNum -eq $expectedNum) { 'Match' }
+            elseif ($actualNum -gt $expectedNum) { 'ObservedNewerThanDocumented' }
+            else { 'ObservedOlderThanDocumented' })
+        Umdf2RuntimePresent = $(if ($null -ne $DriverFramework -and $DriverFramework.PSObject.Properties['Umdf2RuntimePresent']) { [bool]$DriverFramework.Umdf2RuntimePresent } else { $false })
+        DocumentedUmdfUsable = $(
+            ($null -ne $DriverFramework -and $DriverFramework.PSObject.Properties['Umdf2RuntimePresent'] -and
+             [bool]$DriverFramework.Umdf2RuntimePresent -and
+             -not [string]::IsNullOrWhiteSpace($actualKmdf) -and $actualNum -eq $expectedNum))
         KmdfMeetsExpectation = $kmdfMatchesExpectation
         CoInstallerCount = $(if ($null -ne $CoInstallers) { [int]$CoInstallers.CoInstallerCount } else { 0 })
         CoInstallersExceedingHostCount = $exceeding.Count
