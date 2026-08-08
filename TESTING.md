@@ -3462,3 +3462,78 @@ Expected: 1.19 on build 14393 and 1.33 on 20348, both agreeing with the
 documented column. **An observation that exceeds the documented value is not a
 failure** — it is the Server 2025 case, and it should be recorded in D.52.2
 rather than corrected.
+
+---
+
+## 40. Re-running Install after the pre-mutation gate
+
+### 40.1 The expected shape on this host and package
+
+Secure Boot ON, no WHQL co-signature anywhere in the AMD chipset package. The
+plan is still empty — that is a property of the package — but the run no
+longer reaches anything that changes the machine:
+
+| Phase | Before | After |
+|---|---|---|
+| I00 | DONE (review) | DONE — unchanged, and still where the guidance is printed |
+| I01 | SKIPPED | SKIPPED |
+| I02 | **FAILED** | **SKIPPED** |
+| I03 | never ran | SKIPPED |
+| I04 | never ran | runs |
+
+The run closes with an explicit statement that nothing was installed and
+nothing was changed, followed by the three options.
+
+### 40.2 Confirming nothing was changed
+
+The point of this release is that a run against an empty plan leaves no
+trace. After an Install run that reports the empty-plan outcome, all three
+should be true:
+
+```powershell
+bcdedit /enum | Select-String testsigning        # expect: no testsigning line, or "No"
+Get-ChildItem Cert:\LocalMachine\Root | Where-Object { $_.Subject -like '*Self-Sign*' }
+Get-ChildItem Cert:\LocalMachine\TrustedPublisher | Where-Object { $_.Subject -like '*Self-Sign*' }
+```
+
+Any of these returning the script's certificate, or testsigning reading `Yes`,
+means a mutating phase ran when it should not have. Report it — that is the
+defect this release exists to prevent, not a configuration question.
+
+### 40.3 -UseTestSigning is now refused at startup
+
+On a Secure Boot host the run stops before P00 with an explanation, rather
+than in I02 after I01 has imported a certificate:
+
+```
+[!] -UseTestSigning cannot succeed on this system: UEFI Secure Boot is ON.
+```
+
+`-Force` overrides it and says so. I02 will still refuse the BCD write, which
+is correct: `-Force` expresses that the operator knows, not that firmware will
+comply.
+
+### 40.4 The banner now says which mode ran
+
+```
+ CleanWorkRoot   : True
+ Force           : False
+ SkipNonCosigned : True
+ UseTestSigning  : False
+```
+
+Read these first when interpreting any transcript. The same phase list
+produces an empty plan or a full one depending on `SkipNonCosigned`, and a
+transcript without that line cannot be interpreted after the fact.
+
+### 40.5 What should no longer appear
+
+Two `Get-WinEvent` terminating errors used to print before the first phase on
+every run of every script, because bugcheck event 1001 and Kernel-Power 41
+return nothing on a machine that has not crashed. They should be gone. Their
+absence is not a loss of coverage: `crash-evidence.json` still records the
+counts, and a real query failure still lands in its `QueryError` field.
+
+If they reappear, the probe has been reverted to `-ErrorAction Stop`
+somewhere — the JSON will still be correct, which is exactly why this needs
+watching in the transcript rather than in the evidence.

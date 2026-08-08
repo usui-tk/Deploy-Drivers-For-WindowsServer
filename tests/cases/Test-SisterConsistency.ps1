@@ -268,6 +268,98 @@ foreach ($script in $sisters) {
         Assert-True ('{0}: P05 emits {1}' -f $leaf, $column) ($keyList -contains $column)
     }
 }
+
+Write-TestSection 'Every phase that changes the machine sits behind the gate'
+# The same defect has now been found three times: P08/P09, then V01/V04, then
+# I02/I03. Each round taught the phases someone had thought of, and each round
+# the next omission stayed invisible until a machine found it. This asserts
+# the property directly - a phase that mutates persistent state must consult
+# the gate - rather than re-listing the phases that were known at the time.
+$mutatingPhases = @(
+    @{ Function = 'Invoke-InstPhase01_TrustCertificate';       Phase = 'I01' },
+    @{ Function = 'Invoke-InstPhase02_AuthorizeDriverSigning'; Phase = 'I02' },
+    @{ Function = 'Invoke-InstPhase03_InstallDrivers';         Phase = 'I03' }
+)
+foreach ($script in $trimmers) {
+    $leaf = Split-Path -Leaf $script
+    $tok = $null; $perr = $null
+    $sast = [System.Management.Automation.Language.Parser]::ParseFile(
+        (Resolve-Path $script).Path, [ref]$tok, [ref]$perr)
+    $lines = Get-Content -LiteralPath $script
+    foreach ($entry in $mutatingPhases) {
+        $fn = $sast.FindAll({ param($n)
+            $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true) |
+            Where-Object { $_.Name -eq $entry.Function } | Select-Object -First 1
+        Assert-True ('{0}: {1} exists' -f $leaf, $entry.Phase) ($null -ne $fn)
+        if ($null -eq $fn) { continue }
+        $body = ($lines[($fn.Extent.StartLineNumber - 1)..($fn.Extent.EndLineNumber - 1)]) -join "`n"
+        Assert-True ('{0}: {1} consults the mutating-phase gate' -f $leaf, $entry.Phase) `
+            ($body.Contains('Test-MutatingPhaseAdmissible'))
+    }
+}
+
+Write-TestSection 'A refusal returns instead of printing and carrying on'
+# The I02 short-circuit refusal used to print its verdict and fall through to
+# path selection, so a plan the script had just declared unfit to judge went
+# on to be authorized. With Secure Boot off that would have written the BCD
+# testsigning flag. The only thing that stopped it on the host where this
+# surfaced was an unrelated Path B prerequisite check that happened to sit in
+# front of the write.
+foreach ($script in $trimmers) {
+    $leaf = Split-Path -Leaf $script
+    $text = Get-Content -LiteralPath $script -Raw
+    $marker = 'I02 short-circuit REFUSED'
+    Assert-True ('{0}: the refusal branch exists' -f $leaf) ($text.Contains($marker))
+    $idx = $text.IndexOf($marker)
+    if ($idx -lt 0) { continue }
+    # The branch must close itself. Look only at the branch, not the phase.
+    $window = $text.Substring($idx, [Math]::Min(1800, $text.Length - $idx))
+    Assert-Pattern ('{0}: the refusal closes the phase as skipped' -f $leaf) `
+        "Write-PhaseFooter 'I02' 'skipped'" $window
+    Assert-Pattern ('{0}: and returns rather than falling through' -f $leaf) 'return' $window
+}
+
+Write-TestSection 'The banner states the switches that decide the outcome'
+# A transcript that does not say whether -SkipNonCosignedDrivers was passed
+# cannot be interpreted afterwards: the same phase list produces an empty plan
+# or a full one depending on it. This cost a diagnosis session already.
+foreach ($script in $pathA) {
+    $leaf = Split-Path -Leaf $script
+    $text = Get-Content -LiteralPath $script -Raw
+    Assert-Pattern ('{0}: the banner reports UseTestSigning' -f $leaf) `
+        "UseTestSigning  : \{0\}" $text
+}
+foreach ($script in $trimmers) {
+    $leaf = Split-Path -Leaf $script
+    $text = Get-Content -LiteralPath $script -Raw
+    Assert-Pattern ('{0}: the banner reports SkipNonCosigned' -f $leaf) `
+        "SkipNonCosigned : \{0\}" $text
+}
+
+Write-TestSection 'Contradictory parameters are settled before any phase runs'
+. (Get-ScriptFunctionBlock -Path ($sisters | Where-Object { $_ -match "Chipset" } | Select-Object -First 1) -Name @('Test-StartupParameterCoherence'))
+Assert-True 'without -UseTestSigning there is nothing to settle' `
+    (Test-StartupParameterCoherence -UseTestSigning $false -ForcePresent $false)
+# Off Windows, Confirm-SecureBootUEFI does not exist, so the state is unknown
+# and the run must not be blocked on a guess.
+Assert-True 'an unknowable Secure Boot state does not block the run' `
+    (Test-StartupParameterCoherence -UseTestSigning $true -ForcePresent $false)
+
+Write-TestSection 'An Install run that changed nothing says so'
+. (Get-ScriptFunctionBlock -Path ($sisters | Where-Object { $_ -match "Chipset" } | Select-Object -First 1) -Name @('Test-MutatingPhaseAdmissible'))
+$degenerate = [pscustomobject]@{ DegeneratePlan = $true }
+$normal = [pscustomobject]@{ DegeneratePlan = $false }
+# Test-MutatingPhaseAdmissible reports through Write-Skip, which is a
+# canonical helper. Declaring a stub with 'function' here would present a
+# second body for that name and read as cross-file drift, so the stub is
+# installed on the function drive instead - it is a silencer for this
+# case, not a copy of the helper.
+Set-Item -Path 'function:Write-Skip' -Value { param($Msg) } -Force
+Assert-False 'a mutating phase is refused on an empty plan' `
+    (Test-MutatingPhaseAdmissible -Ctx $degenerate -PhaseId 'I02')
+Assert-True 'and admitted on a real one' `
+    (Test-MutatingPhaseAdmissible -Ctx $normal -PhaseId 'I02')
+
 $result = Get-TestResult
 Write-Host ''
 Write-Host ('{0}: {1} passed, {2} failed' -f (Split-Path -Leaf $PSCommandPath), $result.Passed, $result.Failed) `

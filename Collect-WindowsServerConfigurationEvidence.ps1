@@ -87,7 +87,7 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
-$Script:ScriptVersion  = 'collector-2026.08.09-c9'
+$Script:ScriptVersion  = 'collector-2026.08.09-c10'
 $Script:ScriptTag      = 'windows-server-configuration-evidence-collector'
 $Script:ScriptHash     = 'unavailable'
 try {
@@ -1961,8 +1961,25 @@ function Get-CrashEvidence {
         if (-not (Get-Command -Name 'Get-WinEvent' -ErrorAction SilentlyContinue)) {
             throw 'Get-WinEvent is not available on this host'
         }
+    # NO MATCHING EVENTS IS THE HEALTHY ANSWER, NOT AN ERROR.
+    # Get-WinEvent reports 'no events found' as an error record, and
+    # -ErrorAction Stop turns that into a terminating error. The enclosing
+    # try/catch handles it correctly and the JSON produced is right - but a
+    # Windows PowerShell 5.1 transcript records terminating errors even when
+    # they are caught, so every run of every script on a healthy machine
+    # printed alarming red text about a query that behaved exactly as
+    # expected. Probe instead: SilentlyContinue plus a null check, with
+    # -ErrorVariable kept because the difference between 'no events' and a
+    # real query failure carries meaning here.
+        $bugCheckErr = $null
         $raw = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-WER-SystemErrorReporting' } `
-                 -MaxEvents $MaxEvents -ErrorAction Stop)
+                 -MaxEvents $MaxEvents -ErrorAction SilentlyContinue -ErrorVariable bugCheckErr)
+        if ($null -ne $bugCheckErr -and @($bugCheckErr).Count -gt 0) {
+            $firstMessage = [string]@($bugCheckErr)[0]
+            if ($firstMessage -notmatch 'No events were found') {
+                $result.QueryError = (($result.QueryError + ' ') + ('BugCheck event query: {0}' -f $firstMessage)).Trim()
+            }
+        }
         foreach ($e in $raw) {
             $props = @($e.Properties | ForEach-Object { [string]$_.Value })
             $events.Add([pscustomobject][ordered]@{
@@ -1990,8 +2007,11 @@ function Get-CrashEvidence {
         if (-not (Get-Command -Name 'Get-WinEvent' -ErrorAction SilentlyContinue)) {
             throw 'Get-WinEvent is not available on this host'
         }
+        # Same probe form as above: an absent event 41 means the machine has
+        # not had an unexpected shutdown, which is the good outcome.
+        $kernelPowerErr = $null
         $kp = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-Kernel-Power'; Id = 41 } `
-                -MaxEvents $MaxEvents -ErrorAction Stop)
+                -MaxEvents $MaxEvents -ErrorAction SilentlyContinue -ErrorVariable kernelPowerErr)
         $result.UnexpectedShutdownCount = $kp.Count
     }
     catch {
@@ -2461,10 +2481,11 @@ function Get-CodeIntegrityEventEvidence {
     $records = New-Object 'System.Collections.Generic.List[object]'
     $queryError = $null
     try {
+    $ciEventErr = $null
         $events = @(Get-WinEvent -FilterHashtable @{
             LogName = 'Microsoft-Windows-CodeIntegrity/Operational'
             Id = @(3076, 3077, 3089, 3091)
-        } -MaxEvents $MaxEvents -ErrorAction Stop)
+        } -MaxEvents $MaxEvents -ErrorAction SilentlyContinue -ErrorVariable ciEventErr)
         foreach ($event in $events) {
             $records.Add([pscustomobject][ordered]@{
                 TimeCreatedUtc = $event.TimeCreated.ToUniversalTime().ToString('o')
@@ -2475,9 +2496,15 @@ function Get-CodeIntegrityEventEvidence {
         }
     }
     catch {
-        # NoMatchingEventsFound surfaces as an exception; that is a normal,
-        # healthy state and is recorded as zero events with the message.
         $queryError = $_.Exception.Message
+    }
+    if ($null -ne $ciEventErr -and @($ciEventErr).Count -gt 0) {
+        # An absent CodeIntegrity/Operational log and an empty one are both
+        # normal; only anything else is worth recording.
+        $ciFirst = [string]@($ciEventErr)[0]
+        if ($ciFirst -notmatch 'No events were found' -and $ciFirst -notmatch 'There is not an event log') {
+            $queryError = $ciFirst
+        }
     }
 
     $blockEventCount = @($records | Where-Object { $_.Id -eq 3077 }).Count

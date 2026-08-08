@@ -20,6 +20,118 @@ independently.
 
 ---
 
+## [2026-08-09] `gate-before-mutation` — Chipset r112 / Graphics r78 / NPU r55 / BthPan r60 / Collector c10
+
+A clean Windows Server 2019 install with Secure Boot ON. The Prepare and
+Verify sides behaved exactly as intended; I01 read the plan, found no catalogs
+and skipped; I02 ignored all of it and failed. Post-mortem: SPEC D.57.
+
+### Fixed — a refusal that printed its verdict and then carried on
+
+I02 asks whether the install plan was fully examined and, when it was not,
+says `--- I02 short-circuit REFUSED: install plan was not fully examined ---`.
+It then fell through to path selection. A plan the script had just declared
+unfit to judge went on to be authorized.
+
+On this host the run stopped at the Path B prerequisite — but that check is
+about Secure Boot, not about the plan. **Had Secure Boot been OFF, I02 would
+have written the BCD testsigning flag and asked for a reboot, for an install
+plan containing nothing.** The machine was saved by an unrelated guard that
+happened to sit in front of the write. The branch now closes the phase as
+`skipped` and returns.
+
+### Added — a gate in front of the mutation, replacing a list of phases
+
+`$Ctx.DegeneratePlan` was consulted in P08, P09, V01 and V04 — and in no
+Install phase. That is the same defect for the third time: P08/P09 were taught
+first, then V01/V04, then I01/I02/I03, each round adding the phases someone
+had thought of. The test added last round asserted a table of phase names, so
+it asserted the exact scope of the thinking that produced it and could never
+have found a phase missing from its own list. Adding three more names would
+have been round four.
+
+The rule, stated so it does not also forbid I00's read-only review: **a phase
+that changes persistent state must not change anything until every knowable
+precondition has been evaluated.** Reaching read-only logic is not the
+problem; performing the mutation is.
+
+- **Layer 1** — `Test-StartupParameterCoherence`, before any phase.
+  `-UseTestSigning` on a Secure Boot host cannot succeed however far the run
+  gets; finding out in I02 means I01 has already imported a certificate into
+  the machine's trust stores for a path that was never open. `-Force` still
+  overrides and says so.
+- **Layer 2** — `Test-MutatingPhaseAdmissible`, one function consulted by
+  every phase that changes persistent state: certificate stores (I01), BCD or
+  Code Integrity policy (I02), driver store (I03). A phase added later sits
+  behind it by construction.
+- **Layer 3** — the gate is called from inside each phase, not from the
+  dispatch loop, because `-OnlyPhases I02` bypasses the sequence — and I00's
+  own guidance recommends exactly that invocation.
+
+### Added — an Install run that changes nothing says so
+
+Skipping every mutating phase with no failures reads as success. The run now
+closes with what was not done and why: nothing installed, no certificate
+imported, no BCD flag set, no policy deployed, no driver staged, plus the
+three options. This matters for re-runnability — testsigning, trust-store
+imports and driver-store registrations all survive a reboot, so a mutation
+applied for an empty plan changes the machine under test and the recovery is a
+clean install.
+
+### Fixed — every run printed two errors that were not errors
+
+On a healthy machine every run of every script emitted this twice before the
+first phase:
+
+```
+PS>終了エラー(Get-WinEvent): ... 指定した選択条件に一致するイベントが見つかりませんでした。
+```
+
+The source is the collector, invoked by the sisters for pre/post evidence.
+Bugcheck event 1001 and Kernel-Power 41 return nothing on a machine that has
+not crashed — the good outcome. `Get-WinEvent` reports that as an error record
+and `-ErrorAction Stop` promotes it to terminating.
+
+The code was already correct: the `try`/`catch` handled it and the JSON was
+right. **But a Windows PowerShell 5.1 transcript records terminating errors
+even when caught**, so a correct handler produced alarming red text on every
+run. Now uses this repository's documented probe pattern —
+`-ErrorAction SilentlyContinue` with a null check, keeping `-ErrorVariable`
+because "no events" and a real query failure differ in meaning. Three call
+sites.
+
+### Fixed — the banner omitted the switches that decide the outcome
+
+`CleanWorkRoot` and `Force` were reported; `-SkipNonCosignedDrivers` and
+`-UseTestSigning` were not. Those two decide whether the plan is full or empty
+and which authorization path is attempted. Diagnosing this very run, their
+absence led to reading a correct trim as a serious defect. Both are now on the
+banner.
+
+### Verification
+
+`psa.py` 0 errors / 0 warnings / 0 info across fifteen PowerShell files;
+`Parser::ParseFile` 0 errors; **test suite 8 cases, 428 assertions** (measured,
+PowerShell 7.4.6 Core on Linux); canonical drift scanner 125 records,
+121 `match` + 4 `forked-frozen`, zero differences.
+
+**Negative control**: the new assertions failed fifteen times against the tree
+that produced the field failure — naming I01/I02/I03 in Chipset and Graphics,
+the refusal branch in both, and the missing banner switches in all three.
+**Executed, not only parsed**: the gate through both plan states for all three
+mutating phases, the closing statement through both, and the startup check
+with and without the switch. No vendored canon region was touched.
+
+### Still open
+
+`Analysed 0 INF(s); 4 plan record(s)` does not match what P05 and P06 produced
+in the same workspace (55 analysed, 7 trimmed). The persisted plan and
+analysis JSON would settle it and are **not in the run-artifact archive**, so
+the state that decides Install behaviour cannot be reconstructed from the
+evidence bundle. Recorded in SPEC D.57.10 as the next thing to close.
+
+---
+
 ## [2026-08-09] `wdf-observed-vs-documented` — Chipset r111 / Graphics r77 / NPU r54 / BthPan r59 / Collector c9
 
 The previous release stopped reading the host UMDF version because no binary

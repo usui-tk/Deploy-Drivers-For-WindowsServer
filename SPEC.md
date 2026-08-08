@@ -7687,6 +7687,199 @@ Chipset r111 / Graphics r77 / NPU r54 / BthPan r59 / collector c9. Eight WDF
 helpers are byte-identical across the four sisters and asserted so by
 `Test-SisterConsistency`.
 
+## D.57 A gate in front of the mutation, not a list of phases to remember
+
+### D.57.1 The run
+
+A clean Windows Server 2019 install, Secure Boot ON, the chipset script run
+with `-Action PrepareVerify -SkipNonCosignedDrivers` and then `-Action
+Install`. The Prepare and Verify sides behaved exactly as D.55 intended: P06
+found no WHQL co-signature on any in-scope INF, closed `skipped`, and P08,
+P09, V01 and V04 all respected that. V02 through V06 ran to completion.
+
+Then I01 read the plan, found no catalogs, and skipped — stating that
+certificate trust import "is not required". And I02, one phase later, ignored
+all of it and failed:
+
+```
+PHASE I01  -> SKIPPED     ...the plan contains no catalogs
+PHASE I02  -> FAILED      I02: Path B prerequisite not met (reason=secure-boot-on)
+```
+
+### D.57.2 The failure was not the failure
+
+I02 aborting on a Secure Boot host is correct: firmware refuses the BCD
+testsigning write, and refusing before invoking `bcdedit` is the right
+behaviour. What matters is why I02 was evaluating boot-signing paths at all
+for a plan with nothing in it.
+
+Reading the refusal branch answers it. I02 opens by asking whether the plan
+was fully examined, and when it was not it says so:
+
+```
+[!] --- I02 short-circuit REFUSED: install plan was not fully examined ---
+    Analysed 0 INF(s); 4 plan record(s) have no WHQL co-signature verdict.
+    A plan that was never fully examined cannot be declared Secure-Boot-safe.
+```
+
+**And then continued.** The branch printed and fell through to path selection.
+A plan the script had just declared unfit to judge went on to be authorized.
+On this host the run stopped at the Path B prerequisite — but that check is
+about Secure Boot, not about the plan. **Had Secure Boot been OFF, I02 would
+have written the BCD testsigning flag and asked for a reboot, for an install
+plan containing nothing.** The machine was saved by an unrelated guard that
+happened to sit in front of the write.
+
+A refusal that carries on is not a refusal. That is the defect, and it is
+independent of the plan-awareness one below.
+
+### D.57.3 The fourth repetition
+
+`$Ctx.DegeneratePlan` was consulted, at the time of the run, in P08, P09, V01
+and V04 — and in no Install phase at all.
+
+| Round | Phases taught | The guard list at the time |
+|---|---|---|
+| 1 | P08, P09 | (created with the degenerate path) |
+| 2 | V01, V04 | Prepare only |
+| 3 | **I01, I02, I03** | Prepare and Verify |
+
+Each round added the phases someone had thought of, and each round the next
+omission was invisible until a machine found it. The test added in round 2
+asserted a table of phase names, so it asserted the exact scope of the
+thinking that produced it and could never have found a phase missing from its
+own list.
+
+Adding I01–I03 to that table would have been round three of the same mistake.
+
+### D.57.4 Three layers, ordered by how early the answer is knowable
+
+The operator's framing was the right one: the problem is not that a phase
+failed, it is that execution reached a system-changing code path in a state
+where it had no business being there. Restated precisely, because taken
+literally it would also forbid I00's read-only review, which is where the
+operator learns why a path is closed:
+
+> **A phase that changes persistent state must not change anything until every
+> precondition that is knowable has been evaluated.** Reaching read-only logic
+> is not the problem; performing the mutation is.
+
+**Layer 1 — parameter coherence, before any phase.**
+`Test-StartupParameterCoherence` settles contradictions the environment alone
+decides. `-UseTestSigning` on a Secure Boot host is the case it exists for:
+firmware will refuse the write regardless of how far the run gets, so
+discovering it in I02 means I01 has already imported a certificate into the
+machine's trust stores in service of a path that was never open. `-Force`
+still overrides, and says so.
+
+**Layer 2 — `Test-MutatingPhaseAdmissible`, in front of the mutation.**
+One function, consulted by every phase that changes persistent state: the
+certificate stores (I01), the BCD or a Code Integrity policy (I02), the driver
+store (I03). A phase added later is placed behind the gate by construction,
+which is the property a list of names does not have.
+
+**Layer 3 — the per-phase call.** The gate is called from inside each phase
+rather than from the dispatch loop, because `-OnlyPhases I02` bypasses the
+sequence entirely — and I00's own guidance text recommends exactly that
+invocation. A gate that only guarded the normal ordering would be absent from
+the one path the documentation tells operators to use.
+
+### D.57.5 What an Install run that changes nothing now says
+
+Per the ruling on this behaviour: an Install action that skipped every
+mutating phase and failed nothing reads as success, and the operator is owed
+the reason. `Write-EmptyPlanInstallOutcome` states it — nothing installed,
+nothing changed, no certificate imported, no BCD flag set, no policy deployed,
+no driver staged — and repeats the three options, so re-running is a decision
+rather than a hope.
+
+This also matters for re-runnability. `testsigning`, trust-store imports and
+driver-store registrations all survive a reboot. A mutation applied in service
+of an empty plan does not merely waste a run; it changes the machine under
+test, and the recovery is a clean install. The asymmetry between not changing
+and changing-then-reverting is what justifies paying for the gate.
+
+### D.57.6 Every run printed two errors that were not errors
+
+Independent of the above, every run of every script on a healthy machine
+emitted this twice, before the first phase:
+
+```
+PS>終了エラー(Get-WinEvent): ... 指定した選択条件に一致するイベントが見つかりませんでした。
+```
+
+The source is the collector, which the sisters invoke for pre- and post-run
+evidence, so its output lands in their transcripts. Two queries — bugcheck
+event 1001 and Kernel-Power 41 — return nothing on a machine that has not
+crashed, which is the good outcome. `Get-WinEvent` reports "no events found"
+as an error record and `-ErrorAction Stop` promotes it to a terminating error.
+
+The code was already correct: the enclosing `try`/`catch` handled it and the
+JSON produced was right, with a comment saying no matching events is the
+common case. **But a Windows PowerShell 5.1 transcript records terminating
+errors even when they are caught**, so a correct handler still produced
+alarming red text on every run, and an operator reading the transcript counted
+it among the failures.
+
+The fix is this repository's own documented probe pattern:
+`-ErrorAction SilentlyContinue` with a null check, keeping `-ErrorVariable`
+because the difference between "no events" and a real query failure carries
+meaning. Three call sites, including the CodeIntegrity/Operational query where
+an absent log is equally normal.
+
+### D.57.7 A transcript that could not be interpreted
+
+The banner reported `CleanWorkRoot` and `Force` and **not**
+`-SkipNonCosignedDrivers` or `-UseTestSigning`. Those two decide whether the
+plan is full or empty and which authorization path is attempted; the same
+phase list produces entirely different runs depending on them.
+
+This is not theoretical. Diagnosing the run above, the absence of the switch
+from the banner led to reading a correct trim as a serious defect, and the
+misreading was only caught by checking the script for whether the banner
+prints it at all. Both switches are now on the banner.
+
+### D.57.8 Verification
+
+`psa.py` 0 errors / 0 warnings / 0 info across fifteen PowerShell files;
+`Parser::ParseFile` 0 errors; test suite **8 cases, 428 assertions** measured
+on PowerShell 7.4.6 (Core) on Linux; canon integrity per A.11.8a — 125 dd
+observation records, 121 `match` + 4 `forked-frozen`, zero differences.
+
+**Negative control**: the new assertions were run against the tree that
+produced the field failure and failed fifteen times, naming I01, I02 and I03
+in Chipset and Graphics, the refusal branch in both, and the missing banner
+switches in all three.
+
+**Executed, not only parsed**: the gate was run through both plan states for
+all three mutating phases, the closing statement through both (it must stay
+silent on a real plan), and the startup check with and without the switch.
+
+Two findings during this work were self-inflicted and caught by the gates: an
+`-ErrorVariable` used without being declared (PSA2001), and a `Write-Skip`
+stub in the test that presented a second body for a canonical helper name and
+read as cross-file drift (PSA8001). The stub is now installed on the function
+drive rather than declared, which is what it is — a silencer for one call, not
+a copy of the helper.
+
+### D.57.9 Sister impact
+
+Chipset r112 / Graphics r78 / NPU r55 / BthPan r60 / collector c10.
+
+The three gate helpers are byte-identical in all four sisters. The per-phase
+calls and the banner switch for `-SkipNonCosignedDrivers` go to Chipset,
+Graphics and BthPan, which have that parameter and share the phase bodies; NPU
+has neither the parameter nor a degenerate path, and receives the helpers and
+the layer 1 check only.
+
+### D.57.10 Still open
+
+`Analysed 0 INF(s); 4 plan record(s)` does not match what P05 and P06
+produced in the same workspace — 55 analysed, 7 trimmed. The persisted plan
+and analysis JSON would settle it and **are not in the run-artifact archive**,
+so the state that decides Install behaviour cannot be reconstructed from the
+evidence bundle. That gap is recorded here and is the next thing to close.
+
 ## Appendix: How to seed a new sister script from this SPEC
 
 If you are creating a 5th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1`):

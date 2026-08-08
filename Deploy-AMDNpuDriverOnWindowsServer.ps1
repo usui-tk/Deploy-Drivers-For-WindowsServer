@@ -340,8 +340,8 @@ param(
 #   * PhaseResults - per-phase outcome registry (write side from
 #     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.08.09-r54'
-$Script:ScriptTag           = 'wdf-observed-vs-documented'
+$Script:ScriptVersion       = 'npu-2026.08.09-r55'
+$Script:ScriptTag           = 'gate-before-mutation'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the
@@ -6053,6 +6053,138 @@ function Show-WdfShortfallNotice {
         Write-Host ('   NOT JUDGED : {0} INF(s) declare a KMDF requirement that was not compared.' -f $Summary.UnjudgedKmdfCount) -ForegroundColor DarkYellow
     }
 }
+function Test-MutatingPhaseAdmissible {
+    # The single gate in front of every phase that changes this machine.
+    #
+    # WHY THIS IS ONE FUNCTION AND NOT A CHECKLIST. The same defect has now
+    # been found three times: a degenerate plan was handled in P06, and then
+    # P08/P09 had to be taught about it, and then V01/V04, and then I02/I03.
+    # Every round added the phases someone had thought of at the time, and
+    # every round the next omission was invisible until a machine found it.
+    # A gate that new phases are placed BEHIND cannot be forgotten by the
+    # person adding the phase, which is the only property that has actually
+    # held up.
+    #
+    # WHAT COUNTS AS MUTATING. Anything that survives the process: the
+    # certificate stores (I01), the BCD or a Code Integrity policy (I02), the
+    # driver store (I03). Reading and reporting is not mutating - I00's
+    # review is where the operator learns why a path is closed, and it runs
+    # regardless.
+    #
+    # Returns $true when the phase may proceed. When it returns $false the
+    # caller closes the phase as 'skipped' and touches nothing.
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory = $true)] $Ctx,
+        [Parameter(Mandatory = $true)] [ValidateNotNullOrEmpty()] [string]$PhaseId
+    )
+
+    if ($Ctx.DegeneratePlan) {
+        Write-Skip ('{0}: the install plan is empty - nothing to change on this system (see P06).' -f $PhaseId)
+        return $false
+    }
+    return $true
+}
+
+function Write-EmptyPlanInstallOutcome {
+    # Closing statement for an Install run that changed nothing.
+    #
+    # An Install action that ends with every mutating phase skipped and no
+    # failures reads as success, and the operator is entitled to ask what was
+    # installed. The answer is nothing, for a reason that is a property of
+    # the driver package rather than of this run, so it is stated rather than
+    # left to be inferred from an absence of output.
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter()] $Ctx
+    )
+    if ($null -eq $Ctx -or -not $Ctx.DegeneratePlan) { return }
+    Write-Host ''
+    Write-Host ' +----------------------------------------------------------------------+' -ForegroundColor Yellow
+    Write-Host ' |  NOTHING WAS INSTALLED, AND NOTHING ON THIS SYSTEM WAS CHANGED       |' -ForegroundColor Yellow
+    Write-Host ' +----------------------------------------------------------------------+' -ForegroundColor Yellow
+    Write-Host '   The install plan is empty: no in-scope INF in this driver package'
+    Write-Host '   carries a Microsoft Windows Hardware Compatibility co-signature on'
+    Write-Host '   every kernel binary it references, so -SkipNonCosignedDrivers left'
+    Write-Host '   nothing for this pipeline to catalog, sign or install.'
+    Write-Host ''
+    Write-Host '   No certificate was imported. No BCD flag was set. No Code Integrity'
+    Write-Host '   policy was deployed. No driver was staged. The machine is in the'
+    Write-Host '   state it was in before this run, and re-running changes nothing on'
+    Write-Host '   its own.'
+    Write-Host ''
+    Write-Host '   This is a measurement of the driver package, not a script failure.'
+    Write-Host '   The options, in the order this project recommends them:'
+    Write-Host '     1. Obtain these devices'' drivers from the vendor or Windows Update.'
+    Write-Host '        Microsoft-signed drivers load with Secure Boot ON and need no'
+    Write-Host '        policy change at all.'
+    Write-Host '     2. Re-run WITHOUT -SkipNonCosignedDrivers and accept Path B, which'
+    Write-Host '        requires disabling Secure Boot in firmware.'
+    Write-Host '     3. Leave the affected devices unbound.'
+    Write-Host ''
+}
+
+function Test-StartupParameterCoherence {
+    # Contradictions that the environment alone settles, checked before any
+    # phase runs.
+    #
+    # -UseTestSigning on a Secure Boot host is the case this exists for.
+    # Firmware refuses the BCD write, so the request cannot succeed however
+    # far the run gets; finding that out in I02, after I01 has already
+    # imported a certificate into the machine's trust stores, means a
+    # persistent change was made in service of a path that was never
+    # available. Answering it at startup costs nothing and leaves the machine
+    # untouched.
+    #
+    # -Force is honoured: an operator who states they know is allowed to
+    # proceed, and the run says so rather than silently obeying.
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter()] [bool]$UseTestSigning = $false,
+        [Parameter()] [bool]$ForcePresent = $false
+    )
+
+    if (-not $UseTestSigning) { return $true }
+
+    $secureBootOn = $false
+    $secureBootKnown = $false
+    try {
+        $cmd = Get-Command -Name 'Confirm-SecureBootUEFI' -ErrorAction SilentlyContinue
+        if ($null -ne $cmd) {
+            $value = Confirm-SecureBootUEFI -ErrorAction SilentlyContinue
+            if ($null -ne $value) {
+                $secureBootOn = [bool]$value
+                $secureBootKnown = $true
+            }
+        }
+    }
+    catch {
+        # A BIOS host throws here rather than answering false; either way the
+        # state is not known and the run is not blocked on a guess.
+        $secureBootKnown = $false
+    }
+
+    if (-not $secureBootKnown -or -not $secureBootOn) { return $true }
+
+    Write-Host ''
+    Write-Caution '-UseTestSigning cannot succeed on this system: UEFI Secure Boot is ON.'
+    Write-Host '   Firmware refuses the BCD testsigning write while Secure Boot is enabled,'
+    Write-Host '   so the requested path is closed before any phase runs. Stopping here'
+    Write-Host '   leaves the certificate stores, the BCD and the driver store untouched.'
+    Write-Host ''
+    Write-Host '   To use Path B: disable Secure Boot in firmware setup, then re-run.'
+    Write-Host '   To keep Secure Boot ON: drop -UseTestSigning and use Path A with'
+    Write-Host '   -SkipNonCosignedDrivers, which installs only WHQL co-signed drivers.'
+    Write-Host ''
+    if ($ForcePresent) {
+        Write-Caution '-Force was passed: continuing anyway. I02 will still refuse the BCD write.'
+        return $true
+    }
+    return $false
+}
 
 function Add-ProductType3Decoration {
     <#
@@ -8328,6 +8460,10 @@ function Show-RunSummary {
     Write-Host ($fmt -f ('-' * 4), ('-' * 5), ('-' * 28), ('-' * 6), ('-' * 10)) -ForegroundColor DarkGray
     Write-Host ($fmt -f '', '', 'Sum of executed phases', '', (Format-Elapsed ([TimeSpan]::FromSeconds($sumSeconds)))) -ForegroundColor White
     Write-InstallReadinessDigest
+    # Ruling B: an Install run that skipped every mutating phase must say
+    # so. No failures plus no output reads as success, and the operator is
+    # owed the reason nothing happened.
+    if ($null -ne $Ctx) { Write-EmptyPlanInstallOutcome -Ctx $Ctx }
     Write-Host ('=' * 72) -ForegroundColor Magenta
     Write-Host ''
 }
@@ -8583,6 +8719,15 @@ function Invoke-MainEntryPoint {
 # Top-level dispatch with try/finally for guaranteed run summary
 # =============================================================================
 $Script:TopLevelException = $null
+
+# ----- Layer 1: contradictions the environment alone settles -----
+# Checked before any phase, so a request that cannot succeed costs the
+# machine nothing. Reaching I02 to discover this would mean I01 had already
+# written to the certificate stores for a path that was never open.
+if (-not (Test-StartupParameterCoherence -UseTestSigning $UseTestSigning.IsPresent -ForcePresent $Force.IsPresent)) {
+    exit 1
+}
+
 try {
     # Configuration evidence, stage 'pre' (default ON;
     # -SkipEvidenceCollection opts out) - runs before dispatch so the
