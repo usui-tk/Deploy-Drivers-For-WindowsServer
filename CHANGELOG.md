@@ -6464,7 +6464,15 @@ test scenarios live in [TESTING §16](./TESTING.md#16-r74--r40--r22-release-vali
 
 ---
 
-## [Unreleased]
+## [2026-05-23] `psa8001-exception-and-inf-helper-rename` — documentation and configuration only (no ScriptVersion bump)
+
+> Heading supplied after the fact. This entry stood as `## [Unreleased]` and
+> was overtaken by five later releases without ever being folded in, which is
+> also why nobody found it: `[Unreleased]` is looked for at the top of the
+> file, not in the middle. Its content shipped on 2026-05-23 in commit
+> `67fc09a`, which changed `.psa.config.json`, `SPEC.md` and this file and no
+> PowerShell script - hence no revision bump. The body below is unchanged;
+> only this heading and note are new.
 
 ### Changed
 
