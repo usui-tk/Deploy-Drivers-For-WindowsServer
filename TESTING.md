@@ -3080,3 +3080,60 @@ Test suite **5 cases, 200 assertions**, all passing. **Negative control**: again
 ### Still unverified
 
 **The offline branch has never executed against a genuinely offline volume.** The script has now run twice on a booted host — once revealing the D.49 parser fault, once revealing this — and both modes are structurally validated, but WinRE remains untested. Drive letters differ there and some volumes are read-only.
+
+## 34. Validation Scenario 34: 2026-08-08 third execution on a booted host (r105) — the mode split works, stage 12 aborts
+
+**Fixture**: same Windows Server 2016 host, booted normally. Script generation r105, run from `C:\` with no arguments.
+
+### What worked — everything the mode split was built for
+
+```
+  Collection mode : online
+[ 6/13] Registry hives...
+  using reg save (hives are locked on a running system)
+[ 7/13] Registry queries...
+  querying the live registry (no hive load needed)
+  CrashControl:
+    AutoReboot    REG_DWORD    0x1
+    CrashDumpEnabled    REG_DWORD    0x7
+  enumerating boot-start drivers...
+```
+
+| Check from §33 | Result |
+|---|---|
+| Banner reads `Collection mode : online` | **yes** |
+| `CrashDumpEnabled` shown on the console | **yes — `0x7`, automatic memory dump** |
+| Hives taken via `reg save` | yes |
+| Live registry queried without `reg load` | yes |
+| Boot-start driver enumeration ran | yes — impossible in r104 |
+
+**`CrashDumpEnabled = 0x7` answers the question that motivated running this before the reboot: a dump will be written if this host bugchecks.** `AutoReboot = 0x1` means it will restart on its own afterwards.
+
+### What failed
+
+Stages 1-11 completed; stage 12 aborted the script:
+
+```
+[12/13] Kernel dump and page file (size-checked)...
+  MEMORY.DMP: not present
+バッチ パラメーターの置き換えで、パス演算子の次の使用法は無効です:
+%~z reports 0 for a file the kernel holds open - pagefile.sys on a running
+```
+
+Inside a `CALL`ed subroutine cmd.exe resolves argument modifiers **before** deciding a line is a comment, and a bare `%~z` is not a valid modifier. The offending line was the r105 comment explaining why a file's reported size cannot be trusted — **the comment about the modifier contained the modifier**. `MEMORY.DMP` was handled first and its `if not exist` branch jumped past the line; `pagefile.sys` exists, so its call reached it. Full analysis: SPEC §D.51.
+
+### r106 verification
+
+- Test suite **5 cases, 204 assertions**, all passing. New guard scans the subroutine section for any `%~` not followed by a digit, plus a companion assertion that the legitimate `FOR`-variable form (`%%~zf`) survived the edit.
+- **Negative control**: against r105 the case reports exactly one failure — the bare modifier.
+- Static: `psa.py` 0/0/0 across twelve files; `Parser::ParseFile` 0 errors × 5; canon integrity — 125 records, zero differences.
+
+### Outstanding
+
+1. **Re-run and confirm stages 12 and 13 complete.** `pagefile.sys` is expected to report `size not reportable` and then fail the copy — it is held open on a running system. That is the correct outcome; the point is that the script continues to stage 13 and writes the summary rather than aborting.
+2. **Check `Get-Packages.txt`.** Stage 9 ran in this session but the output has not been reviewed — `dism /online` should now produce a real table, and KB4589210's state is in it.
+3. `registry\SYSTEM` and `registry\SOFTWARE` should exist via `reg save`, and `registry\boot-start-drivers.txt` should be populated.
+
+### Note on the pattern
+
+This is the fourth defect in this file found only by running it, and the third caused by cmd.exe parsing a line differently from how it reads (SPEC §D.51.4). Each was well-formed by every property the suite checked at the time. The response in each case has been to forbid the construct by shape rather than to rely on remembering the rule.

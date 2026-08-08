@@ -20,6 +20,98 @@ independently.
 
 ---
 
+## [2026-08-08] `recovery-collector-argument-modifier-fix` — Chipset r106 / Graphics r72 / NPU r49 / BthPan r54
+
+r105's mode split worked on its first real run, and then stage 12 aborted the
+script. Post-mortem: SPEC D.51; run record: TESTING §34.
+
+### What worked
+
+```
+  Collection mode : online
+  using reg save (hives are locked on a running system)
+  querying the live registry (no hive load needed)
+  CrashControl:
+    AutoReboot    REG_DWORD    0x1
+    CrashDumpEnabled    REG_DWORD    0x7
+```
+
+Detection, the `reg save` hive path, the live-registry queries and the
+boot-start driver enumeration all behaved as designed. **`CrashDumpEnabled`
+is `0x7`** — automatic memory dump — which answers the question that motivated
+running this before a reboot: a dump *will* be written if the host bugchecks.
+
+### Fix — a comment containing the thing it described
+
+```
+[12/13] Kernel dump and page file (size-checked)...
+  MEMORY.DMP: not present
+バッチ パラメーターの置き換えで、パス演算子の次の使用法は無効です:
+%~z reports 0 for a file the kernel holds open - pagefile.sys on a running
+```
+
+Inside a `CALL`ed subroutine, cmd.exe resolves argument modifiers **before**
+it decides a line is a comment — `rem` is not exempt. A bare `%~z` is not a
+valid modifier (the form needs an argument number, `%~z1`), so the parser
+rejects it and the script stops.
+
+The line was the r105 comment explaining why a file's reported size cannot be
+trusted. **The comment about the modifier contained the modifier**, and that
+is what broke the run it was written to explain. `MEMORY.DMP` was handled
+first and its `if not exist` branch jumped past the line; `pagefile.sys`
+exists, so its call reached it.
+
+Two forms remain legitimate and neither was affected: `%~z1` with its
+argument number, and `%%~zf` as a `FOR` variable modifier — which is what the
+size lookup one line below actually uses.
+
+The comment is reworded to describe the modifier without spelling it as a
+percent sequence, and says why. A regression guard scans the subroutine
+section for any `%~` not followed by a digit, with a companion assertion that
+the `FOR`-variable form survived the edit rather than being removed alongside
+the comment. The scan is scoped to subroutines: the main body's `%~nx0` in
+two operator-facing messages is correct, because the restriction applies
+where cmd.exe is resolving `CALL` arguments.
+
+### Pattern
+
+This is the fourth defect in this file found only by running it, and the
+third caused by cmd.exe parsing a line differently from how it reads:
+
+| | Fault | Read as |
+|---|---|---|
+| D.49 | `)` inside a label expanded into an `if` block | block closed early, remainder parsed as a command |
+| D.50 | offline commands applied to a running system | "in use" errors describing the attempt, not the machine |
+| D.51 | `%~z` in a `rem` line inside a subroutine | argument modifier, resolved before the comment is recognised |
+
+Each was well-formed by every property the suite checked at the time, and
+each is now forbidden by shape rather than by discipline. The suite cannot
+model cmd.exe; it can refuse the constructs that let cmd.exe surprise us.
+
+### Verification
+
+`psa.py` 0 errors / 0 warnings / 0 info across twelve PowerShell files;
+`Parser::ParseFile` 0 errors × 5; **test suite 5 cases, 204 assertions**, all
+passing; canon integrity via the central authoritative tooling per SPEC
+A.11.8a — 125 dd observation records, zero differences.
+
+**Negative control**: against r105 the case reports exactly one failure, the
+bare modifier.
+
+### Known limitations
+
+- **Stage 12 has still never completed.** `pagefile.sys` on a running system
+  is expected to fail the copy — it is held open — but the script should now
+  report that and continue to stage 13 rather than aborting.
+- Stage 9 ran in the r105 session but `Get-Packages.txt` has not been
+  reviewed; `dism /online` should now produce a real table.
+- **The offline branch has never executed against a genuinely offline
+  volume.** Three runs, all on a booted host.
+- Apply with **`git am --keep-cr`**. The `quoted CRLF detected` and
+  `N lines add whitespace errors` warnings are expected.
+
+---
+
 ## [2026-08-08] `recovery-collector-online-offline-modes` — Chipset r105 / Graphics r71 / NPU r48 / BthPan r53
 
 `Collect-OfflineRecoveryEvidence.cmd` completed all thirteen stages on a

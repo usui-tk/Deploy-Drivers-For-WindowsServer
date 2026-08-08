@@ -455,8 +455,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-$Script:ScriptVersion = 'msbthpan-2026.08.08-r53'
-$Script:ScriptTag     = 'recovery-collector-online-offline-modes'
+$Script:ScriptVersion = 'msbthpan-2026.08.08-r54'
+$Script:ScriptTag     = 'recovery-collector-argument-modifier-fix'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls

@@ -563,11 +563,19 @@ set "SRC=%~1"
 set "DST=%~2"
 set "LABEL=%~3"
 if not exist "%SRC%" goto :copylarge_absent
-rem  %~z reports 0 for a file the kernel holds open - pagefile.sys on a running
-rem  system is the case that matters here. Reporting "0 MB" would be a lie
-rem  about the file rather than about our ability to measure it, so an
-rem  unmeasurable size is said to be unknown and the copy is attempted anyway:
-rem  the attempt is what establishes whether it can be read.
+rem  The file-size modifier returns 0 for a file the kernel holds open -
+rem  pagefile.sys on a running system is the case that matters here.
+rem  Reporting "0 MB" would be a lie about the file rather than about our
+rem  ability to measure it, so an unmeasurable size is said to be unknown and
+rem  the copy is attempted anyway: the attempt is what establishes whether it
+rem  can be read.
+rem
+rem  NOTE: this comment deliberately does not spell out the modifier as a
+rem  percent sequence. Inside a CALLed subroutine cmd.exe resolves argument
+rem  modifiers before it decides a line is a comment, so a bare modifier in a
+rem  rem line aborts the script with "the following usage of the path
+rem  operator is invalid". That is exactly how this comment broke the run it
+rem  was written to explain.
 for %%f in ("%SRC%") do set "SIZEB=%%~zf"
 set "SIZEMB=0"
 set "SIZEKNOWN=1"

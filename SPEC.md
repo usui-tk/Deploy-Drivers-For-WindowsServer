@@ -6790,6 +6790,115 @@ structurally validated, but the offline branch has never executed against a
 genuinely offline volume.
 
 
+## D.51 A comment about a modifier, containing the modifier
+
+### D.51.1 The failure
+
+r105's mode split worked on its first real run. The banner reported
+`Collection mode : online`, the live registry was queried without a hive
+load, and `CrashDumpEnabled` appeared on the console — the value the whole
+exercise was for:
+
+```
+[ 7/13] Registry queries...
+  querying the live registry (no hive load needed)
+  CrashControl:
+    AutoReboot    REG_DWORD    0x1
+    CrashDumpEnabled    REG_DWORD    0x7
+```
+
+Stages 1 to 11 completed. Stage 12 then aborted the script:
+
+```
+[12/13] Kernel dump and page file (size-checked)...
+  MEMORY.DMP: not present
+バッチ パラメーターの置き換えで、パス演算子の次の使用法は無効です:
+%~z reports 0 for a file the kernel holds open - pagefile.sys on a running
+```
+
+### D.51.2 Cause
+
+Inside a `CALL`ed subroutine, cmd.exe resolves argument modifiers **before**
+it decides a line is a comment. A `rem` line is not exempt. A bare `%~z` is
+not a valid modifier — the form requires an argument number, `%~z1` — so the
+parser rejects it and the script stops.
+
+The offending line was a comment added in r105 to explain why a file's
+reported size cannot be trusted:
+
+```
+rem  %~z reports 0 for a file the kernel holds open - pagefile.sys on a running
+```
+
+The comment explaining the modifier contained the modifier, and that is what
+broke the run it was written to explain. `MEMORY.DMP` had already been
+handled by an earlier `call :copylarge`, whose `if not exist` branch jumped
+past the comment; `pagefile.sys` exists, so its call reached the line.
+
+Two forms are legitimate and neither is affected:
+
+- `%~z1` — an argument modifier with its number.
+- `%%~zf` — a `FOR` variable modifier, which is what the size lookup one line
+  below actually uses and which still works.
+
+### D.51.3 Fix
+
+The comment is reworded to describe the modifier without spelling it as a
+percent sequence, and carries a note saying why. A regression guard in
+`Test-CollectorFrameworkAndOffline.ps1` scans the subroutine section for any
+`%~` not followed by a digit, and a companion assertion checks the
+`FOR`-variable form survived the edit rather than being removed along with
+the comment.
+
+The scan is deliberately scoped to the subroutine section. The main body uses
+`%~nx0` in two operator-facing messages, which is correct there — the
+restriction applies where cmd.exe is resolving `CALL` arguments.
+
+### D.51.4 Pattern
+
+This is the fourth defect in this file found only by running it, and the
+third caused by cmd.exe parsing a line differently from how it reads:
+
+| | Fault | Read as |
+|---|---|---|
+| D.49 | `)` inside a label expanded into an `if` block | block closed early, remainder parsed as a command |
+| D.50 | offline commands applied to a running system | "in use" errors that describe the attempt, not the machine |
+| D.51 | `%~z` in a `rem` line inside a subroutine | argument modifier, resolved before the comment is recognised |
+
+Each was well-formed by every property the test suite checked, and each is
+now forbidden by shape rather than by discipline. The suite cannot model
+cmd.exe; it can refuse the constructs that let cmd.exe surprise us.
+
+### D.51.5 What the run confirmed
+
+Everything the mode split was built for worked:
+
+- `Collection mode : online` — detection correct on a booted host.
+- `using reg save (hives are locked on a running system)` — the hive path
+  took the right branch.
+- `querying the live registry (no hive load needed)` — no `reg load`, no
+  failure.
+- **`CrashDumpEnabled = 0x7`** (automatic memory dump) and `AutoReboot = 0x1`.
+  A dump *will* be written if this host bugchecks. This was the open question
+  before the reboot and it is now answered from the machine rather than
+  assumed.
+- Boot-start driver enumeration ran, which it could not do in r104.
+
+### D.51.6 Verification
+
+`psa.py` 0 errors / 0 warnings / 0 info across twelve PowerShell files;
+`Parser::ParseFile` 0 errors across five; test suite **5 cases, 204
+assertions**, all passing; canon integrity via the central authoritative
+tooling per §A.11.8a — 125 dd observation records, zero differences.
+
+**Negative control**: run against r105 the case reports exactly one failure,
+the bare modifier.
+
+Stage 12 has still never completed. `pagefile.sys` on a running system is
+expected to fail the copy — it is held open — but the script should now
+report that and continue to stage 13 rather than aborting.
+
+
 ## Appendix: How to seed a new sister script from this SPEC
 
 If you are creating a 5th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1`):

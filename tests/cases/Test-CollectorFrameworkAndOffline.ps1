@@ -236,6 +236,29 @@ Assert-Equal 'no set assignment has a quote inside its value' 0 $quotedValues
 Assert-True 'unmeasurable file size is reported as unknown' ($text.Contains('size not reportable'))
 Assert-True 'an unmeasurable file is still attempted' ($text.Contains(':copylarge_do'))
 
+Write-TestSection 'Argument modifiers inside subroutines'
+# Inside a CALLed subroutine cmd.exe resolves argument modifiers BEFORE it
+# decides a line is a comment, so a bare modifier - even in a rem line -
+# aborts the script with "the following usage of the path operator is
+# invalid". That shipped: a comment explaining the file-size modifier
+# contained the modifier, and killed stage 12 on its first run.
+#
+# A modifier is only valid as %~<letters><digit> (an argument) or
+# %%~<letters><var> (a FOR variable). Anything else in the subroutine
+# section is a fault.
+$subDef = [regex]::Match($text, '(?m)^:copyone\s*$')
+Assert-True 'subroutine section located for modifier scan' $subDef.Success
+$subBody = $text.Substring($subDef.Index)
+$bareModifiers = @()
+foreach ($m in [regex]::Matches($subBody, '(?<!%)%~[a-zA-Z]+')) {
+    $tail = $subBody.Substring($m.Index + $m.Length, 1)
+    if ($tail -notmatch '\d') { $bareModifiers += $m.Value + $tail }
+}
+Assert-Equal 'no bare argument modifier inside a subroutine' 0 $bareModifiers.Count
+# The FOR-variable form is what the size lookup legitimately uses; assert it
+# survived the fix rather than being removed along with the comment.
+Assert-True 'the size lookup still uses the FOR-variable form' ($text -match '%%~zf')
+
 Write-TestSection 'Microsoft no-boot requirement coverage'
 # Each entry is an item Microsoft asks for when a no-boot case is reported.
 # Dropping one silently would mean an incomplete submission, discovered only
