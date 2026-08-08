@@ -804,8 +804,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'graphics-2026.08.08-r64'
-$Script:ScriptTag     = 'phase-status-and-digest-binder-fixes'
+$Script:ScriptVersion = 'graphics-2026.08.08-r65'
+$Script:ScriptTag     = 'plan-coverage-collateral-health-and-load-diagnostics'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -1488,6 +1488,107 @@ function New-RunArtifactArchive {
     return $final
 }
 
+function Get-SystemDeviceHealthCensus { # psa-disable-line PSA6003 -- "Census" is a singular collective noun; the function returns one census object
+    # Whole-system PnP problem-code census: every present device, not just
+    # the AMD ones this pipeline targets. Returned as a hashtable keyed by
+    # PNPDeviceID so two censuses can be diffed cheaply.
+    #
+    # WHY whole-system (SPEC D.43.3): pnputil /install triggers a PnP
+    # related-drivers pass that can re-enumerate devices this script never
+    # names. A census restricted to AMD devices cannot see that happen.
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    $census = @{}
+    try {
+        $devices = @(Get-CimInstance -ClassName Win32_PnPEntity -ErrorAction Stop |
+                     Where-Object { $_.Present -ne $false })
+    } catch {
+        # A census that cannot be taken is reported as empty, not raised:
+        # Write-DeviceHealthRegressionReport treats an empty side as
+        # 'check skipped' and says so. Failing an install phase over a
+        # diagnostic would be worse than losing the diagnostic.
+        Set-DebugStep ('Get-SystemDeviceHealthCensus: enumeration failed: {0}' -f $_.Exception.Message)
+        return $census
+    }
+    foreach ($d in $devices) {
+        $id = [string]$d.PNPDeviceID
+        if ([string]::IsNullOrWhiteSpace($id)) { continue }
+        $code = 0
+        if ($null -ne $d.ConfigManagerErrorCode) { $code = [int]$d.ConfigManagerErrorCode }
+        $census[$id] = [pscustomobject]@{
+            PnpDeviceId = $id
+            Name        = [string]$d.Name
+            ErrorCode   = $code
+        }
+    }
+    return $census
+}
+
+function Write-DeviceHealthRegressionReport {
+    # Diff two censuses and report devices whose problem code got worse.
+    # "Worse" means: was healthy (0) and now is not, or was already in
+    # error and changed to a different error. Devices that improved or are
+    # unchanged are not listed - this report exists to surface damage.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)] [hashtable]$Before,
+        [Parameter(Mandatory)] [hashtable]$After
+    )
+    $regressed = New-Object 'System.Collections.Generic.List[object]'
+    $appeared  = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($id in $After.Keys) {
+        $now = $After[$id]
+        if ($now.ErrorCode -eq 0) { continue }
+        if (-not $Before.ContainsKey($id)) {
+            [void]$appeared.Add($now)
+            continue
+        }
+        $was = $Before[$id]
+        if ($was.ErrorCode -ne $now.ErrorCode) {
+            [void]$regressed.Add([pscustomobject]@{
+                PnpDeviceId = $id
+                Name        = $now.Name
+                Before      = $was.ErrorCode
+                After       = $now.ErrorCode
+            })
+        }
+    }
+    if ($Before.Count -eq 0 -or $After.Count -eq 0) {
+        Write-Detail '  Device health census unavailable for one side; collateral check skipped.'
+        return [pscustomobject]@{ Checked = $false; RegressedCount = 0; AppearedCount = 0; Regressed = @() }
+    }
+    Write-SubHeader 'Collateral device health (whole system, not just this vendor)'
+    Write-Detail ('  Devices censused: {0} before / {1} after' -f $Before.Count, $After.Count)
+    if ($regressed.Count -eq 0 -and $appeared.Count -eq 0) {
+        Write-Ok '  No device outside this run''s plan changed to a worse problem state.'
+    }
+    foreach ($r in $regressed) {
+        $label = if ([string]::IsNullOrWhiteSpace($r.Name)) { '(unnamed device)' } else { $r.Name }
+        Write-Fail ('  REGRESSED: {0}' -f $label)
+        Write-Detail ('             {0}' -f $r.PnpDeviceId)
+        Write-Detail ('             problem code {0} -> {1}' -f $r.Before, $r.After)
+    }
+    foreach ($a in $appeared) {
+        $label = if ([string]::IsNullOrWhiteSpace($a.Name)) { '(unnamed device)' } else { $a.Name }
+        Write-Caution ('  NEW PROBLEM DEVICE: {0} (code {1})' -f $label, $a.ErrorCode)
+        Write-Detail  ('             {0}' -f $a.PnpDeviceId)
+    }
+    if ($regressed.Count -gt 0 -or $appeared.Count -gt 0) {
+        Write-Detail '  These devices were NOT installed by this script. A pnputil /install pass'
+        Write-Detail '  makes Windows re-evaluate unrelated devices, and a re-evaluation can fail'
+        Write-Detail '  on a host missing a component that device''s own INF requires. Collect the'
+        Write-Detail '  evidence bundle and inspect setupapi.dev.log around this run''s timestamps.'
+    }
+    return [pscustomobject]@{
+        Checked        = $true
+        RegressedCount = $regressed.Count
+        AppearedCount  = $appeared.Count
+        Regressed      = @($regressed.ToArray())
+    }
+}
+
 function Write-InstallReadinessDigest {
     # Explicit install-readiness verdict at the end of the RUN SUMMARY,
     # derived from per-phase statuses in $Script:PhaseTimings.
@@ -1547,10 +1648,41 @@ function Write-InstallReadinessDigest {
         Write-Host '       documented tool fallback, a certificate not yet trusted before' -ForegroundColor DarkYellow
         Write-Host '       I01, or a device absent on this host). A REAL failure marks its' -ForegroundColor DarkYellow
         Write-Host '       phase as failed in the timing table.' -ForegroundColor DarkYellow
+        # BOOT-SIGNING GATE (SPEC D.43.4). Phase statuses answer "did any step
+        # report failure". They do not answer "will the drivers this run
+        # staged actually load", and a digest headed 'Install readiness' is
+        # read as the second question. A field run made the gap concrete:
+        # every phase closed clean while the same run's post-install
+        # verification reported self-signed driver loading BLOCKED and four
+        # devices queued that no plain reboot would activate. The digest
+        # said READY. It now consults the boot-signing environment too, and
+        # says READY only when both agree. The probe is best-effort and its
+        # own failure is not allowed to change the verdict: an unreadable
+        # environment leaves the phase-status answer standing.
+        $bootBlocked = $false
+        $bootProbed = $false
+        try {
+            $digestBootEnv = Get-BootSigningEnvironment
+            if ($null -ne $digestBootEnv -and $digestBootEnv.PSObject.Properties['EffectiveCanLoadSelfSigned']) {
+                $bootProbed = $true
+                $bootBlocked = (-not $digestBootEnv.EffectiveCanLoadSelfSigned)
+            }
+        } catch {
+            $bootProbed = $false
+        }
         if ($failedIds.Count -gt 0) {
             Write-Host (' Install readiness : REVIEW REQUIRED - failed: {0}' -f ($failedIds -join ', ')) -ForegroundColor Red
+        } elseif ($bootProbed -and $bootBlocked) {
+            Write-Host ' Install readiness : NOT READY - no phase failed, but the boot-signing' -ForegroundColor Yellow
+            Write-Host '                     environment currently BLOCKS self-signed driver load.' -ForegroundColor Yellow
+            Write-Host '                     Drivers staged by this run will not activate on a plain' -ForegroundColor Yellow
+            Write-Host '                     reboot. See the boot-signing table above for which of' -ForegroundColor Yellow
+            Write-Host '                     Secure Boot / testsigning / WDAC has to change.' -ForegroundColor Yellow
+        } elseif (-not $bootProbed) {
+            Write-Host ' Install readiness : READY (phases) - boot-signing state could not be read,' -ForegroundColor DarkYellow
+            Write-Host '                     so driver-load capability is unconfirmed.' -ForegroundColor DarkYellow
         } else {
-            Write-Host ' Install readiness : READY - no failed phases.' -ForegroundColor Green
+            Write-Host ' Install readiness : READY - no failed phases, self-signed driver load allowed.' -ForegroundColor Green
         }
     } catch {
         # Self-locating containment (SPEC D.41): report the exception
@@ -5797,12 +5929,16 @@ function Get-EligibleInfRecordList { # psa-disable-line PSA6003 -- compound noun
         return ,@($InfRecords)
     }
     $coSignedLookup = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    $nonCoSignedLookup = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
     foreach ($a in $Ctx.WhqlCoSignAnalysis) {
         if ($a.IsFullyCoSigned) {
             [void]$coSignedLookup.Add($a.InfName)
+        } else {
+            [void]$nonCoSignedLookup.Add($a.InfName)
         }
     }
     $eligible = New-Object System.Collections.Generic.List[pscustomobject]
+    $unverified = New-Object System.Collections.Generic.List[string]
     foreach ($rec in $InfRecords) {
         # Schema-tolerant INF name resolution (see SPEC §D.40).
         $name = $null
@@ -5822,21 +5958,39 @@ function Get-EligibleInfRecordList { # psa-disable-line PSA6003 -- compound noun
             Write-Caution '  Get-EligibleInfRecordList: record without a resolvable INF name skipped (kept out of the trimmed plan).'
             continue
         }
-        # Vendor-catalog records (no patch) are always eligible; only
-        # records this pipeline re-signs must pass the co-sign check.
-        # Records without a NeedsPatch property (producer schema) are
-        # by construction the patch-eligible subset: apply the check.
+        # VERDICT-DRIVEN ELIGIBILITY (SPEC D.43.2).
+        #
+        # A record is eligible when the analysis gave it a fully-co-signed
+        # verdict. A record the analysis never examined is still eligible -
+        # dropping it would empty the plan on any host where the analysis is
+        # narrow - but it is COUNTED, and the count travels with the plan so
+        # the I02 short-circuit can refuse to claim safety it cannot back.
+        #
+        # The earlier rule made no-patch records unconditionally eligible and
+        # silent. That was correct about eligibility and wrong about silence:
+        # with a narrow analysis population the plan carried dozens of
+        # never-examined kernel drivers and nothing downstream could tell.
+        $verdictKnown = $coSignedLookup.Contains($name) -or $nonCoSignedLookup.Contains($name)
+        if ($coSignedLookup.Contains($name)) {
+            $eligible.Add($rec)
+            continue
+        }
+        if ($nonCoSignedLookup.Contains($name)) {
+            continue
+        }
         $needsCoSignCheck = $true
         if ($rec.PSObject.Properties['NeedsPatch']) {
             $needsCoSignCheck = ($rec.NeedsPatch -eq $true -or $rec.NeedsPatch -eq 'True')
         }
-        if (-not $needsCoSignCheck) {
-            $eligible.Add($rec)
-            continue
-        }
-        if ($coSignedLookup.Contains($name)) {
+        if (-not $needsCoSignCheck -and -not $verdictKnown) {
+            [void]$unverified.Add($name)
             $eligible.Add($rec)
         }
+    }
+    $Script:LastEligibilityUnverified = @($unverified.ToArray())
+    if ($unverified.Count -gt 0) {
+        Write-Caution ('  {0} INF(s) in the trimmed plan carry NO WHQL co-signature verdict (not examined by the analysis).' -f $unverified.Count)
+        Write-Detail  '  They stay in the plan, but I02 will not claim the plan is Secure-Boot-safe while any remain.'
     }
     return ,@($eligible.ToArray())
 }
@@ -5993,8 +6147,23 @@ function Save-WhqlCoSignPlanJson {
                 }
             }
         }
+        # PlanUnverifiedCount (SchemaVersion 3, SPEC D.43.2): plan records the
+        # analysis never gave a verdict for. It is the difference between
+        # "nothing failed the check" and "everything passed the check", and
+        # keeping the two apart is the whole point of the field: I02 refuses
+        # to claim Secure-Boot safety while it is non-zero.
+        $planUnverified = 0
+        foreach ($n in $eligibleNames) {
+            $seen = $false
+            if ($Ctx.WhqlCoSignAnalysis) {
+                foreach ($a in $Ctx.WhqlCoSignAnalysis) {
+                    if ($a.InfName -and ([string]$a.InfName) -eq ([string]$n)) { $seen = $true; break }
+                }
+            }
+            if (-not $seen) { $planUnverified++ }
+        }
         $doc = [pscustomobject]@{
-            SchemaVersion            = 2
+            SchemaVersion            = 3
             GeneratedAt              = (Get-Date).ToString('o')
             ScriptVersion            = $Script:ScriptVersion
             SkipNonCosignedDrivers   = $true
@@ -6004,11 +6173,12 @@ function Save-WhqlCoSignPlanJson {
             PlanCatalogSignCount     = $catalogSignCount
             PlanAnalysedInfCount     = $planAnalysed
             PlanNonCoSignedCount     = $planNonCoSigned
+            PlanUnverifiedCount      = $planUnverified
             EligibleInfNames         = @(@($eligibleNames) | Sort-Object)
             TrimmedInfNames          = @(@($trimmedNames) | Sort-Object)
         }
         $doc | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $Ctx.Paths.Root 'whql_cosign_plan.json') -Encoding UTF8
-        Set-DebugStep ('Save-WhqlCoSignPlanJson: eligible={0} trimmed={1} remainingNeedsPatch={2} catalogSign={3} planNonCoSigned={4}' -f $eligibleNames.Count, $trimmedNames.Count, $remainingNeedsPatch, $catalogSignCount, $planNonCoSigned)
+        Set-DebugStep ('Save-WhqlCoSignPlanJson: eligible={0} trimmed={1} remainingNeedsPatch={2} catalogSign={3} planNonCoSigned={4} planUnverified={5}' -f $eligibleNames.Count, $trimmedNames.Count, $remainingNeedsPatch, $catalogSignCount, $planNonCoSigned, $planUnverified)
     } catch {
         Set-DebugStep ('Save-WhqlCoSignPlanJson: write failed (non-fatal): {0}' -f $_.Exception.Message)
     }
@@ -6048,8 +6218,9 @@ function Get-WhqlCoSignPlanInfo {
             if (Test-Path -LiteralPath $planPath) {
                 $plan = Get-Content -LiteralPath $planPath -Raw -Encoding UTF8 | ConvertFrom-Json
                 if ($null -ne $plan -and $plan.SkipNonCosignedDrivers -and
-                    $plan.PSObject.Properties['SchemaVersion'] -and [int]$plan.SchemaVersion -ge 2 -and
-                    $plan.PSObject.Properties['PlanCatalogSignCount']) {
+                    $plan.PSObject.Properties['SchemaVersion'] -and [int]$plan.SchemaVersion -ge 3 -and
+                    $plan.PSObject.Properties['PlanCatalogSignCount'] -and
+                    $plan.PSObject.Properties['PlanUnverifiedCount']) {
                     return [pscustomobject]@{
                         Known                = $true
                         Source               = 'plan-json'
@@ -6057,9 +6228,14 @@ function Get-WhqlCoSignPlanInfo {
                         PlanCatalogSignCount = [int]$plan.PlanCatalogSignCount
                         NonCoSignedCount     = [int]$plan.PlanNonCoSignedCount
                         AnalysedInfCount     = [int]$plan.PlanAnalysedInfCount
+                        UnverifiedCount      = [int]$plan.PlanUnverifiedCount
                     }
                 }
-                Set-DebugStep 'Get-WhqlCoSignPlanInfo: plan JSON present but pre-v2 schema; ignored (conservative)'
+                # Pre-v3 plans are ignored for the same reason pre-v2 ones
+                # were: they predate a field the safety decision now needs
+                # (PlanUnverifiedCount), and absence of the field is not
+                # evidence of zero (SPEC D.43.2).
+                Set-DebugStep 'Get-WhqlCoSignPlanInfo: plan JSON present but pre-v3 schema; ignored (conservative)'
             }
         }
     } catch {
@@ -6093,6 +6269,7 @@ function Get-WhqlCoSignPlanInfo {
             PlanNeedsSelfSigning = $true
             PlanCatalogSignCount = -1
             NonCoSignedCount     = $non
+            UnverifiedCount      = -1
             AnalysedInfCount     = $analyses.Count
         }
     }
@@ -6102,6 +6279,7 @@ function Get-WhqlCoSignPlanInfo {
         PlanNeedsSelfSigning = $true
         PlanCatalogSignCount = -1
         NonCoSignedCount     = -1
+        UnverifiedCount      = -1
         AnalysedInfCount     = 0
     }
 }
@@ -9509,12 +9687,34 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     # See SPEC §D.31. Earlier Graphics revisions shipped the consumer code (I00 C6,
     # P06 -SkipNonCosignedDrivers trim, I02 short-circuit (SPEC §D.31.11)) but never the
     # producer site here in P05, which silently disabled all three for Graphics.
-    Set-DebugStep 'r71: build WHQL co-sign analysis from patch-eligible INFs'
-    $whqlInfRecords = @($detailReport | Where-Object {
-        $_.NeedsPatch -eq $true -or $_.NeedsPatch -eq 'True'
-    } | ForEach-Object {
+    # ANALYSIS POPULATION (SPEC D.43.2). Without -SkipNonCosignedDrivers the
+    # population is the patch-needing subset: that is all the C6 advisory
+    # condition needs, and it keeps P05 cheap on the common path. With the
+    # flag set the population is the WHOLE INSTALL SCOPE, because the flag's
+    # promise to the operator is about what gets installed, not about what
+    # gets patched. A field run proved the difference matters: 119 INFs
+    # inventoried, 2 patch-needing, so the analysis saw 2 records and the
+    # trim declared the plan Secure-Boot-safe while 53 never-examined INFs
+    # went on to install. Records outside the selected variant, and records
+    # already ineligible for catalog generation, are excluded either way -
+    # neither reaches the install plan.
+    Set-DebugStep 'build WHQL co-sign analysis (population depends on -SkipNonCosignedDrivers)'
+    $whqlSourceRecords = if ($Script:SkipNonCosignedDrivers) {
+        @($detailReport | Where-Object {
+            ($_.VariantSelected -eq $true -or $_.VariantSelected -eq 'True') -and
+            ($_.EligibleForCatalog -ne $false)
+        })
+    } else {
+        @($detailReport | Where-Object {
+            $_.NeedsPatch -eq $true -or $_.NeedsPatch -eq 'True'
+        })
+    }
+    $whqlInfRecords = @($whqlSourceRecords | ForEach-Object {
         [pscustomobject]@{ InfName = $_.Inf; InfPath = $_.FullPath }
     })
+    if ($Script:SkipNonCosignedDrivers) {
+        Write-Detail ('  -SkipNonCosignedDrivers: analysing all {0} in-scope INF(s), not just the {1} patch-needing one(s).' -f $whqlInfRecords.Count, @($detailReport | Where-Object { $_.NeedsPatch -eq $true -or $_.NeedsPatch -eq 'True' }).Count)
+    }
     try {
         $Ctx.WhqlCoSignAnalysis = New-WhqlCoSignAnalysis -InfRecords $whqlInfRecords
         Show-WhqlCoSignAnalysisReport -Analyses $Ctx.WhqlCoSignAnalysis
@@ -13257,13 +13457,27 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
         # concern handled by the I01 trust import, not a kernel CI
         # concern (SPEC §D.41).
         $planInfo = Get-WhqlCoSignPlanInfo -Ctx $Ctx
-        if ($planInfo.Known -and $planInfo.NonCoSignedCount -eq 0) {
+        # FAIL-CLOSED ON INCOMPLETE COVERAGE (SPEC D.43.2). NonCoSignedCount
+        # of zero means "nothing that was examined failed". It becomes
+        # "nothing in the plan is non-WHQL" only when everything in the plan
+        # was examined. UnverifiedCount is that difference; -1 means the
+        # source could not report it, which is also not a zero.
+        $planFullyExamined = ($planInfo.PSObject.Properties['UnverifiedCount'] -and [int]$planInfo.UnverifiedCount -eq 0)
+        if ($planInfo.Known -and $planInfo.NonCoSignedCount -eq 0 -and -not $planFullyExamined) {
+            Write-Caution '--- I02 short-circuit REFUSED: install plan was not fully examined ---'
+            Write-Detail  ('  Analysed {0} INF(s); {1} plan record(s) have no WHQL co-signature verdict.' -f $planInfo.AnalysedInfCount, $planInfo.UnverifiedCount)
+            Write-Detail  '  A plan that was never fully examined cannot be declared Secure-Boot-safe.'
+            Write-Detail  '  Re-run -Action PrepareVerify -SkipNonCosignedDrivers with this script version to'
+            Write-Detail  '  produce a fully-examined plan, then re-run Install.'
+        }
+        if ($planInfo.Known -and $planInfo.NonCoSignedCount -eq 0 -and $planFullyExamined) {
             Write-Host '--- I02 short-circuit (r72/r96): install plan is fully WHQL co-signed ---' -ForegroundColor Green
             if ($planInfo.AnalysedInfCount -gt 0) {
                 Write-Ok ('  All {0} analysed INF(s) in the trimmed install plan carry Microsoft Windows Hardware Compatibility embedded signatures.' -f $planInfo.AnalysedInfCount)
             } else {
                 Write-Ok '  No non-WHQL-co-signed kernel content remains in the trimmed install plan.'
             }
+            Write-Detail ('  Plan coverage: {0} of {0} plan record(s) examined; 0 unverified.' -f $planInfo.AnalysedInfCount)
             Write-Detail '  No kernel-mode signer authorization is required:'
             Write-Detail '    - WHQL embedded signatures will authorize these drivers at kernel CI (Secure Boot can stay ON).'
             Write-Detail '    - Catalogs regenerated by this pipeline are self-signed; pnputil acceptance at I03 relies on the I01 trust-store import.'
@@ -13634,6 +13848,12 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
         return
     }
 
+    # Whole-system device health census BEFORE the pnputil loop (SPEC
+    # D.43.3). Paired with the post-loop census below to surface devices
+    # this script never touched but the /install pass disturbed.
+    Set-DebugStep 'whole-system device health census BEFORE pnputil'
+    $collateralBefore = Get-SystemDeviceHealthCensus
+
     Set-DebugStep 'snapshot driver state BEFORE pnputil'
     # ---- Snapshot driver state BEFORE pnputil runs ----
     # This is what I04 compares against to determine whether a driver
@@ -13871,6 +14091,14 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
         }
     }
     Write-Ok ('Driver install: {0} ok ({1} need reboot, {2} no-op) / {3} failed / {4} skipped (current newer)' -f $okCount, $rebootCount, $noOpCount, $failCount, $skipNewerCount)
+
+    Set-DebugStep 'whole-system device health census AFTER pnputil'
+    $collateralAfter = Get-SystemDeviceHealthCensus
+    $collateral = Write-DeviceHealthRegressionReport -Before $collateralBefore -After $collateralAfter
+    $Ctx.CollateralDeviceHealth = $collateral
+    if ($collateral.Checked -and ($collateral.RegressedCount -gt 0 -or $collateral.AppearedCount -gt 0)) {
+        Set-DebugStep ('I03 collateral: regressed={0} appeared={1}' -f $collateral.RegressedCount, $collateral.AppearedCount)
+    }
 
     # Persist state to context for I04 to consume
     $Ctx | Add-Member -NotePropertyName InstallResults     -NotePropertyValue $installResults -Force
@@ -14829,6 +15057,11 @@ $Ctx = [pscustomobject]@{
     # block to the operator, which in turn silently disabled C6 and
     # the I02 short-circuit (see SPEC §D.31.11). See PSA2009.
     WhqlCoSignAnalysis = $null
+    # Collateral device-health result from I03 (SPEC SS D.43.3). Pre-declared
+    # for the same reason as the other phase-output properties here:
+    # [pscustomobject] is sealed, so a '.' assignment to an undeclared
+    # property throws at the assignment site (PSA2009).
+    CollateralDeviceHealth = $null
 }
 
 # ----- Cleanup short-circuit -----

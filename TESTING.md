@@ -2595,3 +2595,48 @@ replacements to all four `.ps1` files in one pass.
 1. **I03** installs the 53-catalog subset — first field proof that pnputil accepts the pipeline's self-signed catalogs (D.41.5 premise 1).
 2. **I04 / setupapi** — whether the 56-INF no-patch subset loads under Secure Boot. These `.sys` files were never examined for WHQL embedded signatures, because P05 analyses only the `NeedsPatch` subset (D.41.5 premise 2). A signature-attributable load failure here promotes the deferred "widen the analysis population to the full install scope" design item to the critical path.
 3. **RUN SUMMARY digest** prints a verdict. If any diagnostic still appears in its place, the self-locating form again names the statement — but note that the two previous residual-thrower attributions were wrong and this one was only settled by out-of-band reproduction; treat a third diagnostic the same way.
+
+## 25. Validation Scenario 25: 2026-08-08 WS2019 Path A field run (r98) and the r99 changes
+
+**Fixture**: same host as Scenarios 21-24, fifth session of the day (Windows Server 2019 build 17763 ja-JP, UBR 9020, PowerShell 5.1.17763.9020, UEFI Secure Boot ON). Script generation: r98 (`phase-status-and-digest-binder-fixes`). Command sequence: `PrepareVerify -SkipNonCosignedDrivers` (11:59) then `Install -SkipNonCosignedDrivers` (12:08). Evidence: run-artifact archives for both actions, collector pre/post pairs for both actions, plus a standalone collector run at 12:18 after the operator observed the failures.
+
+**Observed — the run itself completed**:
+
+| Item | Result |
+|---|---|
+| PrepareVerify | All phases completed. 119 total / 2 selected for patching, 117 eligible / 2 trimmed, Patching 0 / Copying 58, P08 53 catalogs, P09 53 signed |
+| Install I01 | Certificate imported to `Root` + `TrustedPublisher` |
+| Install I02 | Short-circuit fired, closed as **`cached`** — the r98 Fix 1 mapping confirmed in the field |
+| Install **I03** | **53 ok / 0 failed / 2 no-op / 1 reboot-required.** **D.41.5 premise 1 PROVEN: pnputil accepts the pipeline's self-signed catalogs** |
+| Install I04 | Completed. Reported `LOAD_FAILED: 0`, 4 devices `REBOOT_NEEDED`, and — in the same output — `Self-signed driver loading is currently BLOCKED` |
+| RUN SUMMARY digest | `Install readiness : READY - no failed phases.` — the r98 Fix 2 binder fix confirmed (the digest speaks), the verdict itself wrong (SPEC D.43.4) |
+
+**Observed — the host was left worse**:
+
+| Device | Before (12:08:10) | After (12:12:01 / 12:18) | Diagnosis |
+|---|---|---|---|
+| **Intel Wi-Fi 6E AX210** | healthy, not in the problem list | `CM_PROB_NOT_CONFIGURED` (code 1) | Re-enumerated 32 ms after `pnputil /add-driver amdgpio2.inf /install` completed its `{Install Related Drivers}` pass; the re-install failed `0xe0000217` because `netwtw6e.inf` declares a `vwifibus` service whose binary is absent from this Server SKU. The script never names this device (SPEC D.43.3) |
+| **AMD I2C Controller** | 9 problem devices, this one not among them | `CM_PROB_FAILED_DRIVER_LOAD` (code 39), NT status `0xC0000263` | `amdi2c.inf` was in the plan because `-SkipNonCosignedDrivers` examined only 2 of 119 INFs (SPEC D.43.2). `STATUS_DRIVER_ENTRYPOINT_NOT_FOUND` — an OS API mismatch, **not** a signature rejection |
+
+Problem-device totals moved 9 (8x code 28 + 1x code 51) -> 8 (7x code 28 + 1x code 39), with the code 1 present in the immediate post-Install snapshot. The net count went *down*, which is exactly why a count is not a health check.
+
+**r99 verification — STATIC ONLY**:
+
+- `psa.py --config .psa.config.json`: **0 errors / 0 warnings / 0 info across all five scripts**.
+- `Parser::ParseFile`: 0 errors x 5.
+- ValidateSet call-site + `@()`-over-`List[object]` contract audit: 0 findings.
+- Shared-helper byte identity: `Write-InstallReadinessDigest` / `Get-SystemDeviceHealthCensus` / `Write-DeviceHealthRegressionReport` 4-way; `Get-EligibleInfRecordList` / `Save-WhqlCoSignPlanJson` / `Get-WhqlCoSignPlanInfo` 3-way.
+- Canon integrity via the central authoritative tooling (SPEC A.11.8a): 125 dd observation records, `drift` 121 `match` + 4 `forked-frozen`, zero differences on every non-volatile field.
+
+**There is no runtime harness for the r99 changes and no field run.** Every behaviour below is unexercised. This is a weaker verification position than r97 (22-case harness) or r98 (out-of-band reproduction of the defect), and it is stated here rather than left to be inferred.
+
+**Outstanding — the r99 field run must check, in this order**:
+
+1. **PrepareVerify, plan coverage.** `-SkipNonCosignedDrivers` should now analyse the whole install scope. Expect the WHQL analysis line to report a population in the tens, not 2. Plan JSON should be **SchemaVersion 3** carrying `PlanUnverifiedCount`. If any INF now classifies non-co-signed, the eligible count drops below 117 — that is the fix working, not a regression.
+2. **D.41.5 premise 2, finally.** The `.sys` files of the 56 no-patch INFs get a WHQL verdict for the first time. Whatever that verdict is, record it: it decides whether Path A on this hardware is viable at all.
+3. **I02 behaviour.** If `PlanUnverifiedCount` is 0 the short-circuit fires as before. If it is non-zero the short-circuit is **refused** with an explicit message — verify the refusal path prints and does not throw. If any INF is non-co-signed, I02 takes the normal path and WS2019 has no WDAC route, so expect the by-design Path B abort. **That abort is now the correct outcome**, not a defect.
+4. **I03 collateral census.** Expect a `Collateral device health` block after the install summary. On a clean run: `No device outside this run's plan changed to a worse problem state.` If the Intel adapter is still broken it will be reported as a pre-existing problem device, not a regression — the census reports *changes*, so re-running on an already-damaged host will not re-flag it.
+5. **Digest.** With Secure Boot ON and no WDAC policy, expect `NOT READY` rather than `READY`. `READY` appearing under those conditions means the boot-signing gate did not wire up.
+6. **Collector schema 1.1.** Expect `device-load-diagnostics.json` and an 11-stage run. Check `ProblemDevices[].ServiceBinaryPresent` is populated, that `ConfigManagerErrorName` decodes on the ja-JP host, and that `SetupApi.FailureSections` is non-empty on this host (it should pick up the vwifibus failures). Two new assessment rows: `Driver binary presence`, `Driver load failure classification`.
+
+**Host recovery (untested)**: the Intel driver package is still registered (`oem17.inf`); only the `vwifibus` service binary is missing. The working hypothesis is that it arrives with a Windows Server wireless networking feature that is not installed by default. Confirm with `Test-Path C:\Windows\System32\drivers\vwifibus.sys` and `Get-WindowsFeature Wireless-Networking` before acting.

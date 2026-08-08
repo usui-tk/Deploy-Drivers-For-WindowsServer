@@ -340,8 +340,8 @@ param(
 #   * PhaseResults - per-phase outcome registry (write side from
 #     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.08.08-r41'
-$Script:ScriptTag           = 'phase-status-and-digest-binder-fixes'
+$Script:ScriptVersion       = 'npu-2026.08.08-r42'
+$Script:ScriptTag           = 'plan-coverage-collateral-health-and-load-diagnostics'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the
@@ -1054,6 +1054,107 @@ function New-RunArtifactArchive {
     return $final
 }
 
+function Get-SystemDeviceHealthCensus { # psa-disable-line PSA6003 -- "Census" is a singular collective noun; the function returns one census object
+    # Whole-system PnP problem-code census: every present device, not just
+    # the AMD ones this pipeline targets. Returned as a hashtable keyed by
+    # PNPDeviceID so two censuses can be diffed cheaply.
+    #
+    # WHY whole-system (SPEC D.43.3): pnputil /install triggers a PnP
+    # related-drivers pass that can re-enumerate devices this script never
+    # names. A census restricted to AMD devices cannot see that happen.
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    $census = @{}
+    try {
+        $devices = @(Get-CimInstance -ClassName Win32_PnPEntity -ErrorAction Stop |
+                     Where-Object { $_.Present -ne $false })
+    } catch {
+        # A census that cannot be taken is reported as empty, not raised:
+        # Write-DeviceHealthRegressionReport treats an empty side as
+        # 'check skipped' and says so. Failing an install phase over a
+        # diagnostic would be worse than losing the diagnostic.
+        Set-DebugStep ('Get-SystemDeviceHealthCensus: enumeration failed: {0}' -f $_.Exception.Message)
+        return $census
+    }
+    foreach ($d in $devices) {
+        $id = [string]$d.PNPDeviceID
+        if ([string]::IsNullOrWhiteSpace($id)) { continue }
+        $code = 0
+        if ($null -ne $d.ConfigManagerErrorCode) { $code = [int]$d.ConfigManagerErrorCode }
+        $census[$id] = [pscustomobject]@{
+            PnpDeviceId = $id
+            Name        = [string]$d.Name
+            ErrorCode   = $code
+        }
+    }
+    return $census
+}
+
+function Write-DeviceHealthRegressionReport {
+    # Diff two censuses and report devices whose problem code got worse.
+    # "Worse" means: was healthy (0) and now is not, or was already in
+    # error and changed to a different error. Devices that improved or are
+    # unchanged are not listed - this report exists to surface damage.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)] [hashtable]$Before,
+        [Parameter(Mandatory)] [hashtable]$After
+    )
+    $regressed = New-Object 'System.Collections.Generic.List[object]'
+    $appeared  = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($id in $After.Keys) {
+        $now = $After[$id]
+        if ($now.ErrorCode -eq 0) { continue }
+        if (-not $Before.ContainsKey($id)) {
+            [void]$appeared.Add($now)
+            continue
+        }
+        $was = $Before[$id]
+        if ($was.ErrorCode -ne $now.ErrorCode) {
+            [void]$regressed.Add([pscustomobject]@{
+                PnpDeviceId = $id
+                Name        = $now.Name
+                Before      = $was.ErrorCode
+                After       = $now.ErrorCode
+            })
+        }
+    }
+    if ($Before.Count -eq 0 -or $After.Count -eq 0) {
+        Write-Detail '  Device health census unavailable for one side; collateral check skipped.'
+        return [pscustomobject]@{ Checked = $false; RegressedCount = 0; AppearedCount = 0; Regressed = @() }
+    }
+    Write-SubHeader 'Collateral device health (whole system, not just this vendor)'
+    Write-Detail ('  Devices censused: {0} before / {1} after' -f $Before.Count, $After.Count)
+    if ($regressed.Count -eq 0 -and $appeared.Count -eq 0) {
+        Write-Ok '  No device outside this run''s plan changed to a worse problem state.'
+    }
+    foreach ($r in $regressed) {
+        $label = if ([string]::IsNullOrWhiteSpace($r.Name)) { '(unnamed device)' } else { $r.Name }
+        Write-Fail ('  REGRESSED: {0}' -f $label)
+        Write-Detail ('             {0}' -f $r.PnpDeviceId)
+        Write-Detail ('             problem code {0} -> {1}' -f $r.Before, $r.After)
+    }
+    foreach ($a in $appeared) {
+        $label = if ([string]::IsNullOrWhiteSpace($a.Name)) { '(unnamed device)' } else { $a.Name }
+        Write-Caution ('  NEW PROBLEM DEVICE: {0} (code {1})' -f $label, $a.ErrorCode)
+        Write-Detail  ('             {0}' -f $a.PnpDeviceId)
+    }
+    if ($regressed.Count -gt 0 -or $appeared.Count -gt 0) {
+        Write-Detail '  These devices were NOT installed by this script. A pnputil /install pass'
+        Write-Detail '  makes Windows re-evaluate unrelated devices, and a re-evaluation can fail'
+        Write-Detail '  on a host missing a component that device''s own INF requires. Collect the'
+        Write-Detail '  evidence bundle and inspect setupapi.dev.log around this run''s timestamps.'
+    }
+    return [pscustomobject]@{
+        Checked        = $true
+        RegressedCount = $regressed.Count
+        AppearedCount  = $appeared.Count
+        Regressed      = @($regressed.ToArray())
+    }
+}
+
 function Write-InstallReadinessDigest {
     # Explicit install-readiness verdict at the end of the RUN SUMMARY,
     # derived from per-phase statuses in $Script:PhaseTimings.
@@ -1113,10 +1214,41 @@ function Write-InstallReadinessDigest {
         Write-Host '       documented tool fallback, a certificate not yet trusted before' -ForegroundColor DarkYellow
         Write-Host '       I01, or a device absent on this host). A REAL failure marks its' -ForegroundColor DarkYellow
         Write-Host '       phase as failed in the timing table.' -ForegroundColor DarkYellow
+        # BOOT-SIGNING GATE (SPEC D.43.4). Phase statuses answer "did any step
+        # report failure". They do not answer "will the drivers this run
+        # staged actually load", and a digest headed 'Install readiness' is
+        # read as the second question. A field run made the gap concrete:
+        # every phase closed clean while the same run's post-install
+        # verification reported self-signed driver loading BLOCKED and four
+        # devices queued that no plain reboot would activate. The digest
+        # said READY. It now consults the boot-signing environment too, and
+        # says READY only when both agree. The probe is best-effort and its
+        # own failure is not allowed to change the verdict: an unreadable
+        # environment leaves the phase-status answer standing.
+        $bootBlocked = $false
+        $bootProbed = $false
+        try {
+            $digestBootEnv = Get-BootSigningEnvironment
+            if ($null -ne $digestBootEnv -and $digestBootEnv.PSObject.Properties['EffectiveCanLoadSelfSigned']) {
+                $bootProbed = $true
+                $bootBlocked = (-not $digestBootEnv.EffectiveCanLoadSelfSigned)
+            }
+        } catch {
+            $bootProbed = $false
+        }
         if ($failedIds.Count -gt 0) {
             Write-Host (' Install readiness : REVIEW REQUIRED - failed: {0}' -f ($failedIds -join ', ')) -ForegroundColor Red
+        } elseif ($bootProbed -and $bootBlocked) {
+            Write-Host ' Install readiness : NOT READY - no phase failed, but the boot-signing' -ForegroundColor Yellow
+            Write-Host '                     environment currently BLOCKS self-signed driver load.' -ForegroundColor Yellow
+            Write-Host '                     Drivers staged by this run will not activate on a plain' -ForegroundColor Yellow
+            Write-Host '                     reboot. See the boot-signing table above for which of' -ForegroundColor Yellow
+            Write-Host '                     Secure Boot / testsigning / WDAC has to change.' -ForegroundColor Yellow
+        } elseif (-not $bootProbed) {
+            Write-Host ' Install readiness : READY (phases) - boot-signing state could not be read,' -ForegroundColor DarkYellow
+            Write-Host '                     so driver-load capability is unconfirmed.' -ForegroundColor DarkYellow
         } else {
-            Write-Host ' Install readiness : READY - no failed phases.' -ForegroundColor Green
+            Write-Host ' Install readiness : READY - no failed phases, self-signed driver load allowed.' -ForegroundColor Green
         }
     } catch {
         # Self-locating containment (SPEC D.41): report the exception
@@ -7449,6 +7581,12 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
     param(
         [Parameter(Mandatory)] $Ctx
     )
+    # Whole-system device health census BEFORE any pnputil call (SPEC
+    # D.43.3). This phase runs /install per INF and then /scan-devices;
+    # both make Windows re-evaluate devices this script never names.
+    Set-DebugStep 'whole-system device health census BEFORE pnputil'
+    $collateralBefore = Get-SystemDeviceHealthCensus
+
     Set-DebugStep 'run pnputil /add-driver /install for each patched INF'
     Write-Step 'Running pnputil /add-driver /install for each patched INF'
 
@@ -7471,6 +7609,14 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
     Set-DebugStep 'force device enumeration via pnputil /scan-devices'
     Write-Step 'pnputil /scan-devices'
     & pnputil.exe /scan-devices 2>&1 | ForEach-Object { Write-Skip ("    {0}" -f $_) }
+
+    Set-DebugStep 'whole-system device health census AFTER pnputil'
+    $collateralAfter = Get-SystemDeviceHealthCensus
+    $collateral = Write-DeviceHealthRegressionReport -Before $collateralBefore -After $collateralAfter
+    $Ctx.CollateralDeviceHealth = $collateral
+    if ($collateral.Checked -and ($collateral.RegressedCount -gt 0 -or $collateral.AppearedCount -gt 0)) {
+        Set-DebugStep ('I03 collateral: regressed={0} appeared={1}' -f $collateral.RegressedCount, $collateral.AppearedCount)
+    }
 }
 
 function Invoke-InstPhase04_PostInstallVerification {
@@ -7841,6 +7987,10 @@ function Invoke-MainEntryPoint {
         # NPU-specific inventory artefacts (for P05 output)
         InventoryCsvPath    = Join-Path $WorkRoot 'inf_inventory.csv'
         InventoryReportPath = Join-Path $WorkRoot 'inf_inventory_report.txt'
+        # Collateral device-health result from I03 (SPEC SS D.43.3).
+        # Pre-declared because [pscustomobject] is sealed and a '.'
+        # assignment to an undeclared property throws (PSA2009).
+        CollateralDeviceHealth = $null
     }
 
     # Banner (sister-script-aligned: include ScriptTag and ScriptHash)

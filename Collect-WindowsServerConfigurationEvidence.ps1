@@ -87,14 +87,14 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
-$Script:ScriptVersion  = 'collector-2026.08.07-c1'
+$Script:ScriptVersion  = 'collector-2026.08.08-c2'
 $Script:ScriptTag      = 'windows-server-configuration-evidence-collector'
 $Script:ScriptHash     = 'unavailable'
 try {
     $Script:ScriptHash = (Get-FileHash -LiteralPath $MyInvocation.MyCommand.Path -Algorithm SHA256 -ErrorAction Stop).Hash.Substring(0, 12).ToLowerInvariant()
 } catch { } # psa-disable-line PSA3004 -- self-hash is identity metadata only; collection must proceed without it
 $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash)
-$script:SchemaVersion = 'windows-server-configuration-evidence/1.0'
+$script:SchemaVersion = 'windows-server-configuration-evidence/1.1'
 $script:CollectorVersion = $Script:ScriptVersion
 $script:MaxCopiedLogBytes = 50MB
 
@@ -559,6 +559,7 @@ function Get-PnpDeviceEvidence {
             PnpClass = [string](Get-PropertyValue -InputObject $device -Name 'PNPClass')
             Status = [string](Get-PropertyValue -InputObject $device -Name 'Status')
             ConfigManagerErrorCode = if ($null -ne $errorCode) { [int]$errorCode } else { $null }
+            ConfigManagerErrorName = (Get-ConfigManagerErrorName -Code $errorCode)
             Present = [bool](Get-PropertyValue -InputObject $device -Name 'Present' -DefaultValue $true)
             HardwareIds = $hardwareIds
         }
@@ -583,6 +584,312 @@ function Get-PnpDeviceEvidence {
         ProblemDevices = $problems.ToArray()
         TargetedDevices = $targeted.ToArray()
         Devices = $records.ToArray()
+    }
+}
+
+function Get-ConfigManagerErrorName {
+    # CM_PROB_* name for a ConfigManagerErrorCode. Names are from the
+    # Windows CM_PROB_ constants and are stable across locales, which the
+    # localized Win32_PnPEntity.Status string is not.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()]
+        $Code
+    )
+    if ($null -eq $Code) { return '' }
+    switch ([int]$Code) {
+        0  { 'OK' }
+        1  { 'CM_PROB_NOT_CONFIGURED - no driver configured for this device' }
+        3  { 'CM_PROB_OUT_OF_MEMORY - driver may be corrupted or memory is low' }
+        9  { 'CM_PROB_INVALID_DATA - device information is invalid' }
+        10 { 'CM_PROB_FAILED_START - device failed to start' }
+        12 { 'CM_PROB_NORMAL_CONFLICT - insufficient free resources' }
+        14 { 'CM_PROB_NEED_RESTART - restart required to take effect' }
+        18 { 'CM_PROB_REINSTALL - drivers must be reinstalled' }
+        19 { 'CM_PROB_REGISTRY - registry configuration is damaged' }
+        21 { 'CM_PROB_WILL_BE_REMOVED - device is being removed' }
+        22 { 'CM_PROB_DISABLED - device is disabled' }
+        24 { 'CM_PROB_DEVICE_NOT_THERE - device is not present or is failing' }
+        28 { 'CM_PROB_FAILED_INSTALL - drivers are not installed for this device' }
+        29 { 'CM_PROB_HARDWARE_DISABLED - disabled by firmware' }
+        31 { 'CM_PROB_FAILED_ADD - Windows cannot load the required drivers' }
+        32 { 'CM_PROB_DISABLED_SERVICE - start type of the driver service is disabled' }
+        35 { 'CM_PROB_HELD_FOR_EJECT - firmware does not include enough information' }
+        37 { 'CM_PROB_DRIVER_FAILED_PRIOR_UNLOAD - driver returned failure on unload' }
+        38 { 'CM_PROB_DRIVER_BLOCKED - a previous instance is still in memory' }
+        39 { 'CM_PROB_FAILED_DRIVER_LOAD - driver is corrupted, missing, or rejected' }
+        40 { 'CM_PROB_INVALID_DATA - registry service key information is invalid' }
+        41 { 'CM_PROB_FAILED_POST_START - driver loaded but no PnP device was found' }
+        43 { 'CM_PROB_HALTED - the device reported a problem and was stopped' }
+        45 { 'CM_PROB_PHANTOM - device is not currently connected' }
+        51 { 'CM_PROB_WAITING_ON_DEPENDENCY - waiting on another device or service' }
+        52 { 'CM_PROB_UNSIGNED_DRIVER - cannot verify the digital signature' }
+        54 { 'CM_PROB_DEVICE_RESET - device is failing or being reset' }
+        default { ('CM_PROB (code {0}) - see Device Manager for detail' -f [int]$Code) }
+    }
+}
+
+function Get-DriverLoadStatusName {
+    # NTSTATUS values that appear beside CM_PROB codes in setupapi.dev.log.
+    # The signature-related ones are called out explicitly because
+    # distinguishing "kernel rejected the signature" from "the driver does
+    # not fit this OS build" is the first fork in any load-failure triage,
+    # and the two look identical at the Device Manager level.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()]
+        [string]$Status
+    )
+    if ([string]::IsNullOrWhiteSpace($Status)) { return '' }
+    switch ($Status.ToLowerInvariant().Replace('0x', '')) {
+        'c0000428' { 'STATUS_INVALID_IMAGE_HASH - SIGNATURE: the kernel refused the image signature' }
+        'c0000603' { 'STATUS_IMAGE_CERT_REVOKED - SIGNATURE: the signing certificate is revoked' }
+        'c000036b' { 'STATUS_IMAGE_CERT_EXPIRED - SIGNATURE: the signing certificate has expired' }
+        'c0000262' { 'STATUS_DRIVER_ORDINAL_NOT_FOUND - NOT a signature problem: the driver imports an ordinal this OS build does not export' }
+        'c0000263' { 'STATUS_DRIVER_ENTRYPOINT_NOT_FOUND - NOT a signature problem: the driver imports an entry point this OS build does not export' }
+        'c0000365' { 'STATUS_FAILED_DRIVER_ENTRY - the driver''s DriverEntry returned failure' }
+        'c000009c' { 'STATUS_DEVICE_DATA_ERROR - device data error' }
+        'c0000490' { 'STATUS_DEVICE_HARDWARE_ERROR - device reported a hardware error' }
+        'c0000493' { 'STATUS_DEVICE_NOT_CONNECTED - the device was not connected when evaluated' }
+        'c0000001' { 'STATUS_UNSUCCESSFUL' }
+        default    { ('NTSTATUS {0} - undecoded' -f $Status) }
+    }
+}
+
+function Get-SetupApiFailureEvidence {
+    # Extract failure records from setupapi.dev.log.
+    #
+    # setupapi.dev.log is already copied verbatim into the bundle, but a
+    # multi-megabyte verbatim copy is not evidence anyone reads under
+    # pressure. This pulls out the parts that matter: per-device-install
+    # sections that ended in failure, the SetupAPI error code, any
+    # "Binary '<path>' for service '<name>' is not present" line (a missing
+    # OS component the device's own INF requires), and any CM problem plus
+    # NT status pair.
+    #
+    # Parsing keys off tokens that do not change with the display language.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter()]
+        [string]$LogPath,
+
+        [Parameter()]
+        [int]$MaxSections = 40
+    )
+    $result = [pscustomobject][ordered]@{
+        CollectedAtUtc = Get-UtcTimestamp
+        LogPath = [string]$LogPath
+        LogPresent = $false
+        SectionsScanned = 0
+        FailureSections = @()
+        MissingServiceBinaries = @()
+        ParseError = ''
+    }
+    if ([string]::IsNullOrWhiteSpace($LogPath) -or -not (Test-Path -LiteralPath $LogPath)) {
+        return $result
+    }
+    $result.LogPresent = $true
+    try {
+        $lines = @(Get-Content -LiteralPath $LogPath -ErrorAction Stop)
+    } catch {
+        $result.ParseError = $_.Exception.Message
+        return $result
+    }
+
+    $sections = New-Object 'System.Collections.Generic.List[object]'
+    $missing = New-Object 'System.Collections.Generic.List[object]'
+    $startIndexes = New-Object 'System.Collections.Generic.List[int]'
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        if ($lines[$i] -like '>>>*[Device Install*') { $startIndexes.Add($i) | Out-Null }
+    }
+    $result.SectionsScanned = $startIndexes.Count
+
+    foreach ($start in $startIndexes) {
+        $end = $lines.Count - 1
+        foreach ($candidate in $startIndexes) {
+            if ($candidate -gt $start) { $end = $candidate - 1; break }
+        }
+        $header = [string]$lines[$start]
+        $timestamp = ''
+        $errors = New-Object 'System.Collections.Generic.List[string]'
+        $problem = ''
+        $problemStatus = ''
+        $failed = $false
+        for ($j = $start; $j -le $end; $j++) {
+            $line = [string]$lines[$j]
+            if ($line -like '>>>*Section start*') {
+                $timestamp = ($line -split 'Section start')[-1].Trim()
+            }
+            if ($line -match 'Error 0x[0-9a-fA-F]+') {
+                $failed = $true
+                $token = ([regex]::Match($line, 'Error 0x[0-9a-fA-F]+')).Value
+                if (-not $errors.Contains($token)) { $errors.Add($token) | Out-Null }
+            }
+            if ($line -match "Binary '([^']+)' for service '([^']+)' is not present") {
+                $failed = $true
+                $binary = $Matches[1]
+                $service = $Matches[2]
+                $missing.Add([pscustomobject][ordered]@{
+                    ServiceName = [string]$service
+                    ExpectedBinary = [string]$binary
+                    BinaryExists = (Test-Path -LiteralPath ([string]$binary))
+                    SeenInSection = $header
+                }) | Out-Null
+            }
+            if ($line -match 'Problem: 0x([0-9a-fA-F]+) \(0x([0-9a-fA-F]+)\)') {
+                $problem = [string]([Convert]::ToInt32($Matches[1], 16))
+                $problemStatus = '0x' + $Matches[2]
+            }
+            if ($line -like '*[Exit status: FAILURE*') { $failed = $true }
+        }
+        if (-not $failed) { continue }
+        $sections.Add([pscustomobject][ordered]@{
+            Header = $header
+            SectionStart = $timestamp
+            SetupApiErrors = $errors.ToArray()
+            ConfigManagerErrorCode = $problem
+            ConfigManagerErrorName = (Get-ConfigManagerErrorName -Code $(if ($problem -ne '') { [int]$problem } else { $null }))
+            DriverLoadStatus = $problemStatus
+            DriverLoadStatusName = (Get-DriverLoadStatusName -Status $problemStatus)
+        }) | Out-Null
+    }
+
+    $keep = @($sections.ToArray())
+    if ($keep.Count -gt $MaxSections) {
+        $keep = @($keep[($keep.Count - $MaxSections)..($keep.Count - 1)])
+    }
+    $result.FailureSections = $keep
+    $result.MissingServiceBinaries = $missing.ToArray()
+    return $result
+}
+
+function Get-DeviceLoadDiagnosticEvidence {
+    # Per-problem-device diagnostics: what is bound, what service backs it,
+    # and whether that service's binary is actually on disk.
+    #
+    # The last item is the one the field run needed and did not have. A
+    # device install can fail because the INF declares a service whose
+    # binary ships with an OS feature that is not installed on this SKU -
+    # a state that is invisible in the device record and obvious the moment
+    # you test the ImagePath.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter()]
+        $PnpEvidence,
+
+        [Parameter()]
+        [string]$SetupApiLogPath
+    )
+    $records = New-Object 'System.Collections.Generic.List[object]'
+    $signedDrivers = @{}
+    try {
+        foreach ($d in @(Get-CimInstance -ClassName Win32_PnPSignedDriver -ErrorAction Stop)) {
+            $id = [string](Get-PropertyValue -InputObject $d -Name 'DeviceID')
+            if (-not [string]::IsNullOrWhiteSpace($id) -and -not $signedDrivers.ContainsKey($id)) {
+                $signedDrivers[$id] = $d
+            }
+        }
+    } catch {
+        $signedDrivers = @{}
+    }
+
+    $problemDevices = @()
+    if ($null -ne $PnpEvidence -and $PnpEvidence.PSObject.Properties['ProblemDevices']) {
+        $problemDevices = @($PnpEvidence.ProblemDevices)
+    }
+
+    foreach ($device in $problemDevices) {
+        $id = [string]$device.PnpDeviceId
+        $serviceName = ''
+        $infName = ''
+        $driverVersion = ''
+        $driverProvider = ''
+        if ($signedDrivers.ContainsKey($id)) {
+            $sd = $signedDrivers[$id]
+            $infName = [string](Get-PropertyValue -InputObject $sd -Name 'InfName')
+            $driverVersion = [string](Get-PropertyValue -InputObject $sd -Name 'DriverVersion')
+            $driverProvider = [string](Get-PropertyValue -InputObject $sd -Name 'DriverProviderName')
+        }
+        # The device's service name lives under the device's Enum key.
+        $imagePath = ''
+        $imagePathResolved = ''
+        $imagePathExists = $null
+        $serviceStartType = ''
+        try {
+            $enumKey = 'HKLM:\SYSTEM\CurrentControlSet\Enum' + $id
+            if (Test-Path -LiteralPath $enumKey) {
+                $serviceName = [string](Get-NamedRegistryValue -Path $enumKey -Name 'Service')
+            }
+        } catch {
+            $serviceName = ''
+        }
+        if (-not [string]::IsNullOrWhiteSpace($serviceName)) {
+            try {
+                $svcKey = 'HKLM:\SYSTEM\CurrentControlSet\Services' + $serviceName
+                if (Test-Path -LiteralPath $svcKey) {
+                    $imagePath = [string](Get-NamedRegistryValue -Path $svcKey -Name 'ImagePath')
+                    $startValue = Get-NamedRegistryValue -Path $svcKey -Name 'Start'
+                    if ($null -ne $startValue) { $serviceStartType = [string]$startValue }
+                }
+            } catch {
+                $imagePath = ''
+            }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($imagePath)) {
+            $candidate = $imagePath
+            if ($candidate -like '\SystemRoot\*') {
+                $candidate = $candidate -replace '^\SystemRoot', $env:SystemRoot
+            } elseif ($candidate -like 'system32\*' -or $candidate -like 'System32\*') {
+                $candidate = Join-Path $env:SystemRoot $candidate
+            } elseif ($candidate -like '\??\*') {
+                $candidate = $candidate.Substring(4)
+            }
+            $imagePathResolved = $candidate
+            try {
+                $imagePathExists = [bool](Test-Path -LiteralPath $candidate)
+            } catch {
+                $imagePathExists = $null
+            }
+        }
+        $records.Add([pscustomobject][ordered]@{
+            Name = [string]$device.Name
+            PnpDeviceId = $id
+            ConfigManagerErrorCode = $device.ConfigManagerErrorCode
+            ConfigManagerErrorName = (Get-ConfigManagerErrorName -Code $device.ConfigManagerErrorCode)
+            BoundInfName = $infName
+            DriverVersion = $driverVersion
+            DriverProvider = $driverProvider
+            ServiceName = $serviceName
+            ServiceStartType = $serviceStartType
+            ServiceImagePath = $imagePath
+            ServiceImagePathResolved = $imagePathResolved
+            ServiceBinaryPresent = $imagePathExists
+            HardwareIds = @($device.HardwareIds)
+        }) | Out-Null
+    }
+
+    $setupApi = Get-SetupApiFailureEvidence -LogPath $SetupApiLogPath
+
+    $missingBinaryCount = 0
+    foreach ($r in $records) {
+        if ($r.ServiceBinaryPresent -eq $false) { $missingBinaryCount++ }
+    }
+    $signatureRelated = 0
+    foreach ($s in @($setupApi.FailureSections)) {
+        if ([string]$s.DriverLoadStatusName -like '*SIGNATURE:*') { $signatureRelated++ }
+    }
+
+    return [pscustomobject][ordered]@{
+        CollectedAtUtc = Get-UtcTimestamp
+        ProblemDeviceCount = $records.Count
+        MissingServiceBinaryCount = $missingBinaryCount
+        SignatureRelatedFailureCount = $signatureRelated
+        ProblemDevices = $records.ToArray()
+        SetupApi = $setupApi
     }
 }
 
@@ -1060,6 +1367,7 @@ function Get-ConfigurationAssessment {
         [Parameter(Mandatory = $true)] [object]$BootSecurity,
         [Parameter(Mandatory = $true)] [object]$CodeIntegrityEvents,
         [Parameter(Mandatory = $true)] [object]$SetupLogEvidence,
+        [Parameter(Mandatory = $true)] [object]$LoadDiagnostics,
         [Parameter(Mandatory = $true)] [object]$ScriptInventory,
         [Parameter(Mandatory = $true)] [object]$BthPanRuntime
     )
@@ -1085,11 +1393,32 @@ function Get-ConfigurationAssessment {
     $problemCount = [int]$PnpEvidence.ProblemDeviceCount
     $problemDetail = if ($problemCount -eq 0) { ('0 problem devices of {0}' -f $PnpEvidence.DeviceCount) }
     else {
-        $names = @($PnpEvidence.ProblemDevices | Select-Object -First 3 | ForEach-Object { '{0}(code {1})' -f $_.Name, $_.ConfigManagerErrorCode })
+        $names = @($PnpEvidence.ProblemDevices | Select-Object -First 3 | ForEach-Object { '{0}(code {1} {2})' -f $_.Name, $_.ConfigManagerErrorCode, (($_.ConfigManagerErrorName -split ' - ')[0]) })
         ('{0} problem device(s): {1}' -f $problemCount, ($names -join '; '))
     }
     $items.Add((New-AssessmentItem -Name 'Problem PnP devices' `
         -Status $(if ($problemCount -eq 0) { 'PASS' } else { 'REVIEW' }) -Detail $problemDetail)) | Out-Null
+
+    # 3a) Driver load diagnostics. Separated from the raw problem-device
+    # count because the two answer different questions: how many devices
+    # are unhappy, versus what kind of unhappy. A missing service binary
+    # and a rejected signature both surface as a problem code, and the
+    # remedies have nothing in common.
+    $missingBinary = [int]$LoadDiagnostics.MissingServiceBinaryCount
+    $missingDetail = if ($missingBinary -eq 0) { 'no problem device references an absent driver binary' }
+    else {
+        $mb = @($LoadDiagnostics.ProblemDevices | Where-Object { $_.ServiceBinaryPresent -eq $false } |
+                Select-Object -First 3 | ForEach-Object { '{0} -> {1}' -f $_.ServiceName, $_.ServiceImagePathResolved })
+        ('{0} device(s) bound to a service whose binary is absent: {1}' -f $missingBinary, ($mb -join '; '))
+    }
+    $items.Add((New-AssessmentItem -Name 'Driver binary presence' `
+        -Status $(if ($missingBinary -eq 0) { 'PASS' } else { 'FAIL' }) -Detail $missingDetail)) | Out-Null
+
+    $sigFail = [int]$LoadDiagnostics.SignatureRelatedFailureCount
+    $setupFailSections = @($LoadDiagnostics.SetupApi.FailureSections).Count
+    $items.Add((New-AssessmentItem -Name 'Driver load failure classification' `
+        -Status $(if ($setupFailSections -eq 0) { 'PASS' } elseif ($sigFail -gt 0) { 'FAIL' } else { 'REVIEW' }) `
+        -Detail ('setupapi failure sections={0}; signature-attributable={1}' -f $setupFailSections, $sigFail))) | Out-Null
 
     # 4) Targeted devices (informational context for the deploy scripts)
     $items.Add((New-AssessmentItem -Name 'Targeted AMD/BthPan devices' -Status 'INFO' `
@@ -1295,35 +1624,35 @@ try {
     Write-Host ('Evidence directory: {0}' -f $evidenceDir)
     Write-Host ''
 
-    Write-Host '[1/10] Operating system identity...' -ForegroundColor DarkGray
+    Write-Host '[1/11] Operating system identity...' -ForegroundColor DarkGray
     $osEvidence = Get-OperatingSystemEvidence
     Write-EvidenceJson -InputObject $osEvidence -Directory $evidenceDir -FileName 'environment.json'
 
-    Write-Host '[2/10] Pending reboot state...' -ForegroundColor DarkGray
+    Write-Host '[2/11] Pending reboot state...' -ForegroundColor DarkGray
     $pendingReboot = Get-PendingRebootEvidence
     Write-EvidenceJson -InputObject $pendingReboot -Directory $evidenceDir -FileName 'pending-reboot.json'
 
-    Write-Host '[3/10] PnP device inventory...' -ForegroundColor DarkGray
+    Write-Host '[3/11] PnP device inventory...' -ForegroundColor DarkGray
     $pnpEvidence = Get-PnpDeviceEvidence
     Write-EvidenceJson -InputObject $pnpEvidence -Directory $evidenceDir -FileName 'pnp-devices.json'
 
-    Write-Host '[4/10] Driver store inventory...' -ForegroundColor DarkGray
+    Write-Host '[4/11] Driver store inventory...' -ForegroundColor DarkGray
     $driverStore = Get-DriverStoreEvidence -EvidenceDirectory $evidenceDir
     Write-EvidenceJson -InputObject $driverStore -Directory $evidenceDir -FileName 'driver-store.json'
 
-    Write-Host '[5/10] Project certificate stores...' -ForegroundColor DarkGray
+    Write-Host '[5/11] Project certificate stores...' -ForegroundColor DarkGray
     $certificateEvidence = Get-ProjectCertificateEvidence
     Write-EvidenceJson -InputObject $certificateEvidence -Directory $evidenceDir -FileName 'project-certificates.json'
 
-    Write-Host '[6/10] Boot security state...' -ForegroundColor DarkGray
+    Write-Host '[6/11] Boot security state...' -ForegroundColor DarkGray
     $bootSecurity = Get-BootSecurityEvidence -EvidenceDirectory $evidenceDir
     Write-EvidenceJson -InputObject $bootSecurity -Directory $evidenceDir -FileName 'boot-security.json'
 
-    Write-Host '[7/10] CodeIntegrity events...' -ForegroundColor DarkGray
+    Write-Host '[7/11] CodeIntegrity events...' -ForegroundColor DarkGray
     $codeIntegrityEvents = Get-CodeIntegrityEventEvidence -EvidenceDirectory $evidenceDir
     Write-EvidenceJson -InputObject $codeIntegrityEvents -Directory $evidenceDir -FileName 'codeintegrity-events.json'
 
-    Write-Host '[8/10] Driver setup logs...' -ForegroundColor DarkGray
+    Write-Host '[8/11] Driver setup logs...' -ForegroundColor DarkGray
     $setupLogEvidence = if (-not $SkipSetupApiLog) {
         Get-DriverSetupLogEvidence -EvidenceDirectory $evidenceDir
     }
@@ -1332,13 +1661,24 @@ try {
     }
     Write-EvidenceJson -InputObject $setupLogEvidence -Directory $evidenceDir -FileName 'driver-setup-logs.json'
 
-    Write-Host '[9/10] Repository script and workspace inventory...' -ForegroundColor DarkGray
+    Write-Host '[9/11] Device load diagnostics...' -ForegroundColor DarkGray
+    # Reads the copy inside the bundle when one was made, so the parse and
+    # the archived text are the same bytes; falls back to the live log when
+    # the copy was skipped (size cap) or -SkipSetupApiLog was passed.
+    $setupApiForParse = Join-Path (Join-Path $evidenceDir 'setupapi') 'setupapi.dev.log'
+    if (-not (Test-Path -LiteralPath $setupApiForParse)) {
+        $setupApiForParse = Join-Path $env:SystemRoot 'INF\setupapi.dev.log'
+    }
+    $loadDiagnostics = Get-DeviceLoadDiagnosticEvidence -PnpEvidence $pnpEvidence -SetupApiLogPath $setupApiForParse
+    Write-EvidenceJson -InputObject $loadDiagnostics -Directory $evidenceDir -FileName 'device-load-diagnostics.json'
+
+    Write-Host '[10/11] Repository script and workspace inventory...' -ForegroundColor DarkGray
     $scriptInventory = Get-DeployScriptInventory -ScriptDirectory $scriptDirectory
     Write-EvidenceJson -InputObject $scriptInventory -Directory $evidenceDir -FileName 'deploy-scripts.json'
     $workspaceInventory = Get-WorkspaceInventoryEvidence -ScriptDirectory $scriptDirectory
     Write-EvidenceJson -InputObject $workspaceInventory -Directory $evidenceDir -FileName 'workspace-inventory.json'
 
-    Write-Host '[10/10] BthPan runtime state...' -ForegroundColor DarkGray
+    Write-Host '[11/11] BthPan runtime state...' -ForegroundColor DarkGray
     $bthPanRuntime = Get-BthPanRuntimeEvidence
     Write-EvidenceJson -InputObject $bthPanRuntime -Directory $evidenceDir -FileName 'bthpan-runtime.json'
 
@@ -1346,6 +1686,7 @@ try {
         -OsEvidence $osEvidence -PendingReboot $pendingReboot -PnpEvidence $pnpEvidence `
         -DriverStore $driverStore -CertificateEvidence $certificateEvidence -BootSecurity $bootSecurity `
         -CodeIntegrityEvents $codeIntegrityEvents -SetupLogEvidence $setupLogEvidence `
+        -LoadDiagnostics $loadDiagnostics `
         -ScriptInventory $scriptInventory -BthPanRuntime $bthPanRuntime
 
     $failCount = @($assessmentItems | Where-Object { $_.Status -eq 'FAIL' }).Count

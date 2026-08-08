@@ -20,6 +20,157 @@ independently.
 
 ---
 
+## [2026-08-08] `plan-coverage-collateral-health-and-load-diagnostics` — Chipset r99 / Graphics r65 / NPU r42 / BthPan r47 / Collector c2
+
+Fixes from the fifth Windows Server 2019 field run (2026-08-08, same host,
+r98 generation). The run completed: I02 short-circuited and closed as
+`cached`, I03 installed 53 of 53, I04 finished, and the digest reported
+READY. **The first D.41.5 premise is proven — pnputil accepts this
+pipeline's self-signed catalogs.** The operator then found that drivers
+would not load and that a previously working Intel Wi-Fi adapter had
+stopped working. Both reports were correct. Post-mortem: SPEC D.43.
+
+### Fix 1 — `-SkipNonCosignedDrivers` examined 2 of 119 INFs and called the plan safe (Chipset / Graphics / BthPan)
+
+- The WHQL co-signature analysis population was the `NeedsPatch` subset. On
+  this fixture that was **two records out of a 119-INF inventory**, so 58
+  copy-only INFs were never examined and 53 of them installed — including
+  `amdi2c.inf`, documented in SPEC and both READMEs as carrying a non-WHQL
+  `.sys` that requires Path B. The flag's promise to the operator is about
+  what gets installed; the analysis was scoped to what gets patched.
+- This was a documented decision, not an oversight: r96 (SPEC D.40.3) made
+  copy-only records unconditionally eligible to stop the trim emptying the
+  plan, and r97 (SPEC D.41.5) recorded the consequence as a deferred design
+  question, naming this exact failure mode. The deferral is what shipped.
+- The underlying logic error: `NonCoSignedCount = 0` means *nothing that was
+  examined failed*. The I02 short-circuit read it as *nothing in the plan is
+  non-WHQL*. Those coincide only when the examined set equals the plan, and
+  nothing recorded whether it did — so the emptiest possible analysis
+  produced the most confident possible verdict.
+- **Population**: with the flag set, P05 now analyses the whole install scope
+  (`VariantSelected` records still eligible for catalog generation) instead
+  of the patch-needing subset. Without the flag the population is unchanged —
+  the C6 advisory needs no more and P05 stays cheap. BthPan is single-INF and
+  was already at full coverage.
+- **Accounting**: `Get-EligibleInfRecordList` is now verdict-driven. Fully
+  co-signed -> eligible; non-co-signed -> trimmed; never examined -> still
+  eligible (dropping it would re-create the D.40.3 empty plan) but
+  **counted**, and reported at trim time.
+- **Fail-closed**: plan JSON moves to **SchemaVersion 3** with
+  `PlanUnverifiedCount`, and the I02 short-circuit fires only when it is
+  zero. A non-zero count, or a source that cannot report one, refuses the
+  short-circuit with an explicit message. Pre-v3 plans are ignored the way
+  pre-v2 plans already were — absence of the field is not evidence of zero.
+
+### Fix 2 — collateral device damage is now detected (all four sisters)
+
+- `amdi2c.sys` failed to load with `CM_PROB_FAILED_DRIVER_LOAD` and NT status
+  `0xC0000263` = `STATUS_DRIVER_ENTRYPOINT_NOT_FOUND`. Worth stating
+  precisely because the obvious reading is wrong: **not a signature
+  rejection**. The driver imports an entry point this OS build does not
+  export. Fix 1 is what put it in the plan.
+- Separately, the field setupapi log shows an Intel Wi-Fi adapter being
+  re-enumerated **32 ms** after `pnputil /add-driver amdgpio2.inf /install`
+  finished its system-wide `{Install Related Drivers}` pass. The re-install
+  failed `0xe0000217`: the adapter's own INF declares a `vwifibus` service
+  whose binary is absent on this Server SKU. The collector's pre-run
+  snapshot has the adapter healthy; the post-run snapshot has it at
+  `CM_PROB_NOT_CONFIGURED`. I04 is AMD-scoped by design and reported
+  `LOAD_FAILED: 0` throughout.
+- **`/install` is deliberately NOT removed.** It is the one code path just
+  proven to work end-to-end (53 of 53 catalogs accepted), and the
+  re-enumeration link — while consistent in mechanism and 32 ms in timing —
+  is an attribution, not a proof. Trading a known-good result for an
+  untested one on that basis would be the wrong call. The falsifying
+  experiment is recorded in SPEC D.43.3.
+- What ships instead is visibility: `Get-SystemDeviceHealthCensus` takes a
+  whole-system PnP problem-code census either side of the pnputil work, and
+  `Write-DeviceHealthRegressionReport` reports every device that got worse —
+  AMD or not. All four sisters, because all four run pnputil, and NPU and
+  BthPan additionally call `/scan-devices`, a broader trigger than
+  `/install`.
+
+### Fix 3 — the readiness digest consults the boot-signing state (all four sisters)
+
+- The same run printed `Self-signed driver loading is currently BLOCKED`
+  from I04 and `Install readiness : READY - no failed phases.` from the
+  digest, with four devices queued that no plain reboot would activate.
+  Neither line was false about what it measured; only one was labelled as a
+  readiness verdict.
+- The digest now consults `Get-BootSigningEnvironment` as well as the phase
+  statuses and reports `READY` only when both agree, `NOT READY` when phases
+  are clean but driver load is blocked, and says so explicitly when the
+  environment cannot be read. The probe's own failure is caught and never
+  changes the verdict, preserving the D.39 rule that this function must
+  never disturb the RUN SUMMARY.
+
+### Collector — device load diagnostics (c2, schema 1.1)
+
+Every fact that settled this post-mortem was already in the evidence bundle,
+and none of it was in a usable form: the bundle recorded the integer `39`,
+and everything else required reading 8,000 lines of `setupapi.dev.log` by
+hand. New stage `[9/11] Device load diagnostics`, output
+`device-load-diagnostics.json`:
+
+- `Get-ConfigManagerErrorName` — CM_PROB codes to locale-stable names. The
+  localized `Win32_PnPEntity.Status` string is no help on a ja-JP host.
+- `Get-DriverLoadStatusName` — NTSTATUS decoding that **explicitly separates
+  signature failures** (`STATUS_INVALID_IMAGE_HASH`,
+  `STATUS_IMAGE_CERT_REVOKED`, ...) **from load failures that look
+  identical at Device Manager level but are not signature-related**
+  (`STATUS_DRIVER_ENTRYPOINT_NOT_FOUND`, `STATUS_DRIVER_ORDINAL_NOT_FOUND`).
+  That fork is the first decision in any triage and this run got it wrong on
+  first reading.
+- `Get-DeviceLoadDiagnosticEvidence` — per problem device: bound INF,
+  driver version and provider, service name and start type, and the service
+  `ImagePath` **tested for existence on disk**. The Intel failure is one
+  line of output under this check.
+- `Get-SetupApiFailureEvidence` — extracts the failing sections from
+  `setupapi.dev.log` with their SetupAPI error codes, CM problem codes, NT
+  statuses, and any "Binary '<path>' for service '<name>' is not present"
+  line. Parsing keys off `!!!` / `Error 0x` / `Problem: 0x`, which do not
+  change with display language.
+- Problem-device records carry `ConfigManagerErrorName`. Two new assessment
+  rows: `Driver binary presence` (FAIL when any problem device points at an
+  absent binary) and `Driver load failure classification`.
+
+### Verification
+
+Static gates only: `psa.py` **0 errors / 0 warnings / 0 info across all five
+scripts**; `Parser::ParseFile` 0 errors x 5; ValidateSet and
+`@()`-over-`List[object]` contract audit 0 findings; shared-helper byte
+identity holding (`Write-InstallReadinessDigest`,
+`Get-SystemDeviceHealthCensus`, `Write-DeviceHealthRegressionReport` 4-way;
+`Get-EligibleInfRecordList`, `Save-WhqlCoSignPlanJson`,
+`Get-WhqlCoSignPlanInfo` 3-way); canon integrity via the central
+authoritative tooling per SPEC A.11.8a — 125 dd observation records, drift
+121 `match` + 4 `forked-frozen`, zero differences on every non-volatile
+field.
+
+**No runtime harness and no field run.** Everything in this release is
+unexercised code, which is a weaker position than r97 (22-case harness) or
+r98 (out-of-band reproduction). TESTING §25 lists what the r99 field run has
+to check, in order.
+
+### Known limitations
+
+- **D.41.5 premise 2 is still open and now urgent.** r99 examines the
+  no-patch subset's WHQL embedded-signature status for the first time;
+  nothing has yet confirmed what the answer is on this hardware. If a
+  meaningful share of that subset is non-WHQL, Path A on this fixture ends
+  with a by-design Path B abort — which would be the correct outcome, and a
+  significant change to what `-SkipNonCosignedDrivers` can promise.
+- **The `/install` re-enumeration attribution is unfalsified** (SPEC D.43.3).
+- **Host recovery is unverified.** The affected Intel package is still
+  registered in the driver store; only the `vwifibus` service binary is
+  missing. The working hypothesis — that it arrives with a Windows Server
+  wireless networking feature not installed by default — has not been tested.
+- **The collateral census reports changes, not absolute state.** Re-running
+  on an already-damaged host will show the damaged device as a pre-existing
+  problem, not a regression.
+
+---
+
 ## [2026-08-08] `phase-status-and-digest-binder-fixes` — Chipset r98 / Graphics r64 / NPU r41 / BthPan r46
 
 Fixes from the fourth Windows Server 2019 field run (2026-08-08, same host,
