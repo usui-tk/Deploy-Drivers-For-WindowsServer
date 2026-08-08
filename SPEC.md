@@ -7048,6 +7048,149 @@ Collector c7 / schema 1.6, plus the recovery collector. The four sisters take
 a version bump for release consistency; none of their behaviour changes.
 
 
+## D.53 The other half of the framework question: what the INF asks for
+
+### D.53.1 Why this exists
+
+D.52 gave the collector a reading of what the **host** provides: the KMDF and
+UMDF runtime versions, every `WdfCoInstaller*.dll` present, and the services
+that depend on `Wdf01000`. That is one side of a comparison with nothing on
+the other side. The question an operator actually asks before a deployment is
+not "what does this machine have" but "will these drivers load on it", and
+answering it needs the **packages'** side too.
+
+The failure this addresses is quiet. `inf2cat /os:Server2016_X64` sets the
+catalog's target operating system; it does **not** lower a driver's KMDF
+requirement. A package whose INF declares `KmdfLibraryVersion = 1.33` can be
+inventoried, patched, catalogued, signed, and reported as ready on a host
+whose runtime is 1.19 — every phase green — and then fail to load. That is
+not a signing failure, so neither Path A nor Path B moves it, the same shape
+as the `STATUS_DRIVER_ENTRYPOINT_NOT_FOUND` case in D.43.3.
+
+Five columns now travel in `inf_inventory.csv` from all four sisters, so the
+comparison can be made **before** anything is installed rather than inferred
+afterwards from a device that will not start.
+
+### D.53.2 What is read, and what is deliberately not
+
+`Get-InfWdfRequirement` takes the INF text and returns `IsWdfDriver`,
+`KmdfLibraryVersion`, `UmdfLibraryVersion`, `CoInstallerVersions` and
+`WdfSectionCount`.
+
+The directive names are matched **directly in the text**. The obvious
+alternative — follow `KmdfService = <svc>, <section>` to the named section and
+read the version from there — is wrong in a way that produces no error.
+Section naming is a package convention rather than a rule, so a package that
+names its sections differently yields no match, and the absence of a match
+reads as "not a WDF driver". That is the safe-looking answer and it is the
+wrong one. A test pins the limit explicitly: an INF that declares a `.Wdf`
+section and omits the directive reports a WDF driver with an **empty**
+version, not a guessed one. An empty column is a visible gap; a guessed
+number is not.
+
+`CoInstallerVersions` decodes `WdfCoInstaller01031.dll` to `1.31` using the
+same expression `Get-WdfCoInstallerInventory` uses in the collector, so the
+two sides of the comparison read co-installer names identically.
+
+`IsWdfDriver` is set by `KmdfLibraryVersion`, `UmdfLibraryVersion` or a
+`.Wdf` section — **not** by a co-installer reference alone. The flag states
+what the INF declares it needs from the framework; a co-installer names what
+the package was built against, which is a different claim. A package that
+carries only a co-installer reference therefore reports `IsWdfDriver = false`
+with a non-empty `CoInstallerVersions`. This is deliberate and pinned by
+test, but it is an internally odd-looking pair and is recorded here as an
+open question rather than presented as settled.
+
+### D.53.3 Numeric comparison, in five files now
+
+Multiple declarations resolve to the **maximum**, and the maximum is taken
+numerically. As strings `1.19` sorts below `1.9`, which would report a driver
+needing 1.19 as satisfied by a 1.9 runtime — quietly, and in the direction
+that looks safe. `ConvertTo-WdfVersionNumber` scales the minor part so the
+ordering matches the real version sequence.
+
+That comparator now exists in all five scripts, byte-identical. The
+duplication is deliberate: the collector's reading of the host and the
+sisters' reading of the packages are only comparable if they order versions
+the same way, and a divergence would make one side satisfied by a runtime the
+other rejects. `Test-SisterConsistency` asserts the five copies hash to one
+value, so the duplication cannot drift silently. Consolidating it into a
+central canon unit is registered as a reflux candidate; it is not done here
+because this repository's stream is maintenance and the governance change
+belongs upstream.
+
+### D.53.4 Four sisters, two shapes
+
+The sisters do not build inventory rows the same way, and the difference is
+structural rather than cosmetic:
+
+| Script | Row construction | INF text source |
+|---|---|---|
+| Chipset  | detail row + flat CSV row (two stages) | `Read-InfFile -Path` -> `.Content` |
+| Graphics | detail row + flat CSV row (two stages) | `Read-InfFile -Path` -> `.Content` |
+| NPU      | single `$entry` added to a list         | `Read-InfFileLines -Path` -> `string[]` |
+| BthPan   | single `$row`, one INF                  | `Read-InfFile` inside the metadata helper |
+
+The helper takes `-Content` as a string rather than a path. Three sisters
+already hold the content, so the call costs no extra I/O; NPU rejoins its
+lines at the call site. Keeping the helper a pure function of text is also
+what makes it testable on Linux without an INF on disk.
+
+Insertion points were taken from `FunctionDefinitionAst.Extent` and verified
+by re-parsing after the edit. Deciding a position by matching source text is
+what put a guard into the wrong function in D.46.1, with every static gate
+green and the guard never reached.
+
+### D.53.5 What this does not tell you
+
+The same limit as D.52.5, restated because the new columns invite the
+opposite reading. A driver requesting more than the runtime provides cannot
+load, and that **is** visible here. A driver that loads and then breaks the
+framework contract produces `WDF_VIOLATION`, and **nothing** in these five
+columns predicts it. The columns bound the suspect pool; they do not identify
+a culprit.
+
+### D.53.6 Verification
+
+`psa.py` 0 errors / 0 warnings / 0 info across fourteen PowerShell files;
+`Parser::ParseFile` 0 errors across five product scripts; test suite
+**7 cases, 329 assertions** measured on PowerShell 7.4.6 (Core) on Linux;
+canon integrity via the central authoritative tooling per A.11.8a — 125 dd
+observation records, 32 unit ids, 121 `match` + 4 `forked-frozen`, zero
+differences.
+
+**Negative control**: the new case was placed in the tree before the helpers
+existed and failed with `function(s) not found: ConvertTo-WdfVersionNumber,
+Get-InfWdfRequirement`, then passed once they did.
+
+### D.53.7 Correction: published assertion counts were not measured
+
+The figures published for r106 (204) and r107 (239) do not match what the
+suite reports for those trees — 212 and 271 respectively, measured with
+PowerShell 7.4.6 on Linux. The r107 figure equals the r106 **published**
+figure plus the 35 assertions of the case added in r107, while the case that
+was also modified in r107 grew by 24 assertions that the arithmetic never
+saw.
+
+This count is loop-driven: several cases iterate over the content of the
+scripts they check, so the number moves whenever that content moves. It
+cannot be derived from a previous release's figure by addition. Past
+CHANGELOG entries are historical records and are not rewritten; the
+correction is recorded here and the suite now prints its own measured total
+together with the PowerShell version and platform it was measured on, so the
+number that reaches a document is one that was observed.
+
+### D.53.8 Sister impact
+
+All four sisters. Chipset r108 / Graphics r74 / NPU r51 / BthPan r56. The
+collector is unchanged and stays at c7.
+
+NPU is included even though its `Install` action is rejected on legacy Server
+(D.27). The columns describe a static property of the INF and are independent
+of whether installation proceeds; excluding NPU would also make the four-way
+consistency assertion unstateable, which is the check that keeps the four
+sisters from drifting apart.
+
 ## Appendix: How to seed a new sister script from this SPEC
 
 If you are creating a 5th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1`):

@@ -804,8 +804,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'graphics-2026.08.08-r73'
-$Script:ScriptTag     = 'winre-tool-compatibility-and-wdf-evidence'
+$Script:ScriptVersion = 'graphics-2026.08.08-r74'
+$Script:ScriptTag     = 'inf-side-wdf-requirement'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -8346,6 +8346,91 @@ function Get-InfMetadata {
     }
 }
 
+function ConvertTo-WdfVersionNumber {
+    # Turn a major.minor WDF version into a comparable number.
+    #
+    # String comparison is wrong here and quietly so: '1.9' sorts above
+    # '1.19', which would report a driver requesting 1.19 as satisfied by a
+    # 1.9 runtime. The minor part is scaled so ordering matches the real
+    # version sequence.
+    [CmdletBinding()]
+    [OutputType([int])]
+    param(
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]$Version
+    )
+    if ([string]::IsNullOrWhiteSpace($Version)) { return -1 }
+    $m = [regex]::Match($Version.Trim(), '^(\d+)\.(\d+)')
+    if (-not $m.Success) { return -1 }
+    return ([int]$m.Groups[1].Value * 1000) + [int]$m.Groups[2].Value
+}
+function Get-InfWdfRequirement {
+    # What framework version an INF asks the host to provide.
+    #
+    # The directive names are read straight out of the text. Following
+    # KmdfService= to the section it names and reading the version from there
+    # is the obvious implementation and the wrong one: section naming is a
+    # package convention, not a rule, and a package that names its sections
+    # differently produces no match and no error. The result reads as "not a
+    # WDF driver" - the safe-looking answer, and wrong.
+    #
+    # A co-installer reference alone does not set IsWdfDriver. The flag is
+    # about what the INF declares it needs from the framework; a co-installer
+    # names what the package was built against. The versions are still
+    # reported so the two can be compared.
+    #
+    # SPEC D.52.5 bounds what this buys. A driver asking for more than the
+    # runtime provides cannot load, and neither Path A nor Path B moves it -
+    # inf2cat sets the catalog's target OS and does not lower a KMDF
+    # requirement. It does not predict WDF_VIOLATION.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]$Content
+    )
+
+    $kmdf = ''
+    $umdf = ''
+    $coInstallers = New-Object 'System.Collections.Generic.List[string]'
+    $sectionCount = 0
+
+    if (-not [string]::IsNullOrEmpty($Content)) {
+        foreach ($m in [regex]::Matches($Content, '(?im)^\s*KmdfLibraryVersion\s*=\s*([0-9]+\.[0-9]+)')) {
+            $candidate = $m.Groups[1].Value
+            if ((ConvertTo-WdfVersionNumber -Version $candidate) -gt (ConvertTo-WdfVersionNumber -Version $kmdf)) {
+                $kmdf = $candidate
+            }
+        }
+        foreach ($m in [regex]::Matches($Content, '(?im)^\s*UmdfLibraryVersion\s*=\s*([0-9]+\.[0-9]+)')) {
+            $candidate = $m.Groups[1].Value
+            if ((ConvertTo-WdfVersionNumber -Version $candidate) -gt (ConvertTo-WdfVersionNumber -Version $umdf)) {
+                $umdf = $candidate
+            }
+        }
+        # WdfCoInstaller01031.dll -> 01031 -> 1.31. Same shape the collector
+        # uses in Get-WdfCoInstallerInventory; keep the two readings identical.
+        foreach ($m in [regex]::Matches($Content, 'WdfCoInstaller([0-9]{2})([0-9]{3})\.dll', 'IgnoreCase')) {
+            $restored = '{0}.{1}' -f [int]$m.Groups[1].Value, [int]$m.Groups[2].Value
+            if (-not $coInstallers.Contains($restored)) { [void]$coInstallers.Add($restored) }
+        }
+        $sectionCount = @([regex]::Matches($Content, '(?im)^\s*\[[^\]]+\.Wdf\]\s*$')).Count
+    }
+
+    # Numeric ordering, for the reason spelled out in ConvertTo-WdfVersionNumber.
+    $ordered = @($coInstallers.ToArray() | Sort-Object -Property @{ Expression = { ConvertTo-WdfVersionNumber -Version $_ } })
+
+    return [pscustomobject]@{
+        IsWdfDriver         = (($kmdf -ne '') -or ($umdf -ne '') -or ($sectionCount -gt 0))
+        KmdfLibraryVersion  = $kmdf
+        UmdfLibraryVersion  = $umdf
+        CoInstallerVersions = ($ordered -join ';')
+        WdfSectionCount     = $sectionCount
+    }
+}
+
 function Write-InfFile {
     param([string]$Path, [string]$Content, $Encoding)
     [System.IO.File]::WriteAllText($Path, $Content, $Encoding)
@@ -9582,6 +9667,10 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
         $meta = Get-InfMetadata -Content $infData.Content
         $relDir = if ($rel.Contains('\')) { Split-Path $rel -Parent } else { '' }
 
+        # INF-side WDF requirement (SPEC D.53). The content is already in
+        # hand from Read-InfFile, so this costs no extra I/O.
+        $wdfReq = Get-InfWdfRequirement -Content $infData.Content
+
         [pscustomobject]@{
             Inf             = $inf.Name
             FullPath        = $inf.FullName
@@ -9608,6 +9697,15 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
             # Diagnostic fields (used by P05 display to detect parser/INF format mismatches):
             ManufacturerEntries   = $meta.ManufacturerEntries
             ModelsSectionsScanned = $meta.ModelsSectionsScanned
+            # WDF requirement declared by the INF (SPEC D.53). This is the
+            # package's side of the question the collector answers for the
+            # host: a package asking for more than the runtime provides
+            # cannot load, and no signing strategy moves it.
+            IsWdfDriver         = $wdfReq.IsWdfDriver
+            KmdfLibraryVersion  = $wdfReq.KmdfLibraryVersion
+            UmdfLibraryVersion  = $wdfReq.UmdfLibraryVersion
+            CoInstallerVersions = $wdfReq.CoInstallerVersions
+            WdfSectionCount     = $wdfReq.WdfSectionCount
         }
     }
     # Stash the rich detail (with Devices array) on the context so
@@ -9638,6 +9736,14 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
             CatalogFile     = $_.CatalogFile
             Manufacturer    = $_.Manufacturer
             DeviceCount     = $_.DeviceCount
+            # WDF requirement columns (SPEC D.53), carried through to the CSV
+            # so the operator can list packages that cannot load on this host
+            # before anything is installed.
+            IsWdfDriver         = $_.IsWdfDriver
+            KmdfLibraryVersion  = $_.KmdfLibraryVersion
+            UmdfLibraryVersion  = $_.UmdfLibraryVersion
+            CoInstallerVersions = $_.CoInstallerVersions
+            WdfSectionCount     = $_.WdfSectionCount
             DeviceList      = $deviceList
         }
     }

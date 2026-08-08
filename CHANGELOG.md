@@ -20,6 +20,110 @@ independently.
 
 ---
 
+## [2026-08-08] `inf-side-wdf-requirement` — Chipset r108 / Graphics r74 / NPU r51 / BthPan r56
+
+The collector learned in c7 what framework version the **host** provides.
+That is one side of a comparison that had nothing on the other side. This
+release adds the packages' side: what each driver INF **asks for**. Design
+rationale: SPEC D.53.
+
+### Added — five WDF columns in `inf_inventory.csv`, from all four sisters
+
+`IsWdfDriver`, `KmdfLibraryVersion`, `UmdfLibraryVersion`,
+`CoInstallerVersions`, `WdfSectionCount`.
+
+The failure this addresses is quiet. `inf2cat /os:Server2016_X64` sets the
+catalog's target operating system and does **not** lower a driver's KMDF
+requirement. A package declaring `KmdfLibraryVersion = 1.33` can be
+inventoried, patched, catalogued, signed and reported ready on a host whose
+runtime is 1.19 — every phase green — and then fail to load. It is not a
+signing failure, so neither Path A nor Path B moves it. With the requirement
+in the inventory, the packages that cannot load can be listed before anything
+is installed rather than inferred afterwards from a device that will not
+start.
+
+`Get-InfWdfRequirement` matches the directive names **directly in the text**.
+Following `KmdfService =` to the section it names is the obvious
+implementation and the wrong one: section naming is a package convention, not
+a rule, so a package naming its sections differently produces no match and no
+error — and no match reads as "not a WDF driver", which is the safe-looking
+answer. A test pins the limit: an INF declaring a `.Wdf` section without the
+directive reports a WDF driver with an **empty** version rather than a
+guessed one.
+
+A co-installer reference alone does not set `IsWdfDriver`. The flag states
+what the INF declares it needs from the framework; a co-installer names what
+the package was built against. Both are reported so they can be compared.
+
+### Added — the version comparator now exists in all five scripts, byte-identical
+
+`ConvertTo-WdfVersionNumber` is copied from the collector unchanged. As
+strings `1.19` sorts **below** `1.9`, which would report a driver needing 1.19
+as satisfied by a 1.9 runtime — quietly, and in the direction that looks safe.
+The host reading and the package reading are only comparable if they order
+versions the same way, so the duplication is deliberate and
+`Test-SisterConsistency` asserts the five copies hash to one value.
+Consolidating it into a central canon unit is registered as a reflux
+candidate.
+
+### Added — tests
+
+- `tests/cases/Test-InfWdfRequirement.ps1` (32 assertions): numeric ordering
+  with the string reading pinned as wrong first; maximum-of-several
+  declarations; co-installer name decoding, de-duplication and ordering;
+  CRLF and LF agreement; the deliberate section-reference limit; degenerate
+  input.
+- `Test-SisterConsistency` gains a five-way identity assertion for the
+  comparator and, for every sister, an AST reading of the P05 hashtable keys
+  asserting all five columns are emitted. The sisters build inventory rows in
+  two different shapes — two of them in two stages, two in one — so a column
+  added to one and forgotten in another is exactly the drift this catches.
+
+**Negative control**: the new case was placed in the tree before the helpers
+existed and failed with `function(s) not found`, then passed once they did.
+
+### Changed — the suite reports its own measured assertion total
+
+`Invoke-TestSuite.ps1` now prints the suite-wide count and the PowerShell
+version and platform it was measured on. See the correction below for why.
+
+### Fixed — published assertion counts were arithmetic, not measurement
+
+The figures published for r106 (204) and r107 (239) do not match what the
+suite reports for those trees: **212** and **271**, measured with PowerShell
+7.4.6 on Linux. The r107 figure equals the r106 published figure plus the 35
+assertions of the case added in r107 — while the case that was *also*
+modified in r107 grew by 24 assertions the arithmetic never saw.
+
+The count is loop-driven: several cases iterate over the content of the
+scripts they check, so it moves whenever that content moves. It cannot be
+derived from a previous release's figure by addition. Past entries are
+historical records and are not rewritten; the correction is recorded here and
+in SPEC D.53.7, and the suite now measures and prints the number so the
+figure that reaches a document is one that was observed. Measurement
+procedure: TESTING §36.
+
+### Not in this release
+
+- The comparison itself. The sisters record what each INF requires; nothing
+  yet reads the host runtime in the same run and flags the packages above it.
+  That needs a display surface and a decision about whether it gates a phase,
+  and both belong in their own release.
+- `Test-InfHasServerDecoration` is still absent from NPU. Out of scope here.
+
+### Verification
+
+`psa.py` 0 errors / 0 warnings / 0 info across fourteen PowerShell files;
+`Parser::ParseFile` 0 errors × 5; **test suite 7 cases, 329 assertions**
+(measured, PowerShell 7.4.6 Core on Linux), all passing; canon integrity via
+the central authoritative tooling per SPEC A.11.8a — 125 dd observation
+records, 32 unit ids, 121 `match` + 4 `forked-frozen`, zero differences.
+Helper insertion points were taken from `FunctionDefinitionAst.Extent` and
+re-verified by re-parsing after the edit; no vendored canon region was
+touched.
+
+---
+
 ## [2026-08-08] `winre-tool-compatibility-and-wdf-evidence` — Chipset r107 / Graphics r73 / NPU r50 / BthPan r55 / Collector c7 (schema 1.6)
 
 The recovery collector ran in a real recovery environment for the first time

@@ -54,6 +54,9 @@ if ($cases.Count -eq 0) {
     exit 1
 }
 
+# The suite total is accumulated by the harness across cases; start clean.
+Set-Variable -Name 'DdTestSuiteTally' -Scope Global -Value ([pscustomobject]@{ Passed = 0; Failed = 0 })
+
 $results = New-Object 'System.Collections.Generic.List[object]'
 foreach ($case in $cases) {
     Write-Host ''
@@ -84,6 +87,18 @@ foreach ($row in $resultRows) {
     Write-Host ('  {0,-10} {1}' -f $label, $row.Name) -ForegroundColor $colour
 }
 Write-Host ''
+$tally = Get-Variable -Name 'DdTestSuiteTally' -Scope Global -ErrorAction SilentlyContinue
+$totalPassed = if ($null -ne $tally) { [int]$tally.Value.Passed } else { 0 }
+$totalFailed = if ($null -ne $tally) { [int]$tally.Value.Failed } else { 0 }
+$platform = if ($PSVersionTable.ContainsKey('Platform')) { $PSVersionTable.Platform } else { 'Win32NT' }
+# Printed so the number that goes into CHANGELOG / SPEC is one that was
+# observed, together with the environment it was observed on. The count is
+# loop-driven and moves with the content the cases read, so it cannot be
+# derived by arithmetic from a previous release's figure.
+Write-Host ('  Assertions : {0} passed, {1} failed' -f $totalPassed, $totalFailed)
+Write-Host ('  Measured on: PowerShell {0} ({1}) on {2}' -f `
+    $PSVersionTable.PSVersion, $PSVersionTable.PSEdition, $platform)
+
 if ($failedCases.Count -eq 0) {
     Write-Host (' ALL {0} CASE(S) PASSED' -f $resultRows.Count) -ForegroundColor Green
     exit 0

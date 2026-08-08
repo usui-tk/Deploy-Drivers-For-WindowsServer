@@ -3208,3 +3208,66 @@ The operator's hypothesis — that image customisation lost servicing history an
 3. **`framework\driver-framework.txt`** — the KMDF version. Expect **1.19** on WS2016 (SPEC §D.52.2); anything else is a finding.
 4. **`misc\dump-presence.txt`** — whether a dump appeared this time.
 5. **`misc\bugcheck-reference.txt`** — the 0x10D parameter table, for reading `EventLogs\System.evtx` event 1001 on a working machine.
+
+---
+
+## 36. Measuring the test suite, and why the number must be measured
+
+### 36.1 How to run it
+
+```powershell
+./tests/Invoke-TestSuite.ps1
+```
+
+No dependencies, no network, no driver state touched. Runs on Windows
+PowerShell 5.1 and on PowerShell 7.x, on Windows and on Linux. A single case
+can be run with `-Name 'Test-InfWdfRequirement.ps1'`.
+
+The summary ends with the two lines that matter for documentation:
+
+```
+  Assertions : 329 passed, 0 failed
+  Measured on: PowerShell 7.4.6 (Core) on Unix
+```
+
+### 36.2 Record the number the suite printed, not a number you computed
+
+The assertion total is **loop-driven**. Several cases iterate over the
+content of the scripts they check — the labels and subroutine calls in
+`Collect-OfflineRecoveryEvidence.cmd`, the function names and hashtable keys
+in the four sisters — so the count changes whenever that content changes,
+including in commits that add no assertion statement at all.
+
+This is not hypothetical. The counts published for r106 and r107 were 204 and
+239; the suite reports 212 and 271 for those same trees. The r107 figure is
+exactly the r106 **published** figure plus the 35 assertions of the case
+added in r107 — a case that was also modified in that release grew by 24
+assertions, and the addition never saw them. Both numbers were plausible and
+neither was observed. SPEC D.53.7 records the correction; the earlier
+CHANGELOG entries are historical records and stand as written.
+
+So, for every release:
+
+1. Run the suite on the current tree.
+2. Copy the printed `Assertions :` figure into CHANGELOG and SPEC verbatim.
+3. Record the `Measured on:` environment alongside it, because a figure
+   without the environment it came from cannot be reproduced or disputed.
+
+Never carry a figure forward and adjust it. If the number is not on screen,
+it is not a verification value.
+
+### 36.3 Adding a case
+
+New cases are discovered automatically — any `Test-*.ps1` under `tests/cases`
+is picked up, so nothing needs registering. Two things are worth doing in
+order:
+
+1. **Confirm the case fails against the defect first.** Place it in the tree
+   before the fix and watch it fail, with a message that names the reason. A
+   case that has only ever been seen passing is evidence of nothing. For the
+   INF WDF work the case was added first and reported `function(s) not found:
+   ConvertTo-WdfVersionNumber, Get-InfWdfRequirement`.
+2. **Exercise the function, not only its parts.** Static gates see none of
+   this: a parameter name that does not exist, an unterminated `[` character
+   class, a `try` that spans the wrong range all pass `psa.py` and
+   `Parser::ParseFile` (SPEC §D.45.7). Call the thing.

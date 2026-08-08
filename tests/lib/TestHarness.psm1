@@ -20,6 +20,7 @@
 $script:Passed = 0
 $script:Failed = 0
 $script:Failures = New-Object 'System.Collections.Generic.List[string]'
+$script:Tallied = $false
 
 function Reset-TestState {
     [CmdletBinding()]
@@ -177,9 +178,37 @@ function Write-TestSection {
 }
 
 function Get-TestResult {
+    <#
+    .SYNOPSIS
+        Return this case's tally, and add it to the suite-wide total.
+    .DESCRIPTION
+        The runner invokes each case as its own script and sees only the exit
+        code, which carries the failure count and not the number of
+        assertions. The suite total therefore has to accumulate somewhere both
+        sides can reach. Each case re-imports this module with -Force, so a
+        module-scoped variable is cleared between cases; a global survives.
+
+        Why the total is printed at all: assertion counts here are
+        loop-driven. Several cases iterate over the content of the scripts
+        they check, so the count moves whenever that content moves. It has to
+        be MEASURED for each revision. Taking the previously published figure
+        and adding a new case's count produces a number nobody observed - and
+        that is how the published figures drifted from the measured ones.
+    #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param()
+    if (-not $script:Tallied) {
+        $script:Tallied = $true
+        $tally = Get-Variable -Name 'DdTestSuiteTally' -Scope Global -ErrorAction SilentlyContinue
+        if ($null -eq $tally) {
+            Set-Variable -Name 'DdTestSuiteTally' -Scope Global `
+                -Value ([pscustomobject]@{ Passed = 0; Failed = 0 })
+            $tally = Get-Variable -Name 'DdTestSuiteTally' -Scope Global
+        }
+        $tally.Value.Passed += $script:Passed
+        $tally.Value.Failed += $script:Failed
+    }
     return [pscustomobject]@{
         Passed = $script:Passed
         Failed = $script:Failed

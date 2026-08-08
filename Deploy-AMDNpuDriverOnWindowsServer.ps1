@@ -340,8 +340,8 @@ param(
 #   * PhaseResults - per-phase outcome registry (write side from
 #     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.08.08-r50'
-$Script:ScriptTag           = 'winre-tool-compatibility-and-wdf-evidence'
+$Script:ScriptVersion       = 'npu-2026.08.08-r51'
+$Script:ScriptTag           = 'inf-side-wdf-requirement'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the
@@ -5588,6 +5588,91 @@ function Read-InfManufacturer {
     return $result
 }
 
+function ConvertTo-WdfVersionNumber {
+    # Turn a major.minor WDF version into a comparable number.
+    #
+    # String comparison is wrong here and quietly so: '1.9' sorts above
+    # '1.19', which would report a driver requesting 1.19 as satisfied by a
+    # 1.9 runtime. The minor part is scaled so ordering matches the real
+    # version sequence.
+    [CmdletBinding()]
+    [OutputType([int])]
+    param(
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]$Version
+    )
+    if ([string]::IsNullOrWhiteSpace($Version)) { return -1 }
+    $m = [regex]::Match($Version.Trim(), '^(\d+)\.(\d+)')
+    if (-not $m.Success) { return -1 }
+    return ([int]$m.Groups[1].Value * 1000) + [int]$m.Groups[2].Value
+}
+function Get-InfWdfRequirement {
+    # What framework version an INF asks the host to provide.
+    #
+    # The directive names are read straight out of the text. Following
+    # KmdfService= to the section it names and reading the version from there
+    # is the obvious implementation and the wrong one: section naming is a
+    # package convention, not a rule, and a package that names its sections
+    # differently produces no match and no error. The result reads as "not a
+    # WDF driver" - the safe-looking answer, and wrong.
+    #
+    # A co-installer reference alone does not set IsWdfDriver. The flag is
+    # about what the INF declares it needs from the framework; a co-installer
+    # names what the package was built against. The versions are still
+    # reported so the two can be compared.
+    #
+    # SPEC D.52.5 bounds what this buys. A driver asking for more than the
+    # runtime provides cannot load, and neither Path A nor Path B moves it -
+    # inf2cat sets the catalog's target OS and does not lower a KMDF
+    # requirement. It does not predict WDF_VIOLATION.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]$Content
+    )
+
+    $kmdf = ''
+    $umdf = ''
+    $coInstallers = New-Object 'System.Collections.Generic.List[string]'
+    $sectionCount = 0
+
+    if (-not [string]::IsNullOrEmpty($Content)) {
+        foreach ($m in [regex]::Matches($Content, '(?im)^\s*KmdfLibraryVersion\s*=\s*([0-9]+\.[0-9]+)')) {
+            $candidate = $m.Groups[1].Value
+            if ((ConvertTo-WdfVersionNumber -Version $candidate) -gt (ConvertTo-WdfVersionNumber -Version $kmdf)) {
+                $kmdf = $candidate
+            }
+        }
+        foreach ($m in [regex]::Matches($Content, '(?im)^\s*UmdfLibraryVersion\s*=\s*([0-9]+\.[0-9]+)')) {
+            $candidate = $m.Groups[1].Value
+            if ((ConvertTo-WdfVersionNumber -Version $candidate) -gt (ConvertTo-WdfVersionNumber -Version $umdf)) {
+                $umdf = $candidate
+            }
+        }
+        # WdfCoInstaller01031.dll -> 01031 -> 1.31. Same shape the collector
+        # uses in Get-WdfCoInstallerInventory; keep the two readings identical.
+        foreach ($m in [regex]::Matches($Content, 'WdfCoInstaller([0-9]{2})([0-9]{3})\.dll', 'IgnoreCase')) {
+            $restored = '{0}.{1}' -f [int]$m.Groups[1].Value, [int]$m.Groups[2].Value
+            if (-not $coInstallers.Contains($restored)) { [void]$coInstallers.Add($restored) }
+        }
+        $sectionCount = @([regex]::Matches($Content, '(?im)^\s*\[[^\]]+\.Wdf\]\s*$')).Count
+    }
+
+    # Numeric ordering, for the reason spelled out in ConvertTo-WdfVersionNumber.
+    $ordered = @($coInstallers.ToArray() | Sort-Object -Property @{ Expression = { ConvertTo-WdfVersionNumber -Version $_ } })
+
+    return [pscustomobject]@{
+        IsWdfDriver         = (($kmdf -ne '') -or ($umdf -ne '') -or ($sectionCount -gt 0))
+        KmdfLibraryVersion  = $kmdf
+        UmdfLibraryVersion  = $umdf
+        CoInstallerVersions = ($ordered -join ';')
+        WdfSectionCount     = $sectionCount
+    }
+}
+
 function Add-ProductType3Decoration {
     <#
     .SYNOPSIS
@@ -6678,6 +6763,11 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
             $parsed.HwidEntries | Select-Object -First 3 | ForEach-Object { $_.HardwareId } | Out-String
         } else { '(none)' }
 
+        # INF-side WDF requirement (SPEC D.53). NPU reads INFs as lines
+        # rather than as one string, so the text is rejoined here; the helper
+        # itself stays identical to the other three sisters.
+        $wdfReq = Get-InfWdfRequirement -Content ((Read-InfFileLines -Path $inf.FullName) -join "`n")
+
         $entry = [pscustomobject]@{
             FileName             = $inf.Name
             FullPath             = $inf.FullName
@@ -6692,6 +6782,15 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
             ServerDecCount       = $parsed.ServerDecorations.Count
             NeedsPatch           = ($parsed.WorkstationDecorations.Count -gt 0)
             SelectedForPipeline  = $matchesTarget   # primary filter
+            # WDF requirement declared by the INF (SPEC D.53). This is the
+            # package's side of the question the collector answers for the
+            # host: a package asking for more than the runtime provides
+            # cannot load, and no signing strategy moves it.
+            IsWdfDriver         = $wdfReq.IsWdfDriver
+            KmdfLibraryVersion  = $wdfReq.KmdfLibraryVersion
+            UmdfLibraryVersion  = $wdfReq.UmdfLibraryVersion
+            CoInstallerVersions = $wdfReq.CoInstallerVersions
+            WdfSectionCount     = $wdfReq.WdfSectionCount
             HwidPreview          = $hwidPreview.Trim()
         }
         $inventory.Add($entry)
