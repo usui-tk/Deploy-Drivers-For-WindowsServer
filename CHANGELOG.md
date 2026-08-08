@@ -20,6 +20,93 @@ independently.
 
 ---
 
+## [2026-08-08] `wdf-requirement-vs-host` — Chipset r109 / Graphics r75 / NPU r52 / BthPan r57
+
+Both halves of the framework question existed and nothing put them together.
+The collector reads what the host provides (c7); the sisters read what each
+INF requires (r108). Comparing them still meant opening two artifacts by hand
+after the run. This closes the comparison inside the run. Design rationale:
+SPEC D.54.
+
+### Added — the comparison, in P05
+
+P05 reads the host framework version once and checks the inventory it has just
+built against it. When packages exceed what the host provides, every one of
+them is named, with the version it declares and the version it was measured
+against. The list is **never truncated**: a shortened list reads as the whole
+answer and nothing in the output says otherwise. When nothing exceeds, one
+quiet line says so — a warning printed on every run stops being read.
+
+`Get-HostWdfRuntime` reads `Wdf01000.sys` and `WudfRd.sys` and keeps the first
+two version parts, which is the same `major.minor` an INF declares. It is
+deliberately smaller than the collector's `Get-DriverFramework`: the service
+key, co-installer inventory and dependent services that function also records
+answer a different question, and copying it into four scripts to use two lines
+of it would put a large body under the byte-identity obligation for nothing.
+
+**Unknown is not zero.** If the runtime cannot be read the comparison is
+skipped, not run against an assumed value — treating unknown as 0 would flag
+every WDF driver on the machine, and as infinity would flag none. The summary
+carries `Probed` so an absent result is distinguishable from a clean one.
+
+### Added — a third install-readiness verdict
+
+`Write-InstallReadinessDigest` gains **`READY WITH EXCLUSIONS`**, between
+`NOT READY` and `READY`.
+
+`NOT READY` would have been wrong. Boot-signing failure is total: nothing this
+run staged will load. A WDF shortfall is partial: the packages within the
+host's version install and work, and a named subset does not. One word for
+both would tell an operator to stop when the correct action is to proceed and
+expect specific drivers to be missing.
+
+The finding travels as `$Script:WdfShortfall`, alongside
+`$Script:PhaseTimings`. `$Ctx` was the obvious carrier and does not work: the
+digest is called from top-level scope in three sisters and from inside
+`Show-RunSummary` in NPU — before `$Ctx` exists — and the inventory itself
+lives in three different places across the four scripts.
+
+### Not in this release — gating
+
+P06, P08 and P09 are unchanged; nothing is excluded from cataloguing, signing
+or installation on the strength of this reading. The requirement columns have
+been verified against fixtures and have **never been measured against the real
+AMD chipset package**. Gating a pipeline on a value nobody has observed once
+inverts the order — the measurement justifies the gate, not the reverse.
+Whether a shortfall should trim the install plan, and whether a total
+shortfall should enter the degenerate-plan path, stays open until the columns
+have been read on real hardware.
+
+### Added — tests
+
+- `tests/cases/Test-WdfShortfall.ps1` (28 assertions). Ordering is pinned from
+  **both** directions: 1.19 required on a 1.9 host must be flagged, and 1.9
+  required on a 1.19 host must not be — a comparator can fail either way and
+  only one of those failures is loud. Also equality, KMDF and UMDF judged
+  independently, unknown host version, absent properties, and a 25-entry list
+  checked to the last element so a truncating implementation would show.
+- `Test-SisterConsistency` asserts all five new helpers are byte-identical
+  across the four sisters.
+
+**Negative control**: the new case was placed against the pre-change tree and
+failed with `function(s) not found`, then passed once the helpers existed.
+
+**Executed, not only parsed** (SPEC D.45.7): the digest was run through all
+three new paths and the P05 notice through host-below, host-above and
+host-unreadable. `Get-HostWdfRuntime` was run on a non-Windows host to confirm
+it returns an unprobed result rather than throwing.
+
+### Verification
+
+`psa.py` 0 errors / 0 warnings / 0 info across fifteen PowerShell files;
+`Parser::ParseFile` 0 errors; **test suite 8 cases, 362 assertions** (measured,
+PowerShell 7.4.6 Core on Linux), all passing; canonical drift scanner — 125 dd
+observation records, 32 unit ids, 121 `match` + 4 `forked-frozen`, zero
+differences. Insertion points came from `FunctionDefinitionAst.Extent` and were
+re-verified by re-parsing. No vendored canon region was touched.
+
+---
+
 ## [2026-08-08] `inf-side-wdf-requirement` — Chipset r108 / Graphics r74 / NPU r51 / BthPan r56
 
 The collector learned in c7 what framework version the **host** provides.

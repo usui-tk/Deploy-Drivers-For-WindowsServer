@@ -3271,3 +3271,67 @@ order:
    this: a parameter name that does not exist, an unterminated `[` character
    class, a `try` that spans the wrong range all pass `psa.py` and
    `Parser::ParseFile` (SPEC §D.45.7). Call the thing.
+
+---
+
+## 37. Reading the WDF requirement check on a real host
+
+### 37.1 What to look for in P05
+
+Two forms, both in the P05 phase output:
+
+```
+   WDF runtime on this host : KMDF 1.19 / UMDF 2.19
+   WDF requirement check : all 55 inventoried INF(s) are within it.
+```
+
+or, when something exceeds the runtime:
+
+```
+   WDF runtime on this host : KMDF 1.19 / UMDF 2.19
+[!] WDF requirement exceeds this host for 2 of 55 inventoried INF(s).
+       These packages cannot load here even after cataloguing and signing.
+       ...
+         - amdpsp.inf (KMDF 1.33 > 1.19)
+         - amdsfh.inf (UMDF 2.33 > 2.19)
+```
+
+A third form means the check did not run:
+
+```
+   WDF requirement check : host framework version could not be read; skipped.
+```
+
+That is not a pass. It means `Wdf01000.sys` / `WudfRd.sys` could not be read,
+and no comparison was made. Treat it as an unanswered question, and check
+`framework\driver-framework.txt` from the collector bundle instead.
+
+### 37.2 What to look for in the run summary
+
+The digest carries the verdict. `READY WITH EXCLUSIONS` is the new one: some
+packages cannot load, the rest install normally. It is not `NOT READY` — that
+word is reserved for the boot-signing case where nothing this run staged will
+load at all. If a run reports `READY WITH EXCLUSIONS`, proceed and expect the
+named drivers to be absent afterwards.
+
+### 37.3 The open measurement
+
+The five requirement columns and this comparison have been verified against
+fixtures only. **Nobody has yet read them against the real AMD chipset package
+— 55 INFs whose declared versions are unknown.** That measurement is what the
+gating decision waits on (SPEC D.54.6), so it is worth taking deliberately:
+
+1. Run `-Action PrepareVerify` on the target host.
+2. Open `inf_inventory.csv` and read the `KmdfLibraryVersion`,
+   `UmdfLibraryVersion`, `CoInstallerVersions` and `IsWdfDriver` columns.
+3. Record how many of the 55 declare a requirement at all, and how many exceed
+   the host. On Windows Server 2016 the runtime is KMDF 1.19 / UMDF 2.19
+   (SPEC D.52.2), so a package built against a current WDK is the interesting
+   case.
+4. Note any INF with `IsWdfDriver = False` and a non-empty
+   `CoInstallerVersions`. That combination is deliberate and documented
+   (SPEC D.53.2) but has never been seen in the field; how often it occurs
+   decides whether the definition is revisited.
+
+Nothing in the pipeline changes on the strength of this reading yet. The point
+of taking it is to know the numbers before deciding whether it should.

@@ -7191,6 +7191,147 @@ of whether installation proceeds; excluding NPU would also make the four-way
 consistency assertion unstateable, which is the check that keeps the four
 sisters from drifting apart.
 
+## D.54 Closing the comparison: requirement against runtime
+
+### D.54.1 What was missing
+
+D.52 gave the collector the host's framework version. D.53 gave the sisters
+each INF's declared requirement. Both halves existed and nothing put them
+together, so the comparison an operator actually needs — will these packages
+load on this machine — still had to be done by hand, across two artifacts,
+after the fact.
+
+This closes it inside the run: P05 reads the host runtime once, compares it
+against the inventory it has just built, and names the packages that ask for
+more than the machine provides.
+
+### D.54.2 A small probe, not a copy of the collector's
+
+`Get-HostWdfRuntime` reads `Wdf01000.sys` and `WudfRd.sys` and keeps the first
+two parts of each file version — the same `major.minor` an INF declares. That
+is all a comparison needs.
+
+The collector's `Get-DriverFramework` also records the service key, the
+co-installer inventory and the services depending on `Wdf01000`. None of that
+answers "will this package load", and copying that function into four sisters
+to use two lines of it would put a large body under the byte-identity
+obligation for no gain. The probe here is deliberately the smaller thing.
+
+`$env:SystemRoot` can be empty outside a normal Windows session and
+`Join-Path` throws on a null mandatory parameter rather than returning
+nothing (D.47.7), so every path is concatenated from a resolved root. An
+unreadable binary yields `Probed = $false` and empty versions, never an
+exception: a run must not fail because a diagnostic could not be taken.
+
+### D.54.3 Unknown is not zero
+
+When the runtime cannot be read the comparison is **skipped**, not performed
+against an assumed value. Treating "unknown" as 0 would flag every WDF driver
+on the machine and treating it as infinity would flag none; both are
+fabrications. The summary carries `Probed` so the reader can tell a clean
+result from an absent one, and the digest declines to change its verdict on an
+unprobed result. This is the same discipline as the boot-signing gate in
+D.43.4, where a failed probe leaves the phase-status answer standing.
+
+### D.54.4 Where the finding lives, and why not on `$Ctx`
+
+The comparison summary is recorded at **script scope** as
+`$Script:WdfShortfall`, alongside `$Script:PhaseTimings`.
+
+`$Ctx` was the obvious carrier and does not work. Measured across the four
+sisters:
+
+| Script | `Write-InstallReadinessDigest` call site | Inventory location |
+|---|---|---|
+| Chipset  | top-level script scope | `$Ctx.InfInventory` |
+| Graphics | top-level script scope | `$Ctx.InfInventory` |
+| BthPan   | top-level script scope | not on `$Ctx` at all |
+| NPU      | inside `Show-RunSummary` | `$Ctx.DetectedPlatform.InfInventory` |
+
+NPU's digest call is reached before `$Ctx` is even constructed, and the
+inventory sits in three different places across the four. A digest that read
+`$Ctx` would need three shapes and would still be unreachable in NPU. Script
+scope is what `$Script:PhaseTimings` already established, it is uniform in all
+four, and — because it is not a `[pscustomobject]` — it also avoids the sealed
+initialiser obligation of PSA2009.
+
+### D.54.5 Two surfaces, two questions
+
+**P05** prints the detail at the moment the inventory is built: the host's
+KMDF and UMDF versions, and, if any package exceeds them, every offending INF
+with the requirement it declares and the version it was measured against. The
+list is **never truncated** (O24): a shortened list reads as the whole answer
+and nothing in the output says otherwise. When nothing exceeds, one quiet line
+states so — a warning that appears on every run stops being read.
+
+**`Write-InstallReadinessDigest`** carries the verdict. It gains a third word:
+
+- `REVIEW REQUIRED` — a phase failed.
+- `NOT READY` — no phase failed, but the boot-signing environment blocks
+  self-signed driver load. Nothing this run staged will activate.
+- **`READY WITH EXCLUSIONS`** — new. Some packages require a framework version
+  newer than this host provides and cannot load; the rest install normally.
+- `READY` — nothing outstanding.
+
+`READY WITH EXCLUSIONS` exists because `NOT READY` would be wrong here.
+Boot-signing failure is total: nothing loads. A WDF shortfall is partial: the
+packages within the host's version install and work. Collapsing the two into
+one word would tell an operator to stop when the correct action is to proceed
+and expect a named subset to be missing.
+
+### D.54.6 This does not gate any phase
+
+P06, P08 and P09 are unchanged. Nothing is excluded from cataloguing,
+signing or installation on the strength of this reading.
+
+That is a deliberate limit, not an oversight. The five requirement columns
+have been verified against fixtures and have **never been measured against the
+real AMD chipset package** — 55 INFs whose declared versions nobody has looked
+at yet. Gating a pipeline on a value that has not been observed once inverts
+the order: the measurement justifies the gate, not the other way round.
+Whether a shortfall should trim the install plan, and whether a total
+shortfall should enter the degenerate-plan path of D.45.6, is left open until
+the columns have been read on real hardware.
+
+### D.54.7 What it still does not tell you
+
+Unchanged from D.52.5 and D.53.5, and worth restating because a verdict line
+invites more confidence than the data supports. A package requiring more than
+the runtime provides cannot load, and that is now visible before installation.
+A package that loads and then breaks the framework contract produces
+`WDF_VIOLATION`, and nothing here predicts it. The exclusion list bounds the
+suspect pool; it does not name a culprit.
+
+### D.54.8 Verification
+
+`psa.py` 0 errors / 0 warnings / 0 info across fifteen PowerShell files;
+`Parser::ParseFile` 0 errors; test suite **8 cases, 362 assertions** measured
+on PowerShell 7.4.6 (Core) on Linux; canon integrity per A.11.8a — 125 dd
+observation records, 32 unit ids, 121 `match` + 4 `forked-frozen`, zero
+differences.
+
+**Negative control**: the new case was placed against the pre-change tree and
+failed with `function(s) not found: Get-RecordFieldText,
+Get-WdfShortfallSummary`, then passed once they existed.
+
+**Executed, not only parsed** (D.45.7): the digest was run through all three
+of its new paths — shortfall present, shortfall absent, summary never recorded
+— and the P05 notice through host-below-requirement, host-above-requirement
+and host-unreadable. `Get-HostWdfRuntime` was run on a non-Windows host to
+confirm it returns an unprobed result rather than throwing.
+
+### D.54.9 Sister impact
+
+All four. Chipset r109 / Graphics r75 / NPU r52 / BthPan r57. The collector is
+unchanged at c7.
+
+Five helpers are byte-identical in all four sisters and asserted so by
+`Test-SisterConsistency`: `Get-HostWdfRuntime`, `Get-BinaryLibraryVersion`,
+`Get-WdfShortfallSummary`, `Get-RecordFieldText` and
+`Show-WdfShortfallNotice`. The comparison itself is a pure function of its
+arguments, which is what lets it be tested without a Windows host, without an
+INF on disk, and without a registry.
+
 ## Appendix: How to seed a new sister script from this SPEC
 
 If you are creating a 5th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1`):

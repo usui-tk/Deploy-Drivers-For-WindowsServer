@@ -56,7 +56,9 @@ function Get-TextHash {
 
 Write-TestSection 'Shared helpers are byte-identical across the sisters that carry them'
 $fourWay = @('Write-InstallReadinessDigest', 'Get-SystemDeviceHealthCensus',
-              'Write-DeviceHealthRegressionReport', 'Get-InfWdfRequirement')
+              'Write-DeviceHealthRegressionReport', 'Get-InfWdfRequirement',
+              'Get-HostWdfRuntime', 'Get-BinaryLibraryVersion', 'Get-WdfShortfallSummary',
+              'Get-RecordFieldText', 'Show-WdfShortfallNotice')
 foreach ($name in $fourWay) {
     $hashes = @($sisters | ForEach-Object { Get-TextHash (Get-FunctionText -Path $_ -Name $name) })
     Assert-Equal ('{0}: identical in all four' -f $name) 1 (@($hashes | Sort-Object -Unique)).Count

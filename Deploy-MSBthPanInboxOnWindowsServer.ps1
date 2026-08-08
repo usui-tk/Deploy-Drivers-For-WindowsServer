@@ -438,6 +438,7 @@ $Script:ScriptStartTime   = Get-Date
 $Script:CurrentPhaseStart = $null
 $Script:CurrentPhaseId    = $null
 $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
+$Script:WdfShortfall      = $null
 
 #####################################################################
 # Script version identification
@@ -455,8 +456,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-$Script:ScriptVersion = 'msbthpan-2026.08.08-r56'
-$Script:ScriptTag     = 'inf-side-wdf-requirement'
+$Script:ScriptVersion = 'msbthpan-2026.08.08-r57'
+$Script:ScriptTag     = 'wdf-requirement-vs-host'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -1322,6 +1323,21 @@ function Write-InstallReadinessDigest {
         } catch {
             $bootProbed = $false
         }
+        # WDF SHORTFALL (SPEC D.54). The boot-signing gate above answers "can
+        # anything self-signed load here". This answers a narrower question the
+        # phase statuses also cannot: some of the packages this run staged may
+        # require a framework version newer than the host provides, and those
+        # cannot load however cleanly they were catalogued and signed. P05
+        # records the finding at script scope; reading it here is best-effort
+        # and never changes a verdict on its own failure.
+        $wdfExcluded = 0
+        try {
+            if ($null -ne $Script:WdfShortfall -and $Script:WdfShortfall.Probed) {
+                $wdfExcluded = [int]$Script:WdfShortfall.ExceedingCount
+            }
+        } catch {
+            $wdfExcluded = 0
+        }
         if ($failedIds.Count -gt 0) {
             Write-Host (' Install readiness : REVIEW REQUIRED - failed: {0}' -f ($failedIds -join ', ')) -ForegroundColor Red
         } elseif ($bootProbed -and $bootBlocked) {
@@ -1330,6 +1346,16 @@ function Write-InstallReadinessDigest {
             Write-Host '                     Drivers staged by this run will not activate on a plain' -ForegroundColor Yellow
             Write-Host '                     reboot. See the boot-signing table above for which of' -ForegroundColor Yellow
             Write-Host '                     Secure Boot / testsigning / WDAC has to change.' -ForegroundColor Yellow
+        } elseif ($wdfExcluded -gt 0) {
+            # Deliberately not NOT READY. Nothing here blocks the run: the
+            # packages within the host's framework version install normally.
+            # Saying NOT READY would make a partial exclusion indistinguishable
+            # from the boot-signing case above, where nothing loads at all.
+            Write-Host (' Install readiness : READY WITH EXCLUSIONS - {0} INF(s) require a WDF' -f $wdfExcluded) -ForegroundColor Yellow
+            Write-Host '                     version newer than this host provides and will not' -ForegroundColor Yellow
+            Write-Host '                     load. The rest install normally. See the WDF' -ForegroundColor Yellow
+            Write-Host '                     requirement lines in P05 for which ones and why' -ForegroundColor Yellow
+            Write-Host '                     no signing path changes it.' -ForegroundColor Yellow
         } elseif (-not $bootProbed) {
             Write-Host ' Install readiness : READY (phases) - boot-signing state could not be read,' -ForegroundColor DarkYellow
             Write-Host '                     so driver-load capability is unconfirmed.' -ForegroundColor DarkYellow
@@ -7324,6 +7350,190 @@ function Get-InfWdfRequirement {
         WdfSectionCount     = $sectionCount
     }
 }
+function Get-HostWdfRuntime {
+    # What framework version THIS host provides.
+    #
+    # The INF side says what a package requires; this says what is available
+    # to satisfy it. The runtime binaries carry the library version in their
+    # first two version parts, which is the same major.minor an INF declares,
+    # so the two can be compared directly instead of assumed compatible.
+    #
+    # Deliberately small. The collector's Get-DriverFramework records the
+    # service key, the co-installer inventory and the dependent services as
+    # well; none of that is needed to answer "will this package load", and
+    # copying it here would duplicate a large function to use two lines of
+    # it.
+    #
+    # Best-effort by contract: an unreadable binary yields Probed = $false and
+    # empty versions, never an exception. A run must not fail because a
+    # diagnostic could not be taken.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+
+    $result = [pscustomobject]@{
+        Probed             = $false
+        KmdfLibraryVersion = ''
+        UmdfLibraryVersion = ''
+        KmdfPath           = ''
+        UmdfPath           = ''
+    }
+
+    # $env:SystemRoot can be empty outside a normal Windows session, and
+    # Join-Path throws on a null mandatory parameter rather than returning
+    # nothing (SPEC D.47.7). Concatenate from a resolved root instead.
+    $winRoot = [string]$env:SystemRoot
+    if ([string]::IsNullOrWhiteSpace($winRoot)) { $winRoot = [string]$env:windir }
+    if ([string]::IsNullOrWhiteSpace($winRoot)) { return $result }
+    $drivers = $winRoot.TrimEnd('\') + '\System32\drivers'
+
+    $result.KmdfPath = $drivers + '\Wdf01000.sys'
+    $result.UmdfPath = $drivers + '\WudfRd.sys'
+    $result.KmdfLibraryVersion = Get-BinaryLibraryVersion -Path $result.KmdfPath
+    $result.UmdfLibraryVersion = Get-BinaryLibraryVersion -Path $result.UmdfPath
+    $result.Probed = (($result.KmdfLibraryVersion -ne '') -or ($result.UmdfLibraryVersion -ne ''))
+    return $result
+}
+
+function Get-BinaryLibraryVersion {
+    # major.minor from a driver binary's file version, or '' if unreadable.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]$Path
+    )
+    if ([string]::IsNullOrWhiteSpace($Path)) { return '' }
+    try {
+        if (-not (Test-Path -LiteralPath $Path)) { return '' }
+        $item = Get-Item -LiteralPath $Path -ErrorAction Stop
+        $info = $item.VersionInfo
+        if ($null -eq $info) { return '' }
+        $raw = [string]$info.FileVersion
+        if ([string]::IsNullOrWhiteSpace($raw)) { return '' }
+        $parts = $raw.Trim().Split('.')
+        if ($parts.Count -lt 2) { return '' }
+        return ('{0}.{1}' -f $parts[0].Trim(), $parts[1].Trim())
+    }
+    catch {
+        return ''
+    }
+}
+
+function Get-WdfShortfallSummary {
+    # Which inventoried INFs require more than this host provides.
+    #
+    # Pure function of its arguments so it can be tested without a Windows
+    # host and without an INF on disk. Get-HostWdfRuntime does the reading;
+    # this does the comparing.
+    #
+    # The name list is NOT truncated. A shortened list reads as the whole
+    # answer and there is no way to tell from the output that it was cut.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter()]
+        [AllowEmptyCollection()]
+        [object[]]$InfRecord = @(),
+
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]$HostKmdfVersion = '',
+
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]$HostUmdfVersion = ''
+    )
+
+    $exceeding = New-Object 'System.Collections.Generic.List[string]'
+    $evaluated = 0
+    $hostKmdf = ConvertTo-WdfVersionNumber -Version $HostKmdfVersion
+    $hostUmdf = ConvertTo-WdfVersionNumber -Version $HostUmdfVersion
+    $probed = (($HostKmdfVersion -ne '') -or ($HostUmdfVersion -ne ''))
+
+    foreach ($record in $InfRecord) {
+        if ($null -eq $record) { continue }
+        $evaluated++
+        $name = Get-RecordFieldText -Record $record -Name 'FullPath'
+        if ($name -ne '') { $name = Split-Path -Leaf $name }
+        if ($name -eq '') { $name = '(unnamed INF)' }
+        $needKmdf = Get-RecordFieldText -Record $record -Name 'KmdfLibraryVersion'
+        $needUmdf = Get-RecordFieldText -Record $record -Name 'UmdfLibraryVersion'
+        $short = @()
+        if ($needKmdf -ne '' -and $HostKmdfVersion -ne '' -and
+            (ConvertTo-WdfVersionNumber -Version $needKmdf) -gt $hostKmdf) {
+            $short += ('KMDF {0} > {1}' -f $needKmdf, $HostKmdfVersion)
+        }
+        if ($needUmdf -ne '' -and $HostUmdfVersion -ne '' -and
+            (ConvertTo-WdfVersionNumber -Version $needUmdf) -gt $hostUmdf) {
+            $short += ('UMDF {0} > {1}' -f $needUmdf, $HostUmdfVersion)
+        }
+        if ($short.Count -gt 0) {
+            [void]$exceeding.Add(('{0} ({1})' -f $name, ($short -join ', ')))
+        }
+    }
+
+    return [pscustomobject]@{
+        Probed             = $probed
+        HostKmdfVersion    = $HostKmdfVersion
+        HostUmdfVersion    = $HostUmdfVersion
+        EvaluatedCount     = $evaluated
+        ExceedingCount     = $exceeding.Count
+        ExceedingNames     = $exceeding.ToArray()
+    }
+}
+
+function Get-RecordFieldText {
+    # A property's value as text, or '' when the property is not there.
+    # Inventory records reach this code from a live phase and from Import-Csv,
+    # and the two do not carry the same property set.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()] [object]$Record,
+        [Parameter(Mandatory = $true)] [ValidateNotNullOrEmpty()] [string]$Name
+    )
+    if ($null -eq $Record) { return '' }
+    $props = $Record.PSObject.Properties
+    if ($null -eq $props) { return '' }
+    $found = $props[$Name]
+    if ($null -eq $found) { return '' }
+    if ($null -eq $found.Value) { return '' }
+    return ([string]$found.Value).Trim()
+}
+
+function Show-WdfShortfallNotice {
+    # Operator-facing notice at the point the inventory is built.
+    #
+    # Says nothing when nothing is wrong: a line that appears on every run is
+    # read as decoration and stops carrying information.
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter()] [object]$Summary
+    )
+    if ($null -eq $Summary) { return }
+    if (-not $Summary.Probed) {
+        Write-Host '   WDF requirement check : host framework version could not be read; skipped.' -ForegroundColor DarkGray
+        return
+    }
+    Write-Host ('   WDF runtime on this host : KMDF {0} / UMDF {1}' -f `
+        $(if ($Summary.HostKmdfVersion) { $Summary.HostKmdfVersion } else { '(unknown)' }), `
+        $(if ($Summary.HostUmdfVersion) { $Summary.HostUmdfVersion } else { '(unknown)' })) -ForegroundColor DarkGray
+    if ($Summary.ExceedingCount -le 0) {
+        Write-Host ('   WDF requirement check : all {0} inventoried INF(s) are within it.' -f $Summary.EvaluatedCount) -ForegroundColor DarkGray
+        return
+    }
+    Write-Caution ('WDF requirement exceeds this host for {0} of {1} inventoried INF(s).' -f `
+        $Summary.ExceedingCount, $Summary.EvaluatedCount)
+    Write-Host '       These packages cannot load here even after cataloguing and signing.' -ForegroundColor DarkYellow
+    Write-Host '       inf2cat sets the catalog target OS; it does not lower a KMDF' -ForegroundColor DarkYellow
+    Write-Host '       requirement, so neither Path A nor Path B changes this outcome.' -ForegroundColor DarkYellow
+    foreach ($entry in $Summary.ExceedingNames) {
+        Write-Host ('         - {0}' -f $entry) -ForegroundColor DarkYellow
+    }
+}
 
 function Write-InfFile {
     param([string]$Path, [string]$Content, $Encoding)
@@ -8969,6 +9179,14 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
 
     # Hoist inline-if out of hashtable for PS 5.1 safety
     $v01BaselineForMarker = if ($v01Result.ToolMissing) { 'skipped' } else { $v01Result.Errors.Count }
+    # WDF requirement vs this host (SPEC D.54). One INF here, but the check is
+    # stated the same way in all four sisters so the digest reads one shape.
+    $wdfHostRuntime = Get-HostWdfRuntime
+    $Script:WdfShortfall = Get-WdfShortfallSummary -InfRecord @($row) `
+        -HostKmdfVersion $wdfHostRuntime.KmdfLibraryVersion `
+        -HostUmdfVersion $wdfHostRuntime.UmdfLibraryVersion
+    Show-WdfShortfallNotice -Summary $Script:WdfShortfall
+
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'P05' -Metadata @{
         HwidCount        = $meta.HwidCount
         NeedsPatch       = $meta.NeedsPatch
