@@ -87,14 +87,14 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
-$Script:ScriptVersion  = 'collector-2026.08.08-c6'
+$Script:ScriptVersion  = 'collector-2026.08.08-c7'
 $Script:ScriptTag      = 'windows-server-configuration-evidence-collector'
 $Script:ScriptHash     = 'unavailable'
 try {
     $Script:ScriptHash = (Get-FileHash -LiteralPath $MyInvocation.MyCommand.Path -Algorithm SHA256 -ErrorAction Stop).Hash.Substring(0, 12).ToLowerInvariant()
 } catch { } # psa-disable-line PSA3004 -- self-hash is identity metadata only; collection must proceed without it
 $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash)
-$script:SchemaVersion = 'windows-server-configuration-evidence/1.5'
+$script:SchemaVersion = 'windows-server-configuration-evidence/1.6'
 # Per-stage outcome ledger (SPEC D.45). Populated by Invoke-EvidenceStage,
 # written to stage-results.json, and surfaced in the assessment so a bundle
 # always declares its own completeness.
@@ -1984,6 +1984,260 @@ function Get-CrashEvidence {
     return $result
 }
 
+function Get-ExpectedWdfVersion {
+    # The KMDF / UMDF versions an OS build ships in-box.
+    #
+    # Source: Microsoft's KMDF and UMDF version history tables. Recorded here
+    # rather than inferred, because the number is the ceiling every driver on
+    # the host has to fit under and an approximation is worse than nothing.
+    # An earlier revision of this project asserted 1.15 for Windows Server
+    # 2016 from memory; the documented value is 1.19 (SPEC D.52).
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter()]
+        [int]$Build = 0
+    )
+    $table = @{
+        14393 = @{ Os = 'Windows Server 2016 / Windows 10 1607'; Kmdf = '1.19'; Umdf = '2.19' }
+        17763 = @{ Os = 'Windows Server 2019 / Windows 10 1809'; Kmdf = '1.27'; Umdf = '2.27' }
+        20348 = @{ Os = 'Windows Server 2022';                   Kmdf = '1.33'; Umdf = '2.33' }
+        26100 = @{ Os = 'Windows Server 2025';                   Kmdf = '1.33'; Umdf = '2.33' }
+    }
+    $exact = $table.ContainsKey($Build)
+    $entry = $null
+    if ($exact) {
+        $entry = $table[$Build]
+    }
+    else {
+        $lower = @($table.Keys | Sort-Object | Where-Object { $_ -le $Build })
+        if ($lower.Count -gt 0) { $entry = $table[$lower[-1]] }
+    }
+    return [pscustomobject][ordered]@{
+        Build = $Build
+        ExactBuildMatch = $exact
+        OsName = $(if ($null -ne $entry) { [string]$entry.Os } else { '' })
+        ExpectedKmdfVersion = $(if ($null -ne $entry) { [string]$entry.Kmdf } else { '' })
+        ExpectedUmdfVersion = $(if ($null -ne $entry) { [string]$entry.Umdf } else { '' })
+    }
+}
+
+function ConvertTo-WdfVersionNumber {
+    # Turn a major.minor WDF version into a comparable number.
+    #
+    # String comparison is wrong here and quietly so: '1.9' sorts above
+    # '1.19', which would report a driver requesting 1.19 as satisfied by a
+    # 1.9 runtime. The minor part is scaled so ordering matches the real
+    # version sequence.
+    [CmdletBinding()]
+    [OutputType([int])]
+    param(
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]$Version
+    )
+    if ([string]::IsNullOrWhiteSpace($Version)) { return -1 }
+    $m = [regex]::Match($Version.Trim(), '^(\d+)\.(\d+)')
+    if (-not $m.Success) { return -1 }
+    return ([int]$m.Groups[1].Value * 1000) + [int]$m.Groups[2].Value
+}
+
+function Get-WdfCoInstallerInventory {
+    # Every WdfCoInstallerNNNNN.dll on the host, with the KMDF version its
+    # name encodes.
+    #
+    # A co-installer is shipped by a driver package and names the framework
+    # version that package was built for. Finding WdfCoInstaller01031.dll on
+    # a host whose runtime is 1.19 states a mismatch that no other single
+    # artefact does.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+    $found = New-Object 'System.Collections.Generic.List[object]'
+    $roots = @()
+    $winRoot = [string]$env:SystemRoot
+    if ([string]::IsNullOrWhiteSpace($winRoot)) { $winRoot = [string]$env:windir }
+    if (-not [string]::IsNullOrWhiteSpace($winRoot)) {
+        $winRoot = $winRoot.TrimEnd('\')
+        $roots = @($winRoot + '\System32', $winRoot + '\System32\DriverStore\FileRepository')
+    }
+    foreach ($root in $roots) {
+        if ([string]::IsNullOrWhiteSpace($root)) { continue }
+        try {
+            if (-not (Test-Path -LiteralPath $root)) { continue }
+            foreach ($f in @(Get-ChildItem -LiteralPath $root -Filter 'WdfCoInstaller*.dll' -Recurse -ErrorAction SilentlyContinue)) {
+                # WdfCoInstaller01031.dll -> 01031 -> 1.31
+                $ver = ''
+                $m = [regex]::Match($f.Name, 'WdfCoInstaller(\d{2})(\d{3})\.dll', 'IgnoreCase')
+                if ($m.Success) {
+                    $ver = ('{0}.{1}' -f [int]$m.Groups[1].Value, [int]$m.Groups[2].Value)
+                }
+                $found.Add([pscustomobject][ordered]@{
+                    Name = [string]$f.Name
+                    FullName = [string]$f.FullName
+                    KmdfVersion = $ver
+                    KmdfVersionNumber = (ConvertTo-WdfVersionNumber -Version $ver)
+                    SizeBytes = [int64]$f.Length
+                    LastWriteTimeUtc = $f.LastWriteTimeUtc.ToString('o')
+                }) | Out-Null
+            }
+        }
+        catch {
+            continue
+        }
+    }
+    $versions = @($found | Where-Object { $_.KmdfVersion } | ForEach-Object { $_.KmdfVersion } | Sort-Object -Unique)
+    return [pscustomobject][ordered]@{
+        CollectedAtUtc = Get-UtcTimestamp
+        CoInstallerCount = $found.Count
+        DistinctKmdfVersions = $versions
+        CoInstallers = $found.ToArray()
+    }
+}
+
+function Get-WdfDependentServiceInventory {
+    # Services that depend on Wdf01000 - that is, the WDF-based drivers.
+    #
+    # WHY this list exists: WDF_VIOLATION means the framework caught one of
+    # these misbehaving. Without the list, "which driver" starts from every
+    # driver on the box; with it, the suspect pool is bounded and usually
+    # small. Start type matters too: a boot-start WDF driver can bugcheck
+    # before anything can be logged.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter()]
+        $ServiceEvidence
+    )
+    $records = New-Object 'System.Collections.Generic.List[object]'
+    $services = @()
+    if ($null -ne $ServiceEvidence -and $ServiceEvidence.PSObject.Properties['Services']) {
+        $services = @($ServiceEvidence.Services)
+    }
+    foreach ($s in $services) {
+        $deps = @($s.DependsOnService)
+        $isWdf = $false
+        foreach ($d in $deps) {
+            if ([string]$d -eq 'Wdf01000') { $isWdf = $true; break }
+        }
+        if (-not $isWdf) { continue }
+        $records.Add([pscustomobject][ordered]@{
+            Name = [string]$s.Name
+            DisplayName = [string]$s.DisplayName
+            State = [string]$s.State
+            StartTypeName = [string]$s.StartTypeName
+            StartTypeNumeric = $s.StartTypeNumeric
+            ServiceTypeName = [string]$s.ServiceTypeName
+            ImagePathResolved = [string]$s.ImagePathResolved
+            ImagePathExists = $s.ImagePathExists
+        }) | Out-Null
+    }
+    $bootStart = @($records | Where-Object { $_.StartTypeNumeric -eq 0 -or $_.StartTypeNumeric -eq 1 })
+    return [pscustomobject][ordered]@{
+        CollectedAtUtc = Get-UtcTimestamp
+        WdfServiceCount = $records.Count
+        BootOrSystemStartCount = $bootStart.Count
+        BootOrSystemStartNames = @($bootStart | ForEach-Object { $_.Name })
+        Services = $records.ToArray()
+    }
+}
+
+function Get-WdfAssessment {
+    # Compare what the host provides against what is installed on it.
+    #
+    # Two distinct failure modes hang off this comparison and they are worth
+    # keeping apart, because only the first is predictable from static data:
+    #
+    #   A driver requesting a NEWER framework version than the runtime
+    #   provides cannot load at all. That is not a signing failure - no
+    #   amount of re-signing moves it - and it presents as a device error,
+    #   not a bugcheck.
+    #
+    #   A driver that DOES load and then breaks the framework contract
+    #   produces WDF_VIOLATION. Nothing here predicts that; what this does
+    #   is bound the suspect pool when it happens.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter()]
+        $DriverFramework,
+
+        [Parameter()]
+        $OsCapability,
+
+        [Parameter()]
+        $CoInstallers,
+
+        [Parameter()]
+        $WdfServices
+    )
+    $build = 0
+    if ($null -ne $OsCapability -and $OsCapability.PSObject.Properties['OsBuild']) {
+        $build = [int]$OsCapability.OsBuild
+    }
+    $expected = Get-ExpectedWdfVersion -Build $build
+
+    $actualKmdf = ''
+    if ($null -ne $DriverFramework -and $DriverFramework.PSObject.Properties['KmdfLibraryVersion']) {
+        $actualKmdf = [string]$DriverFramework.KmdfLibraryVersion
+    }
+    $actualUmdf = ''
+    if ($null -ne $DriverFramework -and $DriverFramework.PSObject.Properties['UmdfLibraryVersion']) {
+        $actualUmdf = [string]$DriverFramework.UmdfLibraryVersion
+    }
+
+    $actualNum = ConvertTo-WdfVersionNumber -Version $actualKmdf
+    $expectedNum = ConvertTo-WdfVersionNumber -Version $expected.ExpectedKmdfVersion
+
+    # A runtime BELOW the documented value means the file is older than the
+    # build should carry, which is worth surfacing. Above is normal: servicing
+    # updates the framework.
+    $kmdfMatchesExpectation = $null
+    if ($actualNum -ge 0 -and $expectedNum -ge 0) {
+        $kmdfMatchesExpectation = ($actualNum -ge $expectedNum)
+    }
+
+    $exceeding = New-Object 'System.Collections.Generic.List[object]'
+    if ($null -ne $CoInstallers -and $CoInstallers.PSObject.Properties['CoInstallers']) {
+        foreach ($c in @($CoInstallers.CoInstallers)) {
+            if ($c.KmdfVersionNumber -lt 0 -or $actualNum -lt 0) { continue }
+            if ($c.KmdfVersionNumber -gt $actualNum) {
+                $exceeding.Add([pscustomobject][ordered]@{
+                    Name = [string]$c.Name
+                    RequestedKmdfVersion = [string]$c.KmdfVersion
+                    HostKmdfVersion = $actualKmdf
+                    FullName = [string]$c.FullName
+                }) | Out-Null
+            }
+        }
+    }
+
+    $wdfServiceCount = 0
+    $bootWdfCount = 0
+    if ($null -ne $WdfServices) {
+        if ($WdfServices.PSObject.Properties['WdfServiceCount']) { $wdfServiceCount = [int]$WdfServices.WdfServiceCount }
+        if ($WdfServices.PSObject.Properties['BootOrSystemStartCount']) { $bootWdfCount = [int]$WdfServices.BootOrSystemStartCount }
+    }
+
+    return [pscustomobject][ordered]@{
+        CollectedAtUtc = Get-UtcTimestamp
+        OsBuild = $build
+        OsName = [string]$expected.OsName
+        ExactBuildMatch = $expected.ExactBuildMatch
+        ExpectedKmdfVersion = [string]$expected.ExpectedKmdfVersion
+        ExpectedUmdfVersion = [string]$expected.ExpectedUmdfVersion
+        ActualKmdfVersion = $actualKmdf
+        ActualUmdfVersion = $actualUmdf
+        KmdfMeetsExpectation = $kmdfMatchesExpectation
+        CoInstallerCount = $(if ($null -ne $CoInstallers) { [int]$CoInstallers.CoInstallerCount } else { 0 })
+        CoInstallersExceedingHostCount = $exceeding.Count
+        CoInstallersExceedingHost = $exceeding.ToArray()
+        WdfBasedServiceCount = $wdfServiceCount
+        WdfBootOrSystemStartCount = $bootWdfCount
+        Note = 'A co-installer above the host version indicates a package built for a newer framework. It does not predict WDF_VIOLATION, which comes from a driver that loaded and then broke the framework contract; this assessment bounds the suspect pool rather than naming a cause.'
+    }
+}
+
 function Get-DriverStoreEvidence {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -2467,7 +2721,8 @@ function Get-ConfigurationAssessment {
         [Parameter(Mandatory = $true)] [object]$OsCapability,
         [Parameter(Mandatory = $true)] [object]$ArchiveCapability,
         [Parameter(Mandatory = $true)] [object]$DriverFramework,
-        [Parameter(Mandatory = $true)] [object]$CrashEvidence
+        [Parameter(Mandatory = $true)] [object]$CrashEvidence,
+        [Parameter(Mandatory = $true)] [object]$WdfAssessment
     )
 
     $items = New-Object 'System.Collections.Generic.List[object]'
@@ -2583,6 +2838,27 @@ function Get-ConfigurationAssessment {
     $items.Add((New-AssessmentItem -Name 'Bugcheck history' `
         -Status $(if ($bugCount -eq 0 -and [int]$CrashEvidence.MinidumpCount -eq 0) { 'PASS' } else { 'REVIEW' }) `
         -Detail $crashDetail)) | Out-Null
+    # 3h) WDF version assessment. INFO by default: a framework version is a
+    # property of the OS, not a fault. REVIEW when a co-installer on the host
+    # was built for a newer framework than the host provides - a package that
+    # cannot load, whose failure looks nothing like a signing problem.
+    $wdfExceed = [int]$WdfAssessment.CoInstallersExceedingHostCount
+    $wdfDetail = if ([string]::IsNullOrWhiteSpace($WdfAssessment.ActualKmdfVersion)) {
+        'KMDF runtime version could not be read'
+    }
+    else {
+        ('KMDF {0} (expected {1} for {2}); {3} WDF-based service(s), {4} boot/system-start' -f `
+            $WdfAssessment.ActualKmdfVersion, $WdfAssessment.ExpectedKmdfVersion, $WdfAssessment.OsName, `
+            $WdfAssessment.WdfBasedServiceCount, $WdfAssessment.WdfBootOrSystemStartCount)
+    }
+    if ($wdfExceed -gt 0) {
+        $names = @($WdfAssessment.CoInstallersExceedingHost | Select-Object -First 3 | ForEach-Object { '{0} wants {1}' -f $_.Name, $_.RequestedKmdfVersion })
+        $wdfDetail = $wdfDetail + ('; {0} co-installer(s) exceed the host: {1}' -f $wdfExceed, ($names -join ', '))
+    }
+    $items.Add((New-AssessmentItem -Name 'WDF version assessment' `
+        -Status $(if ([string]::IsNullOrWhiteSpace($WdfAssessment.ActualKmdfVersion) -or $wdfExceed -gt 0) { 'REVIEW' } else { 'INFO' }) `
+        -Detail $wdfDetail)) | Out-Null
+
 
 
 
@@ -2829,49 +3105,49 @@ try {
     Write-Host ('Evidence directory: {0}' -f $evidenceDir)
     Write-Host ''
 
-    $osEvidence = Invoke-EvidenceStage -Label '[1/16] Operating system identity...' -Body {
+    $osEvidence = Invoke-EvidenceStage -Label '[1/18] Operating system identity...' -Body {
         $v = Get-OperatingSystemEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'environment.json'
         $v
     }
 
-    $pendingReboot = Invoke-EvidenceStage -Label '[2/16] Pending reboot state...' -Body {
+    $pendingReboot = Invoke-EvidenceStage -Label '[2/18] Pending reboot state...' -Body {
         $v = Get-PendingRebootEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'pending-reboot.json'
         $v
     }
 
-    $pnpEvidence = Invoke-EvidenceStage -Label '[3/16] PnP device inventory...' -Body {
+    $pnpEvidence = Invoke-EvidenceStage -Label '[3/18] PnP device inventory...' -Body {
         $v = Get-PnpDeviceEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'pnp-devices.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; DeviceCount = 0; ProblemDeviceCount = 0; TargetedDeviceCount = 0; ProblemDevices = @(); TargetedDevices = @(); Devices = @() })
 
-    $driverStore = Invoke-EvidenceStage -Label '[4/16] Driver store inventory...' -Body {
+    $driverStore = Invoke-EvidenceStage -Label '[4/18] Driver store inventory...' -Body {
         $v = Get-DriverStoreEvidence -EvidenceDirectory $evidenceDir
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'driver-store.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; PnputilExitCode = $null; PackageCount = 0; SignedDriverCount = 0; Packages = @() })
 
-    $certificateEvidence = Invoke-EvidenceStage -Label '[5/16] Project certificate stores...' -Body {
+    $certificateEvidence = Invoke-EvidenceStage -Label '[5/18] Project certificate stores...' -Body {
         $v = Get-ProjectCertificateEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'project-certificates.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; CertificateCount = 0; StoresConsistent = $null; StoreErrors = @('stage failed'); RootThumbprints = @(); TrustedPublisherThumbprints = @(); ThumbprintsOnlyInRoot = @(); ThumbprintsOnlyInTrustedPublisher = @(); Certificates = @() })
 
-    $bootSecurity = Invoke-EvidenceStage -Label '[6/16] Boot security state...' -Body {
+    $bootSecurity = Invoke-EvidenceStage -Label '[6/18] Boot security state...' -Body {
         $v = Get-BootSecurityEvidence -EvidenceDirectory $evidenceDir
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'boot-security.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; SecureBootEnabled = $null; TestSigningEnabled = $null; NoIntegrityChecksEnabled = $null; BcdCaptured = $false; WdacPolicyPresent = $null })
 
-    $codeIntegrityEvents = Invoke-EvidenceStage -Label '[7/16] CodeIntegrity events...' -Body {
+    $codeIntegrityEvents = Invoke-EvidenceStage -Label '[7/18] CodeIntegrity events...' -Body {
         $v = Get-CodeIntegrityEventEvidence -EvidenceDirectory $evidenceDir
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'codeintegrity-events.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; EventCount = 0; EnforcementBlockEventCount = 0; AuditEventCount = 0; QueryError = 'stage failed' })
 
-    $setupLogEvidence = Invoke-EvidenceStage -Label '[8/16] Driver setup logs...' -Body {
+    $setupLogEvidence = Invoke-EvidenceStage -Label '[8/18] Driver setup logs...' -Body {
         $v = if (-not $SkipSetupApiLog) {
             Get-DriverSetupLogEvidence -EvidenceDirectory $evidenceDir
         }
@@ -2882,7 +3158,7 @@ try {
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; Logs = @() })
 
-    $loadDiagnostics = Invoke-EvidenceStage -Label '[9/16] Device load diagnostics...' -Body {
+    $loadDiagnostics = Invoke-EvidenceStage -Label '[9/18] Device load diagnostics...' -Body {
         # Reads the copy inside the bundle when one was made, so the parse and
         # the archived text are the same bytes; falls back to the live log when
         # the copy was skipped (size cap) or -SkipSetupApiLog was passed.
@@ -2895,19 +3171,19 @@ try {
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; ProblemDeviceCount = 0; MissingServiceBinaryCount = 0; SignatureRelatedFailureCount = 0; ProblemDevices = @(); SetupApi = [pscustomobject][ordered]@{ LogPresent = $false; SectionsScanned = 0; FailureSections = @(); MissingServiceBinaries = @(); ParseError = 'stage failed' } })
 
-    $serviceEvidence = Invoke-EvidenceStage -Label '[10/16] Windows service configuration...' -Body {
+    $serviceEvidence = Invoke-EvidenceStage -Label '[10/18] Windows service configuration...' -Body {
         $v = Get-ServiceConfigurationEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'services.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; ServiceCount = 0; DriverServiceCount = 0; RunningCount = 0; DisabledCount = 0; MissingBinaryCount = 0; CollectionErrors = @('stage failed'); MissingBinaryServices = @(); DependencyIndex = @(); Services = @() })
 
-    $featureServices = Invoke-EvidenceStage -Label '[10/16] Server feature-to-service mapping...' -Body {
+    $featureServices = Invoke-EvidenceStage -Label '[11/18] Server feature-to-service mapping...' -Body {
         $v = Get-ServerFeatureServiceEvidence -ServiceEvidence $serviceEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'server-feature-services.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; FeatureQueryError = 'stage failed'; FeatureCount = 0; InstalledFeatureCount = 0; BinaryMissingWatchCount = 0; WatchedServices = @(); Features = @() })
 
-    $scriptInventory = Invoke-EvidenceStage -Label '[11/16] Repository script and workspace inventory...' -Body {
+    $scriptInventory = Invoke-EvidenceStage -Label '[12/18] Repository script and workspace inventory...' -Body {
         $v = Get-DeployScriptInventory -ScriptDirectory $scriptDirectory
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'deploy-scripts.json'
         $workspaceInventory = Get-WorkspaceInventoryEvidence -ScriptDirectory $scriptDirectory
@@ -2915,37 +3191,48 @@ try {
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; PresentCount = 0; ExpectedCount = 0; Scripts = @() })
 
-    $bthPanRuntime = Invoke-EvidenceStage -Label '[12/16] BthPan runtime state...' -Body {
+    $bthPanRuntime = Invoke-EvidenceStage -Label '[13/18] BthPan runtime state...' -Body {
         $v = Get-BthPanRuntimeEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'bthpan-runtime.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; BthPanSysPresent = $false; ServiceKeyPresent = $false; PanAdapterCount = 0 })
 
 
-    $osCapability = Invoke-EvidenceStage -Label '[13/16] OS capability matrix...' -Body {
+    $osCapability = Invoke-EvidenceStage -Label '[14/18] OS capability matrix...' -Body {
         $v = Get-OsCapabilityEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'os-capability.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; OsBuild = 0; ProfileCode = ''; MissingCmdletCount = 0; MissingCmdlets = @(); MissingCimClassCount = 0; MissingCimClasses = @(); MissingToolCount = 0; MissingTools = @(); Cmdlets = @(); CimClasses = @(); Tools = @() })
 
-    $archiveCapability = Invoke-EvidenceStage -Label '[14/16] Archive capability probe...' -Body {
+    $archiveCapability = Invoke-EvidenceStage -Label '[15/18] Archive capability probe...' -Body {
         $v = Get-ArchiveCapabilityEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'archive-capability.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; CompressArchiveAvailable = $false; ProbeAttempted = $false; ProbeSucceeded = $false; ErrorMessage = 'stage failed' })
 
 
-    $driverFramework = Invoke-EvidenceStage -Label '[15/16] Driver framework versions...' -Body {
+    $driverFramework = Invoke-EvidenceStage -Label '[16/18] Driver framework versions...' -Body {
         $v = Get-DriverFrameworkEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'driver-framework.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; KmdfLibraryVersion = ''; UmdfLibraryVersion = ''; CoInstallerCount = 0; CoInstallers = @() })
 
-    $crashEvidence = Invoke-EvidenceStage -Label '[16/16] Crash dump and bugcheck history...' -Body {
+    $crashEvidence = Invoke-EvidenceStage -Label '[17/18] Crash dump and bugcheck history...' -Body {
         $v = Get-CrashEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'crash-evidence.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; MinidumpCount = 0; Minidumps = @(); BugCheckEventCount = 0; BugCheckEvents = @(); UnexpectedShutdownCount = 0; MemoryDumpPresent = $false; QueryError = 'stage failed' })
+
+
+    $wdfAssessment = Invoke-EvidenceStage -Label '[18/18] WDF version assessment...' -Body {
+        $co = Get-WdfCoInstallerInventory
+        $wdfSvc = Get-WdfDependentServiceInventory -ServiceEvidence $serviceEvidence
+        $v = Get-WdfAssessment -DriverFramework $driverFramework -OsCapability $osCapability -CoInstallers $co -WdfServices $wdfSvc
+        Write-EvidenceJson -InputObject $co -Directory $evidenceDir -FileName 'wdf-coinstallers.json'
+        Write-EvidenceJson -InputObject $wdfSvc -Directory $evidenceDir -FileName 'wdf-services.json'
+        Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'wdf-assessment.json'
+        $v
+    } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; OsName = ''; ExpectedKmdfVersion = ''; ActualKmdfVersion = ''; CoInstallerCount = 0; CoInstallersExceedingHostCount = 0; CoInstallersExceedingHost = @(); WdfBasedServiceCount = 0; WdfBootOrSystemStartCount = 0 })
 
     # Stage ledger is written before the assessment so the bundle states its
     # own completeness even if a later step fails (SPEC D.45).
@@ -2959,7 +3246,7 @@ try {
         -LoadDiagnostics $loadDiagnostics -ServiceEvidence $serviceEvidence -FeatureServices $featureServices `
         -ScriptInventory $scriptInventory -BthPanRuntime $bthPanRuntime -StageEvidence $stageEvidence `
         -OsCapability $osCapability -ArchiveCapability $archiveCapability `
-        -DriverFramework $driverFramework -CrashEvidence $crashEvidence
+        -DriverFramework $driverFramework -CrashEvidence $crashEvidence -WdfAssessment $wdfAssessment
 
     $failCount = @($assessmentItems | Where-Object { $_.Status -eq 'FAIL' }).Count
     $reviewCount = @($assessmentItems | Where-Object { $_.Status -eq 'REVIEW' }).Count

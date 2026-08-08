@@ -340,8 +340,8 @@ param(
 #   * PhaseResults - per-phase outcome registry (write side from
 #     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.08.08-r49'
-$Script:ScriptTag           = 'recovery-collector-argument-modifier-fix'
+$Script:ScriptVersion       = 'npu-2026.08.08-r50'
+$Script:ScriptTag           = 'winre-tool-compatibility-and-wdf-evidence'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the

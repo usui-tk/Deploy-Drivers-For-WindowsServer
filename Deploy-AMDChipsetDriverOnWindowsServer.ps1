@@ -669,8 +669,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.08.08-r106'
-$Script:ScriptTag     = 'recovery-collector-argument-modifier-fix'
+$Script:ScriptVersion = 'chipset-2026.08.08-r107'
+$Script:ScriptTag     = 'winre-tool-compatibility-and-wdf-evidence'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls

@@ -20,6 +20,132 @@ independently.
 
 ---
 
+## [2026-08-08] `winre-tool-compatibility-and-wdf-evidence` — Chipset r107 / Graphics r73 / NPU r50 / BthPan r55 / Collector c7 (schema 1.6)
+
+The recovery collector ran in a real recovery environment for the first time
+— on a host that would not boot — and stopped at stage 7. Post-mortem: SPEC
+D.52; run record: TESTING §35.
+
+### Fix — WinRE does not ship `findstr`
+
+```
+[ 7/13] Registry queries...
+  CrashControl:
+'findstr' は、内部コマンドまたは外部コマンド、
+操作可能なプログラムまたはバッチ ファイルとして認識されていません。
+```
+
+Stages 8-16 never ran: no framework binaries, no pending-servicing markers,
+no dump inventory, no summary — on the one machine that needed them.
+
+Three call sites become `find`, which WinRE does have. `find` takes one
+literal string per invocation and no regular expressions, so each pattern is
+its own call. The site matching the localised package-state column cannot be
+done with `find` at all — a `.cmd` must stay plain ASCII and the token is
+Japanese on this host — so the manifest points at the full table instead.
+
+**The mistake was not using `findstr`; it was assuming which commands WinRE
+has.** This project has a rule against that and had never applied it to the
+recovery environment, because the recovery environment had never been
+measured. A **tool census** (stage 15) now tests twenty commands for presence
+and captures the environment's own `System32\*.exe` listing, so the next
+absence of this kind is a line in a bundle rather than a discovery mid-incident.
+
+### Correction — Windows Server 2016 ships KMDF 1.19, not 1.15
+
+An earlier session stated 1.15. From Microsoft's KMDF/UMDF version history:
+
+| OS build | KMDF | UMDF |
+|---|---|---|
+| 14393 — WS2016 / Win10 1607 | **1.19** | **2.19** |
+| 17763 — WS2019 / Win10 1809 | 1.27 | 2.27 |
+| 20348 — WS2022 | 1.33 | 2.33 |
+| 26100 — WS2025 | 1.33 | 2.33 |
+
+1.15 is the Windows 10 1507 value. The error came from recalling a number
+rather than reading the table, on a question where the number is the whole
+point. It is now data inside `Get-ExpectedWdfVersion`, asserted per row by
+the test suite.
+
+### New — WDF evidence in the recovery collector
+
+- **File versions, not just `dir`.** `dir` gives size and date; the KMDF
+  version was in no bundle. `:fileversion` tries `wmic datafile` and falls
+  back to the `dir` line when `wmic` is absent.
+- **Every `WdfCoInstaller*.dll`**, DriverStore included. A co-installer names
+  the framework version its package was built for, so
+  `WdfCoInstaller01031.dll` on a 1.19 host states a mismatch no other single
+  artefact does.
+- **Services depending on `Wdf01000`** — the WDF-based drivers, and on a
+  `WDF_VIOLATION` the suspect pool.
+- **Bugcheck reference (stage 14).** Parameter 1 of 0x10D names which
+  contract was violated; a power timeout, a handle-type error and a PnP IRP
+  collision are three unrelated investigations. The decode table travels
+  inside the bundle.
+- **Dump presence stated explicitly.** "No minidump" means one thing with
+  `CrashDumpEnabled = 0` and something else with `0x7`.
+- **Startup repair logs (stage 13).** The `Srt` directory and `ReAgent.xml`
+  record what Windows already tried.
+
+Stages renumbered 13 → 16, verified contiguous.
+
+### New — WDF assessment in the configuration collector (c7)
+
+`wdf-assessment.json`, `wdf-coinstallers.json` and `wdf-services.json`
+(stage 18/18) compare what the host provides against what is installed on it.
+
+Version comparison is **numeric**, and this is not a detail: as strings
+`1.19` sorts *below* `1.9`, which would report a driver needing 1.19 as
+satisfied by a 1.9 runtime — silently, and in the safe-looking direction. The
+test asserts the string comparison really is wrong before asserting the
+numeric one is right. Only co-installers **above** the host version are
+flagged; an older one runs fine and flagging it would bury the finding.
+
+### What this does not do
+
+**None of it predicts `WDF_VIOLATION`.** Two failure modes hang off the
+framework version and only one is visible in static data:
+
+- A driver requesting a **newer** version than the runtime provides **cannot
+  load** — not a signing failure, so neither Path A nor Path B moves it, the
+  same shape as `STATUS_DRIVER_ENTRYPOINT_NOT_FOUND` in D.43.3.
+  `inf2cat /os:Server2016_X64` sets the catalog's target OS and does **not**
+  lower a KMDF requirement.
+- A driver that **does** load and then breaks the contract produces
+  `WDF_VIOLATION`. No static property reveals that.
+
+The assessment bounds the suspect pool; it does not name a cause, and the
+JSON says so in its own `Note` field.
+
+### Verification
+
+`psa.py` 0 errors / 0 warnings / 0 info across thirteen PowerShell files;
+`Parser::ParseFile` 0 errors × 5; **test suite 6 cases, 239 assertions**, all
+passing; canon integrity via the central authoritative tooling per SPEC
+A.11.8a — 125 dd observation records, zero differences.
+
+**Negative control**: against r106 the recovery-collector case reports 14
+failures.
+
+### Deliberately not in this release
+
+The INF-side extraction — reading `KmdfLibraryVersion` from each driver INF
+and comparing it against the host runtime — is designed and its helper
+written, but **is not included**. The four sisters do not share the anchor it
+needs: `Test-InfHasServerDecoration` is absent from NPU, and only Chipset
+builds the inventory rows the new columns attach to. Placing it by guesswork
+is the failure of D.46.1, where a guard compiled cleanly into the wrong
+function and was never reached. It waits for per-sister confirmation.
+
+### Known limitations
+
+- **The recovery collector has still never completed in WinRE.** It reached
+  stage 7 once; stages 8-16 are unexercised there.
+- The WDF assessment has not run on Windows.
+- Apply with **`git am --keep-cr`**.
+
+---
+
 ## [2026-08-08] `recovery-collector-argument-modifier-fix` — Chipset r106 / Graphics r72 / NPU r49 / BthPan r54
 
 r105's mode split worked on its first real run, and then stage 12 aborted the

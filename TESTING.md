@@ -3137,3 +3137,74 @@ Inside a `CALL`ed subroutine cmd.exe resolves argument modifiers **before** deci
 ### Note on the pattern
 
 This is the fourth defect in this file found only by running it, and the third caused by cmd.exe parsing a line differently from how it reads (SPEC §D.51.4). Each was well-formed by every property the suite checked at the time. The response in each case has been to forbid the construct by shape rather than to rely on remembering the rule.
+
+## 35. Validation Scenario 35: 2026-08-08 first WinRE execution — `findstr` is not there
+
+**Fixture**: the WS2016 host after it stopped booting. `WDF_VIOLATION` confirmed on screen. Booted to WinRE, script generation r106 run from `C:\` with no arguments.
+
+### What worked — the parts that had never been exercised offline
+
+```
+Searching for the offline Windows installation...
+  found: C:\Windows
+Searching for a writable destination...
+アクセスが拒否されました。
+  found writable: D:
+  Collection mode : offline
+[ 1/13] 〜 [ 7/13]
+```
+
+| Check | Result |
+|---|---|
+| Mode detection selects `offline` | **yes** |
+| Windows volume found by config hive | yes — and it was `C:` in WinRE, contrary to the usual assumption |
+| Destination found by write probe | **yes** — the read-only volume ahead of it was rejected and the message proves the probe ran |
+| Stages 1-7 | completed |
+
+### What failed
+
+```
+[ 7/13] Registry queries...
+  CrashControl:
+'findstr' は、内部コマンドまたは外部コマンド、
+操作可能なプログラムまたはバッチ ファイルとして認識されていません。
+```
+
+**WinRE does not ship `findstr`.** Stages 8-16 never ran: no framework binaries, no pending-servicing markers, no dump inventory, no summary — on the one machine that needed them.
+
+The mistake was not using `findstr`; it was **assuming** which commands WinRE has. This project has a rule against that, and it had never been applied to the recovery environment because the recovery environment had never been measured. SPEC §D.52.
+
+### BSOD evidence collected despite the abort
+
+The partial bundle still settled several things:
+
+| Finding | Evidence |
+|---|---|
+| **No dump exists** | `MEMORY.DMP` 0 hits and `Minidump` 0 hits in the 22 MB system-drive listing |
+| **No bugcheck event** | System.evtx parsed: 702 records, zero event 1001, zero Kernel-Power 41 |
+| **Log ends on a clean shutdown** | last record is 6006 at 11:02:58 UTC — the log has no record of the crash at all |
+| **KB4589210 was mid-apply** | CBS: `Failed to commit CSI transaction due to file in use`, `poqexec` registered in `SetupExecute`, `Reboot required: yes` |
+| **The pending work is one file** | `pending.xml`: 55 operations resolving to a single `mcupdate_GenuineIntel.dll` hardlink plus WinSxS/registry bookkeeping |
+| **`CrashDumpEnabled` was 0x7** | measured in the previous online run — a dump *should* have been written |
+
+The screen showed "エラー情報を収集しています 60% 完了", so dump writing had started. Why nothing survived is **not established**: the write may not have completed, a second bugcheck may have followed, or the `dir` was taken before the file was finalised.
+
+### On the microcode hypothesis
+
+`KB4589210` is classified `Update` with parent `Microsoft-Windows-MCUpdate-UpdateDLLs-IntelAMD-Package` — a **microcode loader**, not the servicing stack (that was KB5062799, already installed). Two earlier characterisations in this project were wrong and are corrected here.
+
+The operator's hypothesis — that image customisation lost servicing history and Windows Update is re-offering an old package — **is supported for the re-offer** (1-A). It is **not supported as the cause of the bug check** (1-B): `WDF_VIOLATION` is a framework contract violation and does not fit a microcode loader, and the same stop code occurred on a Secure Boot ON clean install before any update ran.
+
+### r107 verification
+
+- Test suite **6 cases, 239 assertions**, all passing. New case `Test-CollectorWdfAssessment.ps1` (35) calls the assessment functions rather than reading their source.
+- **Negative control**: against r106 the recovery-collector case reports 14 failures.
+- Static: `psa.py` 0/0/0 across thirteen files; `Parser::ParseFile` 0 errors × 5; canon integrity — 125 records, zero differences.
+
+### What the next WinRE run should produce
+
+1. **All 16 stages.** If it stops again, the stage number names the missing tool.
+2. **`misc\tool-census.txt`** — the definitive list of what this WinRE has. Read it before assuming anything else.
+3. **`framework\driver-framework.txt`** — the KMDF version. Expect **1.19** on WS2016 (SPEC §D.52.2); anything else is a finding.
+4. **`misc\dump-presence.txt`** — whether a dump appeared this time.
+5. **`misc\bugcheck-reference.txt`** — the 0x10D parameter table, for reading `EventLogs\System.evtx` event 1001 on a working machine.

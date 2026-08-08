@@ -229,20 +229,26 @@ set "ERRLOG=%OUTDIR%\00-collection-errors.txt"
 rem ===========================================================================
 rem  1. Boot configuration
 rem ===========================================================================
-echo [ 1/13] Boot configuration...
+echo [ 1/16] Boot configuration...
 >> "%MANIFEST%" echo [1] Boot configuration
 bcdedit /enum > "%OUTDIR%\bcdedit.txt" 2>&1
 bcdedit /enum /v > "%OUTDIR%\bcdedit-v.txt" 2>&1
 bcdedit /enum all > "%OUTDIR%\bcdeditAll.txt" 2>&1
 bcdedit /enum all /v > "%OUTDIR%\bcdeditAll-v.txt" 2>&1
 if exist "%WINVOL%\Boot\BCD" bcdedit /store "%WINVOL%\Boot\BCD" /enum all > "%OUTDIR%\bcd-offline-store.txt" 2>&1
-findstr /i "testsigning nointegritychecks recoveryenabled safeboot" "%OUTDIR%\bcdeditAll.txt" >> "%MANIFEST%" 2>&1
+rem  find, not findstr: findstr is absent from WinRE, and its absence
+rem  stopped the first recovery-environment run outright. find takes one
+rem  literal string per call and no regular expressions, so each flag is its
+rem  own invocation. /i is case-insensitive on both.
+for %%p in (testsigning nointegritychecks recoveryenabled safeboot) do (
+    type "%OUTDIR%\bcdeditAll.txt" 2>nul | find /i "%%p" >> "%MANIFEST%" 2>nul
+)
 >> "%MANIFEST%" echo.
 
 rem ===========================================================================
 rem  2. Disk layout
 rem ===========================================================================
-echo [ 2/13] Disk layout...
+echo [ 2/16] Disk layout...
 >> "%MANIFEST%" echo [2] Disk layout
 echo list disk | diskpart > "%OUTDIR%\diskpart.txt" 2>&1
 echo list volume | diskpart >> "%OUTDIR%\diskpart.txt" 2>&1
@@ -252,7 +258,7 @@ type "%OUTDIR%\diskpart.txt" >> "%MANIFEST%" 2>&1
 rem ===========================================================================
 rem  3. System drive file listing
 rem ===========================================================================
-echo [ 3/13] System drive file listing ^(this takes a while^)...
+echo [ 3/16] System drive file listing ^(this takes a while^)...
 >> "%MANIFEST%" echo [3] System drive listing
 dir /t:c /a /s /c /n "%WINVOL%\" > "%OUTDIR%\dir-systemdrive.log" 2>&1
 >> "%MANIFEST%" echo   dir-systemdrive.log written
@@ -261,7 +267,7 @@ dir /t:c /a /s /c /n "%WINVOL%\" > "%OUTDIR%\dir-systemdrive.log" 2>&1
 rem ===========================================================================
 rem  4. Event logs - all of them
 rem ===========================================================================
-echo [ 4/13] Event logs...
+echo [ 4/16] Event logs...
 >> "%MANIFEST%" echo [4] Event logs
 if exist "%WINDIR_OFF%\System32\winevt\Logs\" (
     xcopy "%WINDIR_OFF%\System32\winevt\Logs\*.*" "%OUTDIR%\EventLogs\" /Y /Q /H /E >nul 2>>"%ERRLOG%"
@@ -277,7 +283,7 @@ if exist "%WINDIR_OFF%\System32\winevt\Logs\" (
 rem ===========================================================================
 rem  5. Setup, CBS, DISM, Windows Update logs
 rem ===========================================================================
-echo [ 5/13] Setup, CBS, DISM, Windows Update logs...
+echo [ 5/16] Setup, CBS, DISM, Windows Update logs...
 >> "%MANIFEST%" echo [5] Setup and servicing logs
 call :copytree "%WINDIR_OFF%\inf" "Setupapi*.log" "%OUTDIR%\SetupAPI\" "SetupAPI"
 call :copytree "%WINDIR_OFF%\Logs\CBS" "*.*" "%OUTDIR%\CBS\" "CBS logs including CBS.persist.log"
@@ -292,7 +298,7 @@ call :copyone "%WINDIR_OFF%\System32\LogFiles\Srt\SrtTrail.txt" "%OUTDIR%\SrtTra
 rem ===========================================================================
 rem  6. Registry hives - raw copies
 rem ===========================================================================
-echo [ 6/13] Registry hives...
+echo [ 6/16] Registry hives...
 >> "%MANIFEST%" echo [6] Registry hives
 if /i "%COLLECTMODE%"=="online" goto :hives_online
 call :copyone "%WINDIR_OFF%\System32\config\SYSTEM" "%OUTDIR%\registry\SYSTEM" "SYSTEM hive"
@@ -320,10 +326,11 @@ call :copyone "%WINDIR_OFF%\System32\config\RegBack\SOFTWARE" "%OUTDIR%\registry
 rem ===========================================================================
 rem  7. Registry queries against the offline SYSTEM hive
 rem ===========================================================================
-echo [ 7/13] Registry queries...
+echo [ 7/16] Registry queries...
 >> "%MANIFEST%" echo [7] Registry queries
 set "RK=HKLM\OFFSYS\ControlSet001"
 if /i "%COLLECTMODE%"=="online" goto :query_online
+set "RKLOADED="
 reg load HKLM\OFFSYS "%WINDIR_OFF%\System32\config\SYSTEM" >nul 2>&1
 if errorlevel 1 (
     echo   WARNING: could not load the SYSTEM hive for querying
@@ -339,6 +346,7 @@ rem  the other branch uses ControlSet001.
 echo   querying the live registry ^(no hive load needed^)
 set "RK=HKLM\SYSTEM\CurrentControlSet"
 :query_ready
+if /i "%COLLECTMODE%"=="offline" set "RKLOADED=1"
 rem ControlSet001, not CurrentControlSet: the Current alias is synthesised by
 rem a running system and does not exist in an offline hive.
 reg query "%RK%\Control\CrashControl" > "%OUTDIR%\registry\q-crashcontrol.txt" 2>&1
@@ -352,7 +360,8 @@ rem  CrashDumpEnabled decides whether the NEXT bugcheck leaves anything to
 rem  analyse. Surfacing it on the console is worth the two lines: a value of 0
 rem  is worth knowing before the reboot, not after.
 echo   CrashControl:
-type "%OUTDIR%\registry\q-crashcontrol.txt" 2>nul | findstr /i "CrashDumpEnabled AutoReboot"
+type "%OUTDIR%\registry\q-crashcontrol.txt" 2>nul | find /i "CrashDumpEnabled"
+type "%OUTDIR%\registry\q-crashcontrol.txt" 2>nul | find /i "AutoReboot"
 
 echo   enumerating boot-start drivers...
 > "%OUTDIR%\registry\boot-start-drivers.txt" (
@@ -376,27 +385,59 @@ if /i "%COLLECTMODE%"=="offline" reg unload HKLM\OFFSYS >nul 2>&1
 rem ===========================================================================
 rem  8. Driver framework binaries
 rem ===========================================================================
-echo [ 8/13] Driver framework binaries...
+echo [ 8/16] Driver framework binaries...
 >> "%MANIFEST%" echo [8] Driver framework
-> "%OUTDIR%\framework\driver-framework.txt" (
-    echo KMDF / UMDF runtime binaries on the offline volume.
-    echo A driver package requesting a KMDF version newer than the runtime
-    echo present here cannot load, regardless of how it is signed - and
-    echo WDF_VIOLATION is one of the ways that presents.
-    echo ------------------------------------------------------------
-    dir "%WINDIR_OFF%\System32\drivers\Wdf01000.sys" 2>&1
-    dir "%WINDIR_OFF%\System32\drivers\WudfPf.sys" 2>&1
-    dir "%WINDIR_OFF%\System32\drivers\WUDFRd.sys" 2>&1
-    dir "%WINDIR_OFF%\System32\WUDFHost.exe" 2>&1
-    dir "%WINDIR_OFF%\System32\WdfCoInstaller*.dll" 2>&1
+rem  dir reports size and date but NOT file version, and the KMDF version is
+rem  the number every WS2016 compatibility question turns on:
+rem
+rem    Windows Server 2016 (14393) ships KMDF 1.19 / UMDF 2.19
+rem    Windows Server 2019 (17763) ships KMDF 1.27 / UMDF 2.27
+rem    Windows Server 2022 (20348) ships KMDF 1.33 / UMDF 2.33
+rem
+rem  A driver whose INF requests a newer KmdfLibraryVersion than the runtime
+rem  present cannot load, and that is not a signing failure - no amount of
+rem  re-signing moves it. wmic is tried first because it reports Version
+rem  directly; dir is kept as the fallback that always works.
+> "%OUTDIR%\framework\driver-framework.txt" 2>nul echo KMDF / UMDF runtime binaries on the offline volume
+>> "%OUTDIR%\framework\driver-framework.txt" echo ------------------------------------------------------------
+for %%f in (Wdf01000.sys WudfPf.sys WUDFRd.sys) do (
+    dir "%WINDIR_OFF%\System32\drivers\%%f" >> "%OUTDIR%\framework\driver-framework.txt" 2>&1
 )
+dir "%WINDIR_OFF%\System32\WUDFHost.exe" >> "%OUTDIR%\framework\driver-framework.txt" 2>&1
+dir "%WINDIR_OFF%\System32\WdfCoInstaller*.dll" >> "%OUTDIR%\framework\driver-framework.txt" 2>&1
+
+>> "%OUTDIR%\framework\driver-framework.txt" echo.
+>> "%OUTDIR%\framework\driver-framework.txt" echo ---- file versions ----
+call :fileversion "%WINDIR_OFF%\System32\drivers\Wdf01000.sys" "KMDF runtime"
+call :fileversion "%WINDIR_OFF%\System32\drivers\WUDFRd.sys" "UMDF reflector"
+call :fileversion "%WINDIR_OFF%\System32\WUDFHost.exe" "UMDF host"
+
+rem  Every co-installer present, with its embedded version number. A package
+rem  carrying WdfCoInstaller01031.dll wants KMDF 1.31; seeing that on a host
+rem  whose runtime is 1.19 is the mismatch stated plainly.
+>> "%OUTDIR%\framework\driver-framework.txt" echo.
+>> "%OUTDIR%\framework\driver-framework.txt" echo ---- WDF co-installers present ----
+dir /b /s "%WINDIR_OFF%\System32\WdfCoInstaller*.dll" >> "%OUTDIR%\framework\driver-framework.txt" 2>&1
+dir /b /s "%WINDIR_OFF%\System32\DriverStore\FileRepository\WdfCoInstaller*.dll" >> "%OUTDIR%\framework\driver-framework.txt" 2>&1
+
+rem  WDF-based drivers are exactly those whose service depends on Wdf01000.
+rem  On a WDF_VIOLATION this list is the suspect pool.
+>> "%OUTDIR%\framework\driver-framework.txt" echo.
+>> "%OUTDIR%\framework\driver-framework.txt" echo ---- services depending on Wdf01000 ----
+if /i "%COLLECTMODE%"=="online" goto :wdfdeps_online
+if not defined RKLOADED goto :wdfdeps_done
+:wdfdeps_online
+for /f "tokens=*" %%s in ('reg query "%RK%\Services" 2^>nul') do (
+    reg query "%%s" /v DependOnService 2>nul | find /i "Wdf01000" >nul && echo %%s >> "%OUTDIR%\framework\driver-framework.txt"
+)
+:wdfdeps_done
 type "%OUTDIR%\framework\driver-framework.txt" >> "%MANIFEST%" 2>&1
 >> "%MANIFEST%" echo.
 
 rem ===========================================================================
 rem  9. Package, driver and feature inventory
 rem ===========================================================================
-echo [ 9/13] Package and driver inventory ^(dism^)...
+echo [ 9/16] Package and driver inventory ^(dism^)...
 >> "%MANIFEST%" echo [9] Package and driver inventory
 rem  DISM refuses /image: against its own live installation with error 1639.
 rem  /online is the correct form there, and it also reports package states the
@@ -419,13 +460,19 @@ dism /online /get-drivers /format:table > "%OUTDIR%\Get-Drivers.txt" 2>&1
 dism /online /get-features /format:table > "%OUTDIR%\Get-Features.txt" 2>&1
 :dism_done
 call :notewrite "%OUTDIR%\Get-Packages.txt" "Get-Packages.txt - pending package states are here"
-findstr /i "Pending" "%OUTDIR%\Get-Packages.txt" >> "%MANIFEST%" 2>&1
+rem  find takes a literal string and the package state column is localised,
+rem  so an English-only match misses on a Japanese host - which is where this
+rem  runs. Rather than guess at translations the whole table is referenced;
+rem  the manifest points at it instead of trying to summarise it. A .cmd must
+rem  stay plain ASCII, so a localised literal is not an option here anyway.
+type "%OUTDIR%\Get-Packages.txt" 2>nul | find /i "Pending" >> "%MANIFEST%" 2>nul
+>> "%MANIFEST%" echo   full package table: Get-Packages.txt ^(state column is localised^)
 >> "%MANIFEST%" echo.
 
 rem ===========================================================================
 rem  10. Pending servicing operations
 rem ===========================================================================
-echo [10/13] Pending servicing operations...
+echo [10/16] Pending servicing operations...
 >> "%MANIFEST%" echo [10] Pending operations
 > "%OUTDIR%\misc\pending-operations.txt" (
     echo Markers that explain a configuration-change reboot loop
@@ -446,7 +493,7 @@ type "%OUTDIR%\misc\pending-operations.txt" >> "%MANIFEST%" 2>&1
 rem ===========================================================================
 rem  11. Minidumps
 rem ===========================================================================
-echo [11/13] Minidumps...
+echo [11/16] Minidumps...
 >> "%MANIFEST%" echo [11] Minidumps
 if exist "%WINDIR_OFF%\Minidump\*.dmp" (
     xcopy "%WINDIR_OFF%\Minidump\*.dmp" "%OUTDIR%\dumps\Minidump\" /Y /Q /H >nul 2>>"%ERRLOG%"
@@ -461,7 +508,7 @@ if exist "%WINDIR_OFF%\Minidump\*.dmp" (
 rem ===========================================================================
 rem  12. Large files - MEMORY.DMP and the page file
 rem ===========================================================================
-echo [12/13] Kernel dump and page file ^(size-checked^)...
+echo [12/16] Kernel dump and page file ^(size-checked^)...
 >> "%MANIFEST%" echo [12] Large files
 call :copylarge "%WINDIR_OFF%\MEMORY.DMP" "%OUTDIR%\dumps\MEMORY.DMP" "MEMORY.DMP"
 call :copylarge "%WINVOL%\pagefile.sys" "%OUTDIR%\dumps\pagefile.sys" "pagefile.sys"
@@ -469,10 +516,90 @@ call :copylarge "%WINVOL%\swapfile.sys" "%OUTDIR%\dumps\swapfile.sys" "swapfile.
 >> "%MANIFEST%" echo.
 
 rem ===========================================================================
-rem  13. Summary
+rem  13. Startup repair and recovery logs
 rem ===========================================================================
-echo [13/13] Summary...
->> "%MANIFEST%" echo [13] Summary
+echo [13/16] Startup repair and recovery logs...
+>> "%MANIFEST%" echo [13] Startup repair and recovery
+rem  SrtTrail.txt is collected in stage 5, but the rest of the Srt directory
+rem  and the recovery environment's own configuration are not, and on a host
+rem  that will not boot those are the records of what Windows already tried.
+rem  A repair attempt that failed is as informative as the original fault.
+call :copytree "%WINDIR_OFF%\System32\LogFiles\Srt" "*.*" "%OUTDIR%\misc\Srt\" "Srt logs"
+call :copyone "%WINDIR_OFF%\System32\Recovery\ReAgent.xml" "%OUTDIR%\misc\ReAgent.xml" "ReAgent.xml - recovery environment configuration"
+reagentc /info > "%OUTDIR%\misc\reagentc-info.txt" 2>&1
+>> "%MANIFEST%" echo   reagentc-info.txt written
+>> "%MANIFEST%" echo.
+
+rem ===========================================================================
+rem  14. Bugcheck parameters
+rem ===========================================================================
+echo [14/16] Bugcheck parameters...
+>> "%MANIFEST%" echo [14] Bugcheck parameters
+rem  WDF_VIOLATION (0x10D) parameter 1 names the kind of framework contract
+rem  that was violated, and that is the difference between a power-operation
+rem  timeout, a handle-type error and a PnP IRP collision - three unrelated
+rem  investigations. The value lives in System event 1001, and offline there
+rem  is no way to read an .evtx here, so the log is copied (stage 4 already
+rem  did) and this stage records the decode table beside it so whoever opens
+rem  the bundle does not have to look it up.
+> "%OUTDIR%\misc\bugcheck-reference.txt" echo WDF_VIOLATION ^(0x0000010D^) parameter 1 decode
+>> "%OUTDIR%\misc\bugcheck-reference.txt" echo Source: Microsoft bug check 0x10D reference
+>> "%OUTDIR%\misc\bugcheck-reference.txt" echo ------------------------------------------------------------
+>> "%OUTDIR%\misc\bugcheck-reference.txt" echo 0x1  Framework driver timed out during a power operation
+>> "%OUTDIR%\misc\bugcheck-reference.txt" echo 0x2  Attempt to acquire a lock that is already held
+>> "%OUTDIR%\misc\bugcheck-reference.txt" echo 0x3  WDF Verifier fatal error on a queued I/O request
+>> "%OUTDIR%\misc\bugcheck-reference.txt" echo 0x4  NULL passed where a non-NULL value was required
+>> "%OUTDIR%\misc\bugcheck-reference.txt" echo 0x5  Framework object handle of the wrong type passed to a method
+>> "%OUTDIR%\misc\bugcheck-reference.txt" echo 0x6  See the Microsoft sub-table
+>> "%OUTDIR%\misc\bugcheck-reference.txt" echo 0x7  Object deleted incorrectly via WdfObjectDereference
+>> "%OUTDIR%\misc\bugcheck-reference.txt" echo 0x8  DMA transaction object operated on in the wrong state
+>> "%OUTDIR%\misc\bugcheck-reference.txt" echo 0xA  Fatal error processing a request in the queue
+>> "%OUTDIR%\misc\bugcheck-reference.txt" echo 0xB  See the Microsoft sub-table
+>> "%OUTDIR%\misc\bugcheck-reference.txt" echo 0xC  New state-changing PnP IRP arrived during another
+>> "%OUTDIR%\misc\bugcheck-reference.txt" echo 0xD  Power policy owner received an unrequested power IRP
+>> "%OUTDIR%\misc\bugcheck-reference.txt" echo 0xE  Callback returned at a different IRQL than it was called
+>> "%OUTDIR%\misc\bugcheck-reference.txt" echo 0xF  Callback entered a critical region and did not leave it
+>> "%OUTDIR%\misc\bugcheck-reference.txt" echo.
+>> "%OUTDIR%\misc\bugcheck-reference.txt" echo Read the value from EventLogs\System.evtx, event ID 1001,
+>> "%OUTDIR%\misc\bugcheck-reference.txt" echo provider Microsoft-Windows-WER-SystemErrorReporting.
+>> "%MANIFEST%" echo   bugcheck-reference.txt written
+
+rem  Dump presence is stated explicitly. "No minidump" means one thing when
+rem  CrashDumpEnabled is 0 and something quite different when it is 7.
+> "%OUTDIR%\misc\dump-presence.txt" echo Dump artefacts on the offline volume
+>> "%OUTDIR%\misc\dump-presence.txt" echo ------------------------------------------------------------
+dir "%WINDIR_OFF%\Minidump" >> "%OUTDIR%\misc\dump-presence.txt" 2>&1
+dir "%WINDIR_OFF%\MEMORY.DMP" >> "%OUTDIR%\misc\dump-presence.txt" 2>&1
+dir "%WINVOL%\pagefile.sys" >> "%OUTDIR%\misc\dump-presence.txt" 2>&1
+type "%OUTDIR%\misc\dump-presence.txt" >> "%MANIFEST%" 2>&1
+>> "%MANIFEST%" echo.
+
+rem ===========================================================================
+rem  15. Tool census
+rem ===========================================================================
+echo [15/16] Tool census...
+>> "%MANIFEST%" echo [15] Tool census
+rem  Which commands exist in the recovery environment was, until the run that
+rem  prompted this stage, something this project assumed. findstr turned out
+rem  to be absent and took stages 8-13 with it. Recording what is actually
+rem  present turns the next surprise of this kind into a recorded fact.
+> "%OUTDIR%\misc\tool-census.txt" echo Commands available in this environment
+>> "%OUTDIR%\misc\tool-census.txt" echo Collection mode: %COLLECTMODE%
+>> "%OUTDIR%\misc\tool-census.txt" echo ------------------------------------------------------------
+for %%t in (find.exe findstr.exe reg.exe dism.exe bcdedit.exe diskpart.exe xcopy.exe robocopy.exe wmic.exe powershell.exe sc.exe tasklist.exe wevtutil.exe chkdsk.exe more.exe sort.exe fc.exe attrib.exe icacls.exe takeown.exe) do (
+    call :toolcheck %%t
+)
+>> "%OUTDIR%\misc\tool-census.txt" echo.
+>> "%OUTDIR%\misc\tool-census.txt" echo ---- System32 listing of this environment ----
+dir /b "%SystemRoot%\System32\*.exe" >> "%OUTDIR%\misc\tool-census.txt" 2>&1
+type "%OUTDIR%\misc\tool-census.txt" >> "%MANIFEST%" 2>&1
+>> "%MANIFEST%" echo.
+
+rem ===========================================================================
+rem  16. Summary
+rem ===========================================================================
+echo [16/16] Summary...
+>> "%MANIFEST%" echo [16] Summary
 dir /s "%OUTDIR%" > "%OUTDIR%\misc\output-listing.txt" 2>&1
 >> "%MANIFEST%" echo   full output listing: misc\output-listing.txt
 
@@ -617,4 +744,35 @@ endlocal & exit /b 0
 :notewrite_missing
 >> "%MANIFEST%" echo   %LABEL%: NOT produced
 >> "%ERRLOG%" echo   NOT PRODUCED: %CHK%
+endlocal & exit /b 0
+:fileversion
+rem  Report a file's version. wmic gives it directly and is present on a full
+rem  Windows; WinRE may not have it, in which case the dir line already
+rem  recorded above is what there is. Either way this never fails the run.
+setlocal
+set "FVPATH=%~1"
+set "FVLABEL=%~2"
+if not exist "%FVPATH%" goto :fileversion_absent
+set "FVWMI=%FVPATH:\=\\%"
+wmic datafile where "name='%FVWMI%'" get Version /value 2>nul | find "Version=" >> "%OUTDIR%\framework\driver-framework.txt" 2>nul
+if errorlevel 1 goto :fileversion_nowmic
+>> "%OUTDIR%\framework\driver-framework.txt" echo   ^(above is %FVLABEL%^)
+endlocal & exit /b 0
+:fileversion_nowmic
+>> "%OUTDIR%\framework\driver-framework.txt" echo   %FVLABEL%: version not readable here ^(wmic unavailable^); see the dir line above
+endlocal & exit /b 0
+:fileversion_absent
+>> "%OUTDIR%\framework\driver-framework.txt" echo   %FVLABEL%: file not present
+endlocal & exit /b 0
+
+:toolcheck
+rem  Record whether one command exists. where.exe is itself not guaranteed,
+rem  so the check is a harmless invocation whose failure mode is known.
+setlocal
+set "TC=%~1"
+if exist "%SystemRoot%\System32\%TC%" goto :toolcheck_present
+>> "%OUTDIR%\misc\tool-census.txt" echo   ABSENT  %TC%
+endlocal & exit /b 0
+:toolcheck_present
+>> "%OUTDIR%\misc\tool-census.txt" echo   present %TC%
 endlocal & exit /b 0

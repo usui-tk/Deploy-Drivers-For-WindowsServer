@@ -220,7 +220,10 @@ Assert-True 'the hive is only unloaded in offline mode' `
     ($text.Contains('if /i "%COLLECTMODE%"=="offline" reg unload HKLM\OFFSYS'))
 # CrashDumpEnabled decides whether the NEXT bugcheck leaves anything behind,
 # so it is surfaced on the console rather than only written to a file.
-Assert-True 'CrashDumpEnabled is shown on the console' ($text.Contains('findstr /i "CrashDumpEnabled AutoReboot"'))
+# The console echo now uses find rather than findstr, which is absent from
+# WinRE. Two calls because find takes one literal string.
+Assert-True 'CrashDumpEnabled is shown on the console' ($text.Contains('find /i "CrashDumpEnabled"'))
+Assert-True 'AutoReboot is shown alongside it' ($text.Contains('find /i "AutoReboot"'))
 
 # DISM: /image: offline, /online online. The wrong one returns error 1639.
 Assert-True 'offline path uses dism /image:' ($text.Contains('dism /image:"%WINVOL%\" /get-packages'))
@@ -258,6 +261,47 @@ Assert-Equal 'no bare argument modifier inside a subroutine' 0 $bareModifiers.Co
 # The FOR-variable form is what the size lookup legitimately uses; assert it
 # survived the fix rather than being removed along with the comment.
 Assert-True 'the size lookup still uses the FOR-variable form' ($text -match '%%~zf')
+
+Write-TestSection 'Recovery-environment tool availability'
+# The first WinRE run stopped at stage 7 with "'findstr' is not recognized".
+# WinRE ships a reduced tool set; findstr is not in it, and its absence took
+# stages 8-13 with it on the one machine that needed them. What the script
+# may rely on is now limited to what WinRE actually provides.
+$invocations = @($commandLines | Where-Object { $_ -match '(^|[|&(]\s*)findstr\b' })
+Assert-Equal 'findstr is never invoked' 0 $invocations.Count
+Assert-True  'find is used instead' ($text -match '\|\s*find\s')
+# Recording which commands exist turns the next surprise of this kind into a
+# fact in the bundle rather than a discovery mid-incident.
+Assert-True 'a tool census is collected' ($text.Contains('tool-census.txt'))
+Assert-True 'the census tests findstr among others' ($text.Contains('findstr.exe'))
+Assert-True 'the census lists the environment System32' ($text -match 'dir /b "%SystemRoot%\\System32')
+
+Write-TestSection 'WDF and bugcheck evidence'
+# WDF_VIOLATION is the stop code this host produces, and neither the KMDF
+# version nor the bugcheck parameters were ever in a bundle. dir reports size
+# and date but not file version, which is the number every WS2016
+# compatibility question turns on.
+Assert-True 'file versions are attempted, not just dir' ($text.Contains(':fileversion'))
+Assert-True 'the KMDF runtime is version-probed' ($text -match 'fileversion "%WINDIR_OFF%\\System32\\drivers\\Wdf01000.sys"')
+Assert-True 'the in-box KMDF versions are documented in the script' `
+    ($text.Contains('KMDF 1.19') -and $text.Contains('KMDF 1.27') -and $text.Contains('KMDF 1.33'))
+Assert-True 'co-installers are enumerated' ($text.Contains('WdfCoInstaller*.dll'))
+Assert-True 'services depending on Wdf01000 are listed' ($text.Contains('DependOnService'))
+# Parameter 1 of 0x10D names the kind of contract violated - a power timeout,
+# a handle-type error and a PnP IRP collision are three different
+# investigations. The decode table travels with the bundle.
+Assert-True 'a bugcheck decode reference is written' ($text.Contains('bugcheck-reference.txt'))
+Assert-True 'the decode covers parameter 1 values' `
+    ($text.Contains('0x1  Framework driver timed out') -and $text.Contains('0xC  New state-changing PnP IRP'))
+Assert-True 'dump presence is stated explicitly' ($text.Contains('dump-presence.txt'))
+
+Write-TestSection 'Stage numbering is complete'
+# A gap here means a stage was lost in an edit, which is how stage 13
+# disappeared while this section was being written.
+$stageNums = @([regex]::Matches($text, '\[\s*(\d+)/16\]') | ForEach-Object { [int]$_.Groups[1].Value } | Sort-Object -Unique)
+Assert-Equal 'sixteen stages are present' 16 $stageNums.Count
+Assert-Equal 'numbering starts at 1' 1 $stageNums[0]
+Assert-Equal 'numbering ends at 16' 16 $stageNums[-1]
 
 Write-TestSection 'Microsoft no-boot requirement coverage'
 # Each entry is an item Microsoft asks for when a no-boot case is reported.
