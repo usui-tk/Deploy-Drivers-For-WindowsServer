@@ -133,6 +133,44 @@ Assert-True 'caps single-file copies' ($text.Contains('MAXCOPYMB'))
 Assert-True 'records a skipped large file rather than failing' ($text.Contains('SKIPPED at'))
 Assert-True 'writes an error log alongside the manifest' ($text.Contains('00-collection-errors.txt'))
 
+Write-TestSection 'cmd.exe parser hazards'
+# The first real run of this script stopped at stage 5 with
+# ": の使い方が誤っています" because a label containing parentheses was
+# expanded inside an if-block: cmd.exe substitutes the variable BEFORE
+# parsing the block, so the ')' in "CBS (incl. CBS.persist.log)" closed the
+# block early and the rest of the line was parsed as a command.
+#
+# Two properties are asserted, because either alone leaves a trap for the
+# next edit: labels carry no shell metacharacters, AND the subroutines do not
+# use parenthesised blocks at all.
+# Match the LABEL DEFINITION at the start of a line, not the earlier
+# 'call :copyone' sites - otherwise the search starts in the main body and
+# every if-block there is miscounted as a subroutine block.
+$defMatch = [regex]::Match($text, '(?m)^:copyone\s*$')
+Assert-True 'subroutine section located' $defMatch.Success
+$subStart = $defMatch.Index
+$subText = $text.Substring($subStart)
+$subLines = @($subText -split "`r`n" | Where-Object { $_.Trim() -and -not $_.Trim().ToLower().StartsWith('rem ') })
+$blockOpeners = @($subLines | Where-Object { $_.TrimEnd().EndsWith('(') }).Count
+Assert-Equal 'no subroutine opens a parenthesised block' 0 $blockOpeners
+
+$labelsWithMeta = 0
+foreach ($m in [regex]::Matches($text, 'call :(?:copyone|copytree|copylarge)([^
+]*)')) {
+    $quoted = @([regex]::Matches($m.Groups[1].Value, '"([^"]*)"') | ForEach-Object { $_.Groups[1].Value })
+    if ($quoted.Count -gt 0) {
+        $label = $quoted[-1]
+        if ($label -match '[()&|<>]') { $labelsWithMeta++ }
+    }
+}
+Assert-Equal 'no subroutine label carries a shell metacharacter' 0 $labelsWithMeta
+
+# Every branch target introduced by the goto-based rewrite must resolve, or a
+# subroutine falls through into the next one and reports the wrong outcome.
+foreach ($t in @('copyone_absent', 'copyone_failed', 'copytree_absent', 'copylarge_absent', 'copylarge_skip', 'copylarge_failed')) {
+    Assert-True ('branch target :{0} exists' -f $t) ($labels -contains $t)
+}
+
 Write-TestSection 'Microsoft no-boot requirement coverage'
 # Each entry is an item Microsoft asks for when a no-boot case is reported.
 # Dropping one silently would mean an incomplete submission, discovered only

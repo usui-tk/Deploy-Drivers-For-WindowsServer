@@ -6517,6 +6517,133 @@ match, and this release corrects the file. `git am --keep-cr` is required for
 any patch that touches a `-text` file with CRLF content.
 
 
+## D.49 First real run of the offline collector: a label that closed an if-block
+
+### D.49.1 The failure
+
+The offline collector ran for the first time — on a booted Windows Server
+2016, not in WinRE, which is a useful way to exercise it — and stopped part
+way through stage 5:
+
+```
+[ 4/13] Event logs...
+  event logs copied
+[ 5/13] Setup, CBS, DISM, Windows Update logs...
+: の使い方が誤っています。
+```
+
+Stages 1 to 4 completed. Within stage 5 the first `call :copytree` (SetupAPI)
+succeeded and the second (CBS) killed the script, taking stages 6 to 13 with
+it. The partial bundle is consistent with that: 117 event logs, 4 SetupAPI
+files, every other directory empty.
+
+### D.49.2 Cause
+
+```
+call :copytree "%WINDIR_OFF%\Logs\CBS" "*.*" "%OUTDIR%\CBS\" "CBS (incl. CBS.persist.log)"
+
+:copytree
+set "LABEL=%~4"
+if not exist "%SRCDIR%\" (
+    >> "%MANIFEST%" echo   %LABEL%: source directory not present
+    ...
+)
+```
+
+**cmd.exe expands variables before it parses a parenthesised block.** By the
+time the block is parsed the line reads:
+
+```
+    >> "..." echo   CBS (incl. CBS.persist.log): source directory not present
+```
+
+The `)` inside the label closes the `if` block early. What remains —
+`: source directory not present` — is parsed as a command beginning with a
+colon, and cmd.exe reports exactly that.
+
+Four labels carried parentheses. Only the CBS one was reached, because it was
+the first whose source directory check ran inside the block.
+
+### D.49.3 Why the test suite did not catch it
+
+`Test-CollectorFrameworkAndOffline.ps1` checked encoding, `goto` resolution,
+`reg load` balance and `setlocal` discipline, and asserted all 22
+Microsoft-required invocations were present. Every one of those passed on the
+broken file.
+
+None of them modelled **cmd.exe's expansion order**. The script was
+syntactically well-formed by every property being checked; the fault only
+exists at the moment a specific variable's *value* is substituted into a
+specific syntactic position. That is the same class as D.44 (a well-formed
+string literal with the wrong contents) and D.46.1 (a well-formed guard in
+the wrong function): correct-looking code that no structural check
+distinguishes from correct code.
+
+There is no way to fully model a shell's parser in a test. What is achievable
+is to forbid the *shape* that allows the fault.
+
+### D.49.4 Fix
+
+Two independent halves, because either alone leaves a trap for the next edit:
+
+1. **No label contains a parenthesis.** The four labels lose theirs; the
+   detail they carried is unchanged in meaning (`CBS logs including
+   CBS.persist.log`).
+2. **No subroutine uses a parenthesised block at all.** `:copyone`,
+   `:copytree` and `:copylarge` now branch with `goto` to explicit exit
+   labels. A future label containing `(`, `&`, `|`, `<` or `>` cannot
+   re-create the fault, because there is no block for it to close.
+
+The second is what makes this durable. Relying on discipline about label
+content would work until someone adds a label with an ampersand in it.
+
+The rest of the script was audited for the same shape. Twelve lines expand a
+variable inside a parenthesised block, all of them path variables
+(`WINVOL`, `WINDIR_OFF`, `OUTDIR`, `MANIFEST`, `ERRLOG`), each built from a
+drive letter plus fixed literals and therefore incapable of containing a
+parenthesis. A path *can* legitimately contain one — `Program Files (x86)` —
+so the check was that these particular variables cannot, not that paths
+never do.
+
+### D.49.5 What the partial run confirmed
+
+The stages that ran, ran correctly, and the auto-detection worked on its
+first contact with a real machine:
+
+```
+Searching for the offline Windows installation...
+  found: C:\Windows
+Searching for a writable destination...
+  found writable: D:
+```
+
+`D:` is the 112 GB removable volume, correctly distinguished from the 931 GB
+system disk by the write probe rather than by assumption. `dir-systemdrive.log`
+is 22 MB, 117 event log files were copied, and the manifest carries the
+diskpart output inline.
+
+Worth noting for the WinRE case: this run had `C:` as the Windows volume
+because the machine was booted normally. In WinRE it will not be, and the
+config-hive marker is what finds it.
+
+### D.49.6 Verification
+
+`psa.py` 0 errors / 0 warnings / 0 info across twelve PowerShell files;
+`Parser::ParseFile` 0 errors across five; test suite **5 cases, 170
+assertions**, all passing; canon integrity via the central authoritative
+tooling per §A.11.8a — 125 dd observation records, zero differences.
+
+New regression guards assert that no subroutine opens a parenthesised block,
+that no subroutine label carries a shell metacharacter, and that every branch
+target introduced by the rewrite resolves. **Negative control**: run against
+the shipped version, the case reports eight failures — four
+metacharacter-bearing labels, eight parenthesised blocks, and the six missing
+branch labels.
+
+The script has now run on a booted host. **It has still not run in WinRE**,
+where the drive letters differ and some volumes are read-only.
+
+
 ## Appendix: How to seed a new sister script from this SPEC
 
 If you are creating a 5th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1`):

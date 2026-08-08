@@ -260,13 +260,13 @@ rem ===========================================================================
 echo [ 5/13] Setup, CBS, DISM, Windows Update logs...
 >> "%MANIFEST%" echo [5] Setup and servicing logs
 call :copytree "%WINDIR_OFF%\inf" "Setupapi*.log" "%OUTDIR%\SetupAPI\" "SetupAPI"
-call :copytree "%WINDIR_OFF%\Logs\CBS" "*.*" "%OUTDIR%\CBS\" "CBS (incl. CBS.persist.log)"
+call :copytree "%WINDIR_OFF%\Logs\CBS" "*.*" "%OUTDIR%\CBS\" "CBS logs including CBS.persist.log"
 call :copytree "%WINDIR_OFF%\Logs\WindowsUpdate" "*.*" "%OUTDIR%\WindowsUpdate\" "WindowsUpdate"
 call :copytree "%WINDIR_OFF%\Logs\DISM" "*.*" "%OUTDIR%\DISM\" "DISM"
 call :copytree "%WINVOL%\ProgramData\USOShared\Logs" "*.*" "%OUTDIR%\USOShared\" "USOShared"
 call :copytree "%WINDIR_OFF%\Panther" "*.*" "%OUTDIR%\Panther\" "Panther"
-call :copyone "%WINDIR_OFF%\SoftwareDistribution\ReportingEvents.log" "%OUTDIR%\ReportingEvents.log" "ReportingEvents.log (update apply history)"
-call :copyone "%WINDIR_OFF%\System32\LogFiles\Srt\SrtTrail.txt" "%OUTDIR%\SrtTrail.txt" "SrtTrail.txt (startup repair result)"
+call :copyone "%WINDIR_OFF%\SoftwareDistribution\ReportingEvents.log" "%OUTDIR%\ReportingEvents.log" "ReportingEvents.log - update apply history"
+call :copyone "%WINDIR_OFF%\System32\LogFiles\Srt\SrtTrail.txt" "%OUTDIR%\SrtTrail.txt" "SrtTrail.txt - startup repair result"
 >> "%MANIFEST%" echo.
 
 rem ===========================================================================
@@ -276,7 +276,7 @@ echo [ 6/13] Registry hives...
 >> "%MANIFEST%" echo [6] Registry hives
 call :copyone "%WINDIR_OFF%\System32\config\SYSTEM" "%OUTDIR%\registry\SYSTEM" "SYSTEM hive"
 call :copyone "%WINDIR_OFF%\System32\config\SOFTWARE" "%OUTDIR%\registry\SOFTWARE" "SOFTWARE hive"
-call :copyone "%WINDIR_OFF%\System32\config\COMPONENTS" "%OUTDIR%\registry\COMPONENTS" "COMPONENTS hive (pending component operations)"
+call :copyone "%WINDIR_OFF%\System32\config\COMPONENTS" "%OUTDIR%\registry\COMPONENTS" "COMPONENTS hive - pending component operations"
 call :copyone "%WINDIR_OFF%\System32\config\RegBack\SYSTEM" "%OUTDIR%\registry\RegBack-SYSTEM" "RegBack SYSTEM"
 call :copyone "%WINDIR_OFF%\System32\config\RegBack\SOFTWARE" "%OUTDIR%\registry\RegBack-SOFTWARE" "RegBack SOFTWARE"
 >> "%MANIFEST%" echo.
@@ -439,40 +439,47 @@ rem  file is itself evidence - RegBack empty on a modern build, no SrtTrail
 rem  because startup repair never ran - so it is reported, not ignored.
 rem ===========================================================================
 :copyone
+rem  Branching with goto rather than a parenthesised if-block is deliberate.
+rem  cmd.exe expands variables BEFORE parsing a ( ) block, so a label
+rem  containing ')' closes the block early and the remainder of the line is
+rem  parsed as a command. That is what stopped the first real run. Labels are
+rem  also kept free of parentheses, but this structure means a future label
+rem  containing '(' or '&' cannot re-create the fault.
 setlocal
 set "SRC=%~1"
 set "DST=%~2"
 set "LABEL=%~3"
-if not exist "%SRC%" (
-    >> "%MANIFEST%" echo   %LABEL%: not present
-    >> "%ERRLOG%" echo   NOT FOUND: %SRC%
-    endlocal & exit /b 0
-)
+if not exist "%SRC%" goto :copyone_absent
 copy /y "%SRC%" "%DST%" >nul 2>>"%ERRLOG%"
-if exist "%DST%" (
-    >> "%MANIFEST%" echo   %LABEL%: copied
-) else (
-    >> "%MANIFEST%" echo   %LABEL%: copy FAILED
-    >> "%ERRLOG%" echo   COPY FAILED: %SRC%
-)
+if not exist "%DST%" goto :copyone_failed
+>> "%MANIFEST%" echo   %LABEL%: copied
+endlocal & exit /b 0
+:copyone_absent
+>> "%MANIFEST%" echo   %LABEL%: not present
+>> "%ERRLOG%" echo   NOT FOUND: %SRC%
+endlocal & exit /b 0
+:copyone_failed
+>> "%MANIFEST%" echo   %LABEL%: copy FAILED
+>> "%ERRLOG%" echo   COPY FAILED: %SRC%
 endlocal & exit /b 0
 
 rem ===========================================================================
 rem  :copytree <source dir> <pattern> <destination> <label>
 rem ===========================================================================
 :copytree
+rem  goto-based branching, for the reason given at :copyone.
 setlocal
 set "SRCDIR=%~1"
 set "PATTERN=%~2"
 set "DST=%~3"
 set "LABEL=%~4"
-if not exist "%SRCDIR%\" (
-    >> "%MANIFEST%" echo   %LABEL%: source directory not present
-    >> "%ERRLOG%" echo   NOT FOUND: %SRCDIR%
-    endlocal & exit /b 0
-)
+if not exist "%SRCDIR%\" goto :copytree_absent
 xcopy "%SRCDIR%\%PATTERN%" "%DST%" /Y /Q /H /E >nul 2>>"%ERRLOG%"
 >> "%MANIFEST%" echo   %LABEL%: copied
+endlocal & exit /b 0
+:copytree_absent
+>> "%MANIFEST%" echo   %LABEL%: source directory not present
+>> "%ERRLOG%" echo   NOT FOUND: %SRCDIR%
 endlocal & exit /b 0
 
 rem ===========================================================================
@@ -489,26 +496,26 @@ setlocal
 set "SRC=%~1"
 set "DST=%~2"
 set "LABEL=%~3"
-if not exist "%SRC%" (
-    echo   %LABEL%: not present
-    >> "%MANIFEST%" echo   %LABEL%: not present
-    endlocal & exit /b 0
-)
+if not exist "%SRC%" goto :copylarge_absent
 for %%f in ("%SRC%") do set "SIZEB=%%~zf"
 set "SIZEMB=0"
 if defined SIZEB set /a SIZEMB=%SIZEB:~0,-3%/1024
-if %SIZEMB% GTR %MAXCOPYMB% (
-    echo   %LABEL%: SKIPPED - %SIZEMB% MB exceeds the %MAXCOPYMB% MB cap
-    >> "%MANIFEST%" echo   %LABEL%: SKIPPED at %SIZEMB% MB, cap %MAXCOPYMB% MB - source %SRC%
-    >> "%ERRLOG%" echo   SKIPPED %LABEL% at %SIZEMB% MB. Raise MAXCOPYMB at the top of this script and re-run to collect it.
-    endlocal & exit /b 0
-)
+if %SIZEMB% GTR %MAXCOPYMB% goto :copylarge_skip
 echo   %LABEL%: copying %SIZEMB% MB...
 copy /y "%SRC%" "%DST%" >nul 2>>"%ERRLOG%"
-if exist "%DST%" (
-    >> "%MANIFEST%" echo   %LABEL%: copied, %SIZEMB% MB
-) else (
-    >> "%MANIFEST%" echo   %LABEL%: copy FAILED
-    >> "%ERRLOG%" echo   COPY FAILED: %SRC%
-)
+if not exist "%DST%" goto :copylarge_failed
+>> "%MANIFEST%" echo   %LABEL%: copied, %SIZEMB% MB
+endlocal & exit /b 0
+:copylarge_skip
+echo   %LABEL%: SKIPPED - %SIZEMB% MB exceeds the %MAXCOPYMB% MB cap
+>> "%MANIFEST%" echo   %LABEL%: SKIPPED at %SIZEMB% MB, cap %MAXCOPYMB% MB - source %SRC%
+>> "%ERRLOG%" echo   SKIPPED %LABEL% at %SIZEMB% MB. Raise MAXCOPYMB at the top of this script and re-run to collect it.
+endlocal & exit /b 0
+:copylarge_failed
+>> "%MANIFEST%" echo   %LABEL%: copy FAILED
+>> "%ERRLOG%" echo   COPY FAILED: %SRC%
+endlocal & exit /b 0
+:copylarge_absent
+echo   %LABEL%: not present
+>> "%MANIFEST%" echo   %LABEL%: not present
 endlocal & exit /b 0

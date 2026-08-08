@@ -2977,3 +2977,54 @@ and all 22 Microsoft-required invocations asserted individually — but
 structural validation is not execution. Treat the first real run as a test of
 the script as much as of the host, and record what happened in a new scenario
 section here.
+
+## 32. Validation Scenario 32: 2026-08-08 first execution of `Collect-OfflineRecoveryEvidence.cmd`
+
+**Fixture**: Windows Server 2016 (build 14393, ja-JP), **booted normally** rather than in WinRE — a useful way to exercise the script without needing a broken machine. Script generation: r103. Run from `C:\`, no arguments. Disk 0 = 931 GB system, Disk 1 = 112 GB removable (`D:`, labelled `WS2016_ja-j`).
+
+### What worked
+
+Auto-detection succeeded on first contact with real hardware:
+
+```
+Searching for the offline Windows installation...
+  found: C:\Windows
+Searching for a writable destination...
+  found writable: D:
+```
+
+The 112 GB removable volume was chosen over the 931 GB system disk **by the write probe**, not by assumption — the script wrote a probe file, confirmed it existed, and deleted it. This is the mechanism §D.48.2 introduced for the case where boot media is mounted read-only, and it also does the right thing here.
+
+Stages 1-4 completed: bcdedit in four forms, diskpart disk and volume list inlined into the manifest, a 22 MB `dir-systemdrive.log`, and 117 event log files.
+
+### What failed
+
+Stage 5 stopped the script:
+
+```
+[ 5/13] Setup, CBS, DISM, Windows Update logs...
+: の使い方が誤っています。
+```
+
+The first `call :copytree` (SetupAPI, 4 files) succeeded; the second (CBS) aborted the run, taking stages 6-13 with it. Cause: a label containing parentheses expanded inside an `if` block, closing the block early — cmd.exe substitutes variables **before** parsing a parenthesised block. Full analysis in SPEC §D.49.
+
+The partial bundle is exactly consistent: `EventLogs` 117 files, `SetupAPI` 4 files, every other directory empty, `00-collection-errors.txt` empty because nothing had recorded an error — the script died rather than failing a step.
+
+### Why the existing checks passed it
+
+`Test-CollectorFrameworkAndOffline.ps1` verified encoding, `goto` resolution, `reg load` balance, `setlocal` discipline and all 22 Microsoft-required invocations. All passed on the broken file. None modelled cmd.exe's expansion order, and the fault exists only when a specific value is substituted into a specific syntactic position.
+
+The response was not to model the parser but to **forbid the shape**: subroutines no longer use parenthesised blocks at all, so no label content can re-create the fault.
+
+### r104 verification
+
+- Test suite **5 cases, 170 assertions**, all passing. New guards: no subroutine opens a parenthesised block; no subroutine label carries `( ) & | < >`; every branch target introduced by the `goto` rewrite resolves.
+- **Negative control**: run against r103 the case reports **8 failures** — 4 metacharacter labels, 8 parenthesised blocks, 6 missing branch labels.
+- Static: `psa.py` 0/0/0 across twelve files; `Parser::ParseFile` 0 errors × 5; canon integrity via the central authoritative tooling — 125 records, zero differences.
+
+### Outstanding
+
+1. **Re-run on the booted WS2016 host** and confirm all 13 stages complete. This is the cheap confirmation and should happen before the next reboot.
+2. Check `registry\q-crashcontrol.txt` for `CrashDumpEnabled`. If it is `0`, no dump will be written when the host next bugchecks, and that is worth knowing **before** it does.
+3. Check `Get-Packages.txt` for the state of KB4589210 — this settles what the pending update actually is, rather than what the Settings UI displays.
+4. **The script has still not run in WinRE.** Drive letters differ there (`C:` will not be the Windows volume) and some volumes are read-only. The config-hive marker and the write probe are what handle both; neither has been exercised under those conditions.

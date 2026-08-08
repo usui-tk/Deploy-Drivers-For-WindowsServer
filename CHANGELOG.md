@@ -20,6 +20,96 @@ independently.
 
 ---
 
+## [2026-08-08] `offline-collector-cmd-parser-fix` — Chipset r104 / Graphics r70 / NPU r47 / BthPan r52
+
+`Collect-OfflineRecoveryEvidence.cmd` ran for the first time and stopped part
+way through stage 5. Post-mortem: SPEC D.49; run record: TESTING §32.
+
+### Fix — a label containing parentheses closed an `if` block
+
+```
+[ 5/13] Setup, CBS, DISM, Windows Update logs...
+: の使い方が誤っています。
+```
+
+```
+call :copytree "...\Logs\CBS" "*.*" "...\CBS\" "CBS (incl. CBS.persist.log)"
+
+:copytree
+if not exist "%SRCDIR%\" (
+    >> "%MANIFEST%" echo   %LABEL%: source directory not present
+```
+
+**cmd.exe expands variables before parsing a parenthesised block.** By parse
+time the line read `echo   CBS (incl. CBS.persist.log): source directory not
+present`, the `)` closed the block early, and the remainder —
+`: source directory not present` — was parsed as a command beginning with a
+colon.
+
+Four labels carried parentheses; only the CBS one was reached. Stages 1-4
+completed and 6-13 never ran.
+
+Two independent halves to the fix, because either alone leaves a trap for the
+next edit:
+
+1. **No label contains a parenthesis.** The four are reworded with the same
+   meaning (`CBS logs including CBS.persist.log`).
+2. **No subroutine uses a parenthesised block at all.** `:copyone`,
+   `:copytree` and `:copylarge` branch with `goto` to explicit exit labels, so
+   a future label containing `(`, `&`, `|`, `<` or `>` cannot re-create the
+   fault. This is what makes it durable — discipline about label content would
+   hold only until someone adds an ampersand.
+
+The rest of the script was audited for the same shape. Twelve lines expand a
+variable inside a parenthesised block, all path variables built from a drive
+letter plus fixed literals and therefore incapable of containing a
+parenthesis. A path *can* legitimately contain one (`Program Files (x86)`),
+so the check was that these particular variables cannot.
+
+### Why the test suite passed the broken file
+
+It verified encoding, `goto` resolution, `reg load` balance, `setlocal`
+discipline and all 22 Microsoft-required invocations. All passed. **None
+modelled cmd.exe's expansion order**, and the fault exists only when a
+specific value is substituted into a specific syntactic position — the same
+class as D.44 (a well-formed string literal with the wrong contents) and
+D.46.1 (a well-formed guard in the wrong function).
+
+A shell's parser cannot be fully modelled in a test. Forbidding the *shape*
+that allows the fault can be, and is what the new guards do.
+
+### What the partial run confirmed
+
+Auto-detection worked on first contact with real hardware: the 112 GB
+removable volume was chosen over the 931 GB system disk **by the write
+probe**, the mechanism added for read-only boot media. Stages 1-4 produced
+bcdedit in four forms, the diskpart layout inlined into the manifest, a 22 MB
+system-drive listing and 117 event log files.
+
+### Verification
+
+`psa.py` 0 errors / 0 warnings / 0 info across twelve PowerShell files;
+`Parser::ParseFile` 0 errors × 5; **test suite 5 cases, 170 assertions**, all
+passing; canon integrity via the central authoritative tooling per SPEC
+A.11.8a — 125 dd observation records, zero differences.
+
+**Negative control**: against r103 the case reports **8 failures** — 4
+metacharacter labels, 8 parenthesised blocks, 6 missing branch labels.
+
+### Known limitations
+
+- **The script has still not run in WinRE.** It has now run on a booted host,
+  where `C:` was the Windows volume. In WinRE it will not be, and some volumes
+  are read-only; the config-hive marker and the write probe handle both but
+  neither has been exercised under those conditions.
+- Apply with **`git am --keep-cr`** — `.cmd` is stored `-text`, and `git am`
+  strips carriage returns by default. The `quoted CRLF detected` and
+  `N lines add whitespace errors` warnings that follow are expected: git's
+  whitespace check counts a CR at end-of-line as trailing whitespace, and the
+  file has no actual trailing whitespace.
+
+---
+
 ## [2026-08-08] `offline-collector-microsoft-noboot-coverage` — Chipset r103 / Graphics r69 / NPU r46 / BthPan r51
 
 Brings `Collect-OfflineRecoveryEvidence.cmd` up to the full set Microsoft
