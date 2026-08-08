@@ -5670,6 +5670,159 @@ carries the digest gate and the collateral census (it has no
   missing piece. This has not been tested on the affected host.
 
 
+## D.44 A diagnostic that reported PASS because it never ran, and the service census that should have existed first
+
+### D.44.1 The defect
+
+The device-load diagnostics added to the evidence collector in the previous
+release never resolved a single service name. Three string literals in the
+shipped file were wrong:
+
+| Intended | Shipped | Consequence |
+|---|---|---|
+| `'HKLM:\SYSTEM\CurrentControlSet\Enum\' + $id` | `'...\Enum' + $id` | `...\EnumACPI\AMDI0010\0` — key never found |
+| `'HKLM:\SYSTEM\CurrentControlSet\Services\' + $serviceName` | `'...\Services' + $serviceName` | `...\Servicesamdi2c` — key never found |
+| `-replace '^\\SystemRoot', ...` | `-replace '^\SystemRoot', ...` | `\S` is the non-whitespace class; the pattern matches nothing |
+
+Verified by execution, not by reading: `'HKLM:\SYSTEM\CurrentControlSet\Enum'
++ 'ACPI\AMDI0010\0'` evaluates to `HKLM:\SYSTEM\CurrentControlSet\EnumACPI\AMDI0010\0`,
+and `'\SystemRoot\System32\drivers\vwifibus.sys' -replace '^\SystemRoot', 'C:\Windows'`
+returns its input unchanged.
+
+The failure chain runs one way only. The `Enum` lookup fails, so
+`ServiceName` stays empty; the `Services` lookup is never attempted, so
+`ImagePath` stays empty; `ServiceBinaryPresent` stays `$null`;
+`MissingServiceBinaryCount` stays `0`; and the assessment row **`Driver
+binary presence` reports PASS**. The check whose entire purpose was to name
+an absent driver binary in one line reported that all binaries were present,
+on a host where one was not.
+
+**A false PASS is worse than a false FAIL.** A failing check gets
+investigated. A passing check retires the question.
+
+### D.44.2 Why every gate passed
+
+The literals were mangled by the *authoring* tool, not by the script. The
+PowerShell was written inside a Python triple-quoted string, and Python's
+escape processing consumed the trailing backslash of `\'` and collapsed
+`\\S` to `\S` before the text ever reached the file. Python emitted
+`SyntaxWarning: invalid escape sequence`, which was not investigated.
+
+Neither `psa.py` nor `Parser::ParseFile` could have caught this. Both verify
+that a string literal is *well-formed*; neither has any way to know what the
+author meant it to contain. `'...\Enum'` is a perfectly valid string. The
+gate battery was green on a file whose flagship diagnostic was inert.
+
+Two rules follow, and both are now mechanically enforced rather than
+remembered:
+
+- **PowerShell is never embedded in a Python string literal.** Fragments are
+  authored as `.ps1` files and copied byte for byte. The editing tool reads
+  them; it does not retype them.
+- **Literal intent is asserted against the bytes actually written.** The
+  editor carries a list of literals that must be present and a list that
+  must be absent, and refuses to write when either list is violated. The
+  runtime harness repeats both checks against the file in the repository, so
+  a later hand-edit is caught too.
+
+The deeper lesson is about the shape of the verification, not the specific
+bug. Every previous release in this series was verified by static gates plus,
+where a defect was reproducible, an out-of-band experiment. This defect was
+invisible to static gates by construction and was only ever going to be
+caught by executing the code. TESTING §26 records the harness that now does
+so, including the negative control: the harness fails on the shipped
+defective version and passes on the corrected one.
+
+### D.44.3 Windows service configuration evidence
+
+The same field incident that motivated the device diagnostics had a second,
+larger gap behind it: the collector recorded **no service configuration at
+all**. No `Win32_Service` query, no `Win32_SystemDriver` query, no services
+registry enumeration. The only service data in a bundle was a single
+BthPan-specific registry snapshot.
+
+That gap is why the incident was hard. The proximate cause was a Windows
+Server *default configuration* fact — the wireless networking feature is not
+installed by default on Server SKUs, so `vwifibus.sys` is not staged, so an
+Intel adapter INF that declares a `vwifibus` service cannot install. Nothing
+about the driver package was wrong. The host's own service configuration was
+the whole explanation, and the evidence bundle could not describe it.
+
+The collector (schema 1.2) adds a service configuration stage producing two
+artefacts:
+
+**`services.json` — every service, unfiltered.** Union of `Win32_Service`
+(user-mode services and service-registered drivers), `Win32_SystemDriver`
+(kernel drivers, which `Win32_Service` does not fully cover), and a direct
+enumeration of `HKLM:\SYSTEM\CurrentControlSet\Services` (which catches keys
+neither CIM class projects). Per service: display name and description, state
+and status, start mode with the numeric start type and its name, service type
+with a driver/non-driver flag, load-order group, error control, run-as
+account, PID, exit code, delayed-autostart flag, raw and resolved
+`ImagePath`, **whether the resolved binary exists on disk**, and forward
+dependencies. A reverse dependency index answers the question a missing
+binary actually raises: not "what does this need" but "what needs this".
+
+Completeness is the point. A census restricted to driver services, or to
+this project's own services, would have recorded everything except the
+component that mattered — an inbox wireless bus driver that this project
+never touches. Bundles are read by people and by language models trying to
+explain a host they cannot log into, and a partial census invites confident
+wrong answers about what is present. The cost is bounded: a few hundred
+records on a Server install.
+
+**`server-feature-services.json` — optional-feature state paired with the
+services those features stage.** `Get-WindowsFeature` output plus, for a
+small evidence-driven watch list, whether each watched service's key exists,
+whether its binary exists, and a classification: `Healthy`,
+`ServiceKeyAbsent`, or **`ServiceKeyPresentBinaryMissing`** — the state that
+produced this incident. The watch list is deliberately short and grows from
+observed failures rather than attempting to enumerate every feature-to-service
+mapping in Windows.
+
+Two assessment rows follow: `Service binary integrity` (any service whose
+resolved `ImagePath` does not exist) and `Server feature-dependent services`.
+The first is separate from the device-level check on purpose: a service can
+be declared, referenced by a device INF, and have no binary on disk long
+before any device is in an error state. That latent condition is exactly what
+turns an unrelated driver install into a broken adapter, and it is worth
+reporting on its own terms.
+
+### D.44.4 A portability change made for testability
+
+`Resolve-ServiceImagePath` builds paths by string concatenation rather than
+`Join-Path`. `Join-Path` resolves the drive qualifier, so a call with a
+`C:\...` root throws on any host without that drive — which makes the
+function untestable anywhere but Windows. The separator handling it replaces
+is trivial; the ability to execute the function in a harness is not. This is
+the same trade the rest of the repository makes when it prefers a verifiable
+idiom to a convenient one.
+
+### D.44.5 Verification
+
+`psa.py` 0 errors / 0 warnings / 0 info across five scripts;
+`Parser::ParseFile` 0 errors across five; ValidateSet and
+`@()`-over-`List[object]` contract audit clean; **22-case runtime harness on
+pwsh 7.4.6, 22/22 PASS, with a negative control confirming it fails against
+the defective version**; canon integrity via the central authoritative
+tooling per §A.11.8a, 125 dd observation records with zero differences.
+
+`Get-WindowsFeature` is declared in `psa2010_known_cmdlets` — it ships in the
+Server-only `ServerManager` module, which the analyzer does not scan. The
+call site is guarded with `Get-Command`, so a host without the module records
+a query error instead of throwing.
+
+The Windows-only paths — CIM queries, registry enumeration, actual
+`Test-Path` results against a live driver store — remain unexercised. What
+the harness covers is every piece of string handling the defect lived in.
+
+### D.44.6 Sister impact
+
+Collector only (c3). All four sisters invoke the collector, so a single
+change reaches every script; no sister revision is required and none is
+taken.
+
+
 ## Appendix: How to seed a new sister script from this SPEC
 
 If you are creating a 5th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1`):

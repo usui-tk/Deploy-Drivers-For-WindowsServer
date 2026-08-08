@@ -20,6 +20,124 @@ independently.
 
 ---
 
+## [2026-08-08] `service-configuration-evidence-and-path-resolution-fix` — Collector c3 (schema 1.2)
+
+Collector-only release. All four deploy scripts invoke the collector, so a
+single change reaches every script; no sister revision is required and none
+is taken.
+
+### Fix — the device-load diagnostic reported PASS because it never ran
+
+- Three string literals shipped in c2 were wrong:
+  `'HKLM:\SYSTEM\CurrentControlSet\Enum' + $id` (missing the trailing
+  separator, producing `...\EnumACPI\AMDI0010\0`), the same omission on the
+  `Services` key, and `-replace '^\SystemRoot'` in which `\S` is the
+  non-whitespace character class, so the pattern matched nothing and the
+  `\SystemRoot\...` form was returned untouched.
+- The consequence ran one way: the `Enum` lookup failed, so `ServiceName`
+  stayed empty, so `ImagePath` was never read, so `ServiceBinaryPresent`
+  stayed `$null`, so `MissingServiceBinaryCount` stayed `0`, so the
+  assessment row **`Driver binary presence` reported PASS**. The check whose
+  purpose was to name an absent driver binary reported that every binary was
+  present, on a host where one was not. A false PASS is worse than a false
+  FAIL: a failing check gets investigated, a passing check retires the
+  question.
+- **No static gate could have caught it.** `psa.py` and `Parser::ParseFile`
+  both verify that a string literal is well-formed; neither can know what it
+  was meant to contain. `'...\Enum'` is a valid string. The gate battery was
+  green on a file whose flagship diagnostic was inert.
+- Root cause was the authoring tool, not the script: the PowerShell was
+  written inside a Python string literal, and Python's escape processing
+  consumed `\'` and collapsed `\\S` before the text reached the file. Python
+  warned (`SyntaxWarning: invalid escape sequence`) and the warning was not
+  investigated. Two rules now hold, both mechanically enforced: PowerShell
+  fragments are authored as `.ps1` files and copied byte for byte, and the
+  editor asserts a required-literal and forbidden-literal list against the
+  bytes it is about to write. Post-mortem: SPEC D.44.
+- `Resolve-ServiceImagePath` is now a shared helper covering every observed
+  `ImagePath` shape (`\SystemRoot\...`, `\??\...`, relative `system32\...`,
+  quoted and unquoted executables with arguments, absolute paths). It uses
+  string concatenation rather than `Join-Path`, which resolves the drive
+  qualifier and therefore cannot execute on a non-Windows host — the
+  separator handling is trivial, the testability is not.
+
+### New — Windows service configuration evidence, complete
+
+The collector previously recorded **no service configuration at all**: no
+`Win32_Service` query, no `Win32_SystemDriver` query, no services registry
+enumeration. That gap is why the field incident behind SPEC D.43 was hard to
+diagnose. Its proximate cause was a Windows Server *default configuration*
+fact — the wireless networking feature is not installed by default on Server
+SKUs, so `vwifibus.sys` is not staged, so an Intel adapter INF declaring a
+`vwifibus` service could not install. Nothing about the driver package was
+wrong, and the bundle could not describe the host's own service state.
+
+New stage `[10/12] Windows service configuration`, two artefacts:
+
+- **`services.json` — every service, unfiltered.** Union of `Win32_Service`,
+  `Win32_SystemDriver` (kernel drivers that `Win32_Service` does not fully
+  cover) and a direct enumeration of
+  `HKLM:\SYSTEM\CurrentControlSet\Services` (keys neither CIM class
+  projects). Per service: display name, description, state, status, start
+  mode with numeric start type and name, service type with a driver flag,
+  load-order group, error control, run-as account, PID, exit code,
+  delayed-autostart, raw and resolved `ImagePath`, **whether the resolved
+  binary exists on disk**, and forward dependencies — plus a reverse
+  dependency index answering the question a missing binary actually raises:
+  not what this needs, but what needs this.
+  Completeness is the point. A census restricted to driver services would
+  have recorded everything except the component that mattered, an inbox
+  wireless bus driver this project never touches.
+- **`server-feature-services.json`** — `Get-WindowsFeature` state paired with
+  the services those features stage, and for a short evidence-driven watch
+  list a classification per service: `Healthy`, `ServiceKeyAbsent`, or
+  **`ServiceKeyPresentBinaryMissing`**, the state that produced the incident.
+
+Two assessment rows: `Service binary integrity` (any service whose resolved
+`ImagePath` does not exist) and `Server feature-dependent services`. The
+first is deliberately separate from the device-level check — a service can be
+declared, referenced by a device INF, and have no binary on disk long before
+any device is in an error state, and that latent condition is what turns an
+unrelated driver install into a broken adapter.
+
+`Get-WindowsFeature` is declared in `psa2010_known_cmdlets`: it ships in the
+Server-only `ServerManager` module, which the analyzer does not scan. The
+call site is guarded with `Get-Command`, so a host without the module records
+a query error rather than throwing.
+
+### Verification
+
+- **22-case runtime harness on pwsh 7.4.6: 22/22 PASS.** Functions are
+  extracted from the shipped script by AST rather than copied, so harness
+  and file cannot diverge silently. Covers every `ImagePath` shape, explicit
+  regression guards for the c2 failure, literal checks against the file in
+  the repository, and the CM_PROB / NTSTATUS decoding — including that
+  `0xC0000428` is flagged as a signature failure and `0xC0000263` explicitly
+  is not.
+- **Negative control**: the same literal checks report 3 findings against the
+  shipped c2 file and 0 against c3. A harness that has never failed has not
+  been shown capable of failing.
+- Static: `psa.py` 0 errors / 0 warnings / 0 info x 5 (`--config-check`
+  clean); `Parser::ParseFile` 0 errors x 5; ValidateSet and
+  `@()`-over-`List[object]` audit 0 findings; canon integrity via the central
+  authoritative tooling per SPEC A.11.8a — 125 dd observation records, drift
+  121 `match` + 4 `forked-frozen`, zero differences.
+
+### Known limitations
+
+- **The Windows-only paths remain unexercised**: CIM queries, registry
+  enumeration, and `Test-Path` against a live driver store. The harness
+  covers the string handling the defect lived in, not the data collection.
+- **The watch list in `server-feature-services.json` is short and
+  evidence-driven**, not an enumeration of every feature-to-service mapping
+  in Windows. It grows from observed failures.
+- **`MissingBinaryServices` containing `vwifibus` on the affected host is a
+  prediction, not a result.** If the collector runs there and does not list
+  it, the diagnosis in SPEC D.43.3 is wrong and must be revisited
+  (TESTING §26).
+
+---
+
 ## [2026-08-08] `plan-coverage-collateral-health-and-load-diagnostics` — Chipset r99 / Graphics r65 / NPU r42 / BthPan r47 / Collector c2
 
 Fixes from the fifth Windows Server 2019 field run (2026-08-08, same host,

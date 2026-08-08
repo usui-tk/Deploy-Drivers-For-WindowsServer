@@ -87,14 +87,14 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
-$Script:ScriptVersion  = 'collector-2026.08.08-c2'
+$Script:ScriptVersion  = 'collector-2026.08.08-c3'
 $Script:ScriptTag      = 'windows-server-configuration-evidence-collector'
 $Script:ScriptHash     = 'unavailable'
 try {
     $Script:ScriptHash = (Get-FileHash -LiteralPath $MyInvocation.MyCommand.Path -Algorithm SHA256 -ErrorAction Stop).Hash.Substring(0, 12).ToLowerInvariant()
 } catch { } # psa-disable-line PSA3004 -- self-hash is identity metadata only; collection must proceed without it
 $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash)
-$script:SchemaVersion = 'windows-server-configuration-evidence/1.1'
+$script:SchemaVersion = 'windows-server-configuration-evidence/1.2'
 $script:CollectorVersion = $Script:ScriptVersion
 $script:MaxCopiedLogBytes = 50MB
 
@@ -820,7 +820,7 @@ function Get-DeviceLoadDiagnosticEvidence {
         $imagePathExists = $null
         $serviceStartType = ''
         try {
-            $enumKey = 'HKLM:\SYSTEM\CurrentControlSet\Enum' + $id
+            $enumKey = 'HKLM:\SYSTEM\CurrentControlSet\Enum\' + $id
             if (Test-Path -LiteralPath $enumKey) {
                 $serviceName = [string](Get-NamedRegistryValue -Path $enumKey -Name 'Service')
             }
@@ -829,7 +829,7 @@ function Get-DeviceLoadDiagnosticEvidence {
         }
         if (-not [string]::IsNullOrWhiteSpace($serviceName)) {
             try {
-                $svcKey = 'HKLM:\SYSTEM\CurrentControlSet\Services' + $serviceName
+                $svcKey = 'HKLM:\SYSTEM\CurrentControlSet\Services\' + $serviceName
                 if (Test-Path -LiteralPath $svcKey) {
                     $imagePath = [string](Get-NamedRegistryValue -Path $svcKey -Name 'ImagePath')
                     $startValue = Get-NamedRegistryValue -Path $svcKey -Name 'Start'
@@ -840,14 +840,7 @@ function Get-DeviceLoadDiagnosticEvidence {
             }
         }
         if (-not [string]::IsNullOrWhiteSpace($imagePath)) {
-            $candidate = $imagePath
-            if ($candidate -like '\SystemRoot\*') {
-                $candidate = $candidate -replace '^\SystemRoot', $env:SystemRoot
-            } elseif ($candidate -like 'system32\*' -or $candidate -like 'System32\*') {
-                $candidate = Join-Path $env:SystemRoot $candidate
-            } elseif ($candidate -like '\??\*') {
-                $candidate = $candidate.Substring(4)
-            }
+            $candidate = Resolve-ServiceImagePath -ImagePath $imagePath
             $imagePathResolved = $candidate
             try {
                 $imagePathExists = [bool](Test-Path -LiteralPath $candidate)
@@ -890,6 +883,389 @@ function Get-DeviceLoadDiagnosticEvidence {
         SignatureRelatedFailureCount = $signatureRelated
         ProblemDevices = $records.ToArray()
         SetupApi = $setupApi
+    }
+}
+
+function Resolve-ServiceImagePath {
+    # Turn a service ImagePath registry value into a testable filesystem path.
+    #
+    # ImagePath is stored in several shapes and the differences are not
+    # cosmetic - a caller that skips this normalisation silently concludes
+    # that every driver binary is missing:
+    #   \SystemRoot\System32\drivers\x.sys   (kernel drivers, most common)
+    #   \??\C:\path\x.sys                    (NT object-manager prefix)
+    #   system32\drivers\x.sys               (relative, no leading separator)
+    #   "C:\path\svc.exe" -k netsvcs         (user-mode services, quoted + args)
+    #
+    # A regression this function exists to prevent: the earlier inline
+    # version used the regex '^\SystemRoot', in which \S is the
+    # non-whitespace character class, so it never matched anything and the
+    # \SystemRoot form was returned untouched.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]$ImagePath
+    )
+    if ([string]::IsNullOrWhiteSpace($ImagePath)) { return '' }
+    $value = $ImagePath.Trim()
+    # Plain concatenation rather than Join-Path: Join-Path resolves the
+    # drive qualifier, which makes this function untestable anywhere but a
+    # Windows host with that drive present. The separator handling here is
+    # trivial and the testability is not.
+    $root = [string]$env:SystemRoot
+    if ([string]::IsNullOrWhiteSpace($root)) { $root = 'C:\Windows' }
+    $root = $root.TrimEnd('\')
+
+    # User-mode services quote the executable and append arguments. Take the
+    # quoted span when present, otherwise everything up to the first space
+    # that is followed by a switch-looking token.
+    if ($value.StartsWith('"')) {
+        $closing = $value.IndexOf('"', 1)
+        if ($closing -gt 1) { $value = $value.Substring(1, $closing - 1) }
+    } elseif ($value -match '^(?<path>\S+\.(exe|sys|dll))\s') {
+        $value = $Matches['path']
+    }
+
+    if ($value.StartsWith('\??\')) {
+        $value = $value.Substring(4)
+    } elseif ($value -match '^\\SystemRoot\\') {
+        $value = $root + '\' + $value.Substring('\SystemRoot\'.Length)
+    } elseif ($value.StartsWith('\')) {
+        # Any other leading-separator form is relative to the system root.
+        $value = $root + '\' + $value.TrimStart('\')
+    } elseif ($value -notmatch '^[A-Za-z]:\\') {
+        $value = $root + '\' + $value
+    }
+    return $value
+}
+
+function Get-ServiceConfigurationEvidence {
+    # Complete Windows service configuration, every service, no filter.
+    #
+    # WHY the whole set and not just driver services: the failure that
+    # motivated this stage was a Windows Server DEFAULT CONFIGURATION issue -
+    # an inbox wireless component whose binary is not staged on Server SKUs,
+    # which broke an unrelated third-party adapter during a driver install.
+    # Narrowing the census to driver services, or to this project's own
+    # services, would have recorded everything except the thing that
+    # mattered. The evidence bundle is read by people and by language models
+    # trying to explain a host they cannot log into; a partial census invites
+    # confident wrong answers about what is present.
+    #
+    # Cost is bounded: a Server install carries a few hundred services, and
+    # the record per service is small.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+
+    $records = New-Object 'System.Collections.Generic.List[object]'
+    $missingBinaries = New-Object 'System.Collections.Generic.List[object]'
+    $collectionErrors = New-Object 'System.Collections.Generic.List[string]'
+
+    $services = @()
+    try {
+        $services = @(Get-CimInstance -ClassName Win32_Service -ErrorAction Stop)
+    } catch {
+        $collectionErrors.Add(('Win32_Service query failed: {0}' -f $_.Exception.Message)) | Out-Null
+    }
+
+    # Win32_Service covers user-mode services and drivers registered as
+    # services, but NOT every kernel driver: those live in
+    # Win32_SystemDriver. Both are needed for a complete picture, and the
+    # missing-binary case that motivated this stage is a kernel driver.
+    $systemDrivers = @()
+    try {
+        $systemDrivers = @(Get-CimInstance -ClassName Win32_SystemDriver -ErrorAction Stop)
+    } catch {
+        $collectionErrors.Add(('Win32_SystemDriver query failed: {0}' -f $_.Exception.Message)) | Out-Null
+    }
+
+    # Registry is the authority for ImagePath, Group, ErrorControl and for
+    # services that exist as keys but are not surfaced by either CIM class.
+    $registryByName = @{}
+    try {
+        $servicesRoot = 'HKLM:\SYSTEM\CurrentControlSet\Services'
+        foreach ($key in @(Get-ChildItem -LiteralPath $servicesRoot -ErrorAction Stop)) {
+            $props = $null
+            try {
+                $props = Get-ItemProperty -LiteralPath $key.PSPath -ErrorAction Stop
+            } catch {
+                continue
+            }
+            $registryByName[$key.PSChildName] = $props
+        }
+    } catch {
+        $collectionErrors.Add(('Services registry enumeration failed: {0}' -f $_.Exception.Message)) | Out-Null
+    }
+
+    $startTypeName = @{ 0 = 'Boot'; 1 = 'System'; 2 = 'Automatic'; 3 = 'Manual'; 4 = 'Disabled' }
+    $serviceTypeName = @{
+        1 = 'KernelDriver'; 2 = 'FileSystemDriver'; 4 = 'Adapter'; 8 = 'RecognizerDriver'
+        16 = 'Win32OwnProcess'; 32 = 'Win32ShareProcess'; 256 = 'InteractiveProcess'
+    }
+
+    $seen = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    $sources = @()
+    foreach ($s in $services) { $sources += , @($s, 'Win32_Service') }
+    foreach ($s in $systemDrivers) { $sources += , @($s, 'Win32_SystemDriver') }
+
+    foreach ($pair in $sources) {
+        $svc = $pair[0]
+        $origin = [string]$pair[1]
+        $name = [string](Get-PropertyValue -InputObject $svc -Name 'Name')
+        if ([string]::IsNullOrWhiteSpace($name)) { continue }
+        if (-not $seen.Add($name)) { continue }
+
+        $reg = $null
+        if ($registryByName.ContainsKey($name)) { $reg = $registryByName[$name] }
+
+        $rawImagePath = [string](Get-PropertyValue -InputObject $svc -Name 'PathName')
+        if ([string]::IsNullOrWhiteSpace($rawImagePath) -and $null -ne $reg) {
+            $rawImagePath = [string](Get-PropertyValue -InputObject $reg -Name 'ImagePath')
+        }
+        $resolved = Resolve-ServiceImagePath -ImagePath $rawImagePath
+        $exists = $null
+        if (-not [string]::IsNullOrWhiteSpace($resolved)) {
+            try { $exists = [bool](Test-Path -LiteralPath $resolved) } catch { $exists = $null }
+        }
+
+        $startNumeric = $null
+        $groupName = ''
+        $errorControl = $null
+        if ($null -ne $reg) {
+            $startValue = Get-PropertyValue -InputObject $reg -Name 'Start'
+            if ($null -ne $startValue) { $startNumeric = [int]$startValue }
+            $groupName = [string](Get-PropertyValue -InputObject $reg -Name 'Group')
+            $ecValue = Get-PropertyValue -InputObject $reg -Name 'ErrorControl'
+            if ($null -ne $ecValue) { $errorControl = [int]$ecValue }
+        }
+        $typeNumeric = $null
+        if ($null -ne $reg) {
+            $typeValue = Get-PropertyValue -InputObject $reg -Name 'Type'
+            if ($null -ne $typeValue) { $typeNumeric = [int]$typeValue }
+        }
+
+        $dependsOn = @()
+        $rawDeps = $null
+        if ($null -ne $reg) { $rawDeps = Get-PropertyValue -InputObject $reg -Name 'DependOnService' }
+        if ($null -ne $rawDeps) { $dependsOn = @($rawDeps | ForEach-Object { [string]$_ } | Where-Object { $_ }) }
+
+        $record = [pscustomobject][ordered]@{
+            Name = $name
+            DisplayName = [string](Get-PropertyValue -InputObject $svc -Name 'DisplayName')
+            Description = [string](Get-PropertyValue -InputObject $svc -Name 'Description')
+            Source = $origin
+            State = [string](Get-PropertyValue -InputObject $svc -Name 'State')
+            Status = [string](Get-PropertyValue -InputObject $svc -Name 'Status')
+            StartMode = [string](Get-PropertyValue -InputObject $svc -Name 'StartMode')
+            StartTypeNumeric = $startNumeric
+            StartTypeName = $(if ($null -ne $startNumeric -and $startTypeName.ContainsKey($startNumeric)) { $startTypeName[$startNumeric] } else { '' })
+            ServiceTypeNumeric = $typeNumeric
+            ServiceTypeName = $(if ($null -ne $typeNumeric -and $serviceTypeName.ContainsKey($typeNumeric)) { $serviceTypeName[$typeNumeric] } else { [string](Get-PropertyValue -InputObject $svc -Name 'ServiceType') })
+            IsDriverService = ($typeNumeric -eq 1 -or $typeNumeric -eq 2 -or $typeNumeric -eq 8)
+            Group = $groupName
+            ErrorControl = $errorControl
+            StartName = [string](Get-PropertyValue -InputObject $svc -Name 'StartName')
+            ProcessId = (Get-PropertyValue -InputObject $svc -Name 'ProcessId')
+            ExitCode = (Get-PropertyValue -InputObject $svc -Name 'ExitCode')
+            DelayedAutoStart = [bool](Get-PropertyValue -InputObject $svc -Name 'DelayedAutoStart' -DefaultValue $false)
+            ImagePathRaw = $rawImagePath
+            ImagePathResolved = $resolved
+            ImagePathExists = $exists
+            DependsOnService = $dependsOn
+        }
+        $records.Add($record) | Out-Null
+        if ($exists -eq $false) { $missingBinaries.Add($record) | Out-Null }
+    }
+
+    # Services that exist only as a registry key (no CIM projection).
+    foreach ($name in $registryByName.Keys) {
+        if ($seen.Contains($name)) { continue }
+        $reg = $registryByName[$name]
+        $rawImagePath = [string](Get-PropertyValue -InputObject $reg -Name 'ImagePath')
+        if ([string]::IsNullOrWhiteSpace($rawImagePath)) { continue }
+        $resolved = Resolve-ServiceImagePath -ImagePath $rawImagePath
+        $exists = $null
+        if (-not [string]::IsNullOrWhiteSpace($resolved)) {
+            try { $exists = [bool](Test-Path -LiteralPath $resolved) } catch { $exists = $null }
+        }
+        $startNumeric = $null
+        $startValue = Get-PropertyValue -InputObject $reg -Name 'Start'
+        if ($null -ne $startValue) { $startNumeric = [int]$startValue }
+        $typeNumeric = $null
+        $typeValue = Get-PropertyValue -InputObject $reg -Name 'Type'
+        if ($null -ne $typeValue) { $typeNumeric = [int]$typeValue }
+        $record = [pscustomobject][ordered]@{
+            Name = $name
+            DisplayName = [string](Get-PropertyValue -InputObject $reg -Name 'DisplayName')
+            Description = ''
+            Source = 'Registry'
+            State = ''
+            Status = ''
+            StartMode = ''
+            StartTypeNumeric = $startNumeric
+            StartTypeName = $(if ($null -ne $startNumeric -and $startTypeName.ContainsKey($startNumeric)) { $startTypeName[$startNumeric] } else { '' })
+            ServiceTypeNumeric = $typeNumeric
+            ServiceTypeName = $(if ($null -ne $typeNumeric -and $serviceTypeName.ContainsKey($typeNumeric)) { $serviceTypeName[$typeNumeric] } else { '' })
+            IsDriverService = ($typeNumeric -eq 1 -or $typeNumeric -eq 2 -or $typeNumeric -eq 8)
+            Group = [string](Get-PropertyValue -InputObject $reg -Name 'Group')
+            ErrorControl = $(if ($null -ne (Get-PropertyValue -InputObject $reg -Name 'ErrorControl')) { [int](Get-PropertyValue -InputObject $reg -Name 'ErrorControl') } else { $null })
+            StartName = [string](Get-PropertyValue -InputObject $reg -Name 'ObjectName')
+            ProcessId = $null
+            ExitCode = $null
+            DelayedAutoStart = $false
+            ImagePathRaw = $rawImagePath
+            ImagePathResolved = $resolved
+            ImagePathExists = $exists
+            DependsOnService = @()
+        }
+        $records.Add($record) | Out-Null
+        if ($exists -eq $false) { $missingBinaries.Add($record) | Out-Null }
+    }
+
+    # Reverse dependency index: for each service, who needs it. The
+    # forward list alone does not answer "what breaks if this is absent",
+    # which is the question a missing binary raises.
+    $requiredBy = @{}
+    foreach ($r in $records) {
+        foreach ($dep in @($r.DependsOnService)) {
+            if ([string]::IsNullOrWhiteSpace($dep)) { continue }
+            if (-not $requiredBy.ContainsKey($dep)) { $requiredBy[$dep] = New-Object 'System.Collections.Generic.List[string]' }
+            $requiredBy[$dep].Add($r.Name) | Out-Null
+        }
+    }
+    $dependencyIndex = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($key in ($requiredBy.Keys | Sort-Object)) {
+        $dependencyIndex.Add([pscustomobject][ordered]@{
+            ServiceName = [string]$key
+            RequiredBy = @($requiredBy[$key].ToArray() | Sort-Object)
+        }) | Out-Null
+    }
+
+    $driverCount = 0
+    $runningCount = 0
+    $disabledCount = 0
+    foreach ($r in $records) {
+        if ($r.IsDriverService) { $driverCount++ }
+        if ($r.State -eq 'Running') { $runningCount++ }
+        if ($r.StartTypeNumeric -eq 4) { $disabledCount++ }
+    }
+
+    return [pscustomobject][ordered]@{
+        CollectedAtUtc = Get-UtcTimestamp
+        ServiceCount = $records.Count
+        DriverServiceCount = $driverCount
+        RunningCount = $runningCount
+        DisabledCount = $disabledCount
+        MissingBinaryCount = $missingBinaries.Count
+        CollectionErrors = $collectionErrors.ToArray()
+        MissingBinaryServices = $missingBinaries.ToArray()
+        DependencyIndex = $dependencyIndex.ToArray()
+        Services = @($records.ToArray() | Sort-Object -Property Name)
+    }
+}
+
+function Get-ServerFeatureServiceEvidence {
+    # Windows Server optional-feature state, paired with the services those
+    # features stage.
+    #
+    # WHY this pairing exists: a Server SKU ships many inbox components as
+    # OPTIONAL, and a device INF that assumes a client SKU can declare a
+    # service whose binary is only present once the corresponding feature is
+    # installed. The observed case: an Intel Wi-Fi INF declares a vwifibus
+    # service, the binary is staged by the wireless networking feature, that
+    # feature is not installed by default on Server, and the device install
+    # therefore failed with 0xe0000217 - on a host where nothing about the
+    # driver package itself was wrong. That diagnosis takes seconds with this
+    # table and a long time without it.
+    #
+    # The watch list is deliberately small and evidence-driven rather than an
+    # attempt to enumerate every feature-to-service mapping in Windows.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter()]
+        $ServiceEvidence
+    )
+    $features = @()
+    $featureError = ''
+    try {
+        if (Get-Command -Name 'Get-WindowsFeature' -ErrorAction SilentlyContinue) {
+            $features = @(Get-WindowsFeature -ErrorAction Stop | ForEach-Object {
+                [pscustomobject][ordered]@{
+                    Name = [string]$_.Name
+                    DisplayName = [string]$_.DisplayName
+                    InstallState = [string]$_.InstallState
+                    FeatureType = [string]$_.FeatureType
+                }
+            })
+        } else {
+            $featureError = 'Get-WindowsFeature is not available (not a Server SKU, or ServerManager module absent)'
+        }
+    } catch {
+        $featureError = $_.Exception.Message
+    }
+
+    $byName = @{}
+    if ($null -ne $ServiceEvidence -and $ServiceEvidence.PSObject.Properties['Services']) {
+        foreach ($s in @($ServiceEvidence.Services)) { $byName[[string]$s.Name] = $s }
+    }
+
+    $watchList = @(
+        [pscustomobject]@{ Feature = 'Wireless-Networking'; Services = @('vwifibus', 'vwifimp', 'vwififlt', 'NativeWifiP', 'WlanSvc', 'wlansvc', 'dot3svc') }
+        [pscustomobject]@{ Feature = 'BITS'; Services = @('BITS') }
+        [pscustomobject]@{ Feature = 'Windows-Defender'; Services = @('WinDefend', 'WdNisSvc') }
+        [pscustomobject]@{ Feature = 'Hyper-V'; Services = @('vmms', 'vmcompute') }
+        [pscustomobject]@{ Feature = 'BitLocker'; Services = @('BDESVC') }
+        [pscustomobject]@{ Feature = 'Server-Media-Foundation'; Services = @('') }
+    )
+
+    $findings = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($entry in $watchList) {
+        $state = 'Unknown'
+        foreach ($f in $features) {
+            if ($f.Name -eq $entry.Feature) { $state = $f.InstallState; break }
+        }
+        foreach ($svcName in @($entry.Services)) {
+            if ([string]::IsNullOrWhiteSpace($svcName)) { continue }
+            $present = $byName.ContainsKey($svcName)
+            $binaryPresent = $null
+            $imagePath = ''
+            if ($present) {
+                $binaryPresent = $byName[$svcName].ImagePathExists
+                $imagePath = [string]$byName[$svcName].ImagePathResolved
+            }
+            $classification = if (-not $present) { 'ServiceKeyAbsent' }
+                elseif ($binaryPresent -eq $false) { 'ServiceKeyPresentBinaryMissing' }
+                elseif ($binaryPresent -eq $true) { 'Healthy' }
+                else { 'Indeterminate' }
+            $findings.Add([pscustomobject][ordered]@{
+                Feature = [string]$entry.Feature
+                FeatureInstallState = [string]$state
+                ServiceName = [string]$svcName
+                ServiceKeyPresent = $present
+                BinaryPresent = $binaryPresent
+                ImagePathResolved = $imagePath
+                Classification = $classification
+            }) | Out-Null
+        }
+    }
+
+    $atRisk = 0
+    foreach ($f in $findings) {
+        if ($f.Classification -eq 'ServiceKeyPresentBinaryMissing') { $atRisk++ }
+    }
+
+    return [pscustomobject][ordered]@{
+        CollectedAtUtc = Get-UtcTimestamp
+        FeatureQueryError = $featureError
+        FeatureCount = @($features).Count
+        InstalledFeatureCount = @($features | Where-Object { $_.InstallState -eq 'Installed' }).Count
+        BinaryMissingWatchCount = $atRisk
+        WatchedServices = $findings.ToArray()
+        Features = $features
     }
 }
 
@@ -1368,6 +1744,8 @@ function Get-ConfigurationAssessment {
         [Parameter(Mandatory = $true)] [object]$CodeIntegrityEvents,
         [Parameter(Mandatory = $true)] [object]$SetupLogEvidence,
         [Parameter(Mandatory = $true)] [object]$LoadDiagnostics,
+        [Parameter(Mandatory = $true)] [object]$ServiceEvidence,
+        [Parameter(Mandatory = $true)] [object]$FeatureServices,
         [Parameter(Mandatory = $true)] [object]$ScriptInventory,
         [Parameter(Mandatory = $true)] [object]$BthPanRuntime
     )
@@ -1419,6 +1797,41 @@ function Get-ConfigurationAssessment {
     $items.Add((New-AssessmentItem -Name 'Driver load failure classification' `
         -Status $(if ($setupFailSections -eq 0) { 'PASS' } elseif ($sigFail -gt 0) { 'FAIL' } else { 'REVIEW' }) `
         -Detail ('setupapi failure sections={0}; signature-attributable={1}' -f $setupFailSections, $sigFail))) | Out-Null
+
+    # 3b) Service binary integrity. Distinct from the device-level check
+    # above: a service can be declared, referenced by an INF, and have no
+    # binary on disk without any device yet being in an error state. That
+    # latent condition is what turns an unrelated driver install into a
+    # broken adapter, so it is reported on its own terms.
+    $svcMissing = [int]$ServiceEvidence.MissingBinaryCount
+    $svcMissingDetail = if ($svcMissing -eq 0) {
+        ('all {0} service(s) resolve to an existing binary' -f $ServiceEvidence.ServiceCount)
+    }
+    else {
+        $names = @($ServiceEvidence.MissingBinaryServices | Select-Object -First 5 | ForEach-Object { '{0} -> {1}' -f $_.Name, $_.ImagePathResolved })
+        ('{0} of {1} service(s) reference an absent binary: {2}' -f $svcMissing, $ServiceEvidence.ServiceCount, ($names -join '; '))
+    }
+    $items.Add((New-AssessmentItem -Name 'Service binary integrity' `
+        -Status $(if ($svcMissing -eq 0) { 'PASS' } else { 'REVIEW' }) -Detail $svcMissingDetail)) | Out-Null
+
+    # 3c) Server feature-dependent services. A Server SKU stages many inbox
+    # components only when the corresponding optional feature is installed.
+    # A device INF written for a client SKU can declare one of those services
+    # and fail to install on a default Server image with nothing wrong in the
+    # driver package itself.
+    $featRisk = [int]$FeatureServices.BinaryMissingWatchCount
+    $featDetail = if (-not [string]::IsNullOrWhiteSpace($FeatureServices.FeatureQueryError)) {
+        ('feature state unavailable: {0}' -f $FeatureServices.FeatureQueryError)
+    }
+    elseif ($featRisk -eq 0) { ('{0} feature(s) installed; no watched service is missing its binary' -f $FeatureServices.InstalledFeatureCount) }
+    else {
+        $wn = @($FeatureServices.WatchedServices | Where-Object { $_.Classification -eq 'ServiceKeyPresentBinaryMissing' } |
+                Select-Object -First 5 | ForEach-Object { '{0} (feature {1}={2})' -f $_.ServiceName, $_.Feature, $_.FeatureInstallState })
+        ('{0} watched service(s) declared but binary absent: {1}' -f $featRisk, ($wn -join '; '))
+    }
+    $items.Add((New-AssessmentItem -Name 'Server feature-dependent services' `
+        -Status $(if (-not [string]::IsNullOrWhiteSpace($FeatureServices.FeatureQueryError)) { 'INFO' } elseif ($featRisk -eq 0) { 'PASS' } else { 'REVIEW' }) `
+        -Detail $featDetail)) | Out-Null
 
     # 4) Targeted devices (informational context for the deploy scripts)
     $items.Add((New-AssessmentItem -Name 'Targeted AMD/BthPan devices' -Status 'INFO' `
@@ -1624,35 +2037,35 @@ try {
     Write-Host ('Evidence directory: {0}' -f $evidenceDir)
     Write-Host ''
 
-    Write-Host '[1/11] Operating system identity...' -ForegroundColor DarkGray
+    Write-Host '[1/12] Operating system identity...' -ForegroundColor DarkGray
     $osEvidence = Get-OperatingSystemEvidence
     Write-EvidenceJson -InputObject $osEvidence -Directory $evidenceDir -FileName 'environment.json'
 
-    Write-Host '[2/11] Pending reboot state...' -ForegroundColor DarkGray
+    Write-Host '[2/12] Pending reboot state...' -ForegroundColor DarkGray
     $pendingReboot = Get-PendingRebootEvidence
     Write-EvidenceJson -InputObject $pendingReboot -Directory $evidenceDir -FileName 'pending-reboot.json'
 
-    Write-Host '[3/11] PnP device inventory...' -ForegroundColor DarkGray
+    Write-Host '[3/12] PnP device inventory...' -ForegroundColor DarkGray
     $pnpEvidence = Get-PnpDeviceEvidence
     Write-EvidenceJson -InputObject $pnpEvidence -Directory $evidenceDir -FileName 'pnp-devices.json'
 
-    Write-Host '[4/11] Driver store inventory...' -ForegroundColor DarkGray
+    Write-Host '[4/12] Driver store inventory...' -ForegroundColor DarkGray
     $driverStore = Get-DriverStoreEvidence -EvidenceDirectory $evidenceDir
     Write-EvidenceJson -InputObject $driverStore -Directory $evidenceDir -FileName 'driver-store.json'
 
-    Write-Host '[5/11] Project certificate stores...' -ForegroundColor DarkGray
+    Write-Host '[5/12] Project certificate stores...' -ForegroundColor DarkGray
     $certificateEvidence = Get-ProjectCertificateEvidence
     Write-EvidenceJson -InputObject $certificateEvidence -Directory $evidenceDir -FileName 'project-certificates.json'
 
-    Write-Host '[6/11] Boot security state...' -ForegroundColor DarkGray
+    Write-Host '[6/12] Boot security state...' -ForegroundColor DarkGray
     $bootSecurity = Get-BootSecurityEvidence -EvidenceDirectory $evidenceDir
     Write-EvidenceJson -InputObject $bootSecurity -Directory $evidenceDir -FileName 'boot-security.json'
 
-    Write-Host '[7/11] CodeIntegrity events...' -ForegroundColor DarkGray
+    Write-Host '[7/12] CodeIntegrity events...' -ForegroundColor DarkGray
     $codeIntegrityEvents = Get-CodeIntegrityEventEvidence -EvidenceDirectory $evidenceDir
     Write-EvidenceJson -InputObject $codeIntegrityEvents -Directory $evidenceDir -FileName 'codeintegrity-events.json'
 
-    Write-Host '[8/11] Driver setup logs...' -ForegroundColor DarkGray
+    Write-Host '[8/12] Driver setup logs...' -ForegroundColor DarkGray
     $setupLogEvidence = if (-not $SkipSetupApiLog) {
         Get-DriverSetupLogEvidence -EvidenceDirectory $evidenceDir
     }
@@ -1661,7 +2074,7 @@ try {
     }
     Write-EvidenceJson -InputObject $setupLogEvidence -Directory $evidenceDir -FileName 'driver-setup-logs.json'
 
-    Write-Host '[9/11] Device load diagnostics...' -ForegroundColor DarkGray
+    Write-Host '[9/12] Device load diagnostics...' -ForegroundColor DarkGray
     # Reads the copy inside the bundle when one was made, so the parse and
     # the archived text are the same bytes; falls back to the live log when
     # the copy was skipped (size cap) or -SkipSetupApiLog was passed.
@@ -1672,13 +2085,19 @@ try {
     $loadDiagnostics = Get-DeviceLoadDiagnosticEvidence -PnpEvidence $pnpEvidence -SetupApiLogPath $setupApiForParse
     Write-EvidenceJson -InputObject $loadDiagnostics -Directory $evidenceDir -FileName 'device-load-diagnostics.json'
 
-    Write-Host '[10/11] Repository script and workspace inventory...' -ForegroundColor DarkGray
+    Write-Host '[10/12] Windows service configuration...' -ForegroundColor DarkGray
+    $serviceEvidence = Get-ServiceConfigurationEvidence
+    Write-EvidenceJson -InputObject $serviceEvidence -Directory $evidenceDir -FileName 'services.json'
+    $featureServices = Get-ServerFeatureServiceEvidence -ServiceEvidence $serviceEvidence
+    Write-EvidenceJson -InputObject $featureServices -Directory $evidenceDir -FileName 'server-feature-services.json'
+
+    Write-Host '[11/12] Repository script and workspace inventory...' -ForegroundColor DarkGray
     $scriptInventory = Get-DeployScriptInventory -ScriptDirectory $scriptDirectory
     Write-EvidenceJson -InputObject $scriptInventory -Directory $evidenceDir -FileName 'deploy-scripts.json'
     $workspaceInventory = Get-WorkspaceInventoryEvidence -ScriptDirectory $scriptDirectory
     Write-EvidenceJson -InputObject $workspaceInventory -Directory $evidenceDir -FileName 'workspace-inventory.json'
 
-    Write-Host '[11/11] BthPan runtime state...' -ForegroundColor DarkGray
+    Write-Host '[12/12] BthPan runtime state...' -ForegroundColor DarkGray
     $bthPanRuntime = Get-BthPanRuntimeEvidence
     Write-EvidenceJson -InputObject $bthPanRuntime -Directory $evidenceDir -FileName 'bthpan-runtime.json'
 
@@ -1686,7 +2105,7 @@ try {
         -OsEvidence $osEvidence -PendingReboot $pendingReboot -PnpEvidence $pnpEvidence `
         -DriverStore $driverStore -CertificateEvidence $certificateEvidence -BootSecurity $bootSecurity `
         -CodeIntegrityEvents $codeIntegrityEvents -SetupLogEvidence $setupLogEvidence `
-        -LoadDiagnostics $loadDiagnostics `
+        -LoadDiagnostics $loadDiagnostics -ServiceEvidence $serviceEvidence -FeatureServices $featureServices `
         -ScriptInventory $scriptInventory -BthPanRuntime $bthPanRuntime
 
     $failCount = @($assessmentItems | Where-Object { $_.Status -eq 'FAIL' }).Count

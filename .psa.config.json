@@ -329,7 +329,22 @@
   // "no errors" rather than "no warnings"; warnings serve as advisory
   // guidance. See SPEC.md A.11 "Static Analysis with psa.py".
 
-  "severity": "info"
+  "severity": "info",
+
+  // ---------------------------------------------------------------------------
+  // PSA2010 — cmdlets from modules the analyzer does not scan
+  // ---------------------------------------------------------------------------
+  // Get-WindowsFeature ships in the ServerManager module, which is present on
+  // Windows Server SKUs only and is not part of the analyzer's built-in cmdlet
+  // catalogue. The evidence collector calls it to record which optional Server
+  // features are installed, because a feature that is absent can leave an inbox
+  // service declared with no binary on disk — the condition behind a device
+  // install failure documented in SPEC.md Part D. The call site is guarded with
+  // Get-Command, so a host without the module degrades to a recorded query
+  // error rather than a throw.
+  "psa2010_known_cmdlets": [
+    "Get-WindowsFeature"
+  ]
 
 
   // ---------------------------------------------------------------------------

@@ -2640,3 +2640,33 @@ Problem-device totals moved 9 (8x code 28 + 1x code 51) -> 8 (7x code 28 + 1x co
 6. **Collector schema 1.1.** Expect `device-load-diagnostics.json` and an 11-stage run. Check `ProblemDevices[].ServiceBinaryPresent` is populated, that `ConfigManagerErrorName` decodes on the ja-JP host, and that `SetupApi.FailureSections` is non-empty on this host (it should pick up the vwifibus failures). Two new assessment rows: `Driver binary presence`, `Driver load failure classification`.
 
 **Host recovery (untested)**: the Intel driver package is still registered (`oem17.inf`); only the `vwifibus` service binary is missing. The working hypothesis is that it arrives with a Windows Server wireless networking feature that is not installed by default. Confirm with `Test-Path C:\Windows\System32\drivers\vwifibus.sys` and `Get-WindowsFeature Wireless-Networking` before acting.
+
+## 26. Validation Scenario 26: collector c3 — runtime harness for path resolution and service evidence
+
+**Why this scenario exists**: collector c2 shipped a device-load diagnostic that never executed its own logic, and every static gate passed it (SPEC §D.44). Three string literals were mangled by the authoring tool; `psa.py` and `Parser::ParseFile` both validate that a literal is well-formed and neither can know what it was meant to contain. The only verification that could have caught this is executing the code. This scenario is that execution.
+
+**Fixture**: pwsh 7.4.6 on Linux. The functions under test are extracted from the real `Collect-WindowsServerConfigurationEvidence.ps1` by AST, not copied — a divergence between the harness and the shipped file cannot hide here. Windows-only paths (CIM queries, registry enumeration, live `Test-Path` results) are out of scope; every piece of string handling the c2 defect lived in is in scope.
+
+**Cases**:
+
+| Group | Cases | What is being proven |
+|---|---|---|
+| T1-T9 | `Resolve-ServiceImagePath` across all observed `ImagePath` shapes | `\SystemRoot\...` kernel driver form, DriverStore path, `\??\` object-manager prefix, relative `system32\...`, quoted exe with arguments, unquoted exe with arguments, absolute path passthrough, empty and whitespace input |
+| T10-T12 | Regression guards for the exact c2 failure | the `\SystemRoot` form is actually rewritten, the result starts with the system root, and no `\SystemRoot` remnant survives. The c2 implementation returned its input unchanged, so all three fail against it |
+| T13-T16 | Literal checks against the file in the repository | the `Enum\` and `Services\` separators are present, the broken single-backslash `'^\SystemRoot'` regex is absent, and the device diagnostics call the shared resolver rather than re-implementing it |
+| T17-T22 | Code decoding | CM_PROB 39 / 1 / 28 decode to their names, a null code returns empty, `0xC0000428` is flagged `SIGNATURE:`, and `0xC0000263` is flagged `NOT a signature` — the distinction that drove the D.43 attribution |
+
+**Result: 22/22 PASS.**
+
+**Negative control** (the part that makes the result mean something): the same literal checks run against the shipped c2 file report **3 findings** — `Enum` separator missing, `Services` separator missing, broken regex present — and exit non-zero. Against c3 they report 0. A harness that has never failed has not been shown to be capable of failing.
+
+**Static gates alongside**: `psa.py --config .psa.config.json` 0 errors / 0 warnings / 0 info across all five scripts (with `Get-WindowsFeature` declared in `psa2010_known_cmdlets`; `--config-check` clean); `Parser::ParseFile` 0 errors x 5; ValidateSet and `@()`-over-`List[object]` contract audit 0 findings; canon integrity via the central authoritative tooling per SPEC §A.11.8a — 125 dd observation records, drift 121 `match` + 4 `forked-frozen`, zero differences on every non-volatile field.
+
+**Outstanding — what the next field run must check**:
+
+1. **`services.json` is produced and complete.** Expect a few hundred records on a Server install. Confirm `ServiceCount`, `DriverServiceCount`, and that `Source` shows a mix of `Win32_Service`, `Win32_SystemDriver` and `Registry` — if `Registry` never appears, the third enumeration path is not contributing and the census is narrower than intended.
+2. **`ImagePathExists` is populated, not null.** This is the field c2 silently failed to produce. A run where every record has `ImagePathExists = null` means the resolver is not being reached at all.
+3. **`MissingBinaryServices` on the affected host should contain `vwifibus`.** This is the specific prediction. If the collector runs on the damaged WS2019 host and does not list it, the diagnosis in SPEC §D.43.3 is wrong and must be revisited.
+4. **`server-feature-services.json`**: `Wireless-Networking` install state recorded, and the `vwifibus` entry classified `ServiceKeyPresentBinaryMissing` (key exists, binary absent) or `ServiceKeyAbsent`. Which of the two it is determines whether `Install-WindowsFeature` is the remedy.
+5. **Assessment rows**: `Service binary integrity` and `Server feature-dependent services` appear in the report, and `Driver binary presence` now reports something other than an unconditional PASS.
+6. **Locale**: the host is ja-JP. Confirm `ConfigManagerErrorName` and the service type/start type names render from the numeric values rather than from localized strings.
