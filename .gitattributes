@@ -14,6 +14,22 @@
 # out on a ja-JP Windows host that has 'core.autocrlf' or third-party
 # editor hooks active.
 *.ps1   text working-tree-encoding=UTF-8 eol=crlf
+
+# Batch files are stored VERBATIM, not normalised. cmd.exe is the interpreter
+# of last resort in the Windows Recovery Environment and mis-parses a script
+# whose lines end in bare LF, so the line endings here are a functional
+# requirement rather than a style preference.
+#
+# 'text eol=crlf' would be the obvious choice and is wrong for this case: it
+# stores the blob LF-normalised and converts on checkout, which means the
+# bytes are only correct when the consumer's git does the conversion. A .cmd
+# reaches the recovery environment by being copied to a USB stick, sometimes
+# from a downloaded archive that never ran a checkout filter. '-text' keeps
+# CRLF in the blob itself so every path to the file yields the same bytes.
+#
+# No working-tree-encoding either: a .cmd must stay plain ASCII with no BOM,
+# because cmd.exe treats a BOM as part of the first command.
+*.cmd   -text
 *.psm1  text working-tree-encoding=UTF-8 eol=crlf
 *.psd1  text working-tree-encoding=UTF-8 eol=crlf
 

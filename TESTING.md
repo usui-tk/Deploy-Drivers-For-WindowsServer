@@ -2827,3 +2827,56 @@ A different co-signature count on WS2016 would itself be a finding worth recordi
 ### Scope for this campaign
 
 Chipset, Graphics and BthPan. NPU refuses `Install` on legacy Server SKUs by design (SPEC §D.27) and has no NPU hardware here.
+
+## 30. Validation Scenario 30: 2026-08-08 first Windows Server 2016 measurements (collector c5)
+
+**Fixture**: Windows Server 2016 Datacenter Evaluation, build 14393 **UBR 9339**, ja-JP, PowerShell 5.1.14393.9339, **Secure Boot OFF** (reinstalled after a `WDF_VIOLATION` bugcheck loop during setup's configuration-change reboots with Secure Boot ON). Collector c5 run standalone, no deploy script involved.
+
+**Result: 15 stages, 0 failed, complete bundle.** The r101 capability stages worked on their first contact with the OS they were written for.
+
+### Answers to the four TESTING §29 questions
+
+| # | Question | Answer |
+|---|---|---|
+| 1 | Did the scripts see the OS they think they saw? | **Yes.** `ProfileCode = WS2016`, `ProfileExactBuildMatch = true`, `Server2016_X64`, 2048-bit, 3 years — all as documented |
+| 2 | Which capabilities are actually absent? | `MissingCmdlets = [Restart-PnpDevice]` as documented. **`MissingCimClasses` is empty** — `PS_UpdateAndCompareCIPolicy` is PRESENT, contradicting SPEC §D.46.4 (see below) |
+| 3 | Is `signtool` present? | **No** — `MissingTools = [signtool.exe, inf2cat.exe]`. Expected on a fresh host with no SDK. Any WHQL verdict taken here would be a conservative default, not a measurement |
+| 4 | Will the bundle survive? | **Yes.** Probe archived 4 entries / 499 bytes. `Compress-Archive` 1.0.1.0, `LongPathsEnabled = false`, longest probe path 101 chars |
+
+`UnknownFeatureNames` is empty: the watch list, written from WS2019 naming, is valid on WS2016.
+
+### Finding 1 — a documented OS fact contradicted on first measurement
+
+`PS_UpdateAndCompareCIPolicy` is documented in SPEC §D.24 and §D.46.4 as absent on WS2016, and the WDAC path is built to probe for it and fall back to reboot activation when it throws. This host reports it **present**.
+
+The structure of the WDAC path is unaffected — it probes rather than assumes, which is exactly why the discrepancy cost nothing. What it invalidates is the *planning assumption* that a WS2016 run necessarily takes the reboot fallback.
+
+Note the qualifier: UBR **9339** is a heavily serviced 14393, and the class was plausibly added by a servicing update. The correct record is build-and-UBR-qualified, not a flat inversion of the documented claim. SPEC §D.47.2.
+
+### Finding 2 — the `vwifibus` prediction, reproduced on a different host
+
+§D.43.3 attributed a broken Intel Wi-Fi adapter to a missing `vwifibus` service binary; §D.44 predicted a bundle would show the key present and the binary absent when the wireless feature is not installed; §D.46 recorded that the WS2019 host was rebuilt before the prediction could be tested.
+
+This host reproduces it exactly:
+
+```
+services.json                 MissingBinaryCount = 1
+                              vwifibus -> C:\Windows\System32\drivers\vwifibus.sys
+server-feature-services.json  vwifibus  Wireless-Networking = Available
+                              key=True  binary=False  ->  ServiceKeyPresentBinaryMissing
+```
+
+A check written before this host existed found the exact predicted condition on a different OS version and a different installation. The diagnosis stands and the remedy — install the feature — now rests on a measurement.
+
+### Baseline for comparison
+
+`services.json`: **502 services** (308 driver services) versus 560 / 343 on the WS2019 reference in §28. `MissingBinaryCount = 1` versus 0 there — the difference being `vwifibus`, present as a key on both but with its binary only on the WS2019 host, where the feature was installed.
+
+### Outstanding — what c6 adds and what the next WS2016 run must check
+
+The `WDF_VIOLATION` loop that prompted the Secure Boot OFF reinstall could not be investigated from this bundle: it recorded that `Wdf01000` runs, and nothing about its version or any bugcheck. Collector c6 adds both.
+
+1. **`driver-framework.json`** — `KmdfLibraryVersion` should be recorded. This is a ceiling: a driver whose INF declares a newer `KmdfLibraryVersion` cannot load, and `inf2cat /os:Server2016_X64` does not lower that requirement. Record the value; it is the number every later compatibility question is measured against.
+2. **`crash-evidence.json`** — `CrashDumpEnabled` first. If it is `0`, no dump was ever written and an empty minidump directory needs no further theory. If bugcheck events exist, the **first parameter of a `0x10D` stop code** names the kind of framework contract violated and is the fastest route to a cause.
+3. If the host bugchecks again and will not boot, use **`Collect-OfflineRecoveryEvidence.cmd`** from WinRE (Troubleshoot → Command Prompt). Find the Windows volume with `diskpart` / `list volume` — it is usually not `C:` in WinRE — and write output to removable media, never to the offline volume.
+4. With `signtool` absent, **do not read a WHQL co-signature count from this host as a measurement.** Install the SDK first or treat the result as a conservative default (SPEC §D.31).

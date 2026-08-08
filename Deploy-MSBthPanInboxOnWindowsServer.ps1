@@ -455,8 +455,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-$Script:ScriptVersion = 'msbthpan-2026.08.08-r49'
-$Script:ScriptTag     = 'guard-placement-preflight-and-os-capability-evidence'
+$Script:ScriptVersion = 'msbthpan-2026.08.08-r50'
+$Script:ScriptTag     = 'driver-framework-crash-evidence-and-offline-collector'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls

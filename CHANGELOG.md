@@ -20,6 +20,143 @@ independently.
 
 ---
 
+## [2026-08-08] `driver-framework-crash-evidence-and-offline-collector` — Chipset r102 / Graphics r68 / NPU r45 / BthPan r50 / Collector c6 (schema 1.5)
+
+Driven by a `WDF_VIOLATION` bugcheck loop reported on Windows Server 2016
+during setup's configuration-change reboots, and by the first WS2016
+measurements this project has taken. Post-mortem: SPEC D.47.
+
+### New — driver framework versions (collector stage 15/16)
+
+- `driver-framework.json` records `Wdf01000.sys`, `WudfPf.sys`, `WUDFRd.sys`
+  and `WUDFHost.exe` with file version, size and timestamp; the derived
+  `KmdfLibraryVersion` / `UmdfLibraryVersion` in the major.minor form an INF
+  declaration uses; the `Wdf01000` service key with start type and group; and
+  any `WdfCoInstaller*.dll` present.
+- **Why this is the ceiling**: a driver whose INF declares a
+  `KmdfLibraryVersion` newer than the runtime the OS provides cannot load,
+  and that is not a signing failure — neither Path A nor Path B moves it, the
+  same shape as the `STATUS_DRIVER_ENTRYPOINT_NOT_FOUND` case in D.43.3.
+  Critically, **`inf2cat /os:Server2016_X64` changes the catalog's target OS
+  and does not lower a KMDF requirement**: a package can be catalogued and
+  signed successfully for WS2016 and still be unloadable on it.
+- The bundle previously recorded that `Wdf01000` exists and runs, and nothing
+  about which version it is.
+
+### New — crash dump and bugcheck evidence (collector stage 16/16)
+
+- `crash-evidence.json` records the dump configuration (`CrashDumpEnabled`
+  with its meaning spelled out, `AutoReboot`, `Overwrite`, dump paths), an
+  inventory of `MEMORY.DMP` and up to 25 minidumps with sizes and timestamps,
+  bugcheck events from `WER-SystemErrorReporting`, and the count of
+  Kernel-Power event 41 unexpected shutdowns.
+- Dumps are **inventoried, never copied** — a kernel dump can be gigabytes
+  and this bundle is meant to be attached to a message.
+- The bugcheck event is the point: its property array carries the stop code
+  and all four parameters, and for `WDF_VIOLATION` the **first parameter
+  names the kind of framework contract violated** — handle misuse, a
+  double-completed request, a reference to a freed object, an IRQL error —
+  which lead to different investigations. Parameters are read positionally
+  from the event's properties rather than parsed out of the localized message.
+- `CrashDumpEnabled = 0` is itself an answer: it explains an empty minidump
+  directory without further theory.
+
+### New — `Collect-OfflineRecoveryEvidence.cmd`
+
+A host in a bugcheck loop cannot run a PowerShell collector, and **the
+Windows Recovery Environment has no PowerShell** — WinRE gives you cmd.exe.
+A collection strategy that assumes PowerShell is unusable in exactly the
+situation where the evidence matters most.
+
+This batch script reads an offline Windows volume from WinRE and never writes
+to it, using only what WinRE guarantees: `cmd`, `reg`, `dism`, `bcdedit`,
+`xcopy`, `dir`. Eight groups: crash dumps (copied); the offline SYSTEM hive
+via `reg load`, including `CrashControl`, a services export and an
+enumeration of boot-start and system-start drivers — the ones that can
+bugcheck before anything can be logged; driver framework binaries;
+`dism /get-drivers` and `/get-packages`; the BCD store, where `testsigning`
+and `nointegritychecks` are visible; setup and servicing logs; `System.evtx`,
+which carries the bugcheck parameters; and pending-operation markers that
+explain a configuration-change loop.
+
+Three decisions worth stating because each is a trap:
+
+- **`ControlSet001`, not `CurrentControlSet`** — the `Current` alias is
+  synthesised by a running system and does not exist offline.
+- **Refuses to write output onto the offline volume** — that volume may be
+  the failing device.
+- **Collects, does not repair** — mixing the two destroys the evidence for
+  the second attempt, and a bugcheck loop usually gets more than one.
+
+`.gitattributes` gains **`*.cmd -text`** — stored verbatim rather than
+normalised. `text eol=crlf` is the obvious choice and is wrong here: it keeps
+the blob LF-normalised and converts on checkout, so the bytes are only
+correct when the consumer's git runs the filter. A `.cmd` reaches the
+recovery environment by being copied to a USB stick, sometimes from a
+downloaded archive that never ran a checkout filter, and CRLF is a functional
+requirement for cmd.exe rather than a style preference. No
+`working-tree-encoding` either: a `.cmd` must stay plain ASCII with no BOM,
+because cmd.exe treats a BOM as part of the first command.
+
+**Applying this release's patch requires `git am --keep-cr`.** `git am`
+strips carriage returns from patch bodies by default, which silently converts
+the new `.cmd` to LF and produces a tree that does not match. The patch body
+carries the CR correctly; only the application step needs the flag. This is
+the first file in the repository where that matters.
+
+### Correction — `PS_UpdateAndCompareCIPolicy` is present on WS2016 14393.9339
+
+SPEC D.24 and the D.46.4 table state this CIM class is absent on WS2016. The
+first WS2016 host to be measured reports it **present**. The WDAC path is
+unaffected — it probes rather than assumes, which is why the discrepancy cost
+nothing — but the *planning assumption* that a WS2016 run necessarily takes
+the reboot fallback is invalidated.
+
+The record is build-and-UBR-qualified rather than a flat inversion: UBR 9339
+is a heavily serviced 14393 and the class was plausibly added by servicing.
+The D.46.4 table now carries the correction and a note that its rows are the
+expectation a bundle is checked against, not a fact about the host in front
+of you. SPEC D.47.2.
+
+### Confirmation — the `vwifibus` prediction reproduced
+
+D.43.3 attributed a broken Intel Wi-Fi adapter to a missing `vwifibus`
+service binary; D.44 predicted a bundle would show the key present and the
+binary absent; D.46 recorded that the WS2019 host was rebuilt before the
+prediction could be tested. The WS2016 host reproduces it exactly —
+`MissingBinaryCount = 1`, `vwifibus`, `Wireless-Networking = Available`,
+`ServiceKeyPresentBinaryMissing`. A check written before this host existed
+found the predicted condition on a different OS version and installation.
+
+### Verification
+
+`psa.py` 0 errors / 0 warnings / 0 info across twelve PowerShell files;
+`Parser::ParseFile` 0 errors × 5; **test suite 5 cases, 108 assertions**, all
+passing; canon integrity via the central authoritative tooling per SPEC
+A.11.8a — 125 dd observation records, zero differences.
+
+**Both new stages failed on first execution after passing every static
+gate**: `Join-Path` throws on a null mandatory parameter, so an unset
+`$env:SystemRoot` aborted both functions rather than producing empty records,
+and an absent `Get-WinEvent` produced an unhelpful error rather than a
+recorded reason. Seven hardening edits later both return complete records on
+a host with neither, and the test case empties `$env:SystemRoot` to prove it.
+
+### Known limitations
+
+- **The framework and crash stages have not run on Windows**, and the offline
+  collector has not run in WinRE. Both are structurally validated only —
+  the batch script is checked for BOM, encoding, line endings, matched
+  `reg load`/`reg unload`, reachable `goto` targets and its two safety
+  decisions, but no WinRE session has executed it.
+- **The INF-side comparison is not automated.** The host's KMDF version is
+  now recorded; matching it against each INF's declared `KmdfLibraryVersion`
+  is the natural next step and is not in this release.
+- The WS2016 host had **no `signtool`**, so no WHQL co-signature count taken
+  there would be a measurement.
+
+---
+
 ## [2026-08-08] `guard-placement-preflight-and-os-capability-evidence` — Chipset r101 / Graphics r67 / NPU r44 / BthPan r49 / Collector c5 (schema 1.4)
 
 Fixes from a clean-install Windows Server 2019 run of all three production

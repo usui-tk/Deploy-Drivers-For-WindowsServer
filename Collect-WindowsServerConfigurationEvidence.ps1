@@ -87,14 +87,14 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
-$Script:ScriptVersion  = 'collector-2026.08.08-c5'
+$Script:ScriptVersion  = 'collector-2026.08.08-c6'
 $Script:ScriptTag      = 'windows-server-configuration-evidence-collector'
 $Script:ScriptHash     = 'unavailable'
 try {
     $Script:ScriptHash = (Get-FileHash -LiteralPath $MyInvocation.MyCommand.Path -Algorithm SHA256 -ErrorAction Stop).Hash.Substring(0, 12).ToLowerInvariant()
 } catch { } # psa-disable-line PSA3004 -- self-hash is identity metadata only; collection must proceed without it
 $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash)
-$script:SchemaVersion = 'windows-server-configuration-evidence/1.4'
+$script:SchemaVersion = 'windows-server-configuration-evidence/1.5'
 # Per-stage outcome ledger (SPEC D.45). Populated by Invoke-EvidenceStage,
 # written to stage-results.json, and surfaced in the assessment so a bundle
 # always declares its own completeness.
@@ -1681,6 +1681,309 @@ function Get-ArchiveCapabilityEvidence {
     return $result
 }
 
+function Get-FileVersionInfoSafe {
+    # File version for a driver binary, tolerant of every way this can fail.
+    # Used for framework binaries whose version is the whole point of the
+    # record, so an unreadable file must produce an explicit 'unknown' rather
+    # than an absent property.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter()]
+        [AllowEmptyString()]
+        [string]$Path
+    )
+    $record = [pscustomobject][ordered]@{
+        Path = [string]$Path
+        Exists = $false
+        FileVersion = ''
+        ProductVersion = ''
+        FileVersionRaw = ''
+        SizeBytes = $null
+        LastWriteTimeUtc = ''
+        ErrorMessage = ''
+    }
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $record }
+    try {
+        if (-not (Test-Path -LiteralPath $Path)) { return $record }
+        $item = Get-Item -LiteralPath $Path -ErrorAction Stop
+        $record.Exists = $true
+        $record.SizeBytes = [int64]$item.Length
+        $record.LastWriteTimeUtc = $item.LastWriteTimeUtc.ToString('o')
+        $vi = $item.VersionInfo
+        if ($null -ne $vi) {
+            $record.FileVersion = [string]$vi.FileVersion
+            $record.ProductVersion = [string]$vi.ProductVersion
+            # FileMajorPart etc. are the authoritative numeric fields; the
+            # string form is localized on some builds and can carry
+            # decoration the numeric parts do not.
+            $record.FileVersionRaw = ('{0}.{1}.{2}.{3}' -f $vi.FileMajorPart, $vi.FileMinorPart, $vi.FileBuildPart, $vi.FilePrivatePart)
+        }
+    }
+    catch {
+        $record.ErrorMessage = $_.Exception.Message
+    }
+    return $record
+}
+
+function Get-DriverFrameworkEvidence {
+    # KMDF / UMDF runtime versions, and the co-installer versions present on
+    # the host.
+    #
+    # WHY (SPEC D.47): the framework version is a hard ceiling. A driver whose
+    # INF declares KmdfLibraryVersion newer than the runtime the OS provides
+    # cannot load, and the failure has nothing to do with signing - so neither
+    # Path A nor Path B moves it. On Windows Server 2016 the in-box KMDF is
+    # older than what current driver packages are built against, which makes
+    # this the first thing to check when a legacy-Server run misbehaves and
+    # the last thing anyone thinks to look up.
+    #
+    # inf2cat /os:Server2016_X64 changes the catalog's target OS. It does not
+    # lower a KMDF requirement. Recording the runtime version here is what
+    # lets an INF's declared requirement be compared against the host instead
+    # of assumed compatible.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+
+    # $env:SystemRoot can be empty outside a normal Windows session, and
+    # Join-Path throws on a null mandatory parameter rather than returning
+    # nothing. Every path below is built by concatenation from a resolved
+    # root so an unset variable produces empty records, not an exception.
+    $winRoot = [string]$env:SystemRoot
+    if ([string]::IsNullOrWhiteSpace($winRoot)) { $winRoot = [string]$env:windir }
+    $winRoot = $winRoot.TrimEnd('\')
+    $system32 = $(if ([string]::IsNullOrWhiteSpace($winRoot)) { '' } else { $winRoot + '\System32' })
+    $drivers = $(if ([string]::IsNullOrWhiteSpace($system32)) { '' } else { $system32 + '\drivers' })
+
+    $kmdf = Get-FileVersionInfoSafe -Path $(if ($drivers) { $drivers + '\Wdf01000.sys' } else { '' })
+    $umdfPf = Get-FileVersionInfoSafe -Path $(if ($drivers) { $drivers + '\WudfPf.sys' } else { '' })
+    $umdfRd = Get-FileVersionInfoSafe -Path $(if ($drivers) { $drivers + '\WUDFRd.sys' } else { '' })
+    $umdfHost = Get-FileVersionInfoSafe -Path $(if ($system32) { $system32 + '\WUDFHost.exe' } else { '' })
+
+    # The KMDF library version an INF may request is expressed as major.minor
+    # (1.15, 1.31, ...). The runtime binary carries that in its first two
+    # version parts, so it can be compared directly with an INF declaration.
+    $kmdfLibraryVersion = ''
+    if ($kmdf.Exists -and -not [string]::IsNullOrWhiteSpace($kmdf.FileVersionRaw)) {
+        $parts = $kmdf.FileVersionRaw.Split('.')
+        if ($parts.Count -ge 2) { $kmdfLibraryVersion = ('{0}.{1}' -f $parts[0], $parts[1]) }
+    }
+    $umdfLibraryVersion = ''
+    if ($umdfRd.Exists -and -not [string]::IsNullOrWhiteSpace($umdfRd.FileVersionRaw)) {
+        $parts = $umdfRd.FileVersionRaw.Split('.')
+        if ($parts.Count -ge 2) { $umdfLibraryVersion = ('{0}.{1}' -f $parts[0], $parts[1]) }
+    }
+
+    # Co-installer DLLs shipped by the WDK. A driver package that carries a
+    # co-installer for a framework version the host does not have is the
+    # other half of the same problem.
+    $coInstallers = New-Object 'System.Collections.Generic.List[object]'
+    try {
+        $found = @()
+        if (-not [string]::IsNullOrWhiteSpace($system32) -and (Test-Path -LiteralPath $system32)) {
+            $found = @(Get-ChildItem -LiteralPath $system32 -Filter 'WdfCoInstaller*.dll' -ErrorAction SilentlyContinue)
+        }
+        foreach ($f in $found) {
+            $coInstallers.Add((Get-FileVersionInfoSafe -Path $f.FullName)) | Out-Null
+        }
+    }
+    catch {
+        $coInstallers = New-Object 'System.Collections.Generic.List[object]'
+    }
+
+    # Service-key view of the framework, for the start type and group. A
+    # framework driver that is not Boot-start is itself a finding.
+    $kmdfService = [pscustomobject][ordered]@{ Present = $false; StartTypeNumeric = $null; Group = ''; ImagePath = '' }
+    try {
+        $snap = Get-RegistryKeySnapshot -Path 'HKLM:\SYSTEM\CurrentControlSet\Services\Wdf01000'
+        if ($null -ne $snap -and $snap.Available) {
+            $kmdfService.Present = $true
+            $startValue = Get-NamedRegistryValue -Snapshot $snap -Name 'Start'
+            if ($null -ne $startValue) { $kmdfService.StartTypeNumeric = [int]$startValue }
+            $kmdfService.Group = [string](Get-NamedRegistryValue -Snapshot $snap -Name 'Group' -DefaultValue '')
+            $kmdfService.ImagePath = [string](Get-NamedRegistryValue -Snapshot $snap -Name 'ImagePath' -DefaultValue '')
+        }
+    }
+    catch {
+        $kmdfService.Present = $false
+    }
+
+    return [pscustomobject][ordered]@{
+        CollectedAtUtc = Get-UtcTimestamp
+        KmdfLibraryVersion = $kmdfLibraryVersion
+        UmdfLibraryVersion = $umdfLibraryVersion
+        KmdfRuntime = $kmdf
+        UmdfPlatformDriver = $umdfPf
+        UmdfReflector = $umdfRd
+        UmdfHost = $umdfHost
+        KmdfService = $kmdfService
+        CoInstallerCount = $coInstallers.Count
+        CoInstallers = $coInstallers.ToArray()
+    }
+}
+
+function Get-CrashEvidence {
+    # Bugcheck history and dump configuration.
+    #
+    # WHY (SPEC D.47): a host that bugchecks during driver installation gives
+    # the operator a stop code on screen for a few seconds and then reboots.
+    # Everything needed to attribute it is on disk - the bugcheck parameters
+    # in the System event log, the minidump, the dump configuration that
+    # decides whether a dump exists at all - and none of it was in the
+    # bundle. This stage records the parameters and the dump inventory so a
+    # BSOD becomes an analysable event rather than a recollection.
+    #
+    # WDF_VIOLATION (0x10D) is the case this was written for: its first
+    # parameter names the kind of framework contract that was violated, which
+    # is the difference between a driver bug, a handle misuse, and an IRQL
+    # error. That parameter is in event 1001 and nowhere else the bundle
+    # looked.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter()]
+        [int]$MaxEvents = 20
+    )
+
+    $result = [pscustomobject][ordered]@{
+        CollectedAtUtc = Get-UtcTimestamp
+        CrashControl = [pscustomobject][ordered]@{
+            CrashDumpEnabled = $null
+            CrashDumpEnabledName = ''
+            DumpFile = ''
+            MinidumpDir = ''
+            AutoReboot = $null
+            Overwrite = $null
+        }
+        MemoryDumpPresent = $false
+        MemoryDumpPath = ''
+        MemoryDumpBytes = $null
+        MinidumpCount = 0
+        Minidumps = @()
+        BugCheckEventCount = 0
+        BugCheckEvents = @()
+        UnexpectedShutdownCount = 0
+        QueryError = ''
+    }
+
+    # Dump configuration. CrashDumpEnabled 0 means no dump is written at all,
+    # which explains an empty Minidump directory without any further theory.
+    try {
+        $snap = Get-RegistryKeySnapshot -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\CrashControl'
+        if ($null -ne $snap -and $snap.Available) {
+            $enabled = Get-NamedRegistryValue -Snapshot $snap -Name 'CrashDumpEnabled'
+            if ($null -ne $enabled) {
+                $result.CrashControl.CrashDumpEnabled = [int]$enabled
+                $result.CrashControl.CrashDumpEnabledName = switch ([int]$enabled) {
+                    0 { 'None - no dump is written' }
+                    1 { 'Complete memory dump' }
+                    2 { 'Kernel memory dump' }
+                    3 { 'Small memory dump (minidump)' }
+                    7 { 'Automatic memory dump' }
+                    default { ('Unrecognised value {0}' -f [int]$enabled) }
+                }
+            }
+            $result.CrashControl.DumpFile = [string](Get-NamedRegistryValue -Snapshot $snap -Name 'DumpFile' -DefaultValue '')
+            $result.CrashControl.MinidumpDir = [string](Get-NamedRegistryValue -Snapshot $snap -Name 'MinidumpDir' -DefaultValue '')
+            $auto = Get-NamedRegistryValue -Snapshot $snap -Name 'AutoReboot'
+            if ($null -ne $auto) { $result.CrashControl.AutoReboot = ([int]$auto -eq 1) }
+            $ow = Get-NamedRegistryValue -Snapshot $snap -Name 'Overwrite'
+            if ($null -ne $ow) { $result.CrashControl.Overwrite = ([int]$ow -eq 1) }
+        }
+    }
+    catch {
+        $result.QueryError = ('CrashControl read failed: {0}' -f $_.Exception.Message)
+    }
+
+    # Dump files. Recorded as an inventory, never copied: a kernel dump can be
+    # gigabytes and this collector produces a bundle meant to be attached to
+    # a message.
+    $crashWinRoot = [string]$env:SystemRoot
+    if ([string]::IsNullOrWhiteSpace($crashWinRoot)) { $crashWinRoot = [string]$env:windir }
+    $crashWinRoot = $crashWinRoot.TrimEnd('\')
+    $memoryDump = $(if ($crashWinRoot) { $crashWinRoot + '\MEMORY.DMP' } else { '' })
+    try {
+        if (-not [string]::IsNullOrWhiteSpace($memoryDump) -and (Test-Path -LiteralPath $memoryDump)) {
+            $item = Get-Item -LiteralPath $memoryDump -ErrorAction Stop
+            $result.MemoryDumpPresent = $true
+            $result.MemoryDumpPath = $memoryDump
+            $result.MemoryDumpBytes = [int64]$item.Length
+        }
+    }
+    catch {
+        $result.MemoryDumpPresent = $false
+    }
+
+    $minidumps = New-Object 'System.Collections.Generic.List[object]'
+    try {
+        $minidumpDir = $(if ($crashWinRoot) { $crashWinRoot + '\Minidump' } else { '' })
+        if (-not [string]::IsNullOrWhiteSpace($minidumpDir) -and (Test-Path -LiteralPath $minidumpDir)) {
+            foreach ($f in @(Get-ChildItem -LiteralPath $minidumpDir -Filter '*.dmp' -ErrorAction SilentlyContinue |
+                             Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 25)) {
+                $minidumps.Add([pscustomobject][ordered]@{
+                    Name = [string]$f.Name
+                    FullName = [string]$f.FullName
+                    SizeBytes = [int64]$f.Length
+                    LastWriteTimeUtc = $f.LastWriteTimeUtc.ToString('o')
+                }) | Out-Null
+            }
+        }
+    }
+    catch {
+        $minidumps = New-Object 'System.Collections.Generic.List[object]'
+    }
+    $result.Minidumps = $minidumps.ToArray()
+    $result.MinidumpCount = $minidumps.Count
+
+    # Event 1001 from BugCheck carries the stop code and all four parameters.
+    # The message is localized, so the numbers are extracted positionally from
+    # the event's own property array rather than parsed out of the text.
+    $events = New-Object 'System.Collections.Generic.List[object]'
+    try {
+        if (-not (Get-Command -Name 'Get-WinEvent' -ErrorAction SilentlyContinue)) {
+            throw 'Get-WinEvent is not available on this host'
+        }
+        $raw = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-WER-SystemErrorReporting' } `
+                 -MaxEvents $MaxEvents -ErrorAction Stop)
+        foreach ($e in $raw) {
+            $props = @($e.Properties | ForEach-Object { [string]$_.Value })
+            $events.Add([pscustomobject][ordered]@{
+                TimeCreatedUtc = $e.TimeCreated.ToUniversalTime().ToString('o')
+                Id = [int]$e.Id
+                LevelDisplayName = [string]$e.LevelDisplayName
+                BugCheckText = $(if ($props.Count -gt 0) { $props[0] } else { '' })
+                Properties = $props
+                Message = [string]$e.Message
+            }) | Out-Null
+        }
+    }
+    catch {
+        # No matching events is the common case and is not an error.
+        if ($_.Exception.Message -notmatch 'No events were found') {
+            $result.QueryError = (($result.QueryError + ' ') + ('BugCheck event query: {0}' -f $_.Exception.Message)).Trim()
+        }
+    }
+    $result.BugCheckEvents = $events.ToArray()
+    $result.BugCheckEventCount = $events.Count
+
+    # Event 41 (Kernel-Power) counts unexpected shutdowns, which catches a
+    # reboot loop even when no dump was written.
+    try {
+        if (-not (Get-Command -Name 'Get-WinEvent' -ErrorAction SilentlyContinue)) {
+            throw 'Get-WinEvent is not available on this host'
+        }
+        $kp = @(Get-WinEvent -FilterHashtable @{ LogName = 'System'; ProviderName = 'Microsoft-Windows-Kernel-Power'; Id = 41 } `
+                -MaxEvents $MaxEvents -ErrorAction Stop)
+        $result.UnexpectedShutdownCount = $kp.Count
+    }
+    catch {
+        $result.UnexpectedShutdownCount = 0
+    }
+
+    return $result
+}
+
 function Get-DriverStoreEvidence {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -2162,7 +2465,9 @@ function Get-ConfigurationAssessment {
         [Parameter(Mandatory = $true)] [object]$BthPanRuntime,
         [Parameter(Mandatory = $true)] [object]$StageEvidence,
         [Parameter(Mandatory = $true)] [object]$OsCapability,
-        [Parameter(Mandatory = $true)] [object]$ArchiveCapability
+        [Parameter(Mandatory = $true)] [object]$ArchiveCapability,
+        [Parameter(Mandatory = $true)] [object]$DriverFramework,
+        [Parameter(Mandatory = $true)] [object]$CrashEvidence
     )
 
     $items = New-Object 'System.Collections.Generic.List[object]'
@@ -2250,6 +2555,35 @@ function Get-ConfigurationAssessment {
     else { ('probe FAILED: {0}' -f $ArchiveCapability.ErrorMessage) }
     $items.Add((New-AssessmentItem -Name 'Archive capability' `
         -Status $(if ($ArchiveCapability.ProbeSucceeded) { 'PASS' } else { 'FAIL' }) -Detail $archiveDetail)) | Out-Null
+    # 3f) Driver framework ceiling. Reported as INFO because a version is not
+    # a fault - but it IS the ceiling every driver package on this host has
+    # to fit under, and a package requesting a newer KMDF than this cannot
+    # load no matter how it is signed.
+    $kmdfDetail = if ([string]::IsNullOrWhiteSpace($DriverFramework.KmdfLibraryVersion)) {
+        'KMDF runtime version could not be read'
+    }
+    else {
+        ('KMDF {0} (Wdf01000.sys {1}); UMDF {2}' -f $DriverFramework.KmdfLibraryVersion, $DriverFramework.KmdfRuntime.FileVersionRaw, $DriverFramework.UmdfLibraryVersion)
+    }
+    $items.Add((New-AssessmentItem -Name 'Driver framework versions' `
+        -Status $(if ([string]::IsNullOrWhiteSpace($DriverFramework.KmdfLibraryVersion)) { 'REVIEW' } else { 'INFO' }) `
+        -Detail $kmdfDetail)) | Out-Null
+
+    # 3g) Bugcheck history. A host that has bugchecked recently is a different
+    # host from one that has not, and the difference belongs at the top of any
+    # investigation rather than in a recollection.
+    $bugCount = [int]$CrashEvidence.BugCheckEventCount
+    $crashDetail = if ($bugCount -eq 0 -and [int]$CrashEvidence.MinidumpCount -eq 0) {
+        ('no bugcheck events or minidumps; dump setting = {0}' -f $CrashEvidence.CrashControl.CrashDumpEnabledName)
+    }
+    else {
+        $latest = if ($bugCount -gt 0) { @($CrashEvidence.BugCheckEvents)[0].BugCheckText } else { '(no event, dump only)' }
+        ('{0} bugcheck event(s), {1} minidump(s); most recent: {2}' -f $bugCount, $CrashEvidence.MinidumpCount, $latest)
+    }
+    $items.Add((New-AssessmentItem -Name 'Bugcheck history' `
+        -Status $(if ($bugCount -eq 0 -and [int]$CrashEvidence.MinidumpCount -eq 0) { 'PASS' } else { 'REVIEW' }) `
+        -Detail $crashDetail)) | Out-Null
+
 
 
     # 3b) Service binary integrity. Distinct from the device-level check
@@ -2495,49 +2829,49 @@ try {
     Write-Host ('Evidence directory: {0}' -f $evidenceDir)
     Write-Host ''
 
-    $osEvidence = Invoke-EvidenceStage -Label '[1/14] Operating system identity...' -Body {
+    $osEvidence = Invoke-EvidenceStage -Label '[1/16] Operating system identity...' -Body {
         $v = Get-OperatingSystemEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'environment.json'
         $v
     }
 
-    $pendingReboot = Invoke-EvidenceStage -Label '[2/14] Pending reboot state...' -Body {
+    $pendingReboot = Invoke-EvidenceStage -Label '[2/16] Pending reboot state...' -Body {
         $v = Get-PendingRebootEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'pending-reboot.json'
         $v
     }
 
-    $pnpEvidence = Invoke-EvidenceStage -Label '[3/14] PnP device inventory...' -Body {
+    $pnpEvidence = Invoke-EvidenceStage -Label '[3/16] PnP device inventory...' -Body {
         $v = Get-PnpDeviceEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'pnp-devices.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; DeviceCount = 0; ProblemDeviceCount = 0; TargetedDeviceCount = 0; ProblemDevices = @(); TargetedDevices = @(); Devices = @() })
 
-    $driverStore = Invoke-EvidenceStage -Label '[4/14] Driver store inventory...' -Body {
+    $driverStore = Invoke-EvidenceStage -Label '[4/16] Driver store inventory...' -Body {
         $v = Get-DriverStoreEvidence -EvidenceDirectory $evidenceDir
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'driver-store.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; PnputilExitCode = $null; PackageCount = 0; SignedDriverCount = 0; Packages = @() })
 
-    $certificateEvidence = Invoke-EvidenceStage -Label '[5/14] Project certificate stores...' -Body {
+    $certificateEvidence = Invoke-EvidenceStage -Label '[5/16] Project certificate stores...' -Body {
         $v = Get-ProjectCertificateEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'project-certificates.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; CertificateCount = 0; StoresConsistent = $null; StoreErrors = @('stage failed'); RootThumbprints = @(); TrustedPublisherThumbprints = @(); ThumbprintsOnlyInRoot = @(); ThumbprintsOnlyInTrustedPublisher = @(); Certificates = @() })
 
-    $bootSecurity = Invoke-EvidenceStage -Label '[6/14] Boot security state...' -Body {
+    $bootSecurity = Invoke-EvidenceStage -Label '[6/16] Boot security state...' -Body {
         $v = Get-BootSecurityEvidence -EvidenceDirectory $evidenceDir
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'boot-security.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; SecureBootEnabled = $null; TestSigningEnabled = $null; NoIntegrityChecksEnabled = $null; BcdCaptured = $false; WdacPolicyPresent = $null })
 
-    $codeIntegrityEvents = Invoke-EvidenceStage -Label '[7/14] CodeIntegrity events...' -Body {
+    $codeIntegrityEvents = Invoke-EvidenceStage -Label '[7/16] CodeIntegrity events...' -Body {
         $v = Get-CodeIntegrityEventEvidence -EvidenceDirectory $evidenceDir
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'codeintegrity-events.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; EventCount = 0; EnforcementBlockEventCount = 0; AuditEventCount = 0; QueryError = 'stage failed' })
 
-    $setupLogEvidence = Invoke-EvidenceStage -Label '[8/14] Driver setup logs...' -Body {
+    $setupLogEvidence = Invoke-EvidenceStage -Label '[8/16] Driver setup logs...' -Body {
         $v = if (-not $SkipSetupApiLog) {
             Get-DriverSetupLogEvidence -EvidenceDirectory $evidenceDir
         }
@@ -2548,7 +2882,7 @@ try {
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; Logs = @() })
 
-    $loadDiagnostics = Invoke-EvidenceStage -Label '[9/14] Device load diagnostics...' -Body {
+    $loadDiagnostics = Invoke-EvidenceStage -Label '[9/16] Device load diagnostics...' -Body {
         # Reads the copy inside the bundle when one was made, so the parse and
         # the archived text are the same bytes; falls back to the live log when
         # the copy was skipped (size cap) or -SkipSetupApiLog was passed.
@@ -2561,19 +2895,19 @@ try {
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; ProblemDeviceCount = 0; MissingServiceBinaryCount = 0; SignatureRelatedFailureCount = 0; ProblemDevices = @(); SetupApi = [pscustomobject][ordered]@{ LogPresent = $false; SectionsScanned = 0; FailureSections = @(); MissingServiceBinaries = @(); ParseError = 'stage failed' } })
 
-    $serviceEvidence = Invoke-EvidenceStage -Label '[10/14] Windows service configuration...' -Body {
+    $serviceEvidence = Invoke-EvidenceStage -Label '[10/16] Windows service configuration...' -Body {
         $v = Get-ServiceConfigurationEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'services.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; ServiceCount = 0; DriverServiceCount = 0; RunningCount = 0; DisabledCount = 0; MissingBinaryCount = 0; CollectionErrors = @('stage failed'); MissingBinaryServices = @(); DependencyIndex = @(); Services = @() })
 
-    $featureServices = Invoke-EvidenceStage -Label '[10/14] Server feature-to-service mapping...' -Body {
+    $featureServices = Invoke-EvidenceStage -Label '[10/16] Server feature-to-service mapping...' -Body {
         $v = Get-ServerFeatureServiceEvidence -ServiceEvidence $serviceEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'server-feature-services.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; FeatureQueryError = 'stage failed'; FeatureCount = 0; InstalledFeatureCount = 0; BinaryMissingWatchCount = 0; WatchedServices = @(); Features = @() })
 
-    $scriptInventory = Invoke-EvidenceStage -Label '[11/14] Repository script and workspace inventory...' -Body {
+    $scriptInventory = Invoke-EvidenceStage -Label '[11/16] Repository script and workspace inventory...' -Body {
         $v = Get-DeployScriptInventory -ScriptDirectory $scriptDirectory
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'deploy-scripts.json'
         $workspaceInventory = Get-WorkspaceInventoryEvidence -ScriptDirectory $scriptDirectory
@@ -2581,24 +2915,37 @@ try {
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; PresentCount = 0; ExpectedCount = 0; Scripts = @() })
 
-    $bthPanRuntime = Invoke-EvidenceStage -Label '[12/14] BthPan runtime state...' -Body {
+    $bthPanRuntime = Invoke-EvidenceStage -Label '[12/16] BthPan runtime state...' -Body {
         $v = Get-BthPanRuntimeEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'bthpan-runtime.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; BthPanSysPresent = $false; ServiceKeyPresent = $false; PanAdapterCount = 0 })
 
 
-    $osCapability = Invoke-EvidenceStage -Label '[13/14] OS capability matrix...' -Body {
+    $osCapability = Invoke-EvidenceStage -Label '[13/16] OS capability matrix...' -Body {
         $v = Get-OsCapabilityEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'os-capability.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; OsBuild = 0; ProfileCode = ''; MissingCmdletCount = 0; MissingCmdlets = @(); MissingCimClassCount = 0; MissingCimClasses = @(); MissingToolCount = 0; MissingTools = @(); Cmdlets = @(); CimClasses = @(); Tools = @() })
 
-    $archiveCapability = Invoke-EvidenceStage -Label '[14/14] Archive capability probe...' -Body {
+    $archiveCapability = Invoke-EvidenceStage -Label '[14/16] Archive capability probe...' -Body {
         $v = Get-ArchiveCapabilityEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'archive-capability.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; CompressArchiveAvailable = $false; ProbeAttempted = $false; ProbeSucceeded = $false; ErrorMessage = 'stage failed' })
+
+
+    $driverFramework = Invoke-EvidenceStage -Label '[15/16] Driver framework versions...' -Body {
+        $v = Get-DriverFrameworkEvidence
+        Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'driver-framework.json'
+        $v
+    } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; KmdfLibraryVersion = ''; UmdfLibraryVersion = ''; CoInstallerCount = 0; CoInstallers = @() })
+
+    $crashEvidence = Invoke-EvidenceStage -Label '[16/16] Crash dump and bugcheck history...' -Body {
+        $v = Get-CrashEvidence
+        Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'crash-evidence.json'
+        $v
+    } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; MinidumpCount = 0; Minidumps = @(); BugCheckEventCount = 0; BugCheckEvents = @(); UnexpectedShutdownCount = 0; MemoryDumpPresent = $false; QueryError = 'stage failed' })
 
     # Stage ledger is written before the assessment so the bundle states its
     # own completeness even if a later step fails (SPEC D.45).
@@ -2611,7 +2958,8 @@ try {
         -CodeIntegrityEvents $codeIntegrityEvents -SetupLogEvidence $setupLogEvidence `
         -LoadDiagnostics $loadDiagnostics -ServiceEvidence $serviceEvidence -FeatureServices $featureServices `
         -ScriptInventory $scriptInventory -BthPanRuntime $bthPanRuntime -StageEvidence $stageEvidence `
-        -OsCapability $osCapability -ArchiveCapability $archiveCapability
+        -OsCapability $osCapability -ArchiveCapability $archiveCapability `
+        -DriverFramework $driverFramework -CrashEvidence $crashEvidence
 
     $failCount = @($assessmentItems | Where-Object { $_.Status -eq 'FAIL' }).Count
     $reviewCount = @($assessmentItems | Where-Object { $_.Status -eq 'REVIEW' }).Count

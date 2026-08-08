@@ -6132,7 +6132,7 @@ against, and because every row is now also measured into the bundle.
 | Modern cert extension | not used | used | used | used |
 | Driver variant directory | `WTx64` | `WTx64` | build-dependent | build-dependent |
 | `Restart-PnpDevice` | **absent** | present | present | present |
-| `PS_UpdateAndCompareCIPolicy` | **absent** | present | present | present |
+| `PS_UpdateAndCompareCIPolicy` | **see D.47.2** — documented as absent, but measured **present** on 14393.9339 | present | present | present |
 | winget | absent, cannot install | absent, cannot install | side-load possible | native |
 | SDK / WDK | 26100.6584 (runs on Win7+) | same | same | same |
 
@@ -6141,6 +6141,12 @@ probes for each cmdlet and degrades the rebind strategy rather than failing,
 and the CI-policy path catches the absent class and falls back to reboot.
 What r101 adds is that a bundle now states which of these were true on the
 host, so a WS2016 diagnosis rests on that host's measurements.
+
+That defence was needed immediately: the first WS2016 host to be measured
+contradicted the `PS_UpdateAndCompareCIPolicy` row above (D.47.2). A
+capability table written from vendor documentation ages against servicing,
+and rows here should be read as the expectation a bundle is checked against,
+not as a fact about the host in front of you.
 
 ### D.46.5 What running the new code found
 
@@ -6181,6 +6187,193 @@ archive probe has run for real, on Linux.
 Chipset r101 / Graphics r67 carry the relocated guards; BthPan r49 carries
 the P01 fix; NPU r44 is a version bump for release consistency. Collector c5,
 schema 1.4.
+
+
+## D.47 The first WS2016 measurements, a documented fact the host contradicted, and evidence for a machine that will not boot
+
+### D.47.1 What the WS2016 host actually reported
+
+A Windows Server 2016 Datacenter Evaluation host (build 14393, UBR 9339,
+ja-JP, PowerShell 5.1.14393.9339, Secure Boot OFF) ran the c5 collector
+standalone. Fifteen stages, zero failures, complete bundle. The r101
+capability stages worked on their first contact with the OS they were written
+for:
+
+| Recorded | Value | Against expectation |
+|---|---|---|
+| `ProfileCode` / exact build match | `WS2016` / `true` | as documented |
+| `ExpectedInf2catOsArg` | `Server2016_X64` | as documented |
+| `ExpectedCertKeyLength` / validity | 2048 / 3 years | as documented |
+| `MissingCmdlets` | `Restart-PnpDevice` | as documented (§D.46.4) |
+| `MissingTools` | `signtool.exe`, `inf2cat.exe` | expected — no SDK on a fresh host |
+| **`MissingCimClasses`** | **empty** | **contradicts §D.46.4** |
+| `archive-capability` | probe succeeded, 4 entries / 499 bytes, `LongPathsEnabled = false` | `Compress-Archive` works here |
+| `UnknownFeatureNames` | empty | the WS2019-derived watch list is valid on WS2016 |
+
+### D.47.2 Correction: `PS_UpdateAndCompareCIPolicy` is present on this WS2016 build
+
+§D.24 and the §D.46.4 table both state that the CIM class
+`PS_UpdateAndCompareCIPolicy` is absent on WS2016 and present from WS2019
+onward, and the WDAC path is built around that: the class is probed, the
+`Invoke-CimMethod` is expected to throw, and the catch block falls back to
+reboot activation.
+
+**The host reports the class as present.** `Get-CimClass` in namespace
+`root\Microsoft\Windows\CI` succeeded.
+
+The measurement does not simply invert the documented claim, and it should
+not be recorded as though it does. The host is at UBR **9339** — a heavily
+serviced 14393 — and the class was plausibly introduced by a servicing
+update after the original documentation was written. The honest statement is
+therefore build-and-UBR-qualified: *present on 14393.9339; the original claim
+may hold for RTM or early-UBR 14393 and has not been re-checked there.*
+
+What this changes in practice is small but real. The WDAC path's structure is
+unaffected — it probes rather than assumes, which is why the discrepancy cost
+nothing. What it invalidates is the **planning assumption** that a WS2016 run
+will necessarily take the reboot fallback. On this host it may not, and the
+run should be read accordingly.
+
+This is the second time in this series that a documented OS fact has been
+contradicted by the first host to measure it. The lesson is not that the
+documentation was careless; it is that a capability table written from
+vendor documentation ages against servicing, and the only defence is to
+record what the host says. §D.46.3 exists for that reason and has now earned
+its place on its first use.
+
+### D.47.3 Confirmation: the `vwifibus` prediction, reproduced
+
+§D.43.3 attributed a broken Intel Wi-Fi adapter on WS2019 to a missing
+`vwifibus` service binary, and §D.44 predicted that a bundle would show the
+service key present with its binary absent when the wireless feature is not
+installed. That host was rebuilt before the prediction could be tested, and
+§D.46 recorded the prediction as having lost its subject rather than as
+falsified.
+
+The WS2016 host reproduces it exactly:
+
+```
+services.json          MissingBinaryCount = 1
+                       vwifibus -> C:\Windows\System32\drivers\vwifibus.sys
+server-feature-services.json
+                       vwifibus  feature=Wireless-Networking  state=Available
+                                 key=True  binary=False  ->  ServiceKeyPresentBinaryMissing
+```
+
+`Wireless-Networking` is `Available`, not `Installed`; the service key exists;
+the binary does not. That is the precise condition §D.43.3 described, on a
+different OS version and a different installation, found by a check written
+before this host existed. The diagnosis stands, and the remedy — install the
+feature — is now supported by a measurement rather than by reasoning alone.
+
+### D.47.4 The driver framework ceiling
+
+A `WDF_VIOLATION` (0x10D) bugcheck loop was reported on this hardware during
+WS2016 setup's configuration-change reboots. The bundle could not speak to
+it: the collector recorded that `Wdf01000` exists and is running, and nothing
+about **which version it is**.
+
+That version is a ceiling. A driver whose INF declares a
+`KmdfLibraryVersion` newer than the runtime the OS provides cannot load, and
+the failure is not a signing failure — so neither Path A nor Path B moves it,
+exactly as with the `STATUS_DRIVER_ENTRYPOINT_NOT_FOUND` case in §D.43.3.
+Critically, **`inf2cat /os:Server2016_X64` changes the catalog's target OS and
+does not lower a KMDF requirement.** A package can be catalogued and signed
+successfully for WS2016 and still be unloadable on it.
+
+`driver-framework.json` (stage 15/16) records `Wdf01000.sys`, `WudfPf.sys`,
+`WUDFRd.sys` and `WUDFHost.exe` with file version, size and timestamp; the
+derived `KmdfLibraryVersion` / `UmdfLibraryVersion` in the major.minor form an
+INF declaration uses; the `Wdf01000` service key including start type and
+group; and any `WdfCoInstaller*.dll` present. The comparison against an INF's
+declared requirement is not yet automated — that is the natural next step —
+but the host side of it is now measured.
+
+### D.47.5 Crash evidence
+
+`crash-evidence.json` (stage 16/16) records the dump configuration
+(`CrashDumpEnabled` with its meaning spelled out, `AutoReboot`, `Overwrite`,
+dump paths), an inventory of `MEMORY.DMP` and up to 25 minidumps with sizes
+and timestamps, bugcheck events from `WER-SystemErrorReporting`, and the
+count of Kernel-Power event 41 unexpected shutdowns.
+
+Dumps are inventoried, never copied: a kernel dump can be gigabytes and this
+bundle is meant to be attached to a message.
+
+The bugcheck event is the point. Its property array carries the stop code and
+all four parameters, and for `WDF_VIOLATION` the **first parameter names the
+kind of framework contract that was violated** — the difference between a
+handle misuse, a double-completed request, a reference to a freed object, and
+an IRQL error. Those lead to different investigations. The parameters are
+read positionally from the event's own properties rather than parsed out of
+the message text, which is localized.
+
+`CrashDumpEnabled = 0` is itself an answer: it explains an empty minidump
+directory without any further theory.
+
+### D.47.6 Evidence when the machine will not boot
+
+A host in a bugcheck loop cannot run a PowerShell collector, and **the
+Windows Recovery Environment does not include PowerShell** — WinRE provides
+cmd.exe and a small set of tools. A collection strategy that assumes
+PowerShell is unusable in precisely the situation where the evidence matters
+most.
+
+`Collect-OfflineRecoveryEvidence.cmd` is a batch script for that case. It
+reads an offline Windows volume from WinRE and never writes to it, using only
+what WinRE guarantees: `cmd`, `reg`, `dism`, `bcdedit`, `xcopy`, `dir`. Eight
+collection groups: crash dumps (copied — the primary artefact); the offline
+SYSTEM hive via `reg load`, including `CrashControl`, the services export, and
+an enumeration of boot-start and system-start drivers, which are the ones that
+can bugcheck before anything can be logged; driver framework binaries; `dism
+/get-drivers` and `/get-packages`; the BCD store, where `testsigning` and
+`nointegritychecks` are visible; setup and servicing logs; `System.evtx`,
+which carries the bugcheck parameters; and pending-operation markers that
+explain a configuration-change loop.
+
+Three design decisions are worth stating because each is a trap:
+
+- **It uses `ControlSet001`, not `CurrentControlSet`.** The `Current` alias is
+  synthesised by a running system and does not exist in an offline hive.
+- **It refuses to write output onto the offline volume.** That volume may be
+  the failing device; writing to it can lose the evidence and worsen the
+  fault.
+- **It collects and does not repair.** Mixing the two destroys the evidence
+  for the second attempt, and a bugcheck loop usually gets more than one.
+
+The script cannot be executed in this repository's test environment, so
+`Test-CollectorFrameworkAndOffline.ps1` checks it structurally instead: no
+BOM (cmd.exe treats one as part of the first command), plain ASCII, CRLF with
+no bare LF, `setlocal enabledelayedexpansion` before delayed expansion is
+used, matched `reg load` / `reg unload` (an unbalanced load leaves the hive
+mounted and holds a handle on the volume under investigation), every `goto`
+target having a label, and the two design decisions above present in the
+source.
+
+### D.47.7 What running the new code found
+
+Both new stages passed `psa.py` and the parser, then failed on first
+execution: `Join-Path` throws on a null mandatory parameter, so an unset
+`$env:SystemRoot` aborted both functions rather than producing empty records,
+and `Get-WinEvent` absent produced an unhelpful error rather than a recorded
+reason. Seven hardening edits later both return complete records on a host
+with neither. All of it is in the test case, including a check that empties
+`$env:SystemRoot` and asserts an empty version rather than an exception.
+
+### D.47.8 Verification
+
+`psa.py` 0 errors / 0 warnings / 0 info across twelve PowerShell files;
+`Parser::ParseFile` 0 errors across five; test suite **5 cases, 108
+assertions**, all passing; canon integrity via the central authoritative
+tooling per §A.11.8a — 125 dd observation records, zero differences.
+
+Unexercised: the framework and crash stages have not run on Windows, and the
+offline collector has not run in WinRE. Both are structurally validated only.
+
+### D.47.9 Sister impact
+
+Collector c6 / schema 1.5, plus the new offline collector. The four sisters
+take a version bump for release consistency; none of their behaviour changes.
 
 
 ## Appendix: How to seed a new sister script from this SPEC
