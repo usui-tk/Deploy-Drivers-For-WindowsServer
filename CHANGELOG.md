@@ -20,6 +20,123 @@ independently.
 
 ---
 
+## [2026-08-08] `phase-status-and-digest-binder-fixes` — Chipset r98 / Graphics r64 / NPU r41 / BthPan r46
+
+Fixes from the fourth Windows Server 2019 field run (2026-08-08, same host,
+r97 generation). The run is the first in which the `-SkipNonCosignedDrivers`
+Path A chain reached I02 with both preceding decisions correct: **I01 ran
+and imported the certificate, and the I02 short-circuit fired** — the two
+things r97 set out to fix, now confirmed in the field. The phase then failed
+on the call that closes it. Post-mortem: SPEC D.42.
+
+### Fix 1 — `Write-PhaseFooter` call sites violated the canon `ValidateSet` (Chipset / Graphics / BthPan)
+
+- The I02 short-circuit closed its phase with
+  `Write-PhaseFooter 'I02' 'short-circuit'`, but `Write-PhaseFooter` declares
+  `[ValidateSet('done','cached','skipped','failed')]` on `-Status`. The call
+  threw a parameter-binding validation error, the phase runner marked I02
+  `failed`, and the run aborted before I03. Latent since **r72**, when the
+  short-circuit was added: r95 and r96 both refused the short-circuit for
+  other reasons, so r97 is the first revision in which the line executed.
+- An AST audit of every `[ValidateSet]`-bearing function against every
+  string-literal call site found **nine** violations, all `Write-PhaseFooter`:
+  the three `'short-circuit'` sites plus six `'halted-pending-reboot'` sites
+  at I03/I04, which are the same defect in a path that has never been
+  exercised (it fires only when I02 newly enables testsigning in the same
+  run). NPU carries no such phase and was already clean.
+- `Write-PhaseFooter` is a **vendored canon region**
+  (`pwsh.helper.write-phasefooter`), so widening its `ValidateSet` is not a
+  change this repository can make — that would be an edit inside a
+  marker-framed body, and it flows through the central canon instead. The
+  repair is entirely at the call sites, which are dd-owned code outside the
+  markers. The precedent already existed in BthPan I05, whose in-line comment
+  records substituting `'skipped'` for a `'no-op'` status for exactly this
+  reason; it had simply never been propagated.
+- Mapping adopted, following the canon's own documented meanings: the I02
+  short-circuit closes as **`cached`** (*no-op because the target state was
+  already met* — no kernel-mode signer authorization is required, and it
+  renders distinctly from `done`); the I03/I04 reboot halts close as
+  **`skipped`** (*intentionally skipped*). The short-circuit banner, the
+  `ShortCircuit`/`Reason` phase-marker metadata and the halt instructions
+  continue to carry the detail.
+
+### Fix 2 — the digest thrower was the `@( )` operator, not any probe (all four sisters)
+
+- The r97 self-locating containment reported, from the field log alone:
+  `[System.ArgumentException] 引数の型が一致しません at line 1377: foreach ($t in @($Script:PhaseTimings)) {`.
+  `$Script:PhaseTimings` is a `System.Collections.Generic.List[object]`, and
+  the `@( )` array-subexpression operator throws
+  `ArgumentException: Argument types do not match` for that operand type.
+- Reproduced out of band (pwsh 7.4.6 / Linux): the defect is specific to
+  `List[object]` — `List[string]`, `List[pscustomobject]`, `List[psobject]`,
+  `List[int]` and `List[hashtable]` are unaffected — fires even on an empty
+  list, and originates in the binder
+  (`PSToObjectArrayBinder` -> `PSEnumerableBinder.MaybeDebase` ->
+  `Expression.Condition`), so no `try`/`catch` inside the loop can contain it.
+  Safe forms: bare `foreach`, `.ToArray()`, `[object[]]`, or any pipeline
+  operand. `.ToArray()` is used, preserving the snapshot semantics the `@( )`
+  was there for.
+- The line has been present since **r92**, when the digest was introduced,
+  and is therefore the single cause of every "digest unavailable" verdict in
+  the r95, r96 and r97 runs. **Both earlier attributions were wrong**: the
+  r95 `Get-Variable` probe (D.39.2) and the r96 `variable:` provider probe
+  (D.41.4) were each a plausible thrower identified without an experiment
+  that could falsify it. SPEC D.42.4 records the correction; the probe form
+  is kept because it is the cheapest correct one, not because it fixed
+  anything.
+- A repository-wide audit for the same shape found exactly four instances —
+  the one digest line, replicated across the four sisters. The collector is
+  clean; BthPan's `@($edits | Sort-Object Start)` is the safe pipeline form.
+
+### Verification
+
+- Static: `psa.py --config .psa.config.json` **0 errors / 0 warnings / 0 info
+  across all five scripts**; `Parser::ParseFile` 0 errors x 5.
+- Shared-helper byte identity: `Write-InstallReadinessDigest` 4-way
+  byte-identical after the fix (SPEC §A.11.5b) — which is why NPU ships r41
+  in this release despite carrying none of Fix 1.
+- Canon integrity verified with the **central authoritative tooling** per the
+  new SPEC §A.11.8a, run against the pre-edit and post-edit trees:
+  `canonical-drift-scanner --satellite` produced 125 dd observation records
+  both times, `drift` 121 `match` + 4 `forked-frozen` both times, and zero
+  differences across every non-volatile field including `observed_hash_raw`.
+  `governance-state-validator` PASS (checks A-G, 0 findings).
+  `canon-hash-restamp` does not apply to this repository; positive control
+  against the central root reports 58/58 in sync.
+
+### Documentation
+
+- **`SPEC.md` §D.42** (new): the fourth field run — what it proved about the
+  r97 fixes, the two defects, the correction of the r95/r96 attributions, and
+  a method note recording which claims rest on primary evidence and which
+  rest on a purpose-written audit.
+- **`SPEC.md` §A.11.8a** (new): how canon integrity is *verified*, as opposed
+  to §A.11.8's statement of the rule. Names the central tools, records which
+  of them apply to this repository, gives the `--satellite` invocation and
+  the expected 125-record / 121-`match` / 4-`forked-frozen` shape, and states
+  three disciplines learned from a session in which a locally authored canon
+  checker produced a confident but meaningless PASS.
+- **`TESTING.md` §24** (new): the run, the r98 sandbox verification, and the
+  expected shape of the r98 field re-execution.
+- `README.md` / `README.ja.md` synchronised.
+
+### Known limitations
+
+- **The two D.41.5 premises remain unproven.** The run stopped at I02, so
+  neither pnputil's acceptance of the pipeline's self-signed catalogs (I03)
+  nor the kernel-CI loadability of the 56-INF no-patch subset (I04) has been
+  observed. The r98 field re-execution is what tests them.
+- **No static-analysis gate yet catches either defect class.** The AST audit
+  used here was written for the investigation and is not shipped; the
+  appropriate home for both a `ValidateSet` call-site rule and an
+  `@( )`-over-`List[object]` rule is the canonical `psa.py`, following the
+  PSA2010 precedent (SPEC §A.11.5d). Until such rules exist, the manual
+  cross-checks are `grep -n "Write-PhaseFooter" *.ps1` against the canon's
+  four permitted values, and `grep -n "@(\$" *.ps1` for operands that resolve
+  to a `List[object]`.
+
+---
+
 ## [2026-08-08] `path-a-scope-and-digest-fixes` — Chipset r97 / Graphics r63 / NPU r40 / BthPan r45
 
 Fixes from the third Windows Server 2019 field run (2026-08-08, same host,

@@ -455,8 +455,8 @@ $Script:PhaseTimings      = New-Object System.Collections.Generic.List[object]
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-$Script:ScriptVersion = 'msbthpan-2026.08.08-r45'
-$Script:ScriptTag     = 'path-a-scope-and-digest-fixes'
+$Script:ScriptVersion = 'msbthpan-2026.08.08-r46'
+$Script:ScriptTag     = 'phase-status-and-digest-binder-fixes'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -1160,19 +1160,32 @@ function Write-InstallReadinessDigest {
     # SUMMARY, whatever a future engine quirk throws (D.39 lesson).
     try {
         $failedIds = @()
-        foreach ($t in @($Script:PhaseTimings)) {
+        # Windows PowerShell 5.1 / PowerShell 7 engine defect (SPEC D.42.4):
+        # the @( ) array-subexpression operator throws
+        # [System.ArgumentException] 'Argument types do not match' when its
+        # operand is a System.Collections.Generic.List[object]. The defect is
+        # specific to that exact element type - List[string],
+        # List[pscustomobject] and List[psobject] are all unaffected - and it
+        # fires even when the list is empty. The throw originates in
+        # PSToObjectArrayBinder -> PSEnumerableBinder.MaybeDebase, i.e. in the
+        # binder itself, so no try/catch inside the loop body can contain it.
+        # $Script:PhaseTimings is a List[object], so .ToArray() is used here:
+        # it preserves the snapshot semantics the @( ) was there for without
+        # entering the broken binder path. SPEC D.42.4 records the field
+        # history, including two earlier probe-based attributions that were
+        # both wrong.
+        $timings = if ($null -ne $Script:PhaseTimings) { $Script:PhaseTimings.ToArray() } else { @() }
+        foreach ($t in $timings) {
             $st = [string]$t.Status
             if ($st -eq 'failed' -or $st -eq 'FAIL') { $failedIds += [string]$t.Id }
         }
-        # Windows PowerShell 5.1 engine quirk (SPEC D.39.2; follow-up
-        # field run in SPEC D.41): a PSArgumentException still surfaced
-        # inside this digest body on 5.1 even after the probe was
-        # wrapped in try/catch around -ErrorAction Stop. The variable:
-        # provider existence test below has no exception path at all
-        # (Test-Path never throws for a missing item), removing this
-        # probe as a candidate thrower entirely; the self-locating
-        # containment at the bottom of this function pinpoints any
-        # residual thrower from the field log alone.
+        # The variable: provider existence test below has no exception
+        # path at all (Test-Path never throws for a missing item), so it
+        # is not a candidate thrower. It was twice suspected of being one
+        # before the real cause was located; SPEC D.42.4 records that
+        # neither probe form was ever responsible. This form is kept
+        # because it is the cheapest correct one, not because it fixed
+        # anything.
         $tleValue = $null
         if (Test-Path -Path 'variable:TopLevelException') {
             $tleValue = (Get-Item -Path 'variable:TopLevelException' -ErrorAction SilentlyContinue).Value
@@ -10721,7 +10734,18 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
             Write-Detail '  No WDAC supplemental policy will be deployed; no bcdedit testsigning flag will be set.'
             Set-PhaseMarker -Ctx $Ctx -PhaseId 'I02' -Metadata @{ ShortCircuit = $true; Reason = 'all-whql-skip'; AnalysedInfCount = $planInfo.AnalysedInfCount; PlanSource = $planInfo.Source }
             Set-DebugStep ('I02 short-circuit: SkipNonCosignedDrivers={0} UseTestSigning={1} AnalysedInfCount={2} NonCoSignedCount={3} PlanSource={4}' -f $Script:SkipNonCosignedDrivers, [bool]$Ctx.UseTestSigning, $planInfo.AnalysedInfCount, $planInfo.NonCoSignedCount, $planInfo.Source)
-            Write-PhaseFooter 'I02' 'short-circuit'
+            # Write-PhaseFooter lives in the vendored canon unit
+            # pwsh.helper.write-phasefooter and accepts only
+            # done/cached/skipped/failed. 'cached' is the canon status whose
+            # documented meaning - the phase was a no-op because the target
+            # state was already met - matches a short-circuit: no kernel-mode
+            # signer authorization is required, so I02 has nothing to do. The
+            # short-circuit itself stays fully visible in the banner above and
+            # in the ShortCircuit/Reason phase-marker metadata. Passing a
+            # descriptive literal such as 'short-circuit' throws a
+            # ParameterBindingValidationException and fails the phase; that
+            # defect reached a WS2019 field run (SPEC D.42.3).
+            Write-PhaseFooter 'I02' 'cached'
             return
         }
     }
@@ -11046,7 +11070,11 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
         Write-Host  '       1) Reboot Windows now (Test Mode watermark will appear)'           -ForegroundColor Cyan
         Write-Host  '       2) Re-run -Action Install (same command); I03 / I04 will run'     -ForegroundColor Cyan
         Write-Host  '          automatically because I01 / I02 are already in target state.'   -ForegroundColor Cyan
-        Write-PhaseFooter 'I03' 'halted-pending-reboot'
+        # Canon ValidateSet: done/cached/skipped/failed (SPEC D.42.3).
+        # 'skipped' is the canon status for a phase intentionally not
+        # executed; the reboot-pending reason is carried by the operator
+        # instructions printed immediately above.
+        Write-PhaseFooter 'I03' 'skipped'
         return
     }
 
@@ -11166,7 +11194,9 @@ function Invoke-InstPhase04_PostInstallVerification {
         Write-Caution 'I04: halting because I03 was halted earlier (testsigning newly enabled in I02).'
         Write-Host  '     There is no post-install state to verify yet. Reboot and re-run' -ForegroundColor Yellow
         Write-Host  '     -Action Install (same command); I03 / I04 will run automatically.' -ForegroundColor Yellow
-        Write-PhaseFooter 'I04' 'halted-pending-reboot'
+        # Canon ValidateSet: done/cached/skipped/failed (SPEC D.42.3).
+        # Mirrors the I03 halt above.
+        Write-PhaseFooter 'I04' 'skipped'
         return
     }
 

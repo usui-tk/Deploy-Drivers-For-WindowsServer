@@ -340,8 +340,8 @@ param(
 #   * PhaseResults - per-phase outcome registry (write side from
 #     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.08.08-r40'
-$Script:ScriptTag           = 'path-a-scope-and-digest-fixes'
+$Script:ScriptVersion       = 'npu-2026.08.08-r41'
+$Script:ScriptTag           = 'phase-status-and-digest-binder-fixes'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the
@@ -1074,19 +1074,32 @@ function Write-InstallReadinessDigest {
     # SUMMARY, whatever a future engine quirk throws (D.39 lesson).
     try {
         $failedIds = @()
-        foreach ($t in @($Script:PhaseTimings)) {
+        # Windows PowerShell 5.1 / PowerShell 7 engine defect (SPEC D.42.4):
+        # the @( ) array-subexpression operator throws
+        # [System.ArgumentException] 'Argument types do not match' when its
+        # operand is a System.Collections.Generic.List[object]. The defect is
+        # specific to that exact element type - List[string],
+        # List[pscustomobject] and List[psobject] are all unaffected - and it
+        # fires even when the list is empty. The throw originates in
+        # PSToObjectArrayBinder -> PSEnumerableBinder.MaybeDebase, i.e. in the
+        # binder itself, so no try/catch inside the loop body can contain it.
+        # $Script:PhaseTimings is a List[object], so .ToArray() is used here:
+        # it preserves the snapshot semantics the @( ) was there for without
+        # entering the broken binder path. SPEC D.42.4 records the field
+        # history, including two earlier probe-based attributions that were
+        # both wrong.
+        $timings = if ($null -ne $Script:PhaseTimings) { $Script:PhaseTimings.ToArray() } else { @() }
+        foreach ($t in $timings) {
             $st = [string]$t.Status
             if ($st -eq 'failed' -or $st -eq 'FAIL') { $failedIds += [string]$t.Id }
         }
-        # Windows PowerShell 5.1 engine quirk (SPEC D.39.2; follow-up
-        # field run in SPEC D.41): a PSArgumentException still surfaced
-        # inside this digest body on 5.1 even after the probe was
-        # wrapped in try/catch around -ErrorAction Stop. The variable:
-        # provider existence test below has no exception path at all
-        # (Test-Path never throws for a missing item), removing this
-        # probe as a candidate thrower entirely; the self-locating
-        # containment at the bottom of this function pinpoints any
-        # residual thrower from the field log alone.
+        # The variable: provider existence test below has no exception
+        # path at all (Test-Path never throws for a missing item), so it
+        # is not a candidate thrower. It was twice suspected of being one
+        # before the real cause was located; SPEC D.42.4 records that
+        # neither probe form was ever responsible. This form is kept
+        # because it is the cheapest correct one, not because it fixed
+        # anything.
         $tleValue = $null
         if (Test-Path -Path 'variable:TopLevelException') {
             $tleValue = (Get-Item -Path 'variable:TopLevelException' -ErrorAction SilentlyContinue).Value

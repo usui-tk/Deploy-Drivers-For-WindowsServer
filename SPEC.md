@@ -1590,6 +1590,89 @@ helper: `Get-SevenZipPath` / `Enable-DebugTraceFileOutput` /
 release entry for the behaviour notes); `Show-PowerShellEnvironment` is the
 declared fork above. **No shared helper remains unframed.**
 
+### A.11.8a Verifying canon integrity (authoritative tooling only)
+
+§A.11.8 states the rule — the framed region is a no-touch zone. This section
+states **how the rule is verified**, because a change that touches a `.ps1`
+file needs positive evidence that it stayed outside the markers, and the way
+that evidence is produced is itself governed.
+
+**The verification tools are central and are never reimplemented here.**
+They live in the canonical repository alongside `psa.py`:
+
+| Tool | Path in `ai-generated-artifacts` | Applies to this repo? |
+|---|---|---|
+| `canonical-drift-scanner` | `quality-tools/canonical-drift-scanner/scanner.py` | **Yes** — via `--satellite` |
+| `governance-state-validator` | `quality-tools/governance-state-validator/validate_state.py` | Central state only |
+| `canon-hash-restamp` | `quality-tools/canon-hash-restamp/restamp.py` | **No** — scans `reference-code/<family>/{Public,Private}`, which does not exist here |
+| `canon-manifest-tool` | `quality-tools/canon-manifest-tool/tool.py` | Central manifest CRUD only |
+
+The scanner reads this repository as a **satellite**: the central
+`governance/state/manifest.jsonl` declares each of the four sisters as a
+consumer with a `repo` field, and the scanner is pointed at a local checkout.
+
+```bash
+# from a checkout of the central repository
+python3 quality-tools/canonical-drift-scanner/scanner.py \
+    --root . --repo ai-generated-artifacts \
+    --satellite Deploy-Drivers-For-WindowsServer=/path/to/this/repo \
+    --stdout > drift.jsonl
+```
+
+Each emitted record conforms to `governance/schema/observation.schema.json`.
+For this repository the expected shape is **125 records over 32 distinct
+`unit_id`s** (32 / 32 / 29 / 32 across Chipset / Graphics / NPU / BthPan),
+with `drift` distributed as **121 `match` + 4 `forked-frozen`** — the four
+being `Show-PowerShellEnvironment`, the declared fork of §A.11.8.
+
+The procedure for a change that edits any `.ps1`:
+
+1. Run the scanner against the **pre-edit** tree and keep the output.
+2. Make the change.
+3. Run the scanner again against the post-edit tree.
+4. Compare the two record sets on every field except the volatile ones
+   (`observed_at`, `run_id`, `commit`, `runtime`). A canon-clean change
+   produces **zero differences**. Any difference in `drift`,
+   `observed_hash_norm`, `observed_hash_raw` or `region_locator` is a canon
+   boundary violation and stops the change.
+
+Three disciplines make this evidence trustworthy, all of them learned from a
+2026-08-08 session in which they were not followed:
+
+- **Do not author a local canon checker.** The marker grammar, the region
+  body definition and the hash contract are all defined in `scanner.py`, and
+  a hand-written approximation will silently measure a different quantity.
+  The specific failure observed: a local regex omitted the mandatory
+  `version=` / `hash=` / `policy=` / `binding=` fields, included the marker
+  lines in the body, joined with CRLF instead of LF, hashed raw bytes instead
+  of the ADR 0015 normalized form — and, decisively, compared the file only
+  against *itself* before and after, so it could not have detected drift from
+  the central canon at all. It reported a confident PASS.
+- **A zero count is not a pass until the tool's scope is read.**
+  `restamp.py --check` against this repository reports `units scanned : 0`
+  and exits 0. That is not "in sync" — it means this repository is outside
+  the tool's scan root. Establish a positive control (the same command
+  against the central root reports 58 units) before reading any zero as
+  evidence.
+- **A measurement that contradicts a governing document stops the work.**
+  If a scan reports no canon regions here, the correct response is to
+  suspect the measurement, not to conclude that §A.11.8 is stale.
+
+Two facts that reduce false alarms when reading scanner output:
+
+- Comment, whitespace and string-literal wording inside a framed region may
+  legitimately differ from the canon — the ADR 0015 normalized hash strips
+  them (§A.11.8). A `match` verdict does **not** imply byte identity with the
+  canon, and is not supposed to.
+- `forked-frozen` is a registered, expected state for `Show-PowerShellEnvironment`,
+  not a finding. Note that the marker here carries `policy=forked binding=pin`
+  while the central manifest row for that unit carries
+  `change_policy=canonical` / `binding_mode=follow-latest`; the scanner
+  reports the manifest's values in the observation record and still
+  classifies the instance as `forked-frozen`. That divergence predates the
+  r98 work, is identical before and after it, and its resolution is a central
+  governance matter, not a dd-side edit.
+
 ---
 
 ## A.12 Documentation Language Policy
@@ -5178,6 +5261,204 @@ Chipset r97 / Graphics r63 / BthPan r45 (plan helpers byte-identical
 3-way; I01 gate in Chipset/Graphics only). The digest fix touches all four
 sisters, so NPU ships r40 in this release (a non-empty revision, unlike
 D.40.7 where NPU had no surface).
+
+
+## D.42 WS2019 field run #4 (2026-08-08): the binder that was never a probe, and a ValidateSet violation that waited 26 revisions
+
+### D.42.1 The run
+
+Same fixture as D.39/D.40/D.41 (Windows Server 2019 build 17763 ja-JP, UEFI
+Secure Boot ON, Windows PowerShell 5.1.17763.9020), fourth session of the
+day, on the r97 generation: `PrepareVerify -SkipNonCosignedDrivers` (09:59)
+followed by `Install -SkipNonCosignedDrivers` (10:05).
+
+PrepareVerify completed every phase. The D.41 fixes were visibly working:
+P06 trimmed 119 -> 117 ("2 non-WHQL-co-signed INF(s) skipped"), "Patching 0
+/ Copying 58", P08 generated 53 catalogs with `/os:ServerRS5_X64` (5
+phantom-skips), P09 signed all 53, V03 recorded the 53 expected pre-I01
+failures. The Install run then reached further than any previous attempt and
+stopped in a new place: **I01 ran** and **I02 short-circuited**, and the
+phase then failed on the call that was supposed to close it.
+
+### D.42.2 What the run proved (r97 Fixes 1-3 confirmed in the field)
+
+| r97 fix | Field result |
+|---|---|
+| Fix 1 — I01 gate criterion is `PlanCatalogSignCount = 0`, not `RemainingNeedsPatchCount = 0` (D.41.2) | **Confirmed.** I01 ran and imported the certificate into `LocalMachine\Root` and `\TrustedPublisher` |
+| Fix 2 — plan aggregation limited to the install scope (D.41.3) | **Confirmed.** I02 evaluated `NonCoSignedCount = 0` and took the short-circuit; no Path B fall-through, no `reason=secure-boot-on` abort |
+| Fix 3 — install-phase message accuracy | **Confirmed.** The emitted banner states that pipeline catalogs are self-signed and that pnputil acceptance relies on the I01 trust import |
+
+The I01 result has independent corroboration outside the script's own
+output: the configuration-evidence collector's pre/post pair for the Install
+run records the project certificate store going from 2 certificates to 4,
+with the run's thumbprint `C01AD5E5...` newly present in **both** `Root` and
+`TrustedPublisher` and `StoresConsistent = true`.
+
+`Deploy-Drivers-For-WindowsServer` therefore now has field proof for the
+first two links of the Path A chain. The two unproven design premises of
+D.41.5 — pnputil acceptance of the self-signed catalogs at I03, and kernel-CI
+loadability of the no-patch subset at I04 — remain unproven, because the run
+stopped at I02.
+
+### D.42.3 Finding 1 — `Write-PhaseFooter` rejected the status the short-circuit passed it
+
+The I02 short-circuit closes its phase with a descriptive status literal:
+
+```powershell
+Write-PhaseFooter 'I02' 'short-circuit'
+```
+
+`Write-PhaseFooter` declares `[ValidateSet('done','cached','skipped','failed')]`
+on `-Status`. The call therefore throws a parameter-binding validation error,
+the phase runner catches it, marks I02 `failed`, and the run aborts before
+I03. No system modification beyond the I01 certificate import occurred.
+
+The defect is **latent since r72**, when the short-circuit was introduced
+(`git log -L` on the call site). It was never reached before: the r95 and r96
+runs both refused the short-circuit for other reasons (D.41.3), so r97 —
+which finally made the short-circuit fire — is the first revision in which
+the line executed at all. A fix that removes one blocker exposes the next
+one; this is the second consecutive field run where that pattern held.
+
+An AST audit of every `[ValidateSet]`-bearing function in the repository
+against every call site that passes a string **literal** for the validated
+parameter found **nine** violations, all of them `Write-PhaseFooter`:
+
+| Script | I02 | I03 | I04 |
+|---|---|---|---|
+| Chipset | `'short-circuit'` | `'halted-pending-reboot'` | `'halted-pending-reboot'` |
+| Graphics | `'short-circuit'` | `'halted-pending-reboot'` | `'halted-pending-reboot'` |
+| BthPan | `'short-circuit'` | `'halted-pending-reboot'` | `'halted-pending-reboot'` |
+| NPU | — | — | — |
+
+The six `'halted-pending-reboot'` sites are the same defect in a path that
+has never been exercised: they fire only when I02 newly enables testsigning
+in the same run and I03/I04 halt for the reboot (D.32.3). NPU is clean
+because it carries no such phase.
+
+`Write-PhaseFooter` is a **vendored canon region**
+(`pwsh.helper.write-phasefooter`, §A.11.8), so widening its `ValidateSet` is
+not a change this repository can make: that would be an edit inside a
+marker-framed body, and it must instead flow through the central canon. The
+repair therefore belongs entirely to the call sites, which are dd-owned code
+outside the markers. A precedent already existed and had been reasoned
+through in-line: BthPan I05 carries a comment recording that a `'no-op'`
+status was substituted with `'skipped'` for exactly this reason. That
+reasoning was simply never propagated to the other three call-site families.
+
+The mapping adopted in r98 follows the canon's own documented meanings for
+the four permitted values:
+
+- **I02 short-circuit -> `'cached'`** — canon: *the phase was a no-op because
+  the target state was already met*. That is precisely the short-circuit's
+  claim: no kernel-mode signer authorization is required, so I02 has nothing
+  to do. `'cached'` also renders in a distinct colour from `'done'`, keeping
+  the short-circuit visible in the timing table.
+- **I03 / I04 reboot halt -> `'skipped'`** — canon: *the phase was
+  intentionally skipped*.
+
+The information the descriptive literals were carrying is not lost: the
+short-circuit banner, the `ShortCircuit` / `Reason` phase-marker metadata,
+and the operator instructions printed by the halt paths all remain.
+
+### D.42.4 Finding 2 — the digest thrower was the `@( )` operator, not any probe
+
+The r97 self-locating containment worked exactly as designed and printed,
+from the field log alone:
+
+```
+Install readiness : (digest unavailable: [System.ArgumentException]
+                     引数の型が一致しません at line 1377:
+                     foreach ($t in @($Script:PhaseTimings)) {)
+```
+
+`$Script:PhaseTimings` is a `System.Collections.Generic.List[object]`. The
+`@( )` array-subexpression operator throws
+`System.ArgumentException: Argument types do not match` when its operand is a
+`List[object]`, with three properties that make the defect easy to
+mis-attribute:
+
+- It is **specific to that exact element type.** `List[string]`,
+  `List[pscustomobject]`, `List[psobject]`, `List[int]` and `List[hashtable]`
+  are all unaffected.
+- It fires **even when the list is empty**, so it is not data-dependent and
+  cannot be dismissed as an edge case.
+- It originates in the binder, not in the loop body — the observed stack is
+  `PSToObjectArrayBinder.Bind` -> `PSEnumerableBinder.MaybeDebase` ->
+  `System.Linq.Expressions.Expression.Condition`. No `try`/`catch` placed
+  *inside* the loop can contain it, because the throw happens while the
+  operand is being bound.
+
+Safe forms confirmed by the same experiment: bare `foreach ($t in $list)`,
+`$list.ToArray()`, `[object[]]$list`, and any pipeline operand such as
+`@($list | Sort-Object ...)` — a pipeline produces an `object[]` before `@( )`
+ever sees the list.
+
+This line has been present since **r92**, when the digest was introduced.
+It is therefore the single cause of every "digest unavailable" verdict in the
+r95, r96 and r97 field runs, and **both earlier attributions were wrong**:
+
+| Revision | Attributed cause | Verdict |
+|---|---|---|
+| r95 | `Get-Variable -ErrorAction Stop` existence probe (D.39.2) | Wrong. Replacing it changed nothing |
+| r96 | `variable:` provider probe still throwing on 5.1 (D.41.4) | Wrong. `Test-Path` never throws for a missing item; the probe was never a candidate |
+| r98 | `@( )` over `List[object]` at the top of the loop | Confirmed by the r97 self-locating diagnostic **and** by out-of-band reproduction |
+
+The lesson is not about the probes. It is that D.39.2 and D.41.4 each
+identified a *plausible* thrower in the same function and stopped there,
+without an experiment that could have falsified the attribution. The
+r97 containment — which reported the throwing statement rather than a
+guess about it — is what ended three revisions of mis-attribution, and is
+worth keeping as a pattern in any body that must never truncate its
+enclosing output.
+
+A repository-wide audit for the same shape (an `@( )` whose operand is a bare
+variable or property chain that resolves to a `List[object]` assignment in the
+same file) found exactly **four** instances: the one line in
+`Write-InstallReadinessDigest`, replicated across the four sisters. The
+collector is clean. `Deploy-MSBthPanInboxOnWindowsServer.ps1` contains
+`@($edits | Sort-Object Start)`, which is the safe pipeline form.
+
+### D.42.5 Method note — what this section's claims rest on
+
+Recorded deliberately, because two of the three findings in D.39/D.41 were
+attributions that later proved wrong.
+
+- **The two defects' existence** rests on primary evidence: the field
+  transcript's own exception text for both, plus the pre/post evidence
+  collector pair for the I01 confirmation.
+- **The `@( )` behaviour** rests on out-of-band reproduction (pwsh 7.4.6 on
+  Linux) including the element-type matrix, the empty-list case, and the
+  captured stack trace. It is not an inference from the field log.
+- **The exhaustiveness claims** — nine `ValidateSet` violations, four `@( )`
+  sites — rest on an AST audit written for this investigation. They are
+  the weakest claim here and are stated with their provenance. The
+  appropriate long-term home for both checks is a rule in the canonical
+  `psa.py` (§A.11.5d records the precedent: PSA2010 was added centrally
+  rather than being reimplemented per-repository), not a bespoke script in
+  this repository.
+
+### D.42.6 Fixes and verification (r98)
+
+Call-site status mapping at the nine `Write-PhaseFooter` sites
+(Chipset / Graphics / BthPan; canon body untouched), and `.ToArray()` in
+place of `@( )` in `Write-InstallReadinessDigest` (all four sisters, so the
+function stays byte-identical 4-way per §A.11.5b).
+
+Canon integrity was verified with the central authoritative tooling per
+§A.11.8a, before and after the edits: 125 dd observation records, drift
+distribution unchanged (121 `match` + 4 `forked-frozen`), and every
+non-volatile observation field — including `observed_hash_raw`,
+`observed_hash_norm` and `region_locator` — identical across the two runs.
+
+Field re-execution is the outstanding confirmation (TESTING §24), and it is
+now the run that will finally test the two D.41.5 premises.
+
+### D.42.7 Sister impact
+
+Chipset r98 / Graphics r64 / BthPan r46 carry both fixes. The digest fix
+touches all four sisters, so NPU ships r41 (digest only — NPU has no I02/I03/I04
+phases of the affected shape).
 
 
 ## Appendix: How to seed a new sister script from this SPEC
