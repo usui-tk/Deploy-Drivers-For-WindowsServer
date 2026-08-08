@@ -20,6 +20,124 @@ independently.
 
 ---
 
+## [2026-08-08] `recovery-collector-online-offline-modes` — Chipset r105 / Graphics r71 / NPU r48 / BthPan r53
+
+`Collect-OfflineRecoveryEvidence.cmd` completed all thirteen stages on a
+booted host and produced a bundle with a coherent set of gaps, all traceable
+to one fact: the machine was running. Post-mortem: SPEC D.50; run record:
+TESTING §33.
+
+### What the run showed
+
+```
+COPY FAILED: C:\Windows\System32\config\SYSTEM   (in use by another process)
+[7] reg load of SYSTEM hive FAILED
+[9] dism error 1639 - required servicing command missing
+pagefile.sys: copying 0 MB  ->  COPY FAILED
+```
+
+None of these is a defect in the offline path. They are the offline path
+applied where it does not fit: a running kernel holds the registry hives
+open, and DISM refuses `/image:` against its own live installation.
+
+Two gaps mattered. **`q-crashcontrol.txt` was never produced** —
+`CrashDumpEnabled` decides whether the *next* bugcheck leaves anything to
+analyse, which is precisely what one wants to know before a reboot. And
+**`Get-Packages.txt` was 406 bytes of error 1639**, leaving the state of the
+pending update — the question that motivated the run — unanswered.
+
+### Both situations are legitimate
+
+Running the recovery collector on a booted host is the sensible rehearsal
+before a reboot that might not come back, and each mode reaches evidence the
+other cannot: offline is the only way to read a machine that will not boot,
+while online can read the live `CrashDumpEnabled`, take a consistent hive via
+`reg save`, and get real package states from `dism /online`.
+
+So the script detects which situation it is in, rather than producing a list
+of "in use" errors that describe the attempt instead of the machine.
+
+### Detection
+
+```
+set "COLLECTMODE=offline"
+if defined SystemRoot (
+    if /i "%SystemRoot%"=="%WINDIR_OFF%" set "COLLECTMODE=online"
+)
+```
+
+`%SystemRoot%` is set by whatever Windows is running the script; in WinRE it
+points at the `X:` RAM disk and never at the volume under investigation, so
+the comparison is reliable both ways without needing a separate "am I in
+WinRE" test. The mode appears in the console banner and the manifest header.
+
+### What differs by mode
+
+- **Hives**: offline copies the files; online uses `reg save HKLM\SYSTEM` and
+  `HKLM\SOFTWARE`, asking the registry for a consistent snapshot rather than
+  copying a file being written to — possible where a copy is not, and more
+  correct even where a copy would succeed. `:notewrite` confirms the output
+  appeared, giving `reg save` the same manifest treatment a copy gets.
+- **Registry root**: selected once into `%RK%` —
+  `HKLM\OFFSYS\ControlSet001` offline, `HKLM\SYSTEM\CurrentControlSet`
+  online. `CurrentControlSet` is correct online and wrong offline, the mirror
+  of D.47's rule: the alias is synthesised by a running kernel and does not
+  exist in a loaded hive. The `reg unload` is guarded for the same reason.
+- **`CrashDumpEnabled` and `AutoReboot` are echoed to the console**, not just
+  written to file. A value of `0` is worth seeing before the reboot.
+- **Packages**: `/image:` offline, `/online` online — written as two literal
+  command sets rather than a variable holding the scope, because an
+  `/image:` argument carries its own quotes and a variable with nested quotes
+  is a well-known way to produce a command that parses as something else.
+
+### Size that cannot be measured
+
+`%~z` returns 0 for a file the kernel holds open, so `copying 0 MB` was a
+claim about the file when the truth was about our ability to measure it. An
+unmeasurable size is now reported as unknown and **the copy is attempted
+anyway** — the attempt is what establishes whether the file can be read.
+
+### Verification
+
+`psa.py` 0 errors / 0 warnings / 0 info across twelve PowerShell files;
+`Parser::ParseFile` 0 errors × 5; **test suite 5 cases, 200 assertions**, all
+passing; canon integrity via the central authoritative tooling per SPEC
+A.11.8a — 125 dd observation records, zero differences.
+
+**Negative control**: against r104 the case reports **16 failures**.
+
+Two prior checks were corrected rather than extended. `every reg load has a
+matching reg unload` counted words rather than commands and read an error
+message mentioning `reg load` as a second load. `CurrentControlSet never used
+in a command` was written when only the offline path existed; the rule is not
+"never" but "only where the live registry is being read", and is now
+expressed that way.
+
+### Known limitations
+
+- **The offline branch has never executed against a genuinely offline
+  volume.** The script has now run twice on a booted host — once revealing
+  the D.49 parser fault, once revealing this — and both modes are
+  structurally validated, but WinRE remains untested.
+- Apply with **`git am --keep-cr`**. The `quoted CRLF detected` and
+  `N lines add whitespace errors` warnings are expected: git's whitespace
+  check counts a CR at end-of-line as trailing whitespace, and the file has
+  none.
+- **A prerequisite landed separately.** r104 had committed
+  `Test-CollectorFrameworkAndOffline.ps1` with a literal carriage return
+  inside a regex character class — `[^<CR><LF>]*` where the source was meant
+  to read `[^\r\n]*`. Because `*.ps1` is `text eol=crlf`, the blob is stored
+  LF-normalised and converted on checkout, so a CR already inside the blob
+  produced a working tree that could never match it: **every fresh clone was
+  dirty with no local change, and every `git am` failed with
+  `does not match index`**. The repair staged the checkout's own bytes; no
+  source line changed meaning. Origin: the CR entered when the case was
+  authored through a Python string where `\r` was written as one escape
+  rather than a literal backslash-r pair — the same authoring hazard recorded
+  in SPEC D.44, and the reason that rule exists.
+
+---
+
 ## [2026-08-08] `offline-collector-cmd-parser-fix` — Chipset r104 / Graphics r70 / NPU r47 / BthPan r52
 
 `Collect-OfflineRecoveryEvidence.cmd` ran for the first time and stopped part

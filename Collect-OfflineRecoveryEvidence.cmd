@@ -119,6 +119,24 @@ if not defined WINVOL (
 )
 
 set "WINDIR_OFF=%WINVOL%\Windows"
+
+rem ---------------------------------------------------------------------------
+rem  Online or offline?
+rem
+rem  If the volume we are about to read is the one this very cmd.exe booted
+rem  from, the registry hives are held open by the kernel and DISM will refuse
+rem  /image: against its own live installation. Both facts are properties of
+rem  the situation, not failures, and each mode can reach evidence the other
+rem  cannot - so the mode is detected and the commands chosen to match.
+rem
+rem  %SystemRoot% is set by the running Windows. In WinRE it points at the X:
+rem  RAM disk, never at the volume under investigation, so the comparison is
+rem  reliable in both directions.
+rem ---------------------------------------------------------------------------
+set "COLLECTMODE=offline"
+if defined SystemRoot (
+    if /i "%SystemRoot%"=="%WINDIR_OFF%" set "COLLECTMODE=online"
+)
 if not exist "%WINDIR_OFF%\System32\config\SYSTEM" (
     echo ERROR: %WINDIR_OFF% does not look like a Windows installation.
     echo        Expected System32\config\SYSTEM beneath it.
@@ -180,6 +198,7 @@ set "OUTDIR=%OUTDRIVE%\MSLogs-%STAMP%"
 echo.
 echo   Offline Windows : %WINDIR_OFF%
 echo   Destination     : %OUTDIR%
+echo   Collection mode : %COLLECTMODE%
 echo   Max single file : %MAXCOPYMB% MB
 echo.
 
@@ -197,7 +216,8 @@ if not exist "%OUTDIR%" (
 
 set "MANIFEST=%OUTDIR%\00-collection-manifest.txt"
 set "ERRLOG=%OUTDIR%\00-collection-errors.txt"
-> "%MANIFEST%" echo Offline recovery evidence collection
+> "%MANIFEST%" echo Recovery evidence collection
+>> "%MANIFEST%" echo Collection mode: %COLLECTMODE%
 >> "%MANIFEST%" echo Collected      : %DATE% %TIME%
 >> "%MANIFEST%" echo Offline volume : %WINDIR_OFF%
 >> "%MANIFEST%" echo Destination    : %OUTDIR%
@@ -274,11 +294,27 @@ rem  6. Registry hives - raw copies
 rem ===========================================================================
 echo [ 6/13] Registry hives...
 >> "%MANIFEST%" echo [6] Registry hives
+if /i "%COLLECTMODE%"=="online" goto :hives_online
 call :copyone "%WINDIR_OFF%\System32\config\SYSTEM" "%OUTDIR%\registry\SYSTEM" "SYSTEM hive"
 call :copyone "%WINDIR_OFF%\System32\config\SOFTWARE" "%OUTDIR%\registry\SOFTWARE" "SOFTWARE hive"
 call :copyone "%WINDIR_OFF%\System32\config\COMPONENTS" "%OUTDIR%\registry\COMPONENTS" "COMPONENTS hive - pending component operations"
 call :copyone "%WINDIR_OFF%\System32\config\RegBack\SYSTEM" "%OUTDIR%\registry\RegBack-SYSTEM" "RegBack SYSTEM"
 call :copyone "%WINDIR_OFF%\System32\config\RegBack\SOFTWARE" "%OUTDIR%\registry\RegBack-SOFTWARE" "RegBack SOFTWARE"
+goto :hives_done
+:hives_online
+rem  reg save, not copy: the kernel holds the live hives open, and a plain
+rem  copy fails with "the process cannot access the file". reg save asks the
+rem  registry for a consistent snapshot instead, which is both possible and
+rem  more correct than copying a file being written to.
+echo   using reg save ^(hives are locked on a running system^)
+reg save HKLM\SYSTEM "%OUTDIR%\registry\SYSTEM" /y >nul 2>>"%ERRLOG%"
+call :notewrite "%OUTDIR%\registry\SYSTEM" "SYSTEM hive via reg save"
+reg save HKLM\SOFTWARE "%OUTDIR%\registry\SOFTWARE" /y >nul 2>>"%ERRLOG%"
+call :notewrite "%OUTDIR%\registry\SOFTWARE" "SOFTWARE hive via reg save"
+call :copyone "%WINDIR_OFF%\System32\config\COMPONENTS" "%OUTDIR%\registry\COMPONENTS" "COMPONENTS hive - pending component operations"
+call :copyone "%WINDIR_OFF%\System32\config\RegBack\SYSTEM" "%OUTDIR%\registry\RegBack-SYSTEM" "RegBack SYSTEM"
+call :copyone "%WINDIR_OFF%\System32\config\RegBack\SOFTWARE" "%OUTDIR%\registry\RegBack-SOFTWARE" "RegBack SOFTWARE"
+:hives_done
 >> "%MANIFEST%" echo.
 
 rem ===========================================================================
@@ -286,20 +322,37 @@ rem  7. Registry queries against the offline SYSTEM hive
 rem ===========================================================================
 echo [ 7/13] Registry queries...
 >> "%MANIFEST%" echo [7] Registry queries
+set "RK=HKLM\OFFSYS\ControlSet001"
+if /i "%COLLECTMODE%"=="online" goto :query_online
 reg load HKLM\OFFSYS "%WINDIR_OFF%\System32\config\SYSTEM" >nul 2>&1
 if errorlevel 1 (
     echo   WARNING: could not load the SYSTEM hive for querying
     >> "%ERRLOG%" echo [7] reg load of SYSTEM hive FAILED - the raw copy is still in registry\
     goto :skip_registry
 )
+goto :query_ready
+:query_online
+rem  On a running system the live registry answers directly, and CurrentControlSet
+rem  is the correct key here precisely because it exists - the Current alias is
+rem  synthesised by the running kernel. Offline it does not exist, which is why
+rem  the other branch uses ControlSet001.
+echo   querying the live registry ^(no hive load needed^)
+set "RK=HKLM\SYSTEM\CurrentControlSet"
+:query_ready
 rem ControlSet001, not CurrentControlSet: the Current alias is synthesised by
 rem a running system and does not exist in an offline hive.
-reg query "HKLM\OFFSYS\ControlSet001\Control\CrashControl" > "%OUTDIR%\registry\q-crashcontrol.txt" 2>&1
-reg query "HKLM\OFFSYS\Select" > "%OUTDIR%\registry\q-select.txt" 2>&1
-reg query "HKLM\OFFSYS\ControlSet001\Services\Wdf01000" > "%OUTDIR%\registry\q-wdf01000.txt" 2>&1
-reg query "HKLM\OFFSYS\ControlSet001\Control\Session Manager" /v BootExecute > "%OUTDIR%\registry\q-bootexecute.txt" 2>&1
-reg query "HKLM\OFFSYS\ControlSet001\Control\Session Manager" /v PendingFileRenameOperations > "%OUTDIR%\registry\q-pending-renames.txt" 2>&1
-reg query "HKLM\OFFSYS\ControlSet001\Control\CI" /s > "%OUTDIR%\registry\q-codeintegrity.txt" 2>&1
+reg query "%RK%\Control\CrashControl" > "%OUTDIR%\registry\q-crashcontrol.txt" 2>&1
+reg query "%RK%\Services\Wdf01000" > "%OUTDIR%\registry\q-wdf01000.txt" 2>&1
+reg query "%RK%\Control\Session Manager" /v BootExecute > "%OUTDIR%\registry\q-bootexecute.txt" 2>&1
+reg query "%RK%\Control\Session Manager" /v PendingFileRenameOperations > "%OUTDIR%\registry\q-pending-renames.txt" 2>&1
+reg query "%RK%\Control\CI" /s > "%OUTDIR%\registry\q-codeintegrity.txt" 2>&1
+if /i "%COLLECTMODE%"=="online" reg query "HKLM\SYSTEM\Select" > "%OUTDIR%\registry\q-select.txt" 2>&1
+if /i "%COLLECTMODE%"=="offline" reg query "HKLM\OFFSYS\Select" > "%OUTDIR%\registry\q-select.txt" 2>&1
+rem  CrashDumpEnabled decides whether the NEXT bugcheck leaves anything to
+rem  analyse. Surfacing it on the console is worth the two lines: a value of 0
+rem  is worth knowing before the reboot, not after.
+echo   CrashControl:
+type "%OUTDIR%\registry\q-crashcontrol.txt" 2>nul | findstr /i "CrashDumpEnabled AutoReboot"
 
 echo   enumerating boot-start drivers...
 > "%OUTDIR%\registry\boot-start-drivers.txt" (
@@ -307,7 +360,7 @@ echo   enumerating boot-start drivers...
     echo These load before anything can be logged, so a boot-time bugcheck is
     echo almost always one of them.
     echo ------------------------------------------------------------
-    for /f "tokens=*" %%s in ('reg query "HKLM\OFFSYS\ControlSet001\Services" 2^>nul') do (
+    for /f "tokens=*" %%s in ('reg query "%RK%\Services" 2^>nul') do (
         for /f "tokens=3" %%v in ('reg query "%%s" /v Start 2^>nul ^| find "Start"') do (
             if "%%v"=="0x0" echo BOOT   %%s
             if "%%v"=="0x1" echo SYSTEM %%s
@@ -315,7 +368,7 @@ echo   enumerating boot-start drivers...
     )
 )
 type "%OUTDIR%\registry\q-crashcontrol.txt" >> "%MANIFEST%" 2>&1
-reg unload HKLM\OFFSYS >nul 2>&1
+if /i "%COLLECTMODE%"=="offline" reg unload HKLM\OFFSYS >nul 2>&1
 
 :skip_registry
 >> "%MANIFEST%" echo.
@@ -345,14 +398,27 @@ rem  9. Package, driver and feature inventory
 rem ===========================================================================
 echo [ 9/13] Package and driver inventory ^(dism^)...
 >> "%MANIFEST%" echo [9] Package and driver inventory
+rem  DISM refuses /image: against its own live installation with error 1639.
+rem  /online is the correct form there, and it also reports package states the
+rem  offline form cannot - which is the whole point of running this before a
+rem  reboot.
+rem  Two literal command sets rather than a variable holding the scope: an
+rem  /image: argument needs its own quotes, and a variable containing nested
+rem  quotes is a well-known way to produce a command that parses as something
+rem  else entirely. Duplicating three short lines is cheaper than that risk.
+if /i "%COLLECTMODE%"=="online" goto :dism_online
 dism /image:"%WINVOL%\" /get-packages /format:table > "%OUTDIR%\Get-Packages.txt" 2>&1
-if errorlevel 1 (
-    >> "%ERRLOG%" echo [9] dism /get-packages returned an error - see Get-Packages.txt
-) else (
-    >> "%MANIFEST%" echo   Get-Packages.txt written - pending package states are here
-)
+if errorlevel 1 >> "%ERRLOG%" echo [9] dism /get-packages returned an error - see Get-Packages.txt
 dism /image:"%WINVOL%\" /get-drivers /format:table > "%OUTDIR%\Get-Drivers.txt" 2>&1
 dism /image:"%WINVOL%\" /get-features /format:table > "%OUTDIR%\Get-Features.txt" 2>&1
+goto :dism_done
+:dism_online
+dism /online /get-packages /format:table > "%OUTDIR%\Get-Packages.txt" 2>&1
+if errorlevel 1 >> "%ERRLOG%" echo [9] dism /online /get-packages returned an error - see Get-Packages.txt
+dism /online /get-drivers /format:table > "%OUTDIR%\Get-Drivers.txt" 2>&1
+dism /online /get-features /format:table > "%OUTDIR%\Get-Features.txt" 2>&1
+:dism_done
+call :notewrite "%OUTDIR%\Get-Packages.txt" "Get-Packages.txt - pending package states are here"
 findstr /i "Pending" "%OUTDIR%\Get-Packages.txt" >> "%MANIFEST%" 2>&1
 >> "%MANIFEST%" echo.
 
@@ -497,11 +563,25 @@ set "SRC=%~1"
 set "DST=%~2"
 set "LABEL=%~3"
 if not exist "%SRC%" goto :copylarge_absent
+rem  %~z reports 0 for a file the kernel holds open - pagefile.sys on a running
+rem  system is the case that matters here. Reporting "0 MB" would be a lie
+rem  about the file rather than about our ability to measure it, so an
+rem  unmeasurable size is said to be unknown and the copy is attempted anyway:
+rem  the attempt is what establishes whether it can be read.
 for %%f in ("%SRC%") do set "SIZEB=%%~zf"
 set "SIZEMB=0"
-if defined SIZEB set /a SIZEMB=%SIZEB:~0,-3%/1024
+set "SIZEKNOWN=1"
+if not defined SIZEB set "SIZEKNOWN=0"
+if "%SIZEB%"=="0" set "SIZEKNOWN=0"
+if "%SIZEKNOWN%"=="1" set /a SIZEMB=%SIZEB:~0,-3%/1024
+if "%SIZEKNOWN%"=="0" goto :copylarge_unknown
 if %SIZEMB% GTR %MAXCOPYMB% goto :copylarge_skip
 echo   %LABEL%: copying %SIZEMB% MB...
+goto :copylarge_do
+:copylarge_unknown
+echo   %LABEL%: size not reportable ^(file is open^) - attempting copy anyway
+>> "%MANIFEST%" echo   %LABEL%: size not reportable, file held open
+:copylarge_do
 copy /y "%SRC%" "%DST%" >nul 2>>"%ERRLOG%"
 if not exist "%DST%" goto :copylarge_failed
 >> "%MANIFEST%" echo   %LABEL%: copied, %SIZEMB% MB
@@ -518,4 +598,15 @@ endlocal & exit /b 0
 :copylarge_absent
 echo   %LABEL%: not present
 >> "%MANIFEST%" echo   %LABEL%: not present
+endlocal & exit /b 0
+:notewrite
+setlocal
+set "CHK=%~1"
+set "LABEL=%~2"
+if not exist "%CHK%" goto :notewrite_missing
+>> "%MANIFEST%" echo   %LABEL%: written
+endlocal & exit /b 0
+:notewrite_missing
+>> "%MANIFEST%" echo   %LABEL%: NOT produced
+>> "%ERRLOG%" echo   NOT PRODUCED: %CHK%
 endlocal & exit /b 0

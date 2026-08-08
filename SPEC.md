@@ -6644,6 +6644,152 @@ The script has now run on a booted host. **It has still not run in WinRE**,
 where the drive letters differ and some volumes are read-only.
 
 
+## D.50 One script, two situations: online and offline collection
+
+### D.50.1 The run that prompted it
+
+r104 completed all thirteen stages on a booted Windows Server 2016 — the
+parser fault of D.49 was gone — and produced a bundle with a specific,
+coherent set of gaps:
+
+```
+COPY FAILED: C:\Windows\System32\config\SYSTEM      (in use by another process)
+COPY FAILED: C:\Windows\System32\config\SOFTWARE    (in use by another process)
+COPY FAILED: C:\Windows\System32\config\RegBack\*   (in use by another process)
+[7] reg load of SYSTEM hive FAILED
+[9] dism error 1639 - required servicing command missing
+COPY FAILED: C:\pagefile.sys
+```
+
+None of these is a defect in the offline path. They are the offline path
+applied where it does not fit: the machine was running, so the kernel held
+the registry hives open, and DISM refuses `/image:` against its own live
+installation.
+
+The gaps that mattered:
+
+- **`q-crashcontrol.txt` was never produced.** `CrashDumpEnabled` decides
+  whether the *next* bugcheck leaves anything to analyse, and this is exactly
+  the value one wants before a reboot rather than after.
+- **`Get-Packages.txt` was 406 bytes of error 1639**, so the state of the
+  pending update — the open question that motivated the run — went
+  unanswered.
+- **`pagefile.sys: copying 0 MB`** claimed a size the script could not
+  measure. `%~z` reports 0 for a file the kernel holds open.
+
+`COMPONENTS` copied successfully, being the one hive not held open.
+
+### D.50.2 Both situations are legitimate
+
+Running the recovery collector on a booted host is not misuse. It is the
+sensible rehearsal before a reboot that might not come back, and it is how
+this script was first exercised at all. More to the point, **each mode reaches
+evidence the other cannot**:
+
+| | Offline (WinRE) | Online (booted) |
+|---|---|---|
+| Machine that will not boot | **only option** | impossible |
+| Raw hive file | direct copy | locked — but `reg save` works |
+| `CrashDumpEnabled` | via `reg load` of the hive | direct from the live registry |
+| Package state | `dism /image:` | `dism /online`, which reports states the offline form cannot |
+| `pagefile.sys` | copyable | held open |
+
+So the script detects which situation it is in and issues the commands that
+fit, rather than producing a list of "in use" errors that describe the
+attempt instead of the machine.
+
+### D.50.3 Detection
+
+```
+set "COLLECTMODE=offline"
+if defined SystemRoot (
+    if /i "%SystemRoot%"=="%WINDIR_OFF%" set "COLLECTMODE=online"
+)
+```
+
+`%SystemRoot%` is set by whatever Windows is running the script. In WinRE it
+points at the `X:` RAM disk and never at the volume under investigation, so
+the comparison is reliable in both directions — it does not need a separate
+"am I in WinRE" test, which would be harder to make robust.
+
+The mode appears in the console banner and in the manifest header, so a
+bundle states which situation produced it.
+
+### D.50.4 What each mode does differently
+
+**Registry hives (stage 6).** Offline copies the files. Online uses
+`reg save HKLM\SYSTEM` and `reg save HKLM\SOFTWARE`, which asks the registry
+for a consistent snapshot rather than copying a file being written to — both
+possible where a copy is not, and more correct even where a copy would
+succeed. `COMPONENTS` and `RegBack` are copied in both modes; they are not
+held open.
+
+A `reg save` produces a file rather than copying one, so `:notewrite` records
+whether the output actually appeared, giving the same manifest treatment a
+copy gets.
+
+**Registry queries (stage 7).** The root is selected once into `%RK%` and
+every query goes through it:
+
+- offline: `HKLM\OFFSYS\ControlSet001` after `reg load`
+- online: `HKLM\SYSTEM\CurrentControlSet`
+
+`CurrentControlSet` is *correct* online and *wrong* offline, which is the
+mirror image of D.47's rule. The alias is synthesised by a running kernel; it
+does not exist in a loaded hive. The `reg unload` is likewise guarded, since
+there is nothing loaded in online mode.
+
+`CrashDumpEnabled` and `AutoReboot` are now echoed to the console as well as
+written to file. A value of `0` is worth seeing before the reboot, not while
+reading a bundle afterwards.
+
+**Package inventory (stage 9).** `/image:"%WINVOL%\"` offline,
+`/online` online. Written as two literal command sets rather than a variable
+holding the scope: an `/image:` argument carries its own quotes, and a
+variable containing nested quotes is a well-known way to produce a command
+that parses as something else. Three duplicated short lines cost less than
+that risk, and the test asserts no `set` assignment has a quote inside its
+value.
+
+### D.50.5 Size that cannot be measured
+
+`%~z` returns 0 for a file the kernel holds open. Printing `copying 0 MB` was
+a claim about the file when the truth was about our ability to measure it.
+
+An unmeasurable size is now reported as such, and **the copy is attempted
+anyway** — the attempt is what establishes whether the file can be read, and
+a `pagefile.sys` that copies is worth having. The size cap can only be
+applied to a size that is known, so an unknown size bypasses it deliberately:
+the alternative is skipping a file that might have copied fine.
+
+### D.50.6 Verification
+
+`psa.py` 0 errors / 0 warnings / 0 info across twelve PowerShell files;
+`Parser::ParseFile` 0 errors across five; test suite **5 cases, 200
+assertions**, all passing; canon integrity via the central authoritative
+tooling per §A.11.8a — 125 dd observation records, zero differences.
+
+The new guards assert the mode is determined and reported, that each mode's
+commands are present and mutually exclusive, that `CurrentControlSet` appears
+in exactly one command and that command is the online-root assignment, that
+the `reg unload` is offline-guarded, and that no `set` assignment nests a
+quote. **Negative control**: run against r104 the case reports **16
+failures**.
+
+Two prior checks had to be corrected rather than extended. `every reg load
+has a matching reg unload` counted words rather than commands and read an
+error message mentioning `reg load` as a second load; it now strips anything
+from `echo` onward before matching. `CurrentControlSet never used in a
+command` was written when only the offline path existed; the rule is not
+"never" but "only where the live registry is being read", and it is now
+expressed that way.
+
+**The script has still not run in WinRE.** It has now run twice on a booted
+host — once revealing D.49, once revealing this — and both modes are
+structurally validated, but the offline branch has never executed against a
+genuinely offline volume.
+
+
 ## Appendix: How to seed a new sister script from this SPEC
 
 If you are creating a 5th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1`):

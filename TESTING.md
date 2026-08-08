@@ -3028,3 +3028,55 @@ The response was not to model the parser but to **forbid the shape**: subroutine
 2. Check `registry\q-crashcontrol.txt` for `CrashDumpEnabled`. If it is `0`, no dump will be written when the host next bugchecks, and that is worth knowing **before** it does.
 3. Check `Get-Packages.txt` for the state of KB4589210 — this settles what the pending update actually is, rather than what the Settings UI displays.
 4. **The script has still not run in WinRE.** Drive letters differ there (`C:` will not be the Windows volume) and some volumes are read-only. The config-hive marker and the write probe are what handle both; neither has been exercised under those conditions.
+
+## 33. Validation Scenario 33: 2026-08-08 second execution on a booted host (r104) and the r105 mode split
+
+**Fixture**: same Windows Server 2016 host, booted normally. Script generation r104, run from `C:\` with no arguments.
+
+**Result: all 13 stages completed.** The D.49 parser fault is gone.
+
+### What the run revealed
+
+The bundle had a coherent set of gaps, all traceable to one fact — the machine was running:
+
+| Observation | Cause |
+|---|---|
+| `COPY FAILED` on `config\SYSTEM`, `SOFTWARE`, `RegBack\*` — "in use by another process" | the kernel holds live hives open |
+| `reg load of SYSTEM hive FAILED` → **`q-crashcontrol.txt` never produced**, `boot-start-drivers.txt` never produced | same |
+| `dism error 1639` → `Get-Packages.txt` / `Get-Drivers.txt` / `Get-Features.txt` all 406 bytes of error | DISM refuses `/image:` against its own live installation |
+| `pagefile.sys: copying 0 MB` then `COPY FAILED` | `%~z` returns 0 for a file held open; the copy then failed |
+| `COMPONENTS` copied successfully (104 MB) | the one hive not held open |
+| `SrtTrail.txt`, `pending.xml`, `poqexec.log` NOT FOUND | **correct** — startup repair never ran, no servicing operations pending |
+
+Collected successfully: 118 event logs, 20 USOShared, 16 Panther, 4 SetupAPI, 2 WindowsUpdate, 1 CBS, 1 DISM, `ReportingEvents.log`, a 22 MB system-drive listing, bcdedit in four forms, diskpart layout.
+
+**The two gaps that mattered**: `CrashDumpEnabled` was never read, and the state of the pending update was never determined — the question that motivated running this before a reboot.
+
+### r105: the script now detects which situation it is in
+
+Running the recovery collector on a booted host is not misuse; it is the sensible rehearsal before a reboot that might not come back. Each mode also reaches evidence the other cannot, so the mode is detected and the commands chosen to match. Full rationale in SPEC §D.50.
+
+| | Offline (WinRE) | Online (booted) |
+|---|---|---|
+| Hives | copy the files | `reg save` — a consistent snapshot, possible where a copy is not |
+| Registry root | `HKLM\OFFSYS\ControlSet001` after `reg load` | `HKLM\SYSTEM\CurrentControlSet` directly |
+| Packages | `dism /image:` | `dism /online` |
+| `reg unload` | yes | skipped — nothing was loaded |
+
+`CrashDumpEnabled` and `AutoReboot` are now echoed to the console as well as written to file.
+
+### Verification
+
+Test suite **5 cases, 200 assertions**, all passing. **Negative control**: against r104 the case reports **16 failures**. Static gates: `psa.py` 0/0/0 across twelve files; `Parser::ParseFile` 0 errors × 5; canon integrity — 125 records, zero differences.
+
+### Outstanding — the r105 run, before the reboot
+
+1. **Confirm the banner reads `Collection mode : online`.** If it says `offline` the detection is wrong and everything below is the old behaviour.
+2. **`registry\q-crashcontrol.txt` must exist**, and `CrashDumpEnabled` is now printed on the console. **A value of `0` means the next bugcheck writes no dump** — worth changing before the reboot, not after.
+3. **`Get-Packages.txt` should be a real table.** Look for KB4589210 and its state — `Installed`, `Install Pending` or `Staged`. This settles what the Settings UI has been showing.
+4. `registry\SYSTEM` and `registry\SOFTWARE` should exist via `reg save`, and `boot-start-drivers.txt` should be populated.
+5. `pagefile.sys` will report `size not reportable` and then attempt the copy. Either outcome is fine; the point is that it no longer claims 0 MB.
+
+### Still unverified
+
+**The offline branch has never executed against a genuinely offline volume.** The script has now run twice on a booted host — once revealing the D.49 parser fault, once revealing this — and both modes are structurally validated, but WinRE remains untested. Drive letters differ there and some volumes are read-only.

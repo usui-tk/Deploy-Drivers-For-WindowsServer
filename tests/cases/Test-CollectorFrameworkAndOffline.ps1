@@ -98,10 +98,19 @@ foreach ($t in @([regex]::Matches($text, 'call :(\w+)') | ForEach-Object { $_.Gr
 # reg load counted as a COMMAND, not as text inside an echo. An unbalanced
 # load leaves the hive mounted and holds a handle on the very volume under
 # investigation.
-$loads = @($commandLines | Where-Object { $_ -match '^\s*reg load\b' }).Count
-$unloads = @($commandLines | Where-Object { $_ -match '^\s*reg unload\b' }).Count
+# The unload is guarded by the mode test, so it no longer starts the line.
+# Count both as commands anywhere on the line rather than anchored, or the
+# guarded form reads as a missing unload.
+# Count the COMMAND, not the word: an error message that mentions 'reg load'
+# is not a second load. Strip anything from 'echo' onward before matching, so
+# a guarded command still counts and a quoted mention does not.
+$effective = @($commandLines | ForEach-Object { ($_ -split '\becho\b')[0] })
+$loads = @($effective | Where-Object { $_ -match '\breg load\b' }).Count
+$unloads = @($effective | Where-Object { $_ -match '\breg unload\b' }).Count
 Assert-True  'at least one reg load is present' ($loads -ge 1)
 Assert-Equal 'every reg load command has a matching reg unload' $loads $unloads
+Assert-True  'the unload only runs in offline mode' `
+    ($text.Contains('if /i "%COLLECTMODE%"=="offline" reg unload HKLM\OFFSYS'))
 # Every subroutine exit must release its own setlocal, or the environment
 # leaks across calls and MANIFEST / ERRLOG stop resolving.
 foreach ($sub in @('copyone', 'copytree', 'copylarge')) {
@@ -122,8 +131,19 @@ Assert-True 'uses ControlSet001' ($text.Contains('ControlSet001'))
 # CurrentControlSet may appear in a comment explaining why it is not used; it
 # must never appear in an actual command, because the Current alias is
 # synthesised by a running system and does not exist offline.
-Assert-Equal 'CurrentControlSet never used in a command' 0 `
-    @($commandLines | Where-Object { $_.Contains('CurrentControlSet') }).Count
+# CurrentControlSet is correct in ONLINE mode and wrong offline, so the rule
+# is not "never" but "only where the live registry is being read". The single
+# permitted use is the assignment that selects the online root; any other
+# occurrence in a command would be an offline query against an alias that
+# does not exist in a loaded hive.
+$currentUses = @($commandLines | Where-Object { $_.Contains('CurrentControlSet') })
+Assert-Equal 'CurrentControlSet appears in exactly one command' 1 $currentUses.Count
+if ($currentUses.Count -eq 1) {
+    Assert-True 'and that command is the online-root assignment' `
+        ($currentUses[0].Trim() -eq 'set "RK=HKLM\SYSTEM\CurrentControlSet"')
+}
+Assert-Equal 'no reg query names CurrentControlSet directly' 0 `
+    @($commandLines | Where-Object { $_ -match '^\s*reg query' -and $_.Contains('CurrentControlSet') }).Count
 Assert-True 'refuses to write output onto the offline volume' `
     ($text.Contains('the destination is the offline Windows volume'))
 Assert-True 'auto-detects the Windows volume' ($text.Contains('Searching for the offline Windows installation'))
@@ -170,6 +190,51 @@ Assert-Equal 'no subroutine label carries a shell metacharacter' 0 $labelsWithMe
 foreach ($t in @('copyone_absent', 'copyone_failed', 'copytree_absent', 'copylarge_absent', 'copylarge_skip', 'copylarge_failed')) {
     Assert-True ('branch target :{0} exists' -f $t) ($labels -contains $t)
 }
+
+Write-TestSection 'Online and offline collection modes'
+# The script was written for WinRE and then run on a booted host as a
+# rehearsal. Three groups failed for one reason: on a running system the
+# kernel holds the registry hives open and DISM refuses /image: against its
+# own live volume. Both modes are legitimate and each reaches evidence the
+# other cannot, so the mode is detected rather than assumed.
+Assert-True 'a collection mode is determined' ($text.Contains('set "COLLECTMODE=offline"'))
+Assert-True 'mode is decided by comparing SystemRoot with the target' `
+    ($text -match 'if /i "%SystemRoot%"=="%WINDIR_OFF%" set "COLLECTMODE=online"')
+Assert-True 'the mode is reported to the operator' ($text.Contains('Collection mode :'))
+Assert-True 'the mode is recorded in the manifest' ($text.Contains('Collection mode: %COLLECTMODE%'))
+
+# Hives: copy offline, reg save online. A plain copy of a live hive fails
+# with "the process cannot access the file", which says nothing about the
+# machine.
+Assert-True 'offline path copies the raw hives' ($text.Contains('config\SYSTEM" "%OUTDIR%\registry\SYSTEM"'))
+Assert-True 'online path uses reg save' ($text.Contains('reg save HKLM\SYSTEM'))
+Assert-True 'reg save output is confirmed to exist' ($text.Contains('call :notewrite'))
+
+# Registry root: ControlSet001 offline, CurrentControlSet online. Each is
+# correct only in its own mode - the Current alias is synthesised by the
+# running kernel and does not exist in a loaded hive.
+Assert-True 'offline queries use ControlSet001' ($text.Contains('set "RK=HKLM\OFFSYS\ControlSet001"'))
+Assert-True 'online queries use the live CurrentControlSet' ($text.Contains('set "RK=HKLM\SYSTEM\CurrentControlSet"'))
+Assert-True 'queries are written through the mode-selected root' ($text.Contains('reg query "%RK%\Control\CrashControl"'))
+Assert-True 'the hive is only unloaded in offline mode' `
+    ($text.Contains('if /i "%COLLECTMODE%"=="offline" reg unload HKLM\OFFSYS'))
+# CrashDumpEnabled decides whether the NEXT bugcheck leaves anything behind,
+# so it is surfaced on the console rather than only written to a file.
+Assert-True 'CrashDumpEnabled is shown on the console' ($text.Contains('findstr /i "CrashDumpEnabled AutoReboot"'))
+
+# DISM: /image: offline, /online online. The wrong one returns error 1639.
+Assert-True 'offline path uses dism /image:' ($text.Contains('dism /image:"%WINVOL%\" /get-packages'))
+Assert-True 'online path uses dism /online' ($text.Contains('dism /online /get-packages'))
+# A variable holding a scope with nested quotes is a well-known way to
+# produce a command that parses as something else; the branches are literal.
+$quotedValues = @([regex]::Matches($text, '(?m)^\s*set "[A-Za-z_]\w*=(.*)"\s*$') |
+                  Where-Object { $_.Groups[1].Value.Contains('"') }).Count
+Assert-Equal 'no set assignment has a quote inside its value' 0 $quotedValues
+
+# A file the kernel holds open reports size 0. Saying "0 MB" would be a claim
+# about the file rather than about our ability to measure it.
+Assert-True 'unmeasurable file size is reported as unknown' ($text.Contains('size not reportable'))
+Assert-True 'an unmeasurable file is still attempted' ($text.Contains(':copylarge_do'))
 
 Write-TestSection 'Microsoft no-boot requirement coverage'
 # Each entry is an item Microsoft asks for when a no-boot case is reported.
