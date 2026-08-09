@@ -20,6 +20,27 @@ independently.
 
 ---
 
+## [Unreleased]
+
+### Documentation
+
+- **README / README.ja: new "Current status: not ready for end-user use"
+  section** near the top of both documents. Maintainer ruling: the status is
+  framed strictly from the end-user's perspective on the latest `main` —
+  every script is under active audit-remediation refactoring (P0 landed;
+  P1/P2 pending) and the answer to "can I use this on my OS today?" is
+  stated as **No** for every OS, with the concrete per-OS reason (what the
+  current tree would actually do) and the exit criteria (P1, P2,
+  per-OS re-validation against the corrected model). Historical validation
+  records in TESTING.md are explicitly marked as predating the
+  signing-model correction and non-transferable to current `main`. Also
+  corrects the OS-support matrix note for Windows Server 2022, which said
+  "Validated." although no field run on WS2022 exists on record (TESTING
+  §10.6 capability rows are documentation-derived). Docs-only; no version
+  bump per the comment/doc-only rule.
+
+---
+
 ## [2026-08-09] `signing-model-correction` — Chipset r113 / Graphics r79 / NPU r56 / BthPan r61
 
 A third-party audit read this repository's documentation the way a new

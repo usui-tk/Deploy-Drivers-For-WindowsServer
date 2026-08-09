@@ -16,6 +16,7 @@ PowerShell pipeline that makes AMD's consumer-targeted Ryzen chipset, Radeon gra
 
 - [Why this exists](#why-this-exists)
 - [⚠️ Disclaimer (read before running)](#%EF%B8%8F-disclaimer-read-before-running)
+- [Current status: not ready for end-user use](#current-status-not-ready-for-end-user-use)
 - [What's in the box](#whats-in-the-box)
 - [What's new](#whats-new)
 - [Risk classification of the four scripts](#risk-classification-of-the-four-scripts)
@@ -93,6 +94,63 @@ By running these scripts, you acknowledge that:
 Operate these tools considerately. **Always prefer official AMD Server-supported drivers when they exist.** This repository targets the narrow case where official Server-class drivers are unavailable and you are willing to operate a self-signed driver chain on your own hardware.
 
 For the full at-your-own-risk acknowledgements (BitLocker, anti-cheat software, support implications, cert expiry, etc.), see the [Disclaimer & at-your-own-risk acknowledgements](#disclaimer--at-your-own-risk-acknowledgements) section further down. For the recommended sequence of operations and what to do when the host is unbootable, see the [Recovery from unbootable state](#recovery-from-unbootable-state) section.
+
+---
+
+## Current status: not ready for end-user use
+
+> **🚧 All five scripts in this repository are under active refactoring and
+> are NOT in a state an end user should rely on.** This section answers one
+> question only: *"can I take the latest `main` and use it on my OS today?"*
+> The answer, for every OS, is **no** — and this section explains exactly why,
+> per OS, and what has to happen before that changes.
+
+**Why the whole repository is in this state**: a third-party audit
+(2026-08-09) found that the repository's central signing-model claim — that a
+WDAC supplemental policy authorises the self-signed certificate as a
+kernel-mode signer while Secure Boot stays ON — was wrong, and it has been
+**retracted** (SPEC D.58). The retraction is not cosmetic: it removes the
+advertised mechanism by which non-WHQL drivers were supposed to load with
+Secure Boot enabled. Only the first remediation phase (P0: retraction,
+terminology, fail-closed base-policy gate) has landed; the accuracy, evidence,
+and safety work that would make the scripts trustworthy again (P1) and the
+coverage/maintainability work (P2) are **not done**. Historical validation
+successes recorded in [TESTING.md](./TESTING.md) predate this correction and
+several breaking design changes, and must not be read as statements about the
+current `main`.
+
+### Can I use the latest `main` on my OS today?
+
+| OS (build) | Usable by end users? | What the latest `main` would actually do |
+|---|---|---|
+| Windows Server 2025 (26100) | **❌ No — refactoring in progress** | `Install` imports the cert and installs packages via pnputil; **no** WDAC supplemental policy is deployed unless you pass `-WdacBasePolicyGuid` for a base policy you verified yourself. Whether this package's non-WHQL kernel drivers then load is **unverified on any current revision**, and the April-2026 Windows Driver Policy adds a layer no revision has ever been field-run against (SPEC D.58.6). |
+| Windows Server 2022 (20348) | **❌ No — never field-run** | Same designed behaviour as WS2025, but **no script has ever been executed on WS2022 hardware** (TESTING §10.6 capability rows are documentation-derived). |
+| Windows Server 2019 (17763) | **❌ No** | With Secure Boot ON: the run ends as a designed **no-op** for the current AMD package (0 of 55 in-scope INFs carry a WHQL co-signature, so `-SkipNonCosignedDrivers` yields an empty plan; without the flag, non-WHQL kernel drivers are refused by kernel CI — WS2019 has no supplemental-policy format at all, SPEC D.39.4). With Secure Boot OFF: Path B (testsigning) is a **lab-only** posture, not an end-user deployment. |
+| Windows Server 2016 (14393) | **❌ No** | `Install` has never completed on WS2016. Two open items: an unresolved **`WDF_VIOLATION` bugcheck-loop investigation** on the bench (SPEC D.47), and a structural **KMDF ceiling** — many current AMD drivers declare a newer KMDF than WS2016 ships, which no signing path can fix (`READY WITH EXCLUSIONS`, TESTING §37/§39). |
+| Windows 10 / 11 (Workstation) | **❌ Out of scope** | `Install` is auto-blocked by design on Workstation SKUs; only `PrepareVerify` runs (override exists, at your own risk). |
+
+Per-script additions on top of the table above: the **NPU** script is 🆘
+experimental — it has **never** been executed on physical NPU hardware
+anywhere, on any OS (see Risk classification); the **BthPan** script has never
+had its device-bind path validated (no Bluetooth-controller fixture yet); the
+**evidence collector** is a read-only companion and is safe to run, but its
+output schema is itself mid-refactoring under the audit remediation.
+
+### What has to happen before this changes
+
+1. **P1 audit remediation** — OS-separated policy activation, kernel-image
+   trust evidence, Windows Driver Policy evidence, non-boolean trust
+   classification, fail-closed download verification, PFX key protection
+   (plan adjudicated; not started).
+2. **P2 audit remediation** — E2E coverage corrections, lab/production
+   wording separation, sister-duplication policy.
+3. **Re-validation campaigns on physical hardware per OS** against the
+   corrected model — every historical ✅ in TESTING.md predates the
+   correction and does not transfer.
+
+Until those land, treat this repository as a **development tree and research
+record**, not as a deployable tool. If you want the history of what has been
+field-run and when, TESTING.md is the authoritative record.
 
 ---
 
@@ -228,7 +286,7 @@ The driver scripts (Chipset, Graphics, NPU, BthPan) support both
 | OS | Build | I02 path | Notes |
 |---|---|---|---|
 | Windows Server 2025 | 26100 | Path A — trust-store import (package trust); WDAC supplemental deployment only with an explicit `-WdacBasePolicyGuid` | Primary validation target. Kernel image trust is evaluated independently of package trust (Mode S — SPEC D.58.7). The Windows Driver Policy applies on Server 2025+ (SPEC D.58.6). |
-| Windows Server 2022 | 20348 | Path A — trust-store import (package trust); WDAC supplemental deployment only with an explicit `-WdacBasePolicyGuid` | Validated. Kernel image trust is evaluated independently of package trust (Mode S — SPEC D.58.7). |
+| Windows Server 2022 | 20348 | Path A — trust-store import (package trust); WDAC supplemental deployment only with an explicit `-WdacBasePolicyGuid` | **No field run on record** — designed for the same MPF/CiTool tier as WS2025 but never executed on WS2022 hardware (see [Current status](#current-status-not-ready-for-end-user-use)). Kernel image trust is evaluated independently of package trust (Mode S — SPEC D.58.7). |
 | Windows Server 2019 | 17763 | **Path A** (trust-store only, if all drivers are WHQL co-signed) / **Path B** (`-UseTestSigning`, requires Secure Boot Disabled in firmware) | r70 deprecated the previous WDAC SPF orchestrator path; see SPEC §D.30. WHQL co-signed drivers (e.g. `AmdMicroPEP.sys`, `amdgpio2.sys`) load via trust-store import alone; non-WHQL drivers (e.g. `amdi2c.sys`, `amdsfhkmdf.sys`) require Path B. r71 added `-SkipNonCosignedDrivers` for hosts that prefer to keep Secure Boot ON and accept that non-WHQL drivers will not be installed; r72 added the I02 short-circuit so that `-SkipNonCosignedDrivers` + Secure Boot ON completes end-to-end without any firmware change (the WHQL embedded signatures authorise the drivers at kernel CI directly); r96 fixed the Path A plan defects found in the first field execution (schema crash, plan-emptying trim rule, process-boundary loss — SPEC §D.40); r97 corrected the plan aggregation scope and the I01 criterion after the second attempt (out-of-scope variant rows poisoned the counts; catalogs are self-signed for the whole selected scope, so I01 skips only on a plan with nothing to self-sign — SPEC §D.41). See SPEC §D.31, §D.31.11 and §D.31.17. |
 | Windows Server 2016 | 14393 | Same as WS2019 | Same r70 behaviour. Field validation pending on a physical WS2016 host. |
 | Windows 10 / 11 (Workstation) | any | PrepareVerify only | Install phases auto-blocked. |
