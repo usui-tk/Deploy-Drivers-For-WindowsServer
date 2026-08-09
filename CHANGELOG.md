@@ -20,6 +20,86 @@ independently.
 
 ---
 
+## [2026-08-09] `security-narrative-closure` — Chipset r118 / Graphics r84 / NPU r59 / BthPan r65
+
+Sixth wave (W6) of the P1 audit remediation (audit v3 H-07 / H-08 /
+M-01R / M-02R / M-06R). Text-only: no code paths change. Historical
+CHANGELOG entries and demoted What's-new bullets are untouched by
+design — they are the record of what was claimed.
+
+### Changed — the retired signing narrative leaves the living text (H-07)
+
+- Help, comments and runtime strings in all four sisters no longer
+  describe the supplemental policy as the "default" path, no longer
+  attach a Secure-Boot-stays-ON benefit to it, and no longer describe
+  `Add-SignerRule -Kernel` as authorising the certificate for kernel
+  loading. The supplemental narrative is uniformly: optional App
+  Control supplemental policy, explicit `-WdacBasePolicyGuid` required,
+  AppControlDecision layer only, no KernelImageTrust claim (SPEC D.58).
+- The MSBthPan SECTION 1e helper header — a full paragraph arguing the
+  supplemental path is "preferable to testsigning" for kernel loading —
+  is rewritten to the layered D.58 model.
+- The I02 path banner: the no-tools branch used to announce
+  "Path: legacy testsigning" while the W3 code below it refuses; it now
+  states the refusal (Mode T is an explicit opt-in).
+
+### Changed — Mode T gate wording matches the primary source (M-01R)
+
+- Re-verified on the Microsoft TESTSIGNING feature page: with Secure
+  Boot ON, the `bcdedit -set TESTSIGNING ON` **write is refused at
+  command execution** ("The value is protected by Secure Boot policy
+  and cannot be modified or deleted"). Every remaining "silently
+  dropped at (next) boot" runtime string and comment is replaced,
+  including two comment sites the original survey missed and gate G-05
+  caught (SECTION 1c trailer; the I04 effective-state check, which now
+  also distinguishes the unproven pre-existing-flag case).
+- The HVCI refusal is re-grounded: the same Microsoft page states that
+  with Memory Integrity enabled a binary **must be test-signed**
+  (unsigned unsupported) — HVCI does not universally reject test-signed
+  images. Mode T under HVCI is now refused as **conservative project
+  policy**, with the reason text saying exactly that.
+
+### Changed — state-bearing documentation matches the tree (H-08 / M-02R / M-06R)
+
+- README / README.ja Current status records P0 + P1 W1-W5 as landed and
+  itemises the open closeout items; the end-user answer stays **NO**.
+- The I02 pipeline table drops the retired activation tiers
+  ("CiTool.exe --json on WS2022+", WS2019 CIM bridge, implicit BCDEdit
+  fallback) for the D.58.9 activation plan, including the WS2016/WS2019
+  refusal; the Scope table WS2022 row now says MPF yes, inbox CiTool no.
+- `-PfxPassword` and certificate-storage sections describe the W4
+  per-run CSPRNG / ACL / delete-after-Install contract and flag the NPU
+  known-literal branch as open (H-05R, planned W7).
+- SPEC: `production-validated` becomes `historically field-validated`
+  (three sites); the WS2025 "Kernel-equivalent to Win11 24H2" cell is
+  re-scoped as a package-variant compatibility heuristic.
+- Maturity vocabulary (G-10): "Stable" becomes "Historically
+  field-validated ... pending revalidation" in both languages.
+- tests/README's case table is regenerated to one row per case file on
+  disk (7 stale rows -> 18; the drift is now gated).
+
+### Added — gates G-05 / G-06 / G-10
+
+- `Test-RetiredSigningNarrative.ps1` (G-05): scans normalized logical
+  blocks (comment runs / markdown paragraphs, markup stripped) of the
+  five products and five normative docs for the retired vocabulary in
+  any phrasing; What's-new history and retraction/negation contexts
+  stay legal; built-in wrapped-line and markup-split synthetic
+  positives; forbidden tokens assembled at run time. Negative control
+  against the r117 tree: **45 named findings** (C:14 / G:14 / N:3 /
+  M:14).
+- `Test-DocumentationStateConsistency.ps1` (G-06 + G-10): stale
+  status marker gone and current-state marker present (both
+  languages); retired I02 activation alias gone, RefreshPolicy.exe
+  vocabulary present; `-PfxPassword` table row states the CSPRNG
+  contract and the H-05R open item, cross-checked against
+  `New-RandomPfxPassword` in the three sister scripts; tests/README
+  row count equals the case files on disk; maturity vocabulary pinned.
+  Negative control against the r117 tree: **27 named failures**.
+- The suite measures 18 cases / 743 assertions.
+
+---
+
 ## [2026-08-09] `project-preference-and-measured-rank` — Chipset r117 / Graphics r83
 
 Fifth wave (W5) of the P1 audit remediation (audit P1-E / H-03). Chipset

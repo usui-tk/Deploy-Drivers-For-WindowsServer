@@ -47,6 +47,17 @@ tests/
 | `Test-WindowsDriverPolicyEvidence.ps1` | Gate G-02: `windows-driver-policy.json` schema keys, the two policy GUIDs, the read-only ESP ruling; fixture tests for the CiTool list/mode pure parsers |
 | `Test-KernelImageTrustEvidence.ps1` | Gate G-03: `kernel-image-trust.json` schema keys with no can-load boolean; pure-classifier fixtures incl. `LegacyCrossSignedAllowListed` never emitted |
 | `Test-SupplementalPolicyGate.ps1` | The WDAC supplemental path never assumes a base policy (SPEC D.58.8): the assumed GUID is gone from code string constants, `WdacBasePolicyGuidDefault` is gone repo-wide, all four sisters carry a byte-identical admissibility helper, every builder refuses an empty `BasePolicyId`, and the phase gate's refusal branch returns |
+| `Test-BootSigningPostureSweep.ps1` | Gate G-03 repo-wide: the can-load boolean stays gone, `BootSigningPosture` is the derived vocabulary, and a deployed supplemental policy never flips install-readiness to READY |
+| `Test-InstallPathMutationGuard.ps1` | Gate G-04: no Windows Driver Policy GUID reaches a removal verb, no `nointegritychecks` / HVCI registry write, every testsigning write sits under a `UseTestSigning` conditional; `Resolve-SupplementalActivationPlan` decision-table fixtures |
+| `Test-DownloadAndPfxHygiene.ps1` | Fail-closed Authenticode verification of every downloaded binary (cache hits included) and the per-run random PFX password / ACL / delete-after-Install contract |
+| `Test-ProjectPreferenceContract.ps1` | The `[C] > [B] > [A]` override is presented as ProjectPreference (policy), never as an objective rank; `ConvertFrom-PnputilEnumDevicesDrivers` fixtures for the measured-rank report |
+| `Test-InfWdfRequirement.ps1` | `Get-InfWdfRequirement` pure-function fixtures: KMDF/UMDF library versions, co-installer versions, WDF section counting across INF shapes |
+| `Test-WdfShortfall.ps1` | WDF requirement-vs-host shortfall assessment: observed-vs-documented capability separation and the judged/unjudged boundary |
+| `Test-CollectorFrameworkAndOffline.ps1` | Collector framework contracts and the offline execution guarantee (no network dependency in any assessment path) |
+| `Test-CollectorOsCapability.ps1` | Collector OS-capability table: observed and documented KMDF/UMDF columns stay separate; documented values never receive measured readings |
+| `Test-CollectorWdfAssessment.ps1` | Collector WDF assessment: numeric (not string) version comparison and the dual PE version readings |
+| `Test-RetiredSigningNarrative.ps1` | Gate G-05: normalized-block scan keeps the retired signing narrative out of living source and normative docs; wrapped-line and markup-split synthetic positives; retraction and WHQL-subset contexts stay legal |
+| `Test-DocumentationStateConsistency.ps1` | Gates G-06 + G-10: remediation-status and I02 activation vocabulary match the tree in both languages, the PFX documentation cross-checks against the code, this case table has one row per case file, and maturity labels use the historically-field-validated / pending-revalidation vocabulary |
 
 ## Why these checks and not others
 
