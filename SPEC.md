@@ -6961,6 +6961,13 @@ edited to match: they record what Microsoft publishes, and their only use
 is to be compared against the measurement beside them. Writing the measured
 value into them would leave nothing to compare.
 
+*(2026-08-09)* The package-side counterpart to this table is now measured:
+the research baseline (`tools/amd-chipset-driver-research/`, 25 chipset
+releases / 643 hardware-matched INF rows) records each INF's declared
+KMDF/UMDF — maximum declared KMDF **1.19**, UMDF 2.15.0. Reading guide and
+scope limits: TESTING §44. The baseline is evidence, not policy: no
+deployment decision consumes it at run time.
+
 1.15 is the Windows 10 1507 value. The error came from recalling a number
 rather than reading the table, on a question where the number is the whole
 point. The table is now data inside `Get-ExpectedWdfVersion`, asserted

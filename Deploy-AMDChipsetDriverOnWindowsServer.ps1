@@ -71,11 +71,17 @@
                  - Install the patched drivers via pnputil
 
     Why this order matters:
-      - Microsoft / OEM-signed drivers always rank higher than self-
-        signed ones in Windows' driver-store ranking. If a vendor
-        driver is installed later, it will (correctly) supersede the
-        self-signed one - so the self-signed install is wasted work
-        unless we are last.
+      - Driver rank is computed by Windows from the applicable ranking
+        model, not from signer class alone: with the AllSigningEqual
+        default in effect, the signature score is not part of the
+        best-rank comparison. Do not assume any signer class decides
+        the winning driver - V06 measures the actual candidate list
+        via pnputil where supported, and the C/B/A ordering is
+        ProjectPreference, never a rank fact (SPEC D.58.11).
+        Installing the self-signed package last still minimizes
+        rework: a vendor install that arrives later can rebind
+        devices, so the self-signed pass is cheapest when nothing
+        else follows it.
       - Self-signed drivers expand the trust surface only to devices
         we genuinely cannot solve any other way. Doing Steps 1-2 first
         keeps that surface small.

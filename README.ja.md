@@ -130,7 +130,7 @@ base policy の機械検証) と P2 の全体。 是正後の実機検証は未�
 | Windows Server 2025 (26100) | **❌ 不可 — リファクタリング進行中** | `Install` は証明書を import し pnputil でパッケージを導入します。 自分で実在を検証した base policy を `-WdacBasePolicyGuid` で渡さない限り、 WDAC supplemental policy は**一切**配置されません。 その上でこのパッケージの非 WHQL カーネルドライバがロードされるかは**現行版のどの版でも未検証**であり、 さらに 2026 年 4 月の Windows Driver Policy という、 どの版も実機で対峙したことのないレイヤーが加わっています (SPEC D.58.6)。 |
 | Windows Server 2022 (20348) | **❌ 不可 — 実機実行歴なし** | 設計上の挙動は WS2025 と同じですが、 **WS2022 実機でスクリプトが実行されたことは一度もありません** (TESTING §10.6 の capability 行は文書由来)。 |
 | Windows Server 2019 (17763) | **❌ 不可** | Secure Boot ON の場合: 現行 AMD パッケージに対して実行は設計どおりの **no-op** で終わります (in-scope 55 INF 中 WHQL co-signature は 0 件のため `-SkipNonCosignedDrivers` は空プランを生成。 フラグなしでは非 WHQL カーネルドライバは kernel CI に拒否されます — WS2019 には supplemental policy の形式自体が存在しません、 SPEC D.39.4)。 Secure Boot OFF の場合: Path B (testsigning) は **lab 専用**の構えであり、 エンドユーザー向け配備ではありません。 |
-| Windows Server 2016 (14393) | **❌ 不可** | WS2016 で `Install` が完了したことはありません。 未解決事項が 2 つ: ベンチで遭遇した未解決の **`WDF_VIOLATION` bugcheck ループ調査** (SPEC D.47) と、 構造的な **KMDF 上限** — 現行 AMD ドライバの多くは WS2016 同梱版より新しい KMDF を宣言しており、 どの署名経路でも解決できません (`READY WITH EXCLUSIONS`、 TESTING §37/§39)。 |
+| Windows Server 2016 (14393) | **❌ 不可** | WS2016 で `Install` が完了したことはなく、 ベンチの **`WDF_VIOLATION` bugcheck ループ調査** (SPEC D.47) は未解決のままです。 本行の以前の版は構造的な **KMDF 上限** (現行 AMD ドライバの多くが WS2016 同梱版より新しい KMDF を宣言する) も主張していましたが、 この主張は**撤回**します — 実測済みの chipset baseline (`tools/amd-chipset-driver-research/`、 25 releases / 643 hardware-matched INF 行。 TESTING §44) の宣言 KMDF は**最大 1.19** で、 WS2016 の *documented* runtime (SPEC D.52.2) と同値です。 証拠の範囲: chipset パッケージのみ。 また WS2016 の host 側 KMDF は本プロジェクトでは未実測です。 上限の*機構* (SPEC D.47.4) は正しいまま — WS2016 固有の前提が実測に耐えなかったのです (判定語彙: `READY WITH EXCLUSIONS`、 TESTING §37/§39)。 |
 | Windows 10 / 11 (Workstation) | **❌ 対象外** | Workstation SKU では `Install` は設計上自動ブロックされ、 `PrepareVerify` のみ実行できます (自己責任の上書きは存在します)。 |
 
 上表に加えてスクリプト別の注記: **NPU** スクリプトは 🆘 experimental で、
@@ -177,6 +177,8 @@ base policy の機械検証) と P2 の全体。 是正後の実機検証は未�
 | `LICENSE` | MIT License。 |  |
 
 4 つの PowerShell スクリプトは同じ 21 phase アーキテクチャ、 同じ自己署名モデル、 同じ WDAC supplemental-policy パスを共有します。 それぞれ別ワークスペース (`C:\Temp\Workspace_AMD-Chipset`、 `C:\Temp\Workspace_AMD-Graphics`、 `C:\Temp\Workspace_AMD-NPU`、 `C:\Temp\Workspace_Microsoft-BthPan`)、 別の自己署名証明書、 別の WDAC supplemental policy GUID を使用するため、 相互に干渉しません。 4 つのワークスペースはすべて `C:\Temp\Workspace_*` 配下に配置されています (クラスタ管理および一括削除を容易化する目的)。 `C:\Temp` がない場合はスクリプトが自動作成します。 `Collect-WindowsServerConfigurationEvidence.ps1` は読み取り専用の随伴スクリプトとしてこれらの隣に位置し、 専用ワークスペースを持たず、 エビデンスをスクリプトフォルダ (または `C:\Temp`) に書き出します。
+
+**エビデンス層**: [`tools/amd-chipset-driver-research/`](./tools/amd-chipset-driver-research/) には読み取り専用の research toolkit とその accepted baseline (AMD chipset 25 releases・hardware-matched INF 643 行・INF ごとの WDF 宣言と SHA-256 provenance) が置かれています。 これは**エビデンスであってポリシーではありません**: デプロイパイプラインは実行時にこれを一切読みません。 パッケージ族に関する主張 (上記の WS2016 KMDF の議論や TESTING §44 など) が、 印象ではなく実測 baseline を引用できるようにするために存在します。
 
 ---
 
@@ -513,7 +515,7 @@ Restart-Computer
 
 すべてのスクリプトは冪等で、 cleanup-safe です (`-Action Cleanup` でワークスペース削除、 trust store からの証明書削除、 deploy された WDAC policy の削除を行います)。 ただし **Cleanup は OS が起動している状態でないと実行できません**。 `Install` 後にホストが起動不能になった場合は [起動不能状態からの復旧](#起動不能状態からの復旧)を参照してください。
 
-> **全部を 1 パスで実行できないか?** 概念上、 3 本の Install action は最終的に同一の終端状態 (パッチ済み INF が driver store に存在、 自己署名証明書が kernel に信頼される) に収束します。 しかし**実機の故障モード**はそうではありません: 各 Install は次の boot まで顕在化しない regression を導入し得て、 スクリプト個別の post-install 検証 (I04 / V06) は live OS 上で実行されるため、 ブートローダが新しい driver 群に対して kernel CI を再評価した結果までは完全に予測できません。 1 本ずつ実行し再起動を挟むことで、 任意の regression の影響範囲を「最後にインストールしたドライバファミリ」に限定でき、 これは「WinRE で 1 つの driver を rollback すれば済む」と「OS 再インストール」を分ける差です。
+> **全部を 1 パスで実行できないか?** 概念上、 3 本の Install action は最終的に同一の終端状態 (パッチ済み INF が driver store に存在し、 自己署名証明書のパッケージ (catalog) 信頼が確立される — カーネルイメージ信頼は Code Integrity が独立に評価します、 SPEC D.58) に収束します。 しかし**実機の故障モード**はそうではありません: 各 Install は次の boot まで顕在化しない regression を導入し得て、 スクリプト個別の post-install 検証 (I04 / V06) は live OS 上で実行されるため、 ブートローダが新しい driver 群に対して kernel CI を再評価した結果までは完全に予測できません。 1 本ずつ実行し再起動を挟むことで、 任意の regression の影響範囲を「最後にインストールしたドライバファミリ」に限定でき、 これは「WinRE で 1 つの driver を rollback すれば済む」と「OS 再インストール」を分ける差です。
 
 > **BthPan スクリプト固有の成否判定**: BthPan スクリプトの `Install` 完了後、 I04 (PostInstallVerification) は Phantom OK と真の解消を明示的に区別します。 `bthpan.sys` が load されかつ `BthPan` サービスが稼働中、 `BTH\MS_BTHPAN` が `Class=Net・Service=BthPan・DriverInfPath=oem*.inf` を報告する場合のみ、 スクリプトは `*** TRUE RESOLUTION ACHIEVED ***` と表示します。 代わりに `*** TRUE RESOLUTION NOT YET ACHIEVED ***` と表示された場合、 再起動が典型的な解決策です (PnP rebind は次回起動時にしか効かないケースがあります)。
 

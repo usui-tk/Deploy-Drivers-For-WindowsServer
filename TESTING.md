@@ -25,11 +25,14 @@ This document consolidates the validation results for `Deploy-Drivers-For-Window
 | **NPU** | ❌ **none** (no physical NPU machine in maintainer's lab) | ❌ **never executed** | **Experimental / research-grade only. Do not deploy in production.** |
 | **BthPan** | ⏳ partial — **`PrepareVerify` field-executed 2026-08-07** on WS2016 + Ryzen 5 PRO 4650U (no Bluetooth controller present: staging-path validation only; §20). AX210 device-bind validation still planned (§4) | ❌ **not yet executed** | New script; physical validation pending. Logic shares the proven Phase / Secure Boot / WDAC framework from the Chipset script (Edit-InfForServer, Get-OsContext, Resolve-PhaseSelection, etc. are verbatim-inherited). |
 
-> **Note on the category-priority override** (see SPEC §D.15): The
-> category-priority override changes the install-decision semantics
-> in a breaking way for chipset and graphics: self-signed `[C]` drivers
-> now always supersede Microsoft generic `[A]` and vendor `[B]` drivers
-> regardless of version. Earlier physical-hardware validation results
+> **Note on the ProjectPreference ordering** (see SPEC §D.15 for the
+> original override and SPEC D.58.11 for the W5 vocabulary): the
+> ordering changes the install-decision semantics in a breaking way for
+> chipset and graphics: the scripts now *submit* self-signed `[C]`
+> packages ahead of Microsoft generic `[A]` and vendor `[B]` ones as a
+> project policy, independent of version — whether a device actually
+> rebinds is decided by Windows' rank at install time (pnputil does not
+> force a lower-ranked driver). Earlier physical-hardware validation results
 > below remain *structurally* valid (extraction, patching, signing,
 > WDAC deployment all behave the same), but the **V05 / V06 / I03
 > driver-install decisions will differ** — devices that earlier
@@ -3318,7 +3321,11 @@ named drivers to be absent afterwards.
 
 The five requirement columns and this comparison have been verified against
 fixtures only. **Nobody has yet read them against the real AMD chipset package
-— 55 INFs whose declared versions are unknown.** That measurement is what the
+— 55 INFs whose declared versions are unknown.** *Historical state as of the
+r109 generation; superseded at the package-declaration level by the research
+baseline (§44) — the chipset family's declared versions are now measured
+across 25 releases (maximum KMDF 1.19). The host-side reading below remains
+unperformed and still worth taking.* That measurement is what the
 gating decision waits on (SPEC D.54.6), so it is worth taking deliberately:
 
 1. Run `-Action PrepareVerify` on the target host.
@@ -3664,3 +3671,30 @@ pnputil build:
 4. On at least one device bound to a project INF, confirm that
    `Show-MeasuredDriverRankReport` marks `[ours]` correctly and that the
    first-listed candidate matches the actually-bound driver.
+
+---
+
+## 44. Package-side WDF declarations: the research baseline (2026-08-09)
+
+§37 was written when the declared versions inside the AMD chipset package
+were unknown. The package side is now measured — not by a field run, but by
+the in-repo research layer:
+
+- **Where**: `tools/amd-chipset-driver-research/` — a read-only toolkit and
+  its accepted baseline covering **25 AMD chipset releases** with **643
+  hardware-matched INF rows**, SHA-256-pinned.
+- **What it says**: declared `KmdfLibraryVersion` across the family is
+  1.11 / 1.13 / 1.15 / **1.19 (maximum)**; declared `UmdfLibraryVersion`
+  is 2.15.0.
+- **What that supersedes**: the §37 premise that the package's declared
+  versions are unknown, and the README claim (now retracted) of a
+  structural WS2016 KMDF ceiling — WS2016's *documented* runtime is
+  KMDF 1.19 (SPEC D.52.2), equal to the maximum declaration measured.
+- **What it does NOT supersede**: the host-side reading §37 instructs
+  (WS2016's own KMDF has never been measured by this project — its
+  D.52.2 cell still says `not yet measured`); the graphics and NPU
+  package families, which have no measured baseline; and the
+  `WDF_VIOLATION` investigation (SPEC D.47), which stays open and was
+  never explained by a ceiling.
+- **Standing**: the baseline is **evidence, not policy**. No pipeline
+  decision consumes it at run time; it exists to be cited.
