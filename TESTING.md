@@ -3644,3 +3644,23 @@ Measured per §36: **12 cases, 531 assertions, all passing** on PowerShell
 function or schema key. `Test-CustomKernelSignersClaim.ps1` passes on both
 trees by design — the retraction already landed in the previous release —
 and carries its own embedded negative control instead.
+## 43. Wave W5 (2026-08-09): measured PnP rank — operator-pending field validation
+
+`ConvertFrom-PnputilEnumDevicesDrivers` is fixture-tested against a
+SYNTHETIC transcript (assembled from the Microsoft Learn
+pnputil-command-syntax page and public field observations). The following
+remains operator-pending on a physical host with a WS2022+/Windows-11-era
+pnputil build:
+
+1. Run `pnputil /enum-devices /drivers` (elevated) and archive the raw
+   output next to the run artifacts.
+2. Confirm the field shapes the parser assumes: `Instance ID:` /
+   `Device Description:` / `Matching Drivers:` / `Driver Name:` /
+   `Original Name:` / `Provider Name:` / `Driver Version:` /
+   `Matching Device Id:` / optional `Rank:` (0x hex or decimal).
+3. If a shape differs, replace the synthetic fixture with a redacted real
+   transcript excerpt and adjust the parser — fixtures must copy real
+   output; synthetics are a bootstrap only.
+4. On at least one device bound to a project INF, confirm that
+   `Show-MeasuredDriverRankReport` marks `[ours]` correctly and that the
+   first-listed candidate matches the actually-bound driver.

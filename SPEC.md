@@ -8197,6 +8197,34 @@ failing later at P08/I01). These helpers are Windows-only cmdlet
 consumers, so the Linux harness pins them by structural contract
 (`Test-DownloadAndPfxHygiene.ps1`), not execution.
 
+### D.58.11 ProjectPreference and the measured PnP rank (audit P1-E; W5)
+
+**The rename (H-03).** The `[C] > [B] > [A]` category override is the
+PROJECT'S preference — a policy statement that the operator running this
+script wants its self-signed AMD-specific drivers submitted over Microsoft
+generic or vendor drivers — and never an objective ranking. Windows
+computes its own rank at install time, and pnputil will not force a
+lower-ranked driver onto a device (Microsoft Learn,
+pnputil-command-syntax). Everything that presented the override as a
+ranking fact is renamed/reworded in the r117/r83 generation:
+`ProjectPreference` (the ordering), `PROJECT_PREFERS_INSTALL` (the V06
+bucket formerly worded "WILL be replaced"), and the decision Reason string
+no longer claims the self-signed driver "outranks" anything.
+
+**The measurement.** The measured counterpart is captured at I04
+completion by `Show-MeasuredDriverRankReport` (Chipset/Graphics — the
+sisters that carry the decision layer): where the pnputil build supports
+`/enum-devices /drivers`, the per-device candidate list is parsed by the
+pure function `ConvertFrom-PnputilEnumDevicesDrivers` (ruling Q3;
+fixture-tested) and candidates matching this run's patched INF set are
+displayed with their `Rank:` value when the build emits one — the
+documented ordering fact (first listed = best ranked) carries the meaning
+when it does not. When the build does not support the flags, that fact is
+stated and nothing is fabricated. The parser fixture is SYNTHETIC
+(assembled from the Microsoft Learn syntax page and public field
+observations); validating the field shapes against a real host remains an
+operator-pending item.
+
 ## Appendix: How to seed a new sister script from this SPEC
 
 If you are creating a 5th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1`):

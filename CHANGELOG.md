@@ -20,6 +20,62 @@ independently.
 
 ---
 
+## [2026-08-09] `project-preference-and-measured-rank` — Chipset r117 / Graphics r83
+
+Fifth wave (W5) of the P1 audit remediation (audit P1-E / H-03). Chipset
+and Graphics only: the category-override decision layer exists nowhere
+else (BthPan is single-INF, NPU has no decision layer). The rename
+candidates noted during W2/W4 (BthPan `AmdSuppPolicyId` mixed naming; the
+NPU `'placeholder'` PFX-export branch) are deliberately NOT in this wave
+and stay queued.
+
+### Changed — the category override is a preference, not a rank (P1-E)
+
+- `[C] > [B] > [A]` is renamed **ProjectPreference**, and every comment,
+  decision Reason and display that presented it as an objective ranking
+  now states plainly that it is the project's policy: Windows computes
+  its own rank at install time and pnputil will not force a lower-ranked
+  driver onto a device (Microsoft Learn, pnputil-command-syntax).
+- V06 wording: "WILL be replaced" / `WILL_REPLACE` becomes
+  **`PROJECT_PREFERS_INSTALL`** ("plan submits a replacement"); the
+  Reason string no longer claims the self-signed driver "outranks" the
+  current one; the startup guidance banner says "prefers to replace".
+  Box-drawing display widths are preserved.
+
+### Added — measured PnP rank capture (P1-E)
+
+- New pure parser `ConvertFrom-PnputilEnumDevicesDrivers` (ruling Q3):
+  devices split on `Instance ID:`, candidates on `Driver Name:`;
+  `Rank:` is optional (0x hex or decimal) — without it the documented
+  ordering fact carries: the first listed matching driver is the
+  best-ranked one.
+- `Show-MeasuredDriverRankReport` runs at I04 completion (before the
+  P1-G PFX cleanup): capability-probes the pnputil build, and lists
+  per-device candidates matching this run's patched INF set with
+  `[ours]` and best-ranked markers. Unsupported builds are recorded as
+  such — nothing is fabricated (negative-evidence discipline).
+- The parser fixture is explicitly **synthetic**; real-host validation
+  of the field shapes is an operator-pending item (TESTING).
+
+### Added — contract test case (P1-E)
+
+- `Test-ProjectPreferenceContract.ps1`: retired wording appears 0 times
+  (tokens assembled at run time); new vocabulary present; parser fixture
+  rows (hex/decimal/absent Rank, empty input); two-way byte-identity.
+  **Negative control (measured)**: the pre-W5 tree (r116 generation)
+  reports 14 named wording failures and aborts at parser extraction.
+- Suite after this release: **16 cases, 680 assertions, all passing**,
+  measured on PowerShell 7.4.6 (Core) on Linux.
+
+### Documentation
+
+- SPEC D.58.11 (new): ProjectPreference and the measured PnP rank.
+- TESTING: operator-pending row for real-host validation of the
+  `/enum-devices /drivers` field shapes.
+- README / README.ja: "What's new" latest-release entry for this wave.
+
+---
+
 ## [2026-08-09] `download-verification-and-pfx-hygiene` — Chipset r116 / Graphics r82 / BthPan r64
 
 Fourth wave (W4) of the P1 audit remediation (audit P1-F / H-04 and
