@@ -672,8 +672,8 @@ $Script:WdfShortfall      = $null
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.08.09-r116'
-$Script:ScriptTag     = 'download-verification-and-pfx-hygiene'
+$Script:ScriptVersion = 'chipset-2026.08.09-r117'
+$Script:ScriptTag     = 'project-preference-and-measured-rank'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -2047,7 +2047,7 @@ function Show-DriverInstallationOrderNotice {
         Write-Host '      1. Install official VENDOR drivers (chipset/GPU/NIC) from manufacturer site' -ForegroundColor Yellow
         Write-Host '      2. Run Windows Update / Microsoft Update Catalog'                            -ForegroundColor Yellow
         Write-Host '      3. THEN run this script for any AMD devices still without a working driver' -ForegroundColor Yellow
-        Write-Host '    (at install-decision layer [C] self-signed outranks [B]/[A]; SPEC D.15)'   -ForegroundColor DarkYellow
+        Write-Host '    (ProjectPreference: the script prefers its [C] driver over [B]/[A]; SPEC D.15)' -ForegroundColor DarkYellow
         return
     }
 
@@ -2073,7 +2073,7 @@ function Show-DriverInstallationOrderNotice {
     Write-Host '|             "yellow-bang" entries - those are what this script        |' -ForegroundColor Yellow
     Write-Host '|             should cover. Run -Action PrepareVerify and inspect V06   |' -ForegroundColor Yellow
     Write-Host '|             Section 2 to see exactly which [A]/[B] drivers the script |' -ForegroundColor Yellow
-    Write-Host '|             will replace with [C] before committing to -Action Install.|' -ForegroundColor Yellow
+    Write-Host '|             prefers to replace with [C] before -Action Install runs.   |' -ForegroundColor Yellow
     Write-Host '|                                                                        |' -ForegroundColor Yellow
     Write-Host '|    Step 4.  AFTER Steps 1-3 are complete, run THIS script.            |' -ForegroundColor Yellow
     Write-Host '|                                                                        |' -ForegroundColor Yellow
@@ -13571,10 +13571,14 @@ function Resolve-PerDeviceDriverDecision {
     # ====================================================================
     # Decide what should happen to a single device during I03.
     #
-    # ---- BREAKING SPECIFICATION CHANGE: category-priority override ----
-    # The driver-source category now takes precedence over version
+    # ---- BREAKING SPECIFICATION CHANGE: ProjectPreference override ----
+    # (Audit P1-E rename: this ordering is the PROJECT'S preference,
+    # not a PnP ranking fact - Windows computes its own rank at
+    # install time and pnputil will not force a lower-ranked driver
+    # onto a device.)
+    # The driver-source category takes precedence over version
     # comparison when AS-IS and TO-BE are in different categories.
-    # Category priority (highest to lowest):
+    # ProjectPreference (most preferred to least):
     #
     #   [C] Self-signed (this script's output) = highest
     #   [B] Hardware vendor / IHV = middle
@@ -13607,8 +13611,9 @@ function Resolve-PerDeviceDriverDecision {
     #                  device's HWID
     #
     # Decisions:
-    #   INSTALL_UPGRADE - patched INF should replace current driver.
-    #                      Triggered by EITHER category-priority override
+    #   INSTALL_UPGRADE - the project prefers to submit its patched
+    #                      INF (PROJECT_PREFERS_INSTALL). Triggered by
+    #                      EITHER the ProjectPreference override
     #                      OR strictly-newer version (when both sides
     #                      are in the same category).
     #   INSTALL_NEW - device has no driver bound; safe to add.
@@ -13651,15 +13656,16 @@ function Resolve-PerDeviceDriverDecision {
             Comparison=1; CandidatesByNewest=$sorted
         }
     }
-    # Category-priority override (see function header for rationale).
+    # ProjectPreference override (see function header for rationale).
     # The TO-BE driver this pipeline produces is always [C] Self-signed,
-    # so any AS-IS category OTHER than [C] is automatically superseded.
+    # so for any AS-IS category OTHER than [C] the project prefers to
+    # submit its own driver (whether it binds is decided by PnP rank).
     $curCatInfo = Get-DriverSourceCategory -Provider $Current.Provider -Signer $Current.Signer -InfName $Current.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint
     $curCatCode = if ($curCatInfo) { $curCatInfo.Code } else { '?' }
     if ($curCatCode -ne 'C') {
         return @{
             Decision='INSTALL_UPGRADE'; ChosenInf=$newest
-            Reason=('category priority [{0}] -> [C]: this script''s self-signed driver outranks the current [{0}] driver' -f $curCatCode)
+            Reason=('ProjectPreference [{0}] -> [C]: the project prefers its self-signed driver over the current [{0}] driver (project policy, not PnP rank)' -f $curCatCode)
             Comparison=1; CandidatesByNewest=$sorted
         }
     }
@@ -13708,12 +13714,13 @@ function Resolve-PerInfInstallDecision {
     # Resolve-PerDeviceDriverDecision, but per-INF rather than
     # per-device. Used by I03 to decide whether to call pnputil.
     #
-    # ---- BREAKING SPECIFICATION CHANGE: category-priority override ----
+    # ---- BREAKING SPECIFICATION CHANGE: ProjectPreference override ----
     # See Resolve-PerDeviceDriverDecision for the full rationale.
     # Summary: the TO-BE driver this pipeline produces is always
-    # [C] Self-signed, which now ranks ABOVE both [A] Microsoft
-    # generic and [B] vendor drivers. Version comparison applies
-    # only when the AS-IS driver is also [C].
+    # [C] Self-signed, which the PROJECT prefers over both [A]
+    # Microsoft generic and [B] vendor drivers (a preference, not a
+    # PnP rank - audit P1-E). Version comparison applies only when
+    # the AS-IS driver is also [C].
     #
     # Inputs:
     #   $InfEntry - patched-INF metadata (from Get-InfMetadata)
@@ -13727,7 +13734,7 @@ function Resolve-PerInfInstallDecision {
     #                     won't displace any current driver and may
     #                     help if hardware appears later.
     #   INSTALL_UPGRADE - At least one matched device benefits from this
-    #                     INF, either by category-priority override
+    #                     INF, either by the ProjectPreference override
     #                     (AS-IS is [A]/[B]/[?]) or by strictly-newer
     #                     version (same-category [C] vs [C] comparison).
     #   SKIP_NEWER - All matched devices are already on [C] and
@@ -13758,7 +13765,7 @@ function Resolve-PerInfInstallDecision {
             continue
         }
         # Determine current-driver category. If [A]/[B]/[?], the
-        # category-priority override makes this an UPGRADE regardless
+        # ProjectPreference override makes this an UPGRADE regardless
         # of version comparison.
         $curCatInfo = Get-DriverSourceCategory -Provider $cur.Provider -Signer $cur.Signer -InfName $cur.InfName -ExpectedSelfSignThumbprint $Ctx.CertThumbprint
         $curCatCode = if ($curCatInfo) { $curCatInfo.Code } else { '?' }
@@ -14071,9 +14078,11 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
         }
     }
 
-    # Split matched into "will replace" (action) vs "will skip" (no-op).
-    # The split drives the risk assessment below: only WILL_REPLACE
-    # devices contribute risk, because SKIP_* devices remain on their
+    # Split matched into PROJECT_PREFERS_INSTALL (the plan will submit
+    # a replacement; audit P1-E wording) vs "will skip" (no-op). The
+    # split drives the risk assessment below: only the
+    # PROJECT_PREFERS_INSTALL bucket contributes risk, because SKIP_*
+    # devices remain on their
     # current (working) driver.
     $willReplace = @($matched | Where-Object {
         $_.Decision.Decision -eq 'INSTALL_UPGRADE' -or
@@ -14085,14 +14094,14 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     })
 
     Write-Host ('  Match summary:') -ForegroundColor Cyan
-    Write-Host ('    {0,3} device(s) WILL be replaced (patched is newer)' -f $willReplace.Count) -ForegroundColor $(if ($willReplace.Count -gt 0) { 'Yellow' } else { 'DarkGray' })
+    Write-Host ('    {0,3} device(s): PROJECT_PREFERS_INSTALL (plan submits a replacement)' -f $willReplace.Count) -ForegroundColor $(if ($willReplace.Count -gt 0) { 'Yellow' } else { 'DarkGray' })
     Write-Host ('    {0,3} device(s) keep current driver (already same/newer)' -f $willSkip.Count) -ForegroundColor DarkGray
     Write-Host ('    {0,3} device(s) have no patched INF (no change)' -f $unmatched.Count) -ForegroundColor DarkGray
     Write-Host ''
 
     if ($willReplace.Count -gt 0) {
         Write-Host '  +---------------------------------------------------------------------------+'
-        Write-Host '  | Devices that WILL be replaced (AS-IS [A/B]  -->  TO-BE [C self-signed])    |'
+        Write-Host '  | PROJECT_PREFERS_INSTALL (AS-IS [A/B]  -->  TO-BE [C self-signed])          |'
         Write-Host '  +---------------------------------------------------------------------------+'
         # AS-IS and TO-BE rows now share the same column layout:
         #
@@ -14194,7 +14203,7 @@ function Invoke-VerifyPhase06_HardwareImpactAnalysis { # psa-disable-line PSA600
     # With version-aware decision logic, a device the operator
     # might intuitively expect to be at risk (e.g. AMD PSP) may actually
     # be in the "keep current driver" bucket if its current driver is
-    # already same/newer. Only the WILL_REPLACE list can contribute
+    # already same/newer. Only the PROJECT_PREFERS_INSTALL list can contribute
     # risk - everything else stays on the working driver. This is a
     # significantly more accurate picture than an earlier revision's "all matched
     # devices are at risk" model.
