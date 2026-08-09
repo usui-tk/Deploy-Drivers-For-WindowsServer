@@ -705,9 +705,10 @@ param(
     # NOTE: [string] (not [SecureString]) because the password is forwarded to
     # signtool.exe via /p and to X509Certificate2(.., String) — both of these
     # APIs require a plaintext String. SecureString would have to be unwrapped
-    # at the call site anyway. The default value below is an intentional
-    # placeholder; rotate this in real deployments.
-    [string]$PfxPassword   = 'ChangeMe!2026',  # psa-disable-line PSA5001 -- signtool /p and X509Certificate2 require plaintext String; default is a placeholder
+    # at the call site anyway. An empty value (the default) selects a per-run
+    # random password; the PFX is ACL-restricted at export and deleted after
+    # Install (audit P1-G).
+    [string]$PfxPassword   = '',  # psa-disable-line PSA5001 -- signtool /p and X509Certificate2 require plaintext String; empty selects a per-run random password (audit P1-G)
     [string]$TimestampUrl  = 'http://timestamp.digicert.com',
 
     # === WDAC supplemental policy GUID overrides ======================
@@ -806,8 +807,8 @@ $Script:WdfShortfall      = $null
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'graphics-2026.08.09-r81'
-$Script:ScriptTag     = 'activation-path-os-separation'
+$Script:ScriptVersion = 'graphics-2026.08.09-r82'
+$Script:ScriptTag     = 'download-verification-and-pfx-hygiene'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -6774,6 +6775,42 @@ function Install-SevenZipFallback {
 }
 # <<< CANONICAL unit_id=pwsh.helper.install-sevenzipfallback <<<
 
+function New-RandomPfxPassword {
+    # Per-run random PFX password (audit P1-G). 32 chars from a CSPRNG;
+    # alphanumeric only (no ambiguous glyphs) so the value survives
+    # signtool /p quoting and X509Certificate2(.., String) unchanged.
+    # The mild modulo bias over a 58-char alphabet is irrelevant at
+    # this length for the threat model (a fixed well-known default).
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
+    $bytes = New-Object byte[] 32
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+    $chars = foreach ($b in $bytes) { $alphabet[[int]$b % $alphabet.Length] }
+    return (-join $chars)
+}
+
+function Set-PfxFileAcl {
+    # Restrict the exported PFX to Administrators + SYSTEM (audit
+    # P1-G): disable inheritance, drop inherited entries, grant
+    # FullControl to the two principals only. Well-known SIDs keep the
+    # ACL locale-independent (the D.19 discipline applied to
+    # principals).
+    [CmdletBinding()]
+    [OutputType([void])]
+    param([Parameter(Mandatory)] [string]$Path)
+    $acl = Get-Acl -LiteralPath $Path
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($sid in @('S-1-5-32-544', 'S-1-5-18')) {
+        $id = [System.Security.Principal.SecurityIdentifier]::new($sid)
+        $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($id, 'FullControl', 'Allow')
+        $acl.AddAccessRule($rule)
+    }
+    Set-Acl -LiteralPath $Path -AclObject $acl
+}
+
 function Install-WindowsSdkFallback {
     param($OsContext, [string]$DownloadDir)
     Write-Detail "Target build : $($OsContext.SdkBuild)"
@@ -10753,7 +10790,23 @@ function Invoke-PrepPhase07_CreateCertificate {
     $subject = "CN=AMD Graphics Driver Self-Sign ($($Ctx.Os.Code) Lab, At Own Risk)"
 
     Set-DebugStep 'check phase marker (cache hit?)'
-    if ((Test-PhaseMarker -Ctx $Ctx -PhaseId 'P07') -and (Test-Path $pfxPath)) {
+    # PFX password sanity (audit P1-G): with per-run random passwords a
+    # leftover PFX from an earlier run cannot be opened by this run's
+    # password, so a cache hit must first prove the PFX opens.
+    $pfxOpensWithCurrentPassword = $false
+    if (Test-Path $pfxPath) {
+        try {
+            $probe = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($pfxPath, $Ctx.PfxPassword)
+            $probe.Dispose()
+            $pfxOpensWithCurrentPassword = $true
+        } catch { # psa-disable-line PSA3004 -- open failure is exactly the negative branch being probed
+            $pfxOpensWithCurrentPassword = $false
+        }
+    }
+    if ((Test-PhaseMarker -Ctx $Ctx -PhaseId 'P07') -and (Test-Path $pfxPath) -and (-not $pfxOpensWithCurrentPassword)) {
+        Write-Caution 'A PFX from an earlier run exists but does not open with this run''s password - regenerating it (P1-G).'
+    }
+    if ((Test-PhaseMarker -Ctx $Ctx -PhaseId 'P07') -and (Test-Path $pfxPath) -and $pfxOpensWithCurrentPassword) {
         $Ctx.CertPfxPath = $pfxPath
         $Ctx.CertCerPath = $cerPath
         Write-Skip "Certificate cached: $pfxPath"
@@ -10824,8 +10877,10 @@ function Invoke-PrepPhase07_CreateCertificate {
     Set-DebugStep 'export PFX and CER files'
     $secPwd = ConvertTo-SecureString -String $Ctx.PfxPassword -AsPlainText -Force
     Export-PfxCertificate -Cert $cert -FilePath $pfxPath -Password $secPwd -Force | Out-Null
+    Set-PfxFileAcl -Path $pfxPath
     Export-Certificate    -Cert $cert -FilePath $cerPath -Force | Out-Null
-    Write-Ok "PFX exported: $pfxPath"
+    Write-Ok "PFX exported: $pfxPath (ACL: Administrators+SYSTEM only)"
+    Write-Detail 'PFX password: per-run value (auto-generated unless -PfxPassword was supplied); the PFX is deleted after Install (P1-G).' -Color DarkGray
     Write-Ok "CER exported: $cerPath"
     Write-Host '    NOTE: cert is NOT yet in Trusted Root / Trusted Publisher.'
     Write-Host '          Run -Action Install (or phase I01) to import it.'
@@ -15529,6 +15584,19 @@ function Invoke-InstPhase04_PostInstallVerification {
         }
     }
 
+    # PFX hygiene (audit P1-G): the signing artifact is not needed once
+    # the install pipeline has completed. The certificate stays in the
+    # store; if a future run needs to sign again, P07 regenerates the
+    # PFX with a fresh per-run password.
+    if ($Ctx.CertPfxPath -and (Test-Path -LiteralPath $Ctx.CertPfxPath)) {
+        Remove-Item -LiteralPath $Ctx.CertPfxPath -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $Ctx.CertPfxPath) {
+            Write-Caution ('Could not delete the PFX after install ({0}) - remove it manually (P1-G).' -f $Ctx.CertPfxPath)
+        } else {
+            Write-Ok 'PFX deleted after install (P1-G); the certificate remains in the certificate store.'
+        }
+    }
+
     Write-PhaseFooter 'I04' 'done'
 }
 
@@ -15860,7 +15928,7 @@ function Show-Help {
     Write-Host ''
     Write-Host '  Certificate' -ForegroundColor DarkGray
     Write-Host '    -PfxPassword <string>    PFX export password.' -ForegroundColor Yellow
-    Write-Host '                             Default: ChangeMe!2026  (CHANGE FOR PRODUCTION)'
+    Write-Host '                             Default: empty = per-run random password (P1-G)'
     Write-Host '    -TimestampUrl <url>      RFC3161 timestamp URL for signtool.' -ForegroundColor Yellow
     Write-Host '                             Default: http://timestamp.digicert.com'
 
@@ -15992,7 +16060,7 @@ $Ctx = [pscustomobject]@{
     AmdLandingUrls  = $AmdLandingUrls
     AmdFallbackUrl  = $AmdFallbackUrl
     WorkRoot        = $WorkRoot
-    PfxPassword     = $PfxPassword
+    PfxPassword     = if ([string]::IsNullOrEmpty($PfxPassword)) { New-RandomPfxPassword } else { $PfxPassword }  # per-run random default (audit P1-G)
     TimestampUrl    = $TimestampUrl
     Force           = $Force.IsPresent
     CleanWorkRoot   = $CleanWorkRoot.IsPresent
