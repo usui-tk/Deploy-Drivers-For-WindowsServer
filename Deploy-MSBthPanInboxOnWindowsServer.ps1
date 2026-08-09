@@ -5184,6 +5184,13 @@ function Test-WhqlCoSignature { # psa-disable-line PSA6003 -- "Signature" is a s
     #   - SignerSubjects   ([string[]])   subject CNs of each signer
     #   - WhqlMarker       ([string])     the matched marker text if found, else ''
     #   - Reason           ([string])     short diagnostic ('cosigned', 'self-only', 'unsigned', 'inspect-failed')
+    #   - Classification   ([string])     KernelImageTrust classification (SPEC D.58.3, audit P1-D):
+    #                                     'WhcpHdc' | 'LegacyCrossSignedNotProven' |
+    #                                     'PrivateOrTestSigned' | 'Unsigned' | 'Unknown'.
+    #                                     'LegacyCrossSignedAllowListed' is reserved and never
+    #                                     emitted until an allow-list proof mechanism exists
+    #                                     (ruling Q4): allow-list acceptance is an exception,
+    #                                     never equated with WHCP certification.
     #
     # NOTES:
     #   - Get-AuthenticodeSignature returns only the primary signer on
@@ -5208,6 +5215,7 @@ function Test-WhqlCoSignature { # psa-disable-line PSA6003 -- "Signature" is a s
         SignerSubjects = @()
         WhqlMarker     = ''
         Reason         = 'inspect-failed'
+        Classification = 'Unknown'
     }
     if (-not (Test-Path -LiteralPath $Path)) {
         $result.Reason = 'file-not-found'
@@ -5227,10 +5235,12 @@ function Test-WhqlCoSignature { # psa-disable-line PSA6003 -- "Signature" is a s
                 $result.IsCoSigned = $true
                 $result.WhqlMarker = $whqlMatch.Value
                 $result.Reason = 'cosigned'
+                $result.Classification = 'WhcpHdc'
                 return $result
             }
         } elseif ($sig -and $sig.Status -eq 'NotSigned') {
             $result.Reason = 'unsigned'
+            $result.Classification = 'Unsigned'
             return $result
         }
     } catch {
@@ -5265,6 +5275,10 @@ function Test-WhqlCoSignature { # psa-disable-line PSA6003 -- "Signature" is a s
         # caller will treat as non-cosigned for Path B purposes.
         if ($result.SignerCount -gt 0) {
             $result.Reason = 'self-only'
+            # Only the leaf subject is visible without signtool; a
+            # legacy cross-signed chain cannot be recognised here, so
+            # the conservative mapping applies (P1-D design 2.3).
+            $result.Classification = 'PrivateOrTestSigned'
         }
         return $result
     }
@@ -5304,10 +5318,18 @@ function Test-WhqlCoSignature { # psa-disable-line PSA6003 -- "Signature" is a s
                 $result.IsCoSigned = $true
                 $result.WhqlMarker = $whqlMatch.Value
                 $result.Reason = 'cosigned'
+                $result.Classification = 'WhcpHdc'
                 return $result
             }
         }
         $result.Reason = 'self-only'
+        # Cross-signed refinement (P1-D): a Microsoft Code Verification
+        # Root element in the enumerated chain marks a legacy
+        # cross-signed image. Allow-list membership cannot be proven
+        # here, so the classification is never the AllowListed value
+        # (ruling Q4) - only NotProven.
+        $crossRoot = @(@($result.SignerSubjects) -match '(?i)Microsoft Code Verification Root')
+        $result.Classification = if ($crossRoot.Count -gt 0) { 'LegacyCrossSignedNotProven' } else { 'PrivateOrTestSigned' }
     }
     return $result
 }
