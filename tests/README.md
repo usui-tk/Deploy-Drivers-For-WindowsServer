@@ -58,6 +58,7 @@ tests/
 | `Test-CollectorWdfAssessment.ps1` | Collector WDF assessment: numeric (not string) version comparison and the dual PE version readings |
 | `Test-RetiredSigningNarrative.ps1` | Gate G-05: normalized-block scan keeps the retired signing narrative out of living source and normative docs; wrapped-line and markup-split synthetic positives; retraction and WHQL-subset contexts stay legal |
 | `Test-DocumentationStateConsistency.ps1` | Gates G-06 + G-10: remediation-status and I02 activation vocabulary match the tree in both languages, the PFX documentation cross-checks against the code, this case table has one row per case file, and maturity labels use the historically-field-validated / pending-revalidation vocabulary |
+| `Test-NpuPfxHygiene.ps1` | Gate G-07: the NPU script carries the W4 PFX contract (no known-literal password constant, fail-closed empty-password export, ACL after export, per-run random Ctx default, delete-after-Install with Verify-phase acceptance) and the MSBthPan policy-id field uses the product-correct name; AST and rename detectors carry synthetic self-checks |
 
 ## Why these checks and not others
 

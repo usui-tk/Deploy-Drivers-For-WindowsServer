@@ -88,6 +88,7 @@ foreach ($pair in @(@{ L = 'en'; T = $textEn }, @{ L = 'ja'; T = $textJa })) {
 }
 foreach ($s in @('Deploy-AMDChipsetDriverOnWindowsServer.ps1',
                  'Deploy-AMDGraphicsDriverOnWindowsServer.ps1',
+                 'Deploy-AMDNpuDriverOnWindowsServer.ps1',
                  'Deploy-MSBthPanInboxOnWindowsServer.ps1')) {
     $src = [System.IO.File]::ReadAllText((Join-Path $RepoRoot $s))
     Assert-True ('random-password helper defined in {0}' -f $s) ($src.Contains('function New-RandomPfxPassword'))

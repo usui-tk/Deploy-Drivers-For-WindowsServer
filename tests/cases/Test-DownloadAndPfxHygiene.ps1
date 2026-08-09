@@ -18,7 +18,9 @@
          (fail-closed), and is called at every download-execution site:
          SDK, WDK, 7-Zip (call-site wrapper - canon untouched), and the
          AMD installer on BOTH the cached and fresh paths (C/G).
-      3. Three-way byte-identity for the new helpers.
+      3. Byte-identity for the helpers across the scripts that carry
+         them (password/ACL helpers four-way since W7; download gate
+         three-way - NPU performs no downloads).
       4. Negative controls: the pre-W4 tree (r115 generation) fails these
          contracts.
 #>
@@ -49,7 +51,7 @@ foreach ($leaf in $products) {
     Assert-Equal ('{0}: retired fixed password appears 0 time(s)' -f $leaf) 0 ([regex]::Matches($text, [regex]::Escape($retiredPwd))).Count
 }
 
-Write-TestSection 'P1-G: generator / ACL / deletion / open-probe are wired (three sisters)'
+Write-TestSection 'P1-G: generator / ACL / deletion / open-probe are wired (Path A sisters)'
 foreach ($leaf in $pathA) {
     $text = Get-Content -LiteralPath (Join-Path $RepoRoot $leaf) -Raw
     Assert-True ('{0}: New-RandomPfxPassword wired into Ctx' -f $leaf) ($text -match '(?m)PfxPassword\s+= if \(\[string\]::IsNullOrEmpty\(\$PfxPassword\)\) \{ New-RandomPfxPassword \}')
@@ -57,6 +59,17 @@ foreach ($leaf in $pathA) {
     Assert-True ('{0}: I04 deletes the PFX' -f $leaf) ($text.Contains("PFX deleted after install (P1-G)"))
     Assert-True ('{0}: P07 cache hit probes the PFX password' -f $leaf) ($text.Contains('$pfxOpensWithCurrentPassword'))
 }
+
+Write-TestSection 'P1-G (W7): the NPU script carries the same contract (structural adaptation)'
+# NPU has no phase-marker cache, so P07 regenerates the certificate on
+# every signing run and the open-probe element is satisfied by design
+# (a leftover PFX is overwritten, never reused). The remaining contract
+# elements are pinned here; deletion happens in the post-Install block.
+$npuLeaf = 'Deploy-AMDNpuDriverOnWindowsServer.ps1'
+$npuText = Get-Content -LiteralPath (Join-Path $RepoRoot $npuLeaf) -Raw
+Assert-True ('{0}: New-RandomPfxPassword wired into Ctx' -f $npuLeaf) ($npuText -match '(?m)PfxPassword\s+= if \(\[string\]::IsNullOrEmpty\(\$PfxPassword\)\) \{ New-RandomPfxPassword \}')
+Assert-True ('{0}: Set-PfxFileAcl called after Export-PfxCertificate' -f $npuLeaf) ($npuText -match '(?s)Export-PfxCertificate[^\r\n]*\r?\n\s*Set-PfxFileAcl -Path \$PfxPath')
+Assert-True ('{0}: post-Install block deletes the PFX' -f $npuLeaf) ($npuText.Contains('PFX deleted after install (P1-G)'))
 
 Write-TestSection 'P1-F: the fail-closed gate exists and is wired at every download site'
 foreach ($leaf in $pathA) {
@@ -72,7 +85,7 @@ foreach ($leaf in @('Deploy-AMDChipsetDriverOnWindowsServer.ps1', 'Deploy-AMDGra
     Assert-True ('{0}: AMD installer verified on the fresh-download path' -f $leaf) ($text.Contains("-DisplayName 'AMD installer' -SubjectPattern 'Advanced Micro Devices'"))
 }
 
-Write-TestSection 'W4 helpers are three-way byte-identical'
+Write-TestSection 'W4 helpers: byte identity across the scripts that carry them'
 function Get-FnTextW4 {
     param([string]$Path, [string]$Name)
     $t = $null; $e = $null
@@ -83,7 +96,13 @@ function Get-FnTextW4 {
     }
     return '(absent)'
 }
-foreach ($name in @('New-RandomPfxPassword', 'Set-PfxFileAcl', 'Assert-DownloadedFileSignature')) {
+# W7: the password/ACL helpers are four-way (NPU included); the download
+# gate stays three-way because NPU performs no downloads.
+foreach ($name in @('New-RandomPfxPassword', 'Set-PfxFileAcl')) {
+    $texts = @(($pathA + $npuLeaf) | ForEach-Object { Get-FnTextW4 -Path (Join-Path $RepoRoot $_) -Name $name })
+    Assert-Equal ('{0}: identical in all four sisters' -f $name) 1 (@($texts | Sort-Object -Unique)).Count
+}
+foreach ($name in @('Assert-DownloadedFileSignature')) {
     $texts = @($pathA | ForEach-Object { Get-FnTextW4 -Path (Join-Path $RepoRoot $_) -Name $name })
     Assert-Equal ('{0}: identical in the three Path A sisters' -f $name) 1 (@($texts | Sort-Object -Unique)).Count
 }
