@@ -20,6 +20,85 @@ independently.
 
 ---
 
+## [2026-08-09] `boot-signing-posture` — Chipset r114 / Graphics r80 / NPU r57 / BthPan r62
+
+Second wave (W2) of the P1 audit remediation (design rulings Q1–Q6; ruling
+Q6 adopted the `BootSigningPosture` name). Sisters-only: the collector is
+unchanged. This wave retires the last runtime remnants of the retracted
+signing model (SPEC D.58.1) and adopts the shared trust vocabulary the
+collector introduced in c11.
+
+### Changed — `EffectiveCanLoadSelfSigned` → `BootSigningPosture` (ruling Q6; gate G-03)
+
+- The can-load boolean is removed from all four sisters — gate G-03 now
+  holds repo-wide, not just in the collector evidence builders.
+  `Get-BootSigningEnvironment` derives a string posture instead:
+  `testsigning-active` (the measured Mode T path is open: Secure Boot off,
+  BCD testsigning on, HVCI not running) / `supplemental-deployed-unverified`
+  (a supplemental App Control policy file is deployed; **no kernel-image
+  load effect is claimed from it**) / `closed`. `BlockReasons` keeps only
+  testsigning-path reasons; the supplemental state is never phrased as a
+  kernel-load reason.
+- `Update-BootSigningEnvironmentForCtx` upgrades `closed` to
+  `supplemental-deployed-unverified` and no longer forces a true verdict
+  from the retracted path-1 model (`$true -or $path2Open` is gone).
+- Consumers gate on `BootSigningPosture -ne 'testsigning-active'`: the
+  install-readiness digest, V06's change-required display and I04's
+  post-install cautions no longer report READY / unblocked because a
+  supplemental policy is deployed.
+
+### Changed — P0 terminology sweep of runtime strings (SPEC D.58.3 / D.58.8 staging debt)
+
+- `Show-BootSigningEnvironment`: the compact `Self-signed driver: ALLOWED /
+  BLOCKED` line is replaced by the posture; the verbose table's role notes
+  and the EFFECTIVE narrative are rewritten (a deployed supplemental is
+  reported as an AppControlDecision-layer fact with the block reasons still
+  listed).
+- `Show-BootSigningChangeRequired` is rewritten to the honest model: the
+  TO-BE is the Mode T lab target (explicit `-UseTestSigning` opt-in), a
+  production note states that WHQL/WHCP-signed drivers load with no host
+  change and that project self-signing establishes PackageCatalogTrust
+  only, and the supplemental policy appears only as an optional
+  AppControl-layer deployment behind `-WdacBasePolicyGuid`.
+- Comment-based help, the I02 dry-run, I02 refusal/skip messages, the
+  References section rationale and the SECTION 1c/1e design comments no
+  longer claim that a WDAC supplemental policy loads self-signed kernel
+  drivers with Secure Boot ON. The Secure Boot baseline health reason
+  (`WDAC supplemental policy is unnecessary...`, four-way identical) is
+  reworded to the Mode T vocabulary.
+
+### Added — `Classification` in `Test-WhqlCoSignature` (audit P1-D; ruling Q4)
+
+- The three-way byte-identical helper (Chipset / Graphics / BthPan) now
+  emits the SPEC D.58.3 classification alongside the unchanged `Reason`:
+  `WhcpHdc` / `LegacyCrossSignedNotProven` / `PrivateOrTestSigned` /
+  `Unsigned` / `Unknown`. New logic: a Microsoft Code Verification Root
+  element in the signtool-enumerated chain refines `self-only` to
+  `LegacyCrossSignedNotProven`; without signtool only the leaf subject is
+  visible and the conservative `PrivateOrTestSigned` mapping applies.
+  `LegacyCrossSignedAllowListed` is reserved and never emitted (ruling Q4).
+  Additive: existing callers are untouched.
+
+### Added — acceptance-gate test case (G-03 repo-wide)
+
+- `Test-BootSigningPostureSweep.ps1`: the retired boolean name (assembled
+  at run time so the case never matches itself) and any `CanLoad` token
+  appear 0 times in the five product scripts; every sister derives
+  `BootSigningPosture` with all three enum literals; the three WHQL sisters
+  emit the P1-D vocabulary and never assign the AllowListed value; embedded
+  scanner negative controls. **Negative control (measured)**: against the
+  pre-W2 tree the case reports **36** named failures.
+- Suite after this release: **13 cases, 577 assertions, all passing**,
+  measured on PowerShell 7.4.6 (Core) on Linux.
+
+### Documentation
+
+- SPEC D.58.3 / D.58.8: the "runtime strings still contain legacy
+  formulations" staging debt is recorded as completed by this wave.
+- README / README.ja: "What's new" latest-release entry for this wave.
+
+---
+
 ## [2026-08-09] `windows-driver-policy-and-kernel-trust-evidence` — Collector c11
 
 First wave of the P1 audit remediation (design rulings Q1–Q6 adjudicated

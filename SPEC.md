@@ -7964,11 +7964,16 @@ carried three meanings. The project now separates them (audit C-01/H-02):
 
 The phrase "self-signed driver loaded" is a banned formulation in project
 documents: it asserts KernelImageTrust from evidence that only ever
-establishes PackageCatalogTrust. Runtime strings still contain legacy
-formulations (`EffectiveCanLoadSelfSigned` and the Path A console
-narrative); renaming evidence fields and rewriting runtime messaging is
-deliberately staged to the P1 evidence work rather than patched piecemeal
-here — recorded honestly as a temporary inconsistency in §D.58.8.
+establishes PackageCatalogTrust. The legacy runtime formulations (the
+`EffectiveCanLoadSelfSigned` boolean and the Path A console narrative)
+were retired by the P1 wave-W2 terminology sweep: the sisters derive
+`BootSigningPosture` (`testsigning-active` /
+`supplemental-deployed-unverified` / `closed`) and gate G-03 holds
+repo-wide — no can-load boolean anywhere, enforced by
+`Test-BootSigningPostureSweep.ps1`. `Test-WhqlCoSignature` additionally
+emits the P1-D classification (`WhcpHdc` / `LegacyCrossSignedNotProven` /
+`PrivateOrTestSigned` / `Unsigned` / `Unknown`; the AllowListed value is
+reserved until an allow-list proof mechanism exists — ruling Q4).
 
 ### D.58.4 Four mechanisms that must not be conflated (audit F-06)
 
@@ -8103,10 +8108,12 @@ As of Chipset r113 / Graphics r79 / NPU r56 / BthPan r61:
 
 **Staged honestly:** this release ships the fail-closed identity gate only.
 Verifying that the named base policy actually exists on the host and
-carries rule option 17 is runtime evidence work (P1), as is the terminology
-sweep of runtime strings and evidence field names (§D.58.3). Until then the
-gate guarantees "no deployment without an operator-verified identity", not
-"the identity was machine-verified".
+carries rule option 17 is runtime evidence work (P1). The terminology
+sweep of runtime strings and evidence field names staged here was
+completed by the P1 wave-W2 release (`BootSigningPosture` and the
+`Classification` field — §D.58.3). Until the base policy is
+machine-verified the gate guarantees "no deployment without an
+operator-verified identity", not "the identity was machine-verified".
 
 ## Appendix: How to seed a new sister script from this SPEC
 
