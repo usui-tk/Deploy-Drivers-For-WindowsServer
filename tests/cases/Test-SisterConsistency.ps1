@@ -58,7 +58,9 @@ Write-TestSection 'Shared helpers are byte-identical across the sisters that car
 $fourWay = @('Write-InstallReadinessDigest', 'Get-SystemDeviceHealthCensus',
               'Write-DeviceHealthRegressionReport', 'Get-InfWdfRequirement',
               'Get-HostWdfRuntime', 'Get-BinaryVersionFact', 'Get-WdfDocumentedBaseline',
-              'Get-WdfShortfallSummary', 'Get-RecordFieldText', 'Show-WdfShortfallNotice')
+              'Get-WdfShortfallSummary', 'Get-RecordFieldText', 'Show-WdfShortfallNotice',
+              'Resolve-SupplementalActivationPlan', 'Test-RefreshPolicyExeAvailable',
+              'Test-WindowsDriverPolicyPresent', 'Show-WindowsDriverPolicyDisclosure')
 foreach ($name in $fourWay) {
     $hashes = @($sisters | ForEach-Object { Get-TextHash (Get-FunctionText -Path $_ -Name $name) })
     Assert-Equal ('{0}: identical in all four' -f $name) 1 (@($hashes | Sort-Object -Unique)).Count
