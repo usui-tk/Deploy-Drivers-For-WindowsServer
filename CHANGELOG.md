@@ -20,6 +20,64 @@ independently.
 
 ---
 
+## [2026-08-09] `ws2016-ceiling-retraction-and-rank-narrative-sweep` — documentation and gate G-05/F9+F10 (no behavioral script changes, no version bumps)
+
+Wave W10 of the P1 audit remediation (audit v5 P1-A / feedback R1, 5A-1,
+5A-3; audit v4 R4-M01 folded in per ruling Q8). Script edits are
+comment-only (help text), so no ScriptVersion moves.
+
+### Changed — WS2016 KMDF-ceiling claim retracted against measurement
+
+- The README claim that current AMD drivers commonly declare a newer KMDF
+  than WS2016 ships is retracted: the measured chipset baseline
+  (`tools/amd-chipset-driver-research/`, 25 releases / 643
+  hardware-matched INF rows) declares at most KMDF 1.19 — equal to
+  WS2016's documented runtime (SPEC D.52.2). Scope stated with the
+  retraction: chipset packages only; WS2016 host-side KMDF unmeasured;
+  the `WDF_VIOLATION` investigation (SPEC D.47) stays open. The ceiling
+  mechanism (D.47.4) is untouched.
+- First use of the supersession style: TESTING §37's historical sentence
+  is kept and marked superseded at the package-declaration level; new
+  TESTING §44 records the baseline as citable evidence (evidence, not
+  policy); SPEC D.52.2 gains the dated package-side pointer; both READMEs
+  gain the evidence-layer cross-link.
+
+### Changed — narrative residues swept (kernel-trust and universal rank)
+
+- The one-pass sidebar in both READMEs restates the end state as
+  package-catalog trust with kernel-image trust evaluated independently
+  by Code Integrity (the last kernel-trust phrasing outside retraction
+  contexts).
+- The chipset/graphics help bullet asserting that Microsoft/OEM-signed
+  drivers universally outrank and supersede self-signed ones is rewritten
+  (byte-identical in both scripts): rank is computed by Windows from the
+  applicable ranking model — with AllSigningEqual at its default the
+  signature score is not part of the best-rank comparison — and the C/B/A
+  ordering is ProjectPreference, never a rank fact (audit v4 R4-M01;
+  SPEC D.58.11). The TESTING maturity-table note drops the same
+  universal-supersede phrasing for the W5 submit-vs-rebind vocabulary.
+
+### Added — G-05 families F9/F10 and the block-comment blocker fix
+
+- Family F9 (kernel-trust phrasing, en+ja patterns) and family F10
+  (universal PnP-rank phrasing — the audit v4 G-14 concept, subsumed as a
+  G-05 family; the G-11–15 vacancy record now carries this note).
+  Conditioned statements (measured rank / AllSigningEqual /
+  ProjectPreference / negations) stay legal.
+- Blocker fix: `<# ... #>` block-comment interiors were invisible to the
+  v1 ps1 blocker (no leading `#`), which hid the comment-based help of
+  all four sisters from every family. Interiors are now blocked
+  paragraph-wise; a block-comment wrapped synthetic positive pins the
+  fix. Re-scanning the whole tree with the fixed blocker surfaced no
+  additional F1–F8 findings.
+- Negative control against the pre-W10 tree (`3116024`): 5 named findings
+  — F10 at chipset:73 and graphics:112 (inside the previously invisible
+  block-comment help), F9 at README.md:517 and README.ja.md:516, and F10
+  at TESTING.md:28, which the design-time survey had missed and the
+  instrument found. Suite: 19 cases / 768 assertions.
+
+---
+
 ## [2026-08-09] `npu-pfx-hygiene-and-msbthpan-rename` — NPU r60 / BthPan r66
 
 Seventh wave (W7) of the P1 audit remediation (audit v3 H-05R plus the

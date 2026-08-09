@@ -47,6 +47,15 @@ $reLegal  = '(?i)retract|was wrong|superseded|removed|retired|does not (authoriz
 $reSbCtx  = '(?i)supplemental|self-signed|certificate'
 $reWhql   = '(?i)WHQL|SkipNonCosigned'
 $reDropCtx = '(?i)testsigning|Secure Boot'
+# W10 (audit v4 R4-M01 + W6 semantic residue): kernel-trust phrasing (F9)
+# and universal PnP-rank phrasing (F10). Assembled by concatenation as above.
+$reTbk       = 'trusted by ' + '(the )?kernel'
+$reTbkJa     = '(kernel|' + [char]0x30AB + [char]0x30FC + [char]0x30CD + [char]0x30EB + ') ?' + [char]0x306B + ' ?' + [char]0x4FE1 + [char]0x983C
+$reTbkCtx    = '(?i)self-signed|certificate|' + [char]0x81EA + [char]0x5DF1 + [char]0x7F72 + [char]0x540D
+$reTbkNeg    = 'not trusted by'
+$reRank      = ('always ranks? ' + 'higher') + '|' + ('always ' + 'outranks?') + '|' + ('will always be ' + 'replaced') + '|' + ('always ' + 'supersedes?')
+$reRankCtx   = '(?i)self-signed|OEM|Microsoft|vendor|signer'
+$reRankLegal = '(?i)measured rank|AllSigningEqual|ProjectPreference|ranking model|policy configuration|do not assume|never assume'
 
 function Get-G05NormalizedText {
     [OutputType([string])]
@@ -70,6 +79,7 @@ function Get-G05LogicalBlock {
     $buf    = [System.Text.StringBuilder]::new()
     $bufAt  = 0
     $skip   = $false
+    $inBlockComment = $false
     $whatsNewEn = '## What' + "'" + 's new'
     $whatsNewJa = '## ' + [char]0x65B0 + [char]0x7740 + [char]0x60C5 + [char]0x5831
     for ($i = 0; $i -lt $lines.Count; $i++) {
@@ -89,7 +99,32 @@ function Get-G05LogicalBlock {
                 [void]$buf.Append($ln).Append(' ')
             }
         } else {
-            $isComment = $ln.TrimStart().StartsWith('#')
+            # W10: <# ... #> block-comment interiors were invisible to the
+            # v1 blocker (no leading '#'), which hid the comment-based help
+            # of all four sisters. Interiors are blocked paragraph-wise
+            # (blank-line separated), matching the md semantics.
+            $trimmed = $ln.TrimStart()
+            if (-not $inBlockComment -and $trimmed.StartsWith('<#')) { $inBlockComment = $true }
+            if ($inBlockComment) {
+                if ([string]::IsNullOrWhiteSpace($ln)) {
+                    if ($buf.Length -gt 0) {
+                        [void]$blocks.Add([pscustomobject]@{ Line = $bufAt; Text = (Get-G05NormalizedText -Raw $buf.ToString()) })
+                        [void]$buf.Clear()
+                    }
+                } else {
+                    if ($buf.Length -eq 0) { $bufAt = $i + 1 }
+                    [void]$buf.Append($ln).Append(' ')
+                }
+                if ($trimmed.Contains('#>')) {
+                    $inBlockComment = $false
+                    if ($buf.Length -gt 0) {
+                        [void]$blocks.Add([pscustomobject]@{ Line = $bufAt; Text = (Get-G05NormalizedText -Raw $buf.ToString()) })
+                        [void]$buf.Clear()
+                    }
+                }
+                continue
+            }
+            $isComment = $trimmed.StartsWith('#')
             if ($isComment) {
                 if ($buf.Length -eq 0) { $bufAt = $i + 1 }
                 [void]$buf.Append($ln).Append(' ')
@@ -120,6 +155,8 @@ function Get-G05BlockFamily {
         if (($Text -match $reKmsA1) -or ($Text -match $reKmsA2)) { [void]$fams.Add('F2') } # psa-disable-line PSA2003 -- pattern variables are non-null file-scope constants assigned unconditionally above
         if ($Text -match $reJaKms) { [void]$fams.Add('F2ja') } # psa-disable-line PSA2003 -- pattern variables are non-null file-scope constants assigned unconditionally above
         if (($Text -match $reDrop) -and ($Text -match $reDropCtx)) { [void]$fams.Add('F5') } # psa-disable-line PSA2003 -- pattern variables are non-null file-scope constants assigned unconditionally above
+        if ((($Text -match $reTbk) -or ($Text -match $reTbkJa)) -and ($Text -match $reTbkCtx) -and ($Text -notmatch $reTbkNeg) -and ($Text -notmatch $reWhql)) { [void]$fams.Add('F9') } # psa-disable-line PSA2003 -- pattern variables are non-null file-scope constants assigned unconditionally above
+        if (($Text -match $reRank) -and ($Text -match $reRankCtx) -and ($Text -notmatch $reRankLegal)) { [void]$fams.Add('F10') } # psa-disable-line PSA2003 -- pattern variables are non-null file-scope constants assigned unconditionally above
     }
     if ($Text -match ('(?i)' + $reDwsp)) { [void]$fams.Add('F3') }
     if ($Text -match $reHvci) { [void]$fams.Add('F4') } # psa-disable-line PSA2003 -- pattern variables are non-null file-scope constants assigned unconditionally above
@@ -196,6 +233,28 @@ try {
     [System.IO.File]::WriteAllLines($synRetract, @(
         ('the claim that the policy authorises the cert as a ' + $kms + ' was wrong, and it has been retracted')))
     Assert-Equal 'a retraction record is NOT flagged' 0 @(Get-G05Finding -Path $synRetract -Kind 'md').Count
+
+    # W10 synthetics: F9 (kernel-trust phrasing) and F10 (universal rank),
+    # including the ps1 block-comment visibility the v1 blocker lacked.
+    $synTbk = Join-Path $tmpDir 'syn-tbk.md'
+    [System.IO.File]::WriteAllLines($synTbk, @('a self-signed certificate trusted by', ('the kernel' + ' after install')))
+    Assert-True 'wrapped kernel-trust phrasing is caught (F9)' ((@(Get-G05Finding -Path $synTbk -Kind 'md') -match 'F9').Count -gt 0)
+
+    $synTbkJa = Join-Path $tmpDir 'syn-tbk-ja.md'
+    [System.IO.File]::WriteAllLines($synTbkJa, @(([string][char]0x81EA + [char]0x5DF1 + [char]0x7F72 + [char]0x540D) + ('kernel ' + [char]0x306B + [char]0x4FE1 + [char]0x983C)))
+    Assert-True 'ja kernel-trust phrasing is caught (F9)' ((@(Get-G05Finding -Path $synTbkJa -Kind 'md') -match 'F9').Count -gt 0)
+
+    $synTbkNeg = Join-Path $tmpDir 'syn-tbk-neg.md'
+    [System.IO.File]::WriteAllLines($synTbkNeg, @('the certificate is ' + ('not trusted by' + ' the kernel until Code Integrity evaluates it')))
+    Assert-Equal 'the kernel-trust negation is NOT flagged' 0 @(Get-G05Finding -Path $synTbkNeg -Kind 'md').Count
+
+    $synRank = Join-Path $tmpDir 'syn-rank.ps1'
+    [System.IO.File]::WriteAllLines($synRank, @('<#', ('  - Microsoft / OEM-signed drivers always rank'), ('    higher than self-' + 'signed ones.'), '#>'))
+    Assert-True 'block-comment wrapped rank claim is caught (F10)' ((@(Get-G05Finding -Path $synRank -Kind 'ps1') -match 'F10').Count -gt 0)
+
+    $synRankLegal = Join-Path $tmpDir 'syn-rank-legal.md'
+    [System.IO.File]::WriteAllLines($synRankLegal, @(('with AllSigningEqual at its default, do not assume any signer always ranks ' + 'higher')))
+    Assert-Equal 'the conditioned rank statement is NOT flagged' 0 @(Get-G05Finding -Path $synRankLegal -Kind 'md').Count
 
     # File-level negative control: a mutated temp .ps1 with retired phrasing.
     $mut = Join-Path $tmpDir 'mut-retired.ps1'
