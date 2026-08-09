@@ -20,6 +20,61 @@ independently.
 
 ---
 
+## [2026-08-09] `download-verification-and-pfx-hygiene` — Chipset r116 / Graphics r82 / BthPan r64
+
+Fourth wave (W4) of the P1 audit remediation (audit P1-F / H-04 and
+P1-G / H-05). **NPU is not part of this release**: it never carried the
+fixed PFX password default and has no SDK/WDK/7-Zip/AMD download
+fallbacks (its `'placeholder'`-password export branch is recorded as a
+W5-candidate observation instead).
+
+### Changed — per-run random PFX password, ACL, post-install deletion (P1-G)
+
+- The `'ChangeMe!2026'` default is retired repo-wide. `-PfxPassword`
+  defaults to empty = per-run random password (`New-RandomPfxPassword`:
+  32 chars, CSPRNG, alphanumeric to survive signtool `/p` quoting).
+- `Set-PfxFileAcl` restricts the exported PFX to Administrators + SYSTEM
+  (well-known SIDs, inheritance disabled) immediately after
+  `Export-PfxCertificate`.
+- I04 completion deletes the PFX; the certificate remains in the store.
+  A P07 cache hit first proves the leftover PFX opens with this run's
+  password and regenerates otherwise (per-run passwords make a stale PFX
+  unopenable by design).
+
+### Changed — fail-closed Authenticode for downloaded binaries (P1-F)
+
+- New three-way helper `Assert-DownloadedFileSignature`: `Status` must
+  be `Valid` AND the signer subject must match the expected publisher,
+  else the run stops. Applied on every run — cache hits included —
+  immediately before execution/expansion.
+- Sites: Windows SDK / WDK installers ('Microsoft Corporation', no
+  Force escape), the 7-Zip MSI ('Igor Pavlov' — verified at the call
+  site with the canonical installer units untouched: the call site
+  pre-downloads into the cache via the canonical URL resolver and the
+  canonical function reuses the verified file), and the AMD installer
+  ('Advanced Micro Devices', cached AND fresh paths, Chipset/Graphics;
+  `-Force` downgrades to a loud warning for CDN quirks).
+
+### Added — structural contract case (P1-F / P1-G)
+
+- `Test-DownloadAndPfxHygiene.ps1`: the retired password (assembled at
+  run time) appears 0 times repo-wide; generator/ACL/deletion/open-probe
+  wiring; every download site carries the fail-closed gate; three-way
+  byte-identity for the new helpers (also registered in
+  `Test-SisterConsistency`). The helpers consume Windows-only cmdlets,
+  so the Linux harness pins structure, not execution. **Negative control
+  (measured)**: the pre-W4 tree (r115 generation, via a git worktree)
+  reports 5 passed / 31 failed.
+- Suite after this release: **15 cases, 654 assertions, all passing**,
+  measured on PowerShell 7.4.6 (Core) on Linux.
+
+### Documentation
+
+- SPEC D.58.10 (new): download verification and PFX hygiene.
+- README / README.ja: "What's new" latest-release entry for this wave.
+
+---
+
 ## [2026-08-09] `activation-path-os-separation` — Chipset r115 / Graphics r81 / NPU r58 / BthPan r63
 
 Third wave (W3) of the P1 audit remediation (audit P1-A + rulings U3 and

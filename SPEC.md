@@ -8170,6 +8170,33 @@ generation):
   Windows Driver Policy GUID is proven present via policy enumeration —
   never on 2016/2019/2022.
 
+### D.58.10 Download verification and PFX hygiene (audit P1-F / P1-G; W4)
+
+**P1-F (H-04) — fail-closed Authenticode for downloaded binaries.**
+`Assert-DownloadedFileSignature` (three-way, Chipset/Graphics/BthPan; NPU
+has no download fallbacks) requires `Status -eq 'Valid'` AND a signer
+subject matching the expected publisher, else throws. It runs on EVERY
+invocation — cache hits included — immediately before the file is executed
+or expanded: the SDK and WDK installers ('Microsoft Corporation', no Force
+escape), the 7-Zip MSI ('Igor Pavlov' — enforced at the call site by
+pre-downloading into the cache via the canonical URL resolver so the
+canonical installer units stay untouched and reuse the verified file), and
+the AMD installer ('Advanced Micro Devices', both the cached and the
+fresh-download paths; `-Force` downgrades to a loud warning as an operator
+escape hatch for CDN quirks).
+
+**P1-G (H-05) — PFX hygiene.** The fixed default password is retired:
+`-PfxPassword` defaults to empty, which selects a per-run random password
+(`New-RandomPfxPassword`: 32 chars, CSPRNG, alphanumeric so the value
+survives signtool `/p` quoting). The exported PFX is ACL-restricted to
+Administrators + SYSTEM via well-known SIDs (`Set-PfxFileAcl`,
+locale-independent), and I04 completion deletes the PFX — the certificate
+remains in the store, and a P07 cache hit first proves the leftover PFX
+opens with this run's password (otherwise it regenerates instead of
+failing later at P08/I01). These helpers are Windows-only cmdlet
+consumers, so the Linux harness pins them by structural contract
+(`Test-DownloadAndPfxHygiene.ps1`), not execution.
+
 ## Appendix: How to seed a new sister script from this SPEC
 
 If you are creating a 5th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1`):
