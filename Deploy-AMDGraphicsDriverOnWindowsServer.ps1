@@ -347,9 +347,9 @@
 
 .PARAMETER UseTestSigning
     Force the legacy bcdedit testsigning path in I02 instead of the
-    default WDAC supplemental policy path. Requires Secure Boot off in
-    firmware and a reboot. Use only when WDAC tools are unavailable or
-    when you specifically need a testsigning lab.
+    optional App Control supplemental policy path (explicit
+    -WdacBasePolicyGuid required). Requires Secure Boot off in firmware
+    and a reboot. Mode T is a lab-only, explicit opt-in (gate G-04).
 
 .PARAMETER References
     Display the curated list of Microsoft Learn documentation links
@@ -408,8 +408,10 @@
 #
 # === [1] SECURE BOOT (UEFI signature enforcement) ==================
 #   Why it matters: Secure Boot is what prevents this script's self-
-#   signed kernel-mode drivers from loading by default. The WDAC path
-#   in I02 keeps Secure Boot ENABLED while still loading the drivers.
+#   signed kernel-mode drivers from loading by default. Loading them
+#   requires Mode T (testsigning, Secure Boot OFF, lab only); the I02
+#   App Control path acts on the AppControlDecision layer only and
+#   makes no KernelImageTrust claim (SPEC D.58).
 #
 #   - What Is Secure Boot for Windows
 #     https://learn.microsoft.com/en-us/windows-hardware/drivers/bringup/secure-boot
@@ -438,9 +440,10 @@
 #
 # === [3] WDAC / APP CONTROL FOR BUSINESS ===========================
 #   (formerly Windows Defender Application Control)
-#   Why it matters: This is the I02 default path. The script builds a
-#   supplemental policy that adds its self-signed cert as a kernel-
-#   mode signer, deploys via CiTool, and reverses cleanly via Cleanup.
+#   Why it matters: This is I02's optional App Control path (explicit
+#   -WdacBasePolicyGuid required). The supplemental policy references
+#   the self-signed cert on the AppControlDecision layer only, is
+#   activated per the OS activation plan, and reverses via Cleanup.
 #
 #   - Application Control / WDAC documentation root
 #     https://learn.microsoft.com/en-us/windows/security/application-security/application-control/windows-defender-application-control/
@@ -676,13 +679,14 @@ param(
     [switch]$SkipEvidenceCollection,
 
     # === Driver-load authorization mode ===============================
-    # By default, I02 deploys a WDAC supplemental Code Integrity policy
-    # that allowlists this script's self-signed cert as a kernel-mode
-    # signer. This keeps Secure Boot ENABLED and does not require any
-    # firmware changes. Pass -UseTestSigning to fall back to the legacy
-    # bcdedit testsigning approach (which requires Secure Boot OFF in
-    # firmware - the script will refuse if Secure Boot is on, unless
-    # -Force is also passed).
+    # I02 can deploy an optional App Control supplemental Code Integrity
+    # policy (explicit -WdacBasePolicyGuid required). The policy acts on
+    # the AppControlDecision layer only; it does not grant kernel-mode
+    # signing authority to the cert and makes no KernelImageTrust claim
+    # (SPEC D.58). Pass -UseTestSigning (Mode T, lab only) for the
+    # legacy bcdedit testsigning approach - it requires Secure Boot OFF
+    # in firmware, and the script refuses while Secure Boot is on
+    # (unless -Force is also passed).
     [switch]$UseTestSigning,
 
     # === Workstation override =========================================
@@ -807,7 +811,7 @@ $Script:WdfShortfall      = $null
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'graphics-2026.08.09-r83'
+$Script:ScriptVersion = 'graphics-2026.08.09-r84'
 $Script:ScriptTag     = 'project-preference-and-measured-rank'
 $Script:ScriptHash    = '(unknown)'
 try {
@@ -3224,8 +3228,8 @@ function Export-DebugTraceJson {
 #
 # Secure Boot can ONLY be disabled in firmware (UEFI setup), not from
 # Windows. This script can detect, instruct, and refuse to enable
-# testsigning when Secure Boot is on (because the bcdedit setting
-# would be silently dropped on next boot).
+# testsigning when Secure Boot is on (bcdedit refuses the write
+# while Secure Boot is on).
 
 #####################################################################
 # SECTION 1d: UEFI Secure Boot certificate baseline
@@ -4393,7 +4397,7 @@ function Show-BootSigningChangeRequired {
 # Relationship to bcdedit testsigning (Mode T):
 #   testsigning is the only measured path that opens KernelImageTrust
 #   for project-signed images, and it requires Secure Boot OFF (the
-#   flag is silently dropped at boot while Secure Boot is on). Mode T
+#   bcdedit write is refused while Secure Boot is on). Mode T
 #   is a lab-only, explicitly opted-in state; the supplemental policy
 #   is not an alternative to it for kernel-image loading.
 #
@@ -4787,7 +4791,8 @@ function New-AmdDriverWdacSupplementalPolicy {
     }
     $xml.Save($OutputXml)
 
-    # Step 4: add ONLY our cert as kernel-mode signer
+    # Step 4: add a kernel signing scenario rule for our cert
+    #         (AppControlDecision layer only - SPEC D.58)
     Add-SignerRule -FilePath $OutputXml -CertificatePath $CerPath -Kernel | Out-Null
 
     # Step 5: return new policy ID for caller's records
@@ -14541,12 +14546,13 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     # ====================================================================
     # I02 - Configure code-signing-policy authorization
     # ====================================================================
-    # Authorize this script's self-signed code-signing certificate to
-    # produce kernel-mode-loadable drivers. Two implementation paths:
+    # Establish the project signing posture for this run. Two paths:
     #
-    #   PATH A (default, RECOMMENDED): WDAC supplemental policy
+    #   PATH A (optional): App Control supplemental policy (explicit
+    #     -WdacBasePolicyGuid required; AppControlDecision layer only -
+    #     no KernelImageTrust effect is claimed, SPEC D.58)
     #     - Build a Code Integrity supplemental policy XML that ONLY
-    #       allowlists our cert as a kernel-mode signer.
+    #       references our cert in a kernel signing scenario rule.
     #     - Convert to.cip and deploy under
     #       %SystemRoot%\System32\CodeIntegrity\CiPolicies\Active.
     #     - Activate via CiTool.exe --update-policy (immediate on
@@ -14744,9 +14750,9 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     if ($Ctx.UseTestSigning) {
         Write-Host 'Path: legacy testsigning (selected via -UseTestSigning).' -ForegroundColor DarkYellow
     } elseif ($useWdac) {
-        Write-Host 'Path: WDAC supplemental policy (default, keeps Secure Boot ON).' -ForegroundColor Cyan
+        Write-Host 'Path: App Control supplemental policy (explicit -WdacBasePolicyGuid required; AppControlDecision layer only).' -ForegroundColor Cyan
     } else {
-        Write-Host 'Path: legacy testsigning (WDAC tools not available on this system).' -ForegroundColor DarkYellow
+        Write-Host 'Path: none - App Control tools unavailable and -UseTestSigning not selected; I02 will refuse (Mode T is an explicit opt-in).' -ForegroundColor DarkYellow
     }
     Write-Host ''
 
@@ -14897,8 +14903,8 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     if ($bootEnvBefore.TestSigningEnabled -eq $true) {
         Write-Skip 'BCD testsigning is already ON.'
         if ($bootEnvBefore.SecureBootEnabled -eq $true) {
-            Write-Caution 'However, Secure Boot is also ON - testsigning is being dropped at boot.'
-            Write-Caution 'You MUST disable Secure Boot in firmware, or use the WDAC path (the default).'
+            Write-Caution 'However, Secure Boot is also ON - test-signing cannot be relied on while Secure Boot enforces the production signing policy.'
+            Write-Caution 'Disable Secure Boot in firmware (lab host only), or run the WHQL-co-signed subset via -SkipNonCosignedDrivers.'
         } elseif ($bootEnvBefore.HvciRunning) {
             Write-Caution 'However, HVCI / Memory Integrity is RUNNING - it overrides testsigning.'
         } else {
@@ -14935,21 +14941,21 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     if ($bootEnvBefore.SecureBootEnabled -eq $true -and -not $Ctx.Force) {
         Write-Host ''
         Write-Host '*** I02 ABORTED: -UseTestSigning was selected but Secure Boot is ON ***' -ForegroundColor Red
-        Write-Host 'bcdedit /set testsigning on is silently dropped at next boot when Secure Boot is on.' -ForegroundColor Red
+        Write-Host 'bcdedit refuses the testsigning write while Secure Boot is on ("The value is protected by Secure Boot policy and cannot be modified or deleted").' -ForegroundColor Red
         Write-Host ''
         Show-BootSigningChangeRequired -BootEnv $bootEnvBefore
         Write-Host ''
         Write-Host 'Mode T requires Secure Boot OFF (lab host only). Disable Secure Boot in firmware first.' -ForegroundColor Yellow
-        throw 'I02: Secure Boot is enabled - testsigning would be silently dropped at boot. Disable Secure Boot in firmware first (lab host only).'
+        throw 'I02: Secure Boot is enabled - the bcdedit testsigning write is refused by Secure Boot policy. Disable Secure Boot in firmware first (lab host only).'
     }
 
     # Pre-check: HVCI
     if ($bootEnvBefore.HvciRunning -and -not $Ctx.Force) {
         Write-Host ''
         Write-Host '*** I02 ABORTED: -UseTestSigning was selected but HVCI is RUNNING ***' -ForegroundColor Red
-        Write-Host 'HVCI enforces a Code Integrity policy that rejects test-signed kernel images.' -ForegroundColor Red
+        Write-Host 'This project does not guarantee that every target kernel image carries an embedded signature acceptable under HVCI.' -ForegroundColor Red
         Show-BootSigningChangeRequired -BootEnv $bootEnvBefore
-        throw 'I02: HVCI is running - test-signed kernel images will not load. Disable HVCI / Memory Integrity first (lab host only).'
+        throw 'I02: HVCI / Memory Integrity is running - Mode T is conservatively refused (project policy, lab host only). Disable Memory Integrity first.'
     }
 
     # Apply testsigning (Mode T explicit opt-in; the conditional below is
@@ -15411,9 +15417,10 @@ function Invoke-InstPhase04_PostInstallVerification {
 
     Set-DebugStep 'boot-signing effective-state check'
     # ---- Boot-signing effective-state check ----
-    # If I02 set testsigning but Secure Boot was/is on, the kernel
-    # silently dropped it at the next boot - the BCD entry stays "Yes"
-    # in user-mode tools but the kernel ignores it. We can detect this
+    # If the BCD testsigning flag is set but Secure Boot was/is on, the
+    # flag cannot be relied on (bcdedit refuses new writes under Secure
+    # Boot, and a pre-existing flag is not proven honored at boot; only
+    # the desktop Test Mode watermark proves honoring). We can detect this
     # by reading the runtime CodeIntegrity policy, but the simplest
     # signal is: if testsigning is "on" in BCD AND the desktop is in
     # Test Mode, the kernel honored it. The desktop watermark is
@@ -15935,7 +15942,7 @@ function Show-ReferenceLinks { # psa-disable-line PSA6003 -- compound noun (e.g.
         }
         @{
             Heading = '[3] WDAC / APP CONTROL FOR BUSINESS'
-            Why     = 'This is the I02 default path. The script builds a supplemental policy that adds its self-signed cert as a kernel-mode signer, deploys via CiTool, and reverses cleanly via Cleanup.'
+            Why     = 'This is I02''s optional App Control path (explicit -WdacBasePolicyGuid required). The supplemental policy references the self-signed cert on the AppControlDecision layer only (SPEC D.58), is activated per the OS activation plan, and reverses cleanly via Cleanup.'
             Links   = @(
                 @{ T='Application Control / WDAC documentation root'
                    U='https://learn.microsoft.com/en-us/windows/security/application-security/application-control/windows-defender-application-control/' }

@@ -107,7 +107,7 @@
     blocks Install on Workstation and runs PrepareVerify only.
 
 .PARAMETER UseTestSigning
-    Fall back to bcdedit /set testsigning on instead of the default WDAC supplemental policy.
+    Fall back to bcdedit /set testsigning on instead of the optional App Control supplemental policy (explicit -WdacBasePolicyGuid required); Mode T is a lab-only, explicit opt-in.
     Discouraged on Windows Server 2022+ / Windows 11 22H2+.
 
 .PARAMETER CleanWorkRoot
@@ -349,7 +349,7 @@ param(
 #   * PhaseResults - per-phase outcome registry (write side from
 #     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.08.09-r58'
+$Script:ScriptVersion       = 'npu-2026.08.09-r59'
 $Script:ScriptTag           = 'activation-path-os-separation'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
@@ -6710,11 +6710,12 @@ function Show-WindowsDriverPolicyDisclosure {
 function New-WdacSupplementalPolicy {
     <#
     .SYNOPSIS
-        Generates a WDAC supplemental Code Integrity policy that allowlists the self-signed
-        code-signing cert as a kernel-mode signer.
+        Generates an App Control supplemental Code Integrity policy that references the
+        self-signed code-signing cert in a kernel signing scenario rule.
     .DESCRIPTION
-        Uses New-CIPolicy + Add-SignerRule + ConvertFrom-CIPolicy. The policy is
-        Allow-by-default with our cert as additional kernel-mode signer.
+        Uses New-CIPolicy + Add-SignerRule + ConvertFrom-CIPolicy. The supplemental
+        acts on the AppControlDecision layer only and makes no KernelImageTrust
+        claim (SPEC D.58); it supplements an operator-verified base policy.
         Deployment via CiTool --update-policy avoids the need for a reboot on
         Windows 11 22H2+ / Windows Server 2025 (CiTool does not ship on
         Windows Server 2022 - audit P1-A).
