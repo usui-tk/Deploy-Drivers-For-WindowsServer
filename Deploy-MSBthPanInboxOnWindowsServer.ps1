@@ -387,6 +387,11 @@ param(
     [string]$DecorationStrategy = 'A',
 
     # === WDAC supplemental policy GUID overrides ======================
+    # WdacBasePolicyGuid has NO DEFAULT: without it the supplemental
+    # path is refused (third-party audit finding C-02; SPEC D.58.8).
+    # Supply the GUID of a base policy you have verified is deployed on
+    # this host with rule option 17 (Enabled:Allow Supplemental
+    # Policies).
     [string]$WdacPolicyGuid     = '',
     [string]$WdacBasePolicyGuid = '',
 
@@ -456,8 +461,8 @@ $Script:WdfShortfall      = $null
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-$Script:ScriptVersion = 'msbthpan-2026.08.09-r60'
-$Script:ScriptTag     = 'gate-before-mutation'
+$Script:ScriptVersion = 'msbthpan-2026.08.09-r61'
+$Script:ScriptTag     = 'signing-model-correction'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -981,15 +986,13 @@ function Resume-RunTranscriptAfterWipe {
 #                             does not collide with the graphics or
 #                             NPU scripts' WDAC policies on a host
 #                             that has all three deployed.
-# WdacBasePolicyGuidDefault: Microsoft-shipped CI base policy ID
-#                             (Windows 11 22H2+ / Server 2022+). The
-#                             supplemental policy SUPPLEMENTS this
-#                             base, meaning it is additive on top of
-#                             whatever rules the base enforces.
 $Script:WdacPolicyGuidDefault     = 'A6E72D4F-3B98-4C5A-9E1D-7F8B2A4C6E5D'
-$Script:WdacBasePolicyGuidDefault = 'A244370E-44C9-4C06-B551-F6016E563076'
 
-# Resolved values (use operator override if non-empty, else default).
+# Resolved values. WdacPolicyGuid: operator override if non-empty, else
+# the fixed default. WdacBasePolicyGuid: operator-supplied ONLY - there
+# is no default base policy identity any more (third-party audit finding
+# C-02; SPEC D.58.8). Empty means the supplemental path is refused by
+# Test-WdacSupplementalPolicyAdmissible.
 # Accept GUIDs with or without surrounding braces / parens / whitespace.
 $Script:WdacPolicyGuid = if (-not [string]::IsNullOrWhiteSpace($WdacPolicyGuid)) {
     $WdacPolicyGuid.Trim('{','}','(',')',' ')
@@ -999,7 +1002,7 @@ $Script:WdacPolicyGuid = if (-not [string]::IsNullOrWhiteSpace($WdacPolicyGuid))
 $Script:WdacBasePolicyGuid = if (-not [string]::IsNullOrWhiteSpace($WdacBasePolicyGuid)) {
     $WdacBasePolicyGuid.Trim('{','}','(',')',' ')
 } else {
-    $Script:WdacBasePolicyGuidDefault
+    ''
 }
 
 #####################################################################
@@ -4200,6 +4203,25 @@ function Test-MsBthPanWdacPolicyDeployed {
     return $hit
 }
 
+function Test-WdacSupplementalPolicyAdmissible {
+    # Third-party audit finding C-02 (SPEC D.58.8): a WDAC supplemental
+    # policy supplements a base policy that must actually exist on the
+    # host. These scripts used to assume the Windows-shipped base policy
+    # GUID {A244370E-44C9-4C06-B551-F6016E563076} as a default and
+    # deployed a supplemental policy against a base nobody had verified -
+    # an expectation-as-fact error of the SPEC D.47.2 family. There is no
+    # default any more: the supplemental path is admissible only when the
+    # operator supplied -WdacBasePolicyGuid naming a base policy they
+    # have verified is deployed with rule option 17 (Enabled:Allow
+    # Supplemental Policies). Runtime verification of the base policy's
+    # presence belongs to the planned evidence work; this gate ships
+    # fail-closed: no verified base identity, no deployment.
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    return -not [string]::IsNullOrWhiteSpace($Script:WdacBasePolicyGuid)
+}
+
 function New-MsBthPanDriverWdacSupplementalPolicy {
     # Build a WDAC supplemental-policy XML that allowlists ONLY this
     # script's self-signed code-signing certificate as a kernel-mode
@@ -4224,6 +4246,11 @@ function New-MsBthPanDriverWdacSupplementalPolicy {
         [string]$BasePolicyId = $Script:WdacBasePolicyGuid,
         [string]$PolicyId     = $Script:WdacPolicyGuid
     )
+    if ([string]::IsNullOrWhiteSpace($BasePolicyId)) {
+        throw ('New-MsBthPanDriverWdacSupplementalPolicy: BasePolicyId is empty. A supplemental policy requires ' +
+               'an explicit, verified base policy identity (-WdacBasePolicyGuid); the Windows-shipped ' +
+               'default is no longer assumed (audit C-02; SPEC D.58.8).')
+    }
     if (-not (Test-Path $CerPath)) {
         throw "Certificate not found at $CerPath"
     }
@@ -11678,6 +11705,22 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     # =====================================================================
     if ($useWdac) {
         Set-DebugStep 'Path A: deploy WDAC supplemental policy'
+        # ---- Admissibility gate (audit C-02; SPEC D.58.8) ----
+        # No verified base policy identity -> the supplemental path is
+        # refused, and the refusal returns (SPEC D.57: a refusal must
+        # refuse, not fall through to path selection).
+        if (-not (Test-WdacSupplementalPolicyAdmissible)) {
+            Write-Caution 'Path A (WDAC supplemental policy) is NOT admissible: no -WdacBasePolicyGuid was supplied.'
+            Write-Detail 'A supplemental policy supplements a base policy that must actually exist on this host.' -Color Yellow
+            Write-Detail 'This script no longer assumes the Windows-shipped base policy GUID as a default' -Color Yellow
+            Write-Detail '(third-party audit finding C-02; SPEC D.58.8). Supply -WdacBasePolicyGuid with the GUID' -Color Yellow
+            Write-Detail 'of a base policy you have verified is deployed with rule option 17' -Color Yellow
+            Write-Detail '(Enabled:Allow Supplemental Policies), or use -UseTestSigning on a lab host.' -Color Yellow
+            Set-PhaseMarker -Ctx $Ctx -PhaseId 'I02' -Metadata @{ Refused = $true; Reason = 'no-verified-base-policy' }
+            Write-PhaseFooter 'I02' 'skipped'
+            return
+        }
+
         # Already deployed?
         $existing = Test-MsBthPanWdacPolicyDeployed -Ctx $Ctx
         if ($existing -and -not $Ctx.Force) {
@@ -12683,7 +12726,8 @@ function Show-Help {
     Write-Host '  WDAC overrides' -ForegroundColor DarkGray
     Write-Host '    -WdacPolicyGuid <guid>   Override supplemental policy GUID.' -ForegroundColor Yellow
     Write-Host "                             Default: A6E72D4F-3B98-4C5A-9E1D-7F8B2A4C6E5D"
-    Write-Host '    -WdacBasePolicyGuid <g>  Override SupplementsBasePolicyID.' -ForegroundColor Yellow
+    Write-Host '    -WdacBasePolicyGuid <g>  SupplementsBasePolicyID. NO DEFAULT: required' -ForegroundColor Yellow
+    Write-Host '                             for the supplemental path (audit C-02).'
 
     Write-Host ''
     Write-Host 'EXAMPLES' -ForegroundColor Cyan
@@ -12860,6 +12904,7 @@ Write-Host (' CleanWorkRoot   : {0}' -f $CleanWorkRoot.IsPresent)
 Write-Host (' Force           : {0}' -f $Force.IsPresent)
 Write-Host (' SkipNonCosigned : {0}' -f $SkipNonCosignedDrivers.IsPresent)
 Write-Host (' UseTestSigning  : {0}' -f $UseTestSigning.IsPresent)
+Write-Host (' WdacBaseGuid    : {0}' -f $(if ($Script:WdacBasePolicyGuid) { $Script:WdacBasePolicyGuid } else { '(none - supplemental path disabled)' }))
 Write-Host (' Selected phases : {0}' -f (($selected | ForEach-Object Id) -join ' -> '))
 Write-Host '============================================================' -ForegroundColor Magenta
 

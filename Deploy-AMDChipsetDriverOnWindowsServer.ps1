@@ -597,12 +597,13 @@ param(
     [string]$WdacPolicyGuid     = '',
 
     # -WdacBasePolicyGuid:
-    #   Override the SupplementsBasePolicyID written into the
-    #   supplemental policy. By default this is the Microsoft standard
-    #   base policy ID {A244370E-44C9-4C06-B551-F6016E563076} (the
-    #   Windows-shipped default CI base policy). Change only if your
-    #   environment uses a custom base policy that this supplemental
-    #   should extend.
+    #   The SupplementsBasePolicyID written into the WDAC supplemental
+    #   policy. NO DEFAULT: without this parameter the supplemental
+    #   path (Path A policy deployment) is refused. Supply the GUID of
+    #   a base policy you have verified is deployed on this host with
+    #   rule option 17 (Enabled:Allow Supplemental Policies). The
+    #   Windows-shipped base policy GUID is no longer assumed
+    #   (third-party audit finding C-02; SPEC D.58.8).
     [string]$WdacBasePolicyGuid = '',
 
     # === Debug Trace Facility ===================================
@@ -670,8 +671,8 @@ $Script:WdfShortfall      = $null
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.08.09-r112'
-$Script:ScriptTag     = 'gate-before-mutation'
+$Script:ScriptVersion = 'chipset-2026.08.09-r113'
+$Script:ScriptTag     = 'signing-model-correction'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -1195,15 +1196,13 @@ function Resume-RunTranscriptAfterWipe {
 #                             does not collide with the graphics or
 #                             NPU scripts' WDAC policies on a host
 #                             that has all three deployed.
-# WdacBasePolicyGuidDefault: Microsoft-shipped CI base policy ID
-#                             (Windows 11 22H2+ / Server 2022+). The
-#                             supplemental policy SUPPLEMENTS this
-#                             base, meaning it is additive on top of
-#                             whatever rules the base enforces.
 $Script:WdacPolicyGuidDefault     = '503860EA-8837-4169-9BC4-19E5AEED721B'
-$Script:WdacBasePolicyGuidDefault = 'A244370E-44C9-4C06-B551-F6016E563076'
 
-# Resolved values (use operator override if non-empty, else default).
+# Resolved values. WdacPolicyGuid: operator override if non-empty, else
+# the fixed default. WdacBasePolicyGuid: operator-supplied ONLY - there
+# is no default base policy identity any more (third-party audit finding
+# C-02; SPEC D.58.8). Empty means the supplemental path is refused by
+# Test-WdacSupplementalPolicyAdmissible.
 # Accept GUIDs with or without surrounding braces / parens / whitespace.
 $Script:WdacPolicyGuid = if (-not [string]::IsNullOrWhiteSpace($WdacPolicyGuid)) {
     $WdacPolicyGuid.Trim('{','}','(',')',' ')
@@ -1213,7 +1212,7 @@ $Script:WdacPolicyGuid = if (-not [string]::IsNullOrWhiteSpace($WdacPolicyGuid))
 $Script:WdacBasePolicyGuid = if (-not [string]::IsNullOrWhiteSpace($WdacBasePolicyGuid)) {
     $WdacBasePolicyGuid.Trim('{','}','(',')',' ')
 } else {
-    $Script:WdacBasePolicyGuidDefault
+    ''
 }
 
 #####################################################################
@@ -4419,6 +4418,25 @@ function Test-AmdWdacPolicyDeployed {
     return $hit
 }
 
+function Test-WdacSupplementalPolicyAdmissible {
+    # Third-party audit finding C-02 (SPEC D.58.8): a WDAC supplemental
+    # policy supplements a base policy that must actually exist on the
+    # host. These scripts used to assume the Windows-shipped base policy
+    # GUID {A244370E-44C9-4C06-B551-F6016E563076} as a default and
+    # deployed a supplemental policy against a base nobody had verified -
+    # an expectation-as-fact error of the SPEC D.47.2 family. There is no
+    # default any more: the supplemental path is admissible only when the
+    # operator supplied -WdacBasePolicyGuid naming a base policy they
+    # have verified is deployed with rule option 17 (Enabled:Allow
+    # Supplemental Policies). Runtime verification of the base policy's
+    # presence belongs to the planned evidence work; this gate ships
+    # fail-closed: no verified base identity, no deployment.
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    return -not [string]::IsNullOrWhiteSpace($Script:WdacBasePolicyGuid)
+}
+
 function New-AmdDriverWdacSupplementalPolicy {
     # Build a WDAC supplemental-policy XML that allowlists ONLY this
     # script's self-signed code-signing certificate as a kernel-mode
@@ -4443,6 +4461,11 @@ function New-AmdDriverWdacSupplementalPolicy {
         [string]$BasePolicyId = $Script:WdacBasePolicyGuid,
         [string]$PolicyId     = $Script:WdacPolicyGuid
     )
+    if ([string]::IsNullOrWhiteSpace($BasePolicyId)) {
+        throw ('New-AmdDriverWdacSupplementalPolicy: BasePolicyId is empty. A supplemental policy requires ' +
+               'an explicit, verified base policy identity (-WdacBasePolicyGuid); the Windows-shipped ' +
+               'default is no longer assumed (audit C-02; SPEC D.58.8).')
+    }
     if (-not (Test-Path $CerPath)) {
         throw "Certificate not found at $CerPath"
     }
@@ -14566,6 +14589,22 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     # PATH A: WDAC supplemental policy
     # =====================================================================
     if ($useWdac) {
+        # ---- Admissibility gate (audit C-02; SPEC D.58.8) ----
+        # No verified base policy identity -> the supplemental path is
+        # refused, and the refusal returns (SPEC D.57: a refusal must
+        # refuse, not fall through to path selection).
+        if (-not (Test-WdacSupplementalPolicyAdmissible)) {
+            Write-Caution 'Path A (WDAC supplemental policy) is NOT admissible: no -WdacBasePolicyGuid was supplied.'
+            Write-Detail 'A supplemental policy supplements a base policy that must actually exist on this host.' -Color Yellow
+            Write-Detail 'This script no longer assumes the Windows-shipped base policy GUID as a default' -Color Yellow
+            Write-Detail '(third-party audit finding C-02; SPEC D.58.8). Supply -WdacBasePolicyGuid with the GUID' -Color Yellow
+            Write-Detail 'of a base policy you have verified is deployed with rule option 17' -Color Yellow
+            Write-Detail '(Enabled:Allow Supplemental Policies), or use -UseTestSigning on a lab host.' -Color Yellow
+            Set-PhaseMarker -Ctx $Ctx -PhaseId 'I02' -Metadata @{ Refused = $true; Reason = 'no-verified-base-policy' }
+            Write-PhaseFooter 'I02' 'skipped'
+            return
+        }
+
         # Already deployed?
         $existing = Test-AmdWdacPolicyDeployed -Ctx $Ctx
         if ($existing -and -not $Ctx.Force) {
@@ -16116,6 +16155,7 @@ Write-Host (' CleanWorkRoot   : {0}' -f $CleanWorkRoot.IsPresent)
 Write-Host (' Force           : {0}' -f $Force.IsPresent)
 Write-Host (' SkipNonCosigned : {0}' -f $SkipNonCosignedDrivers.IsPresent)
 Write-Host (' UseTestSigning  : {0}' -f $UseTestSigning.IsPresent)
+Write-Host (' WdacBaseGuid    : {0}' -f $(if ($Script:WdacBasePolicyGuid) { $Script:WdacBasePolicyGuid } else { '(none - supplemental path disabled)' }))
 Write-Host (' Selected phases : {0}' -f (($selected | ForEach-Object Id) -join ' -> '))
 Write-Host '============================================================' -ForegroundColor Magenta
 
