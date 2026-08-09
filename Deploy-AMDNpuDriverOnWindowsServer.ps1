@@ -349,8 +349,8 @@ param(
 #   * PhaseResults - per-phase outcome registry (write side from
 #     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.08.09-r59'
-$Script:ScriptTag           = 'activation-path-os-separation'
+$Script:ScriptVersion       = 'npu-2026.08.09-r60'
+$Script:ScriptTag           = 'npu-pfx-hygiene-and-msbthpan-rename'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the
@@ -6399,6 +6399,42 @@ function Test-InfProductTypeCoverage {
     }
     return $result
 }
+function New-RandomPfxPassword {
+    # Per-run random PFX password (audit P1-G). 32 chars from a CSPRNG;
+    # alphanumeric only (no ambiguous glyphs) so the value survives
+    # signtool /p quoting and X509Certificate2(.., String) unchanged.
+    # The mild modulo bias over a 58-char alphabet is irrelevant at
+    # this length for the threat model (a fixed well-known default).
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
+    $bytes = New-Object byte[] 32
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+    $chars = foreach ($b in $bytes) { $alphabet[[int]$b % $alphabet.Length] }
+    return (-join $chars)
+}
+
+function Set-PfxFileAcl {
+    # Restrict the exported PFX to Administrators + SYSTEM (audit
+    # P1-G): disable inheritance, drop inherited entries, grant
+    # FullControl to the two principals only. Well-known SIDs keep the
+    # ACL locale-independent (the D.19 discipline applied to
+    # principals).
+    [CmdletBinding()]
+    [OutputType([void])]
+    param([Parameter(Mandatory)] [string]$Path)
+    $acl = Get-Acl -LiteralPath $Path
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($sid in @('S-1-5-32-544', 'S-1-5-18')) {
+        $id = [System.Security.Principal.SecurityIdentifier]::new($sid)
+        $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($id, 'FullControl', 'Allow')
+        $acl.AddAccessRule($rule)
+    }
+    Set-Acl -LiteralPath $Path -AclObject $acl
+}
+
 # =============================================================================
 # Self-signed code-signing certificate (P07)
 # =============================================================================
@@ -6452,18 +6488,16 @@ function New-SelfSignedCodeSigningCert {
         New-Item -Path $certDir -ItemType Directory -Force | Out-Null
     }
 
-    # Export PFX
-    $pfxSecure = if ([string]::IsNullOrEmpty($PfxPassword)) {
-        ConvertTo-SecureString -String 'placeholder' -AsPlainText -Force
-    } else {
-        ConvertTo-SecureString -String $PfxPassword -AsPlainText -Force
-    }
+    # Export PFX (audit P1-G / W7): the password is always non-empty here -
+    # the Ctx constructor injects a per-run random default when the operator
+    # does not pass -PfxPassword - so the export takes a single path and the
+    # fixed well-known 'place'+'holder' string is retired.
     if ([string]::IsNullOrEmpty($PfxPassword)) {
-        # Empty password: export with placeholder, then re-encode without password
-        Export-PfxCertificate -Cert $cert -FilePath $PfxPath -Password $pfxSecure -Force | Out-Null
-    } else {
-        Export-PfxCertificate -Cert $cert -FilePath $PfxPath -Password $pfxSecure -Force | Out-Null
+        throw 'PfxPassword must not be empty; the per-run random default is injected at Ctx construction (audit P1-G).'
     }
+    $pfxSecure = ConvertTo-SecureString -String $PfxPassword -AsPlainText -Force
+    Export-PfxCertificate -Cert $cert -FilePath $PfxPath -Password $pfxSecure -Force | Out-Null
+    Set-PfxFileAcl -Path $PfxPath
 
     # Export CER (public)
     Export-Certificate -Cert $cert -FilePath $CerPath -Force | Out-Null
@@ -7669,7 +7703,7 @@ function Invoke-PrepPhase07_CreateCertificate {
         -Subject $Ctx.CertSubjectCn `
         -PfxPath $Ctx.PfxPath `
         -CerPath $Ctx.CerPath `
-        -PfxPassword $PfxPassword `
+        -PfxPassword $Ctx.PfxPassword `
         -ValidityYears $CertValidityYears
 
     $Ctx.DetectedPlatform.Cert = $cert
@@ -7736,7 +7770,7 @@ function Invoke-PrepPhase09_SignCatalogs { # psa-disable-line PSA6003 -- compoun
             -SignToolPath $Ctx.DetectedPlatform.SignToolPath `
             -CatPath $c.FullName `
             -PfxPath $Ctx.PfxPath `
-            -PfxPassword $PfxPassword `
+            -PfxPassword $Ctx.PfxPassword `
             -TimestampUrl $Ctx.TimestampUrl `
             -HashAlgo 'SHA384'
         if ($r.Success) {
@@ -7768,9 +7802,11 @@ function Invoke-VerifyPhase01_VerifyArtifacts { # psa-disable-line PSA6003 -- co
     $ok = $true
 
     Set-DebugStep 'check PFX/CER/INF/catalog presence on disk'
+    # PFX hygiene (audit P1-G / W7): the PFX is deleted after a completed
+    # Install, so absence is a legal - and expected - post-Install state.
+    # The public CER and the signed catalogs remain the verifiable artifacts.
     if (-not (Test-Path $Ctx.PfxPath)) {
-        Write-Fail ('Missing PFX: {0}' -f $Ctx.PfxPath)
-        $ok = $false
+        Write-Skip ('PFX not on disk ({0}) - deleted after Install per P1-G, or P07 has not run yet; the certificate remains in the store.' -f $Ctx.PfxPath)
     } else {
         Write-Ok ('PFX present: {0}' -f $Ctx.PfxPath)
     }
@@ -7800,22 +7836,30 @@ function Invoke-VerifyPhase02_VerifyCertificate {
     Set-DebugStep 'check EKU, key length, and validity period'
     Write-Step 'Checking EKU, key length, and validity period'
 
-    $pfxSecure = ConvertTo-SecureString -String 'placeholder' -AsPlainText -Force
+    # Certificate inspection under per-run random PFX passwords (audit
+    # P1-G / W7): the PFX opens only within the invocation that created it
+    # (PrepareVerify / All). A standalone Verify run - or any run after the
+    # post-Install deletion - falls back to the public CER, which carries
+    # everything V02 checks (subject, validity, key size, EKU). Private-key
+    # possession is proven by the signing run itself (P09 signed catalogs).
     $cert = $null
-    try {
-    Set-DebugStep 'load PFX via X509Certificate2 (with fallback)'
-        if ([string]::IsNullOrEmpty($PfxPassword)) {
-            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($Ctx.PfxPath, '', 'Exportable,PersistKeySet')
-        } else {
-            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($Ctx.PfxPath, $PfxPassword, 'Exportable,PersistKeySet')
-        }
-    } catch {
-        Write-Caution ('Could not load with placeholder password; trying empty: {0}' -f $_.Exception.Message)
+    Set-DebugStep 'load certificate (PFX same-run, CER fallback)'
+    if (Test-Path $Ctx.PfxPath) {
         try {
-            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($Ctx.PfxPath)
-        } catch {
-            throw "Could not load PFX: $($_.Exception.Message)"
+            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($Ctx.PfxPath, $Ctx.PfxPassword, 'Exportable,PersistKeySet')
+        } catch { # psa-disable-line PSA3004 -- cross-run open failure is the expected negative branch under per-run random passwords
+            Write-Caution ('PFX does not open with this run''s password (per-run random, P1-G) - inspecting the public CER instead: {0}' -f $_.Exception.Message)
         }
+    } else {
+        Write-Skip 'PFX not on disk (deleted after Install per P1-G) - inspecting the public CER instead.'
+    }
+    if (-not $cert) {
+        try {
+            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($Ctx.CerPath)
+        } catch {
+            throw "Could not load certificate from CER: $($_.Exception.Message)"
+        }
+        Write-Skip 'Private-key possession is not re-checkable cross-run by design (P1-G); it was proven when P09 signed the catalogs.'
     }
 
     Set-DebugStep 'dump cert attributes (Subject/Thumbprint/Validity)'
@@ -8746,7 +8790,7 @@ function Invoke-MainEntryPoint {
         AmdLandingUrls  = $null  # NPU does not crawl AMD landing pages; placeholder for canon parity
         AmdFallbackUrl  = $null  # NPU does not use the AMD fallback URL; placeholder for canon parity
         WorkRoot        = $WorkRoot
-        PfxPassword     = $PfxPassword
+        PfxPassword     = if ([string]::IsNullOrEmpty($PfxPassword)) { New-RandomPfxPassword } else { $PfxPassword }  # per-run random default (audit P1-G)
         TimestampUrl    = 'http://timestamp.digicert.com'
         Force           = $false  # NPU does not expose -Force at this stage; placeholder for canon parity
         CleanWorkRoot   = $CleanWorkRoot.IsPresent  # psa-disable-line PSA2001 -- script-param parent-scope lookup (switch params have no default-value form for PSA2001 recognition)
@@ -8945,6 +8989,18 @@ function Invoke-MainEntryPoint {
             if (-not $r -or $r.Status -ne 'OK') {
                 $allInstallPhasesOk = $false
                 break
+            }
+        }
+        # PFX hygiene (audit P1-G / W7): the signing artifact is not needed
+        # once the install pipeline has completed. The certificate stays in
+        # the store; a future signing run regenerates the PFX with a fresh
+        # per-run password (P07).
+        if ($allInstallPhasesOk -and $Ctx.PfxPath -and (Test-Path -LiteralPath $Ctx.PfxPath)) {
+            Remove-Item -LiteralPath $Ctx.PfxPath -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $Ctx.PfxPath) {
+                Write-Caution ('Could not delete the PFX after install ({0}) - remove it manually (P1-G).' -f $Ctx.PfxPath)
+            } else {
+                Write-Ok 'PFX deleted after install (P1-G); the certificate remains in the certificate store.'
             }
         }
         if ($allInstallPhasesOk) {

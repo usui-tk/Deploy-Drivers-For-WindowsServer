@@ -463,8 +463,8 @@ $Script:WdfShortfall      = $null
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-$Script:ScriptVersion = 'msbthpan-2026.08.09-r65'
-$Script:ScriptTag     = 'download-verification-and-pfx-hygiene'
+$Script:ScriptVersion = 'msbthpan-2026.08.09-r66'
+$Script:ScriptTag     = 'npu-pfx-hygiene-and-msbthpan-rename'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -3789,7 +3789,7 @@ function Get-BootSigningEnvironment {
     $env | Add-Member -MemberType NoteProperty -Name WdacActivePolicies -Value @()         -Force
     $env | Add-Member -MemberType NoteProperty -Name WdacBaseEnforced   -Value $null       -Force
     $env | Add-Member -MemberType NoteProperty -Name MsBthPanSuppPolicyActive -Value $false     -Force
-    $env | Add-Member -MemberType NoteProperty -Name AmdSuppPolicyId    -Value $null       -Force
+    $env | Add-Member -MemberType NoteProperty -Name MsBthPanSuppPolicyId -Value $null      -Force
     try {
         $caps = Test-WdacToolsAvailable
         $env.WdacToolsAvailable = $caps.AnyUsable
@@ -3851,7 +3851,7 @@ function Get-BootSigningEnvironment {
 
 function Update-BootSigningEnvironmentForCtx {
     # Companion to Get-BootSigningEnvironment that also fills in the
-    # MsBthPanSuppPolicyActive / AmdSuppPolicyId fields by consulting the
+    # MsBthPanSuppPolicyActive / MsBthPanSuppPolicyId fields by consulting the
     # workspace marker file. Use this from any phase that has a $Ctx
     # in scope. The plain Get-BootSigningEnvironment is safe to call
     # at startup before $Ctx is populated.
@@ -3860,7 +3860,7 @@ function Update-BootSigningEnvironmentForCtx {
     $deployed = Test-MsBthPanWdacPolicyDeployed -Ctx $Ctx
     if ($deployed) {
         $env.MsBthPanSuppPolicyActive = $true
-        $env.AmdSuppPolicyId     = $deployed.PolicyId
+        $env.MsBthPanSuppPolicyId = $deployed.PolicyId
         # A deployed supplemental policy is an AppControlDecision-layer
         # fact (SPEC D.58.3). It upgrades a 'closed' posture to
         # 'supplemental-deployed-unverified' and never overrides a
