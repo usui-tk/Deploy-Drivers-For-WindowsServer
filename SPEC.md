@@ -8020,8 +8020,9 @@ earlier research errors — 100 hours was a stale secondary source, and
   Enforce `{8F9CB695-5D48-48D6-A329-7202B44607E3}`. Deployed under the EFI
   system partition at `\EFI\Microsoft\Boot\CiPolicies\Active\`, and
   visible to `CiTool -lp`. This makes the layer **detectable**; collector
-  detection plus CodeIntegrity event 3076/3077 evidence is planned P1 work
-  (audit H-06) and is not implemented in this release.
+  detection plus CodeIntegrity event 3076/3077 evidence is implemented as
+  of collector c11 (`windows-driver-policy.json`; audit H-06, gate G-02) —
+  CiTool-only, the ESP is never mounted (ruling Q2).
 - **Evaluation before enforcement**: 250 hours of real use (value current
   as of the 2026-06-09 revision of the Microsoft article) and at least 3
   reboots — **2 boot sessions on Windows Server**. If a driver the policy

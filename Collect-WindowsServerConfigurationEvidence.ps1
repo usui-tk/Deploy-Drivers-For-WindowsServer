@@ -87,14 +87,14 @@ param(
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
-$Script:ScriptVersion  = 'collector-2026.08.09-c10'
+$Script:ScriptVersion  = 'collector-2026.08.09-c11'
 $Script:ScriptTag      = 'windows-server-configuration-evidence-collector'
 $Script:ScriptHash     = 'unavailable'
 try {
     $Script:ScriptHash = (Get-FileHash -LiteralPath $MyInvocation.MyCommand.Path -Algorithm SHA256 -ErrorAction Stop).Hash.Substring(0, 12).ToLowerInvariant()
 } catch { } # psa-disable-line PSA3004 -- self-hash is identity metadata only; collection must proceed without it
 $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash)
-$script:SchemaVersion = 'windows-server-configuration-evidence/1.6'
+$script:SchemaVersion = 'windows-server-configuration-evidence/1.7'
 # Per-stage outcome ledger (SPEC D.45). Populated by Invoke-EvidenceStage,
 # written to stage-results.json, and surfaced in the assessment so a bundle
 # always declares its own completeness.
@@ -2449,7 +2449,10 @@ function Get-BootSecurityEvidence {
     $ciToolPath = Join-Path $env:SystemRoot 'System32\CiTool.exe'
     $ciToolCapture = $null
     if (Test-Path -LiteralPath $ciToolPath -PathType Leaf) {
-        $ciToolCapture = Invoke-CapturedCommand -FilePath $ciToolPath -ArgumentList @('-lp')
+        # --json is mandatory: without it CiTool blocks on a "Press Enter
+        # to Exit" stdin prompt (SPEC D.16 defect class; latent here until
+        # the first run on a CiTool-bearing host).
+        $ciToolCapture = Invoke-CapturedCommand -FilePath $ciToolPath -ArgumentList @('-lp', '--json')
         Set-Content -LiteralPath (Join-Path $EvidenceDirectory 'citool_list-policies.txt') `
             -Value ($ciToolCapture.StdOut + $ciToolCapture.StdErr) -Encoding UTF8
     }
@@ -2470,6 +2473,297 @@ function Get-BootSecurityEvidence {
     }
 }
 
+function ConvertFrom-CiToolPolicyList {
+    # Parse `CiTool.exe --list-policies --json` output. Pure function over
+    # -Content (ruling Q3) so the offline Linux harness can test it against
+    # fixtures. Tolerates banner text before the JSON payload and both the
+    # object ({"Policies":[...]}) and bare-array shapes. GUIDs are returned
+    # brace-stripped and upper-cased so callers compare against constants.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter()] [AllowEmptyString()] [string]$Content
+    )
+    $result = [pscustomobject][ordered]@{
+        ParseSucceeded = $false
+        PolicyCount    = $null
+        PolicyIds      = @()
+        ParseError     = $null
+    }
+    if ([string]::IsNullOrWhiteSpace($Content)) {
+        $result.ParseError = 'empty content'
+        return $result
+    }
+    try {
+        $objIdx = $Content.IndexOf('{')
+        $arrIdx = $Content.IndexOf('[')
+        $start = if ($objIdx -lt 0) { $arrIdx }
+                 elseif ($arrIdx -lt 0) { $objIdx }
+                 else { [Math]::Min($objIdx, $arrIdx) }
+        if ($start -lt 0) {
+            $result.ParseError = 'no JSON payload found'
+            return $result
+        }
+        $json = $Content.Substring($start) | ConvertFrom-Json -ErrorAction Stop
+        $policies = @()
+        if ($null -ne $json -and $json -is [System.Array]) {
+            $policies = @($json)
+        }
+        elseif ($null -ne $json -and $json.PSObject.Properties['Policies']) {
+            $policies = @($json.Policies)
+        }
+        $ids = @()
+        foreach ($p in $policies) {
+            if ($null -eq $p) { continue }
+            if (-not $p.PSObject.Properties['PolicyID']) { continue }
+            $idText = [string]$p.PolicyID
+            if (-not [string]::IsNullOrWhiteSpace($idText)) {
+                $ids += $idText.Trim('{', '}', ' ').ToUpperInvariant()
+            }
+        }
+        $result.PolicyCount = @($policies).Count
+        $result.PolicyIds = $ids
+        $result.ParseSucceeded = $true
+    }
+    catch {
+        $result.ParseError = $_.Exception.Message
+    }
+    return $result
+}
+
+function ConvertTo-WindowsDriverPolicyMode {
+    # Pure mapping (ruling Q3). The mode is never derived from the OS build
+    # number alone - capability tables are expectations, not facts
+    # (SPEC D.47.2): only what `CiTool` actually listed decides.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()] [bool]$ParseSucceeded = $false,
+        [Parameter()] [bool]$AuditPresent = $false,
+        [Parameter()] [bool]$EnforcePresent = $false
+    )
+    if (-not $ParseSucceeded) { return 'unknown' }
+    if ($EnforcePresent) { return 'enforce' }
+    if ($AuditPresent) { return 'audit' }
+    return 'absent'
+}
+
+function Get-WindowsDriverPolicyEvidence {
+    # Windows Driver Policy (Layer E, SPEC D.58.6; audit H-06 / gate G-02).
+    # Detection is CiTool-only: the EFI system partition is never mounted by
+    # this read-only collector (ruling Q2) - assigning a drive letter to the
+    # ESP is a host mutation, and `CiTool --list-policies` lists the same
+    # policy IDs without one. `--json` is mandatory: without it CiTool blocks
+    # on a "Press Enter to Exit" stdin prompt (SPEC D.16 defect class).
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)] [ValidateNotNullOrEmpty()] [string]$EvidenceDirectory,
+        [Parameter()] [AllowNull()] $CodeIntegrityEvidence
+    )
+    $auditGuid   = '784C4414-79F4-4C32-A6A5-F0FB42A51D0D'
+    $enforceGuid = '8F9CB695-5D48-48D6-A329-7202B44607E3'
+    $queryError = $null
+
+    $build = $null; $ubr = $null; $displayVersion = $null
+    try {
+        $cv = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -ErrorAction SilentlyContinue
+        if ($null -ne $cv) {
+            if ($cv.PSObject.Properties['CurrentBuildNumber']) { $build = [string]$cv.CurrentBuildNumber }
+            if ($cv.PSObject.Properties['UBR'])                { $ubr = [int]$cv.UBR }
+            if ($cv.PSObject.Properties['DisplayVersion'])     { $displayVersion = [string]$cv.DisplayVersion }
+        }
+    }
+    catch { $queryError = $_.Exception.Message }
+    $applicable = if ($null -ne $build) { ([int]$build) -ge 26100 } else { $null }
+
+    $ciToolPath = Join-Path $env:SystemRoot 'System32\CiTool.exe'
+    $ciToolPresent = [bool](Test-Path -LiteralPath $ciToolPath -PathType Leaf)
+    $parse = $null
+    $method = 'none-available'
+    $rawSavedTo = $null
+    if ($ciToolPresent) {
+        $method = 'citool-lp-json'
+        $capture = Invoke-CapturedCommand -FilePath $ciToolPath -ArgumentList @('--list-policies', '--json')
+        $rawSavedTo = 'windows-driver-policy_citool.txt'
+        Set-Content -LiteralPath (Join-Path $EvidenceDirectory $rawSavedTo) `
+            -Value ($capture.StdOut + $capture.StdErr) -Encoding UTF8
+        $parse = ConvertFrom-CiToolPolicyList -Content ([string]$capture.StdOut)
+    }
+    $parseSucceeded = ($null -ne $parse -and $parse.ParseSucceeded)
+    $auditPresent   = if ($parseSucceeded) { @($parse.PolicyIds) -contains $auditGuid }   else { $null }
+    $enforcePresent = if ($parseSucceeded) { @($parse.PolicyIds) -contains $enforceGuid } else { $null }
+    $mode = ConvertTo-WindowsDriverPolicyMode -ParseSucceeded ([bool]$parseSucceeded) `
+        -AuditPresent ([bool]$auditPresent) -EnforcePresent ([bool]$enforcePresent)
+
+    $event3076 = $null; $event3077 = $null
+    $observedPaths = @()
+    if ($null -ne $CodeIntegrityEvidence) {
+        if ($CodeIntegrityEvidence.PSObject.Properties['AuditEventCount'])            { $event3076 = $CodeIntegrityEvidence.AuditEventCount }
+        if ($CodeIntegrityEvidence.PSObject.Properties['EnforcementBlockEventCount']) { $event3077 = $CodeIntegrityEvidence.EnforcementBlockEventCount }
+        if ($CodeIntegrityEvidence.PSObject.Properties['ObservedDriverPaths'])        { $observedPaths = @($CodeIntegrityEvidence.ObservedDriverPaths) }
+    }
+
+    return [pscustomobject][ordered]@{
+        CollectedAtUtc       = Get-UtcTimestamp
+        Applicable           = $applicable
+        OsBuildAndUpdate     = [pscustomobject][ordered]@{ Build = $build; Ubr = $ubr; DisplayVersion = $displayVersion }
+        AuditPolicyId        = $auditGuid
+        EnforcePolicyId      = $enforceGuid
+        Detection            = [pscustomobject][ordered]@{
+            Method         = $method
+            CiToolPresent  = $ciToolPresent
+            ParseSucceeded = $parseSucceeded
+            PolicyCount    = if ($null -ne $parse) { $parse.PolicyCount } else { $null }
+            RawSavedTo     = $rawSavedTo
+            ParseError     = if ($null -ne $parse) { $parse.ParseError } else { $null }
+        }
+        AuditPolicyPresent   = $auditPresent
+        EnforcePolicyPresent = $enforcePresent
+        Mode                 = $mode
+        EspProbe             = [pscustomobject][ordered]@{ Attempted = $false; Reason = 'read-only-contract' }
+        Event3076Count       = $event3076
+        Event3077Count       = $event3077
+        ObservedDriverPaths  = $observedPaths
+        QueryError           = $queryError
+    }
+}
+
+function Get-KernelImageTrustClassification {
+    # Pure classifier (ruling Q3) mapping signature observations onto the
+    # SPEC D.58.3 trust vocabulary. LegacyCrossSignedAllowListed is NEVER
+    # emitted (ruling Q4): allow-list membership cannot be proven yet, so a
+    # cross-signed chain always classifies as ...NotProven. Branch order
+    # matters: the WHQL-publisher subject also matches the inbox-Microsoft
+    # pattern, so the WHQL branch must come first.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter()] [AllowEmptyString()] [string]$AuthenticodeStatus = '',
+        [Parameter()] [AllowEmptyString()] [string]$PrimarySignerSubject = '',
+        [Parameter()] [AllowNull()] [string[]]$ChainSubjects = @(),
+        [Parameter()] [bool]$NestedWhqlPresent = $false,
+        [Parameter()] [bool]$MatchesProjectCertificate = $false
+    )
+    $classification = 'Unknown'
+    $source = 'unknown'
+    $crossSigned = (@(@($ChainSubjects) | Where-Object { $_ -match 'Microsoft Code Verification Root' }).Count -gt 0)
+    if ($AuthenticodeStatus -eq 'NotSigned') {
+        $classification = 'Unsigned'; $source = 'none'
+    }
+    elseif ([string]::IsNullOrWhiteSpace($AuthenticodeStatus)) {
+        $classification = 'Unknown'; $source = 'unknown'
+    }
+    elseif ($MatchesProjectCertificate) {
+        $classification = 'PrivateOrTestSigned'; $source = 'catalog'
+    }
+    elseif ($NestedWhqlPresent -or $PrimarySignerSubject -match 'Microsoft Windows Hardware Compatibility') {
+        $classification = 'WhcpHdc'; $source = 'embedded-whql'
+    }
+    elseif ($PrimarySignerSubject -match 'CN=Microsoft Windows') {
+        # Microsoft production-signed inbox binaries: same stable production
+        # trust bucket as WHCP/HDC, distinguished by TrustSource.
+        $classification = 'WhcpHdc'; $source = 'embedded-other'
+    }
+    elseif ($crossSigned) {
+        $classification = 'LegacyCrossSignedNotProven'; $source = 'embedded-other'
+    }
+    elseif ($AuthenticodeStatus -eq 'Valid') {
+        # A vendor Authenticode signature with no Microsoft chain element
+        # carries no kernel production trust of its own.
+        $classification = 'PrivateOrTestSigned'; $source = 'embedded-other'
+    }
+    return [pscustomobject][ordered]@{
+        TrustClassification = $classification
+        TrustSource         = $source
+    }
+}
+
+function Get-KernelImageTrustEvidence {
+    # Kernel image trust census (SPEC D.58.3 vocabulary; audit P1-B / gate
+    # G-03). One record per kernel-driver service binary, classification plus
+    # trust source - deliberately NO can-load boolean anywhere in this schema
+    # (G-03). Nested/WHQL co-signature inspection needs signtool and is a
+    # later-wave extension; this census records the primary signer and, for
+    # non-Microsoft signers, the built chain subjects.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter()] [AllowNull()] [string[]]$ProjectThumbprints = @()
+    )
+    $records = New-Object 'System.Collections.Generic.List[object]'
+    $queryError = $null
+    $drivers = @()
+    try {
+        $drivers = @(Get-CimInstance -ClassName Win32_SystemDriver -ErrorAction Stop)
+    }
+    catch {
+        try { $drivers = @(Get-WmiObject -Class Win32_SystemDriver -ErrorAction Stop) }
+        catch { $queryError = $_.Exception.Message }
+    }
+    $thumbs = @(@($ProjectThumbprints) | Where-Object { $_ } | ForEach-Object { ([string]$_).ToUpperInvariant() })
+    foreach ($drv in $drivers) {
+        $svcName = if ($drv.PSObject.Properties['Name']) { [string]$drv.Name } else { $null }
+        $rawPath = if ($drv.PSObject.Properties['PathName']) { [string]$drv.PathName } else { '' }
+        $resolved = Resolve-ServiceImagePath -ImagePath $rawPath
+        $path = if ($resolved -and (Test-Path -LiteralPath $resolved -PathType Leaf)) { $resolved } else { $null }
+        $sha256 = $null
+        $status = ''
+        $primarySubject = ''
+        $thumbMatch = $false
+        $chainSubjects = @()
+        if ($null -ne $path) {
+            try { $sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256 -ErrorAction Stop).Hash } catch { $sha256 = $null }
+            try {
+                $sig = Get-AuthenticodeSignature -LiteralPath $path -ErrorAction Stop
+                $status = [string]$sig.Status
+                if ($null -ne $sig.SignerCertificate) {
+                    $primarySubject = [string]$sig.SignerCertificate.Subject
+                    $thumbMatch = ($thumbs -contains ([string]$sig.SignerCertificate.Thumbprint).ToUpperInvariant())
+                    if ($primarySubject -notmatch 'Microsoft') {
+                        try {
+                            $chain = New-Object System.Security.Cryptography.X509Certificates.X509Chain
+                            $chain.ChainPolicy.RevocationMode = [System.Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
+                            $null = $chain.Build($sig.SignerCertificate)
+                            $chainSubjects = @($chain.ChainElements | ForEach-Object { [string]$_.Certificate.Subject })
+                            $chain.Dispose()
+                        }
+                        catch {
+                            Set-DebugStep ('kernel-image-trust: chain build failed for {0}: {1}' -f $path, $_.Exception.Message)
+                        }
+                    }
+                }
+            }
+            catch { $status = '' }
+        }
+        $verdict = Get-KernelImageTrustClassification -AuthenticodeStatus $status `
+            -PrimarySignerSubject $primarySubject -ChainSubjects $chainSubjects `
+            -NestedWhqlPresent $false -MatchesProjectCertificate $thumbMatch
+        $records.Add([pscustomobject][ordered]@{
+            Path                   = $path
+            Sha256                 = $sha256
+            AuthenticodeStatus     = $status
+            PrimarySignerSubject   = $primarySubject
+            EmbeddedSignerSubjects = @(@($primarySubject) | Where-Object { $_ })
+            CatalogSignerSubject   = $null
+            TrustClassification    = $verdict.TrustClassification
+            TrustSource            = $verdict.TrustSource
+            ServiceName            = $svcName
+            ServiceState           = if ($drv.PSObject.Properties['State'])     { [string]$drv.State }     else { $null }
+            StartType              = if ($drv.PSObject.Properties['StartMode']) { [string]$drv.StartMode } else { $null }
+            LoadedImagePath        = $rawPath
+            InDriverStore          = ($null -ne $path -and $path -match '(?i)DriverStore\\FileRepository')
+        }) | Out-Null
+    }
+    return [pscustomobject][ordered]@{
+        CollectedAtUtc = Get-UtcTimestamp
+        DriverCount    = @($drivers).Count
+        InspectedCount = $records.Count
+        Records        = $records.ToArray()
+        QueryError     = $queryError
+    }
+}
+
 function Get-CodeIntegrityEventEvidence {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -2487,11 +2781,31 @@ function Get-CodeIntegrityEventEvidence {
             Id = @(3076, 3077, 3089, 3091)
         } -MaxEvents $MaxEvents -ErrorAction SilentlyContinue -ErrorVariable ciEventErr)
         foreach ($event in $events) {
+            # EventData via ToXml(): Message is locale-dependent (a ja-JP
+            # host renders Japanese), so machine-read fields must come from
+            # the XML payload (SPEC D.19 lesson). Field names are recorded
+            # verbatim rather than assumed.
+            $eventDataFields = [ordered]@{}
+            try {
+                [xml]$eventXml = $event.ToXml()
+                foreach ($dataNode in @($eventXml.Event.EventData.Data)) {
+                    if ($null -eq $dataNode) { continue }
+                    $fieldName = [string]$dataNode.Name
+                    if ([string]::IsNullOrWhiteSpace($fieldName)) { continue }
+                    $fieldValue = ''
+                    if ($dataNode.PSObject.Properties['#text']) { $fieldValue = [string]$dataNode.'#text' }
+                    $eventDataFields[$fieldName] = $fieldValue
+                }
+            }
+            catch {
+                $eventDataFields['XmlParseError'] = $_.Exception.Message
+            }
             $records.Add([pscustomobject][ordered]@{
                 TimeCreatedUtc = $event.TimeCreated.ToUniversalTime().ToString('o')
                 Id = [int]$event.Id
                 Level = [string]$event.LevelDisplayName
                 Message = [string]$event.Message
+                EventDataFields = [pscustomobject]$eventDataFields
             }) | Out-Null
         }
     }
@@ -2510,6 +2824,21 @@ function Get-CodeIntegrityEventEvidence {
     $blockEventCount = @($records | Where-Object { $_.Id -eq 3077 }).Count
     $auditEventCount = @($records | Where-Object { $_.Id -eq 3076 }).Count
 
+    # Driver paths observed by Windows Driver Policy / WDAC events, from the
+    # locale-independent EventData fields (never from Message). Field-name
+    # match is deliberately loose ('file name' with or without separators)
+    # because the exact name is recorded evidence, not an assumption.
+    $observedPathList = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($record in $records) {
+        if ($record.Id -ne 3076 -and $record.Id -ne 3077) { continue }
+        foreach ($prop in $record.EventDataFields.PSObject.Properties) {
+            if ($prop.Name -notmatch '(?i)file\s*name') { continue }
+            $pathValue = [string]$prop.Value
+            if (-not [string]::IsNullOrWhiteSpace($pathValue)) { $observedPathList.Add($pathValue) | Out-Null }
+        }
+    }
+    $observedDriverPaths = @($observedPathList.ToArray() | Sort-Object -Unique)
+
     $records.ToArray() | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 5 } |
         Set-Content -LiteralPath (Join-Path $EvidenceDirectory 'codeintegrity-events.jsonl') -Encoding UTF8
 
@@ -2520,6 +2849,7 @@ function Get-CodeIntegrityEventEvidence {
         EventCount = $records.Count
         EnforcementBlockEventCount = $blockEventCount
         AuditEventCount = $auditEventCount
+        ObservedDriverPaths = $observedDriverPaths
         QueryError = $queryError
     }
 }
@@ -3165,49 +3495,68 @@ try {
     Write-Host ('Evidence directory: {0}' -f $evidenceDir)
     Write-Host ''
 
-    $osEvidence = Invoke-EvidenceStage -Label '[1/18] Operating system identity...' -Body {
+    $osEvidence = Invoke-EvidenceStage -Label '[1/20] Operating system identity...' -Body {
         $v = Get-OperatingSystemEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'environment.json'
         $v
     }
 
-    $pendingReboot = Invoke-EvidenceStage -Label '[2/18] Pending reboot state...' -Body {
+    $pendingReboot = Invoke-EvidenceStage -Label '[2/20] Pending reboot state...' -Body {
         $v = Get-PendingRebootEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'pending-reboot.json'
         $v
     }
 
-    $pnpEvidence = Invoke-EvidenceStage -Label '[3/18] PnP device inventory...' -Body {
+    $pnpEvidence = Invoke-EvidenceStage -Label '[3/20] PnP device inventory...' -Body {
         $v = Get-PnpDeviceEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'pnp-devices.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; DeviceCount = 0; ProblemDeviceCount = 0; TargetedDeviceCount = 0; ProblemDevices = @(); TargetedDevices = @(); Devices = @() })
 
-    $driverStore = Invoke-EvidenceStage -Label '[4/18] Driver store inventory...' -Body {
+    $driverStore = Invoke-EvidenceStage -Label '[4/20] Driver store inventory...' -Body {
         $v = Get-DriverStoreEvidence -EvidenceDirectory $evidenceDir
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'driver-store.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; PnputilExitCode = $null; PackageCount = 0; SignedDriverCount = 0; Packages = @() })
 
-    $certificateEvidence = Invoke-EvidenceStage -Label '[5/18] Project certificate stores...' -Body {
+    $certificateEvidence = Invoke-EvidenceStage -Label '[5/20] Project certificate stores...' -Body {
         $v = Get-ProjectCertificateEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'project-certificates.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; CertificateCount = 0; StoresConsistent = $null; StoreErrors = @('stage failed'); RootThumbprints = @(); TrustedPublisherThumbprints = @(); ThumbprintsOnlyInRoot = @(); ThumbprintsOnlyInTrustedPublisher = @(); Certificates = @() })
 
-    $bootSecurity = Invoke-EvidenceStage -Label '[6/18] Boot security state...' -Body {
+    $bootSecurity = Invoke-EvidenceStage -Label '[6/20] Boot security state...' -Body {
         $v = Get-BootSecurityEvidence -EvidenceDirectory $evidenceDir
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'boot-security.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; SecureBootEnabled = $null; TestSigningEnabled = $null; NoIntegrityChecksEnabled = $null; BcdCaptured = $false; WdacPolicyPresent = $null })
 
-    $codeIntegrityEvents = Invoke-EvidenceStage -Label '[7/18] CodeIntegrity events...' -Body {
+    $codeIntegrityEvents = Invoke-EvidenceStage -Label '[7/20] CodeIntegrity events...' -Body {
         $v = Get-CodeIntegrityEventEvidence -EvidenceDirectory $evidenceDir
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'codeintegrity-events.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; EventCount = 0; EnforcementBlockEventCount = 0; AuditEventCount = 0; QueryError = 'stage failed' })
 
-    $setupLogEvidence = Invoke-EvidenceStage -Label '[8/18] Driver setup logs...' -Body {
+    $windowsDriverPolicyEvidence = Invoke-EvidenceStage -Label '[8/20] Windows Driver Policy (Layer E)...' -Body {
+        $v = Get-WindowsDriverPolicyEvidence -EvidenceDirectory $evidenceDir -CodeIntegrityEvidence $codeIntegrityEvents
+        Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'windows-driver-policy.json'
+        $v
+    } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; Applicable = $null; Mode = 'unknown'; QueryError = 'stage failed' })
+    Set-DebugStep ('windows-driver-policy: mode={0}' -f $windowsDriverPolicyEvidence.Mode)
+
+    $kernelImageTrustEvidence = Invoke-EvidenceStage -Label '[9/20] Kernel image trust census...' -Body {
+        $projectThumbprints = @()
+        if ($null -ne $certificateEvidence) {
+            if ($certificateEvidence.PSObject.Properties['RootThumbprints'])             { $projectThumbprints += @($certificateEvidence.RootThumbprints) }
+            if ($certificateEvidence.PSObject.Properties['TrustedPublisherThumbprints']) { $projectThumbprints += @($certificateEvidence.TrustedPublisherThumbprints) }
+        }
+        $v = Get-KernelImageTrustEvidence -ProjectThumbprints @($projectThumbprints | Where-Object { $_ } | Sort-Object -Unique)
+        Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'kernel-image-trust.json'
+        $v
+    } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; DriverCount = 0; InspectedCount = 0; Records = @(); QueryError = 'stage failed' })
+    Set-DebugStep ('kernel-image-trust: inspected={0}' -f $kernelImageTrustEvidence.InspectedCount)
+
+    $setupLogEvidence = Invoke-EvidenceStage -Label '[10/20] Driver setup logs...' -Body {
         $v = if (-not $SkipSetupApiLog) {
             Get-DriverSetupLogEvidence -EvidenceDirectory $evidenceDir
         }
@@ -3218,7 +3567,7 @@ try {
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; Logs = @() })
 
-    $loadDiagnostics = Invoke-EvidenceStage -Label '[9/18] Device load diagnostics...' -Body {
+    $loadDiagnostics = Invoke-EvidenceStage -Label '[11/20] Device load diagnostics...' -Body {
         # Reads the copy inside the bundle when one was made, so the parse and
         # the archived text are the same bytes; falls back to the live log when
         # the copy was skipped (size cap) or -SkipSetupApiLog was passed.
@@ -3231,19 +3580,19 @@ try {
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; ProblemDeviceCount = 0; MissingServiceBinaryCount = 0; SignatureRelatedFailureCount = 0; ProblemDevices = @(); SetupApi = [pscustomobject][ordered]@{ LogPresent = $false; SectionsScanned = 0; FailureSections = @(); MissingServiceBinaries = @(); ParseError = 'stage failed' } })
 
-    $serviceEvidence = Invoke-EvidenceStage -Label '[10/18] Windows service configuration...' -Body {
+    $serviceEvidence = Invoke-EvidenceStage -Label '[12/20] Windows service configuration...' -Body {
         $v = Get-ServiceConfigurationEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'services.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; ServiceCount = 0; DriverServiceCount = 0; RunningCount = 0; DisabledCount = 0; MissingBinaryCount = 0; CollectionErrors = @('stage failed'); MissingBinaryServices = @(); DependencyIndex = @(); Services = @() })
 
-    $featureServices = Invoke-EvidenceStage -Label '[11/18] Server feature-to-service mapping...' -Body {
+    $featureServices = Invoke-EvidenceStage -Label '[13/20] Server feature-to-service mapping...' -Body {
         $v = Get-ServerFeatureServiceEvidence -ServiceEvidence $serviceEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'server-feature-services.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; FeatureQueryError = 'stage failed'; FeatureCount = 0; InstalledFeatureCount = 0; BinaryMissingWatchCount = 0; WatchedServices = @(); Features = @() })
 
-    $scriptInventory = Invoke-EvidenceStage -Label '[12/18] Repository script and workspace inventory...' -Body {
+    $scriptInventory = Invoke-EvidenceStage -Label '[14/20] Repository script and workspace inventory...' -Body {
         $v = Get-DeployScriptInventory -ScriptDirectory $scriptDirectory
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'deploy-scripts.json'
         $workspaceInventory = Get-WorkspaceInventoryEvidence -ScriptDirectory $scriptDirectory
@@ -3251,40 +3600,40 @@ try {
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; PresentCount = 0; ExpectedCount = 0; Scripts = @() })
 
-    $bthPanRuntime = Invoke-EvidenceStage -Label '[13/18] BthPan runtime state...' -Body {
+    $bthPanRuntime = Invoke-EvidenceStage -Label '[15/20] BthPan runtime state...' -Body {
         $v = Get-BthPanRuntimeEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'bthpan-runtime.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; BthPanSysPresent = $false; ServiceKeyPresent = $false; PanAdapterCount = 0 })
 
 
-    $osCapability = Invoke-EvidenceStage -Label '[14/18] OS capability matrix...' -Body {
+    $osCapability = Invoke-EvidenceStage -Label '[16/20] OS capability matrix...' -Body {
         $v = Get-OsCapabilityEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'os-capability.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; OsBuild = 0; ProfileCode = ''; MissingCmdletCount = 0; MissingCmdlets = @(); MissingCimClassCount = 0; MissingCimClasses = @(); MissingToolCount = 0; MissingTools = @(); Cmdlets = @(); CimClasses = @(); Tools = @() })
 
-    $archiveCapability = Invoke-EvidenceStage -Label '[15/18] Archive capability probe...' -Body {
+    $archiveCapability = Invoke-EvidenceStage -Label '[17/20] Archive capability probe...' -Body {
         $v = Get-ArchiveCapabilityEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'archive-capability.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; CompressArchiveAvailable = $false; ProbeAttempted = $false; ProbeSucceeded = $false; ErrorMessage = 'stage failed' })
 
 
-    $driverFramework = Invoke-EvidenceStage -Label '[16/18] Driver framework versions...' -Body {
+    $driverFramework = Invoke-EvidenceStage -Label '[18/20] Driver framework versions...' -Body {
         $v = Get-DriverFrameworkEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'driver-framework.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; KmdfLibraryVersion = ''; UmdfLibraryVersion = ''; CoInstallerCount = 0; CoInstallers = @() })
 
-    $crashEvidence = Invoke-EvidenceStage -Label '[17/18] Crash dump and bugcheck history...' -Body {
+    $crashEvidence = Invoke-EvidenceStage -Label '[19/20] Crash dump and bugcheck history...' -Body {
         $v = Get-CrashEvidence
         Write-EvidenceJson -InputObject $v -Directory $evidenceDir -FileName 'crash-evidence.json'
         $v
     } -Fallback ([pscustomobject][ordered]@{ CollectedAtUtc = Get-UtcTimestamp; MinidumpCount = 0; Minidumps = @(); BugCheckEventCount = 0; BugCheckEvents = @(); UnexpectedShutdownCount = 0; MemoryDumpPresent = $false; QueryError = 'stage failed' })
 
 
-    $wdfAssessment = Invoke-EvidenceStage -Label '[18/18] WDF version assessment...' -Body {
+    $wdfAssessment = Invoke-EvidenceStage -Label '[20/20] WDF version assessment...' -Body {
         $co = Get-WdfCoInstallerInventory
         $wdfSvc = Get-WdfDependentServiceInventory -ServiceEvidence $serviceEvidence
         $v = Get-WdfAssessment -DriverFramework $driverFramework -OsCapability $osCapability -CoInstallers $co -WdfServices $wdfSvc

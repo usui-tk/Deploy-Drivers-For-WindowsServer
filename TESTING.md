@@ -3605,3 +3605,42 @@ Measured per §36 (counted from the runner's output, not calculated):
   names its file and line — e.g. the chipset default assignment, the NPU
   hardcoded `Set-CIPolicyIdInfo` argument. A gate that cannot fail against
   the defective version proves nothing (§36, tests/README).
+
+## 42. Reading the c11 evidence: Windows Driver Policy and the kernel trust census
+
+Release: Collector c11 (`windows-driver-policy-and-kernel-trust-evidence`),
+P1 remediation wave 1. No field run of c11 exists yet; this section says how
+to read the two new files when one does.
+
+### 42.1 `windows-driver-policy.json`
+
+`Mode` is decided only by what `CiTool --list-policies --json` actually
+listed: `enforce` / `audit` when the corresponding GUID is present, `absent`
+when the parse succeeded and neither is, `unknown` when CiTool is missing or
+the parse failed. A WS2019/WS2016 host therefore reads `unknown` with
+`Detection.Method = none-available` — that is correct, not a gap.
+`EspProbe.Attempted` is always `false` (ruling Q2: the read-only collector
+never mounts the ESP; CiTool lists the same policy IDs without one).
+`ObservedDriverPaths` comes from the locale-independent `EventDataFields` of
+3076/3077 records, never from `Message`.
+
+### 42.2 `kernel-image-trust.json`
+
+One record per kernel-driver service binary. There is deliberately **no
+can-load boolean** (gate G-03): read `TrustClassification` + `TrustSource`,
+and remember `LegacyCrossSignedAllowListed` can never appear (ruling Q4) — a
+cross-signed chain always reads `...NotProven` until an allow-list proof
+mechanism exists. Nested/WHQL co-signature inspection is not performed in
+c11 (signtool dependency): a binary whose WHQL signature is only nested may
+read `PrivateOrTestSigned` — treat the census as a floor, not a verdict,
+until the later-wave extension.
+
+### 42.3 Measuring the suite, and the negative controls
+
+Measured per §36: **12 cases, 531 assertions, all passing** on PowerShell
+7.4.6 (Core) on Linux. Negative controls, measured against the c10 tree:
+`Test-WindowsDriverPolicyEvidence.ps1` reports **20 failures** and
+`Test-KernelImageTrustEvidence.ps1` **17 failures**, each naming the missing
+function or schema key. `Test-CustomKernelSignersClaim.ps1` passes on both
+trees by design — the retraction already landed in the previous release —
+and carries its own embedded negative control instead.

@@ -20,24 +20,67 @@ independently.
 
 ---
 
-## [Unreleased]
+## [2026-08-09] `windows-driver-policy-and-kernel-trust-evidence` — Collector c11
+
+First wave of the P1 audit remediation (design rulings Q1–Q6 adjudicated
+2026-08-09). Collector-only: the sisters are unchanged. The corrected signing
+model (SPEC D.58) needs evidence vocabulary before the sisters can adopt it,
+so the evidence lands first.
+
+### Added — `windows-driver-policy.json` (audit H-06 / P1-C; gate G-02)
+
+- New collector stage records the Server 2025+ Windows Driver Policy as
+  Layer E evidence: the two policy GUIDs as constants, presence of each,
+  `Mode` (`enforce`/`audit`/`absent`/`unknown` — never derived from the OS
+  build number alone), CiTool detection details, 3076/3077 counts and the
+  driver paths those events observed, and OS build/UBR. Detection is
+  **CiTool-only**: the read-only collector never mounts the ESP (ruling Q2;
+  `EspProbe.Attempted=false` is recorded with the reason).
+- Parsers are pure functions (ruling Q3): `ConvertFrom-CiToolPolicyList`
+  and `ConvertTo-WindowsDriverPolicyMode`, fixture-tested on the offline
+  harness.
+- The existing boot-security CiTool capture gains `--json`: without it
+  CiTool blocks on a "Press Enter to Exit" stdin prompt — the SPEC D.16
+  defect class, latent here until the first run on a CiTool-bearing host.
+
+### Added — `kernel-image-trust.json` (audit P1-B; gate G-03)
+
+- New collector stage: one record per kernel-driver service binary, carrying
+  the SPEC D.58.3 vocabulary — `TrustClassification` plus `TrustSource` —
+  and **no can-load boolean anywhere** (gate G-03).
+  `LegacyCrossSignedAllowListed` is never emitted (ruling Q4: allow-list
+  membership cannot be proven yet). Classification is a pure function,
+  fixture-tested. Nested/WHQL co-signature inspection needs signtool and is
+  a later-wave extension, stated in the function.
+- CodeIntegrity event records gain locale-independent `EventDataFields`
+  extracted from the event XML — `Message` renders in the host locale
+  (SPEC D.19), so machine-read fields must not come from it.
+- The collector now runs **20 stages** (was 18).
+
+### Added — acceptance-gate test cases (G-01 / G-02 / G-03)
+
+- `Test-CustomKernelSignersClaim.ps1` (G-01),
+  `Test-WindowsDriverPolicyEvidence.ps1` (G-02),
+  `Test-KernelImageTrustEvidence.ps1` (G-03): schema-key contracts on the
+  builders plus fixture tests for the three pure functions. **Negative
+  controls (measured)**: against the c10 tree G-02 reports **20** and G-03
+  **17** named failures; G-01 passes on both trees by design (the
+  retraction already landed) and embeds its own scanner negative control.
+- Suite after this release: **12 cases, 531 assertions, all passing**,
+  measured on PowerShell 7.4.6 (Core) on Linux (TESTING §36 discipline).
 
 ### Documentation
 
-- **README / README.ja: new "Current status: not ready for end-user use"
-  section** near the top of both documents. Maintainer ruling: the status is
-  framed strictly from the end-user's perspective on the latest `main` —
-  every script is under active audit-remediation refactoring (P0 landed;
-  P1/P2 pending) and the answer to "can I use this on my OS today?" is
-  stated as **No** for every OS, with the concrete per-OS reason (what the
-  current tree would actually do) and the exit criteria (P1, P2,
-  per-OS re-validation against the corrected model). Historical validation
-  records in TESTING.md are explicitly marked as predating the
-  signing-model correction and non-transferable to current `main`. Also
-  corrects the OS-support matrix note for Windows Server 2022, which said
-  "Validated." although no field run on WS2022 exists on record (TESTING
-  §10.6 capability rows are documentation-derived). Docs-only; no version
-  bump per the comment/doc-only rule.
+- README / README.ja: the Windows Driver Policy subsection now states the
+  evidence is collected as of c11. Folded from `[Unreleased]` (ruling Q5):
+  the "Current status: not ready for end-user use" section added to both
+  READMEs between releases — status framed strictly from the end-user's
+  perspective on the latest `main` (every script under audit-remediation
+  refactoring; per-OS answer **No** with reasons and exit criteria; WS2022
+  OS-matrix note corrected from "Validated." to "No field run on record").
+- SPEC D.58.6 detection-pending note amended; TESTING §42 documents the new
+  evidence files and the measured negative controls; tests/README gains the
+  three case rows.
 
 ---
 

@@ -43,6 +43,9 @@ tests/
 | `Test-CollectorPathResolution.ps1` | `Resolve-ServiceImagePath` across every `ImagePath` shape seen in the field; CM_PROB and NTSTATUS decoding, including the separation of signature failures from look-alike API mismatches |
 | `Test-CollectorSetupApiParser.ps1` | `setupapi.dev.log` failure-section extraction: section detection, missing service binaries, SetupAPI error codes, CM problem codes with NT status, absent-log handling |
 | `Test-SisterConsistency.ps1` | Shared-helper byte identity across the sisters; ValidateSet call-site conformance; `@( )` never applied to a `List[object]`; every script parses and declares a version |
+| `Test-CustomKernelSignersClaim.ps1` | Gate G-01: no product script carries a `CustomKernelSigners` capability token; SPEC D.58.5 pins the 24H2-only scope; embedded scanner negative control |
+| `Test-WindowsDriverPolicyEvidence.ps1` | Gate G-02: `windows-driver-policy.json` schema keys, the two policy GUIDs, the read-only ESP ruling; fixture tests for the CiTool list/mode pure parsers |
+| `Test-KernelImageTrustEvidence.ps1` | Gate G-03: `kernel-image-trust.json` schema keys with no can-load boolean; pure-classifier fixtures incl. `LegacyCrossSignedAllowListed` never emitted |
 | `Test-SupplementalPolicyGate.ps1` | The WDAC supplemental path never assumes a base policy (SPEC D.58.8): the assumed GUID is gone from code string constants, `WdacBasePolicyGuidDefault` is gone repo-wide, all four sisters carry a byte-identical admissibility helper, every builder refuses an empty `BasePolicyId`, and the phase gate's refusal branch returns |
 
 ## Why these checks and not others
