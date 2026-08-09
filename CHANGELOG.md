@@ -20,6 +20,63 @@ independently.
 
 ---
 
+## [2026-08-09] `npu-pfx-hygiene-and-msbthpan-rename` — NPU r60 / BthPan r66
+
+Seventh wave (W7) of the P1 audit remediation (audit v3 H-05R plus the
+queued MSBthPan rename; plan-of-record v4). Chipset r118 / Graphics r84 /
+Collector c11 are unchanged.
+
+### Changed — NPU joins the W4 PFX contract (H-05R)
+
+- `New-RandomPfxPassword` and `Set-PfxFileAcl` are adopted into the NPU
+  script byte-identically with the other three sisters (the sister-identity
+  case moves both helpers from the three-way to the four-way list).
+- The Ctx injects a per-run random 32-char CSPRNG password when
+  `-PfxPassword` is omitted; P07/P09 consume `$Ctx.PfxPassword` as the
+  single source of truth.
+- The known-literal export branch is retired together with the
+  never-implemented "re-encode" comment beside it. The export path now
+  fail-closes on an empty password and applies the Administrators+SYSTEM
+  ACL immediately after `Export-PfxCertificate`.
+- The PFX is deleted after a completed Install (the certificate stays in
+  the store). Because the password is invocation-scoped, V01 treats a
+  missing PFX as a legal post-Install state, and V02 opens the PFX only
+  same-run, otherwise inspecting the public CER and stating that
+  private-key possession was proven by the P09 signing run.
+- Structural adaptation recorded: NPU has no phase-marker cache, so P07
+  regenerates the certificate on every signing run and the leftover-PFX
+  open-probe element of the W4 contract is satisfied by unconditional
+  regeneration.
+
+### Changed — MSBthPan policy-id evidence field rename
+
+- The boot-signing environment field `AmdSuppPolicyId` is renamed
+  `MsBthPanSuppPolicyId` (three sites). The workspace marker file already
+  carried the product-correct name; the NPU script keeps its AMD-prefixed
+  field because NPU is an AMD product. Evidence-schema field rename with
+  no external consumers (same ruling family as the `LoadedImagePath`
+  rename planned for W9).
+
+### Added — gate G-07 and the three-to-four contract extensions
+
+- New case `Test-NpuPfxHygiene.ps1` (G-07): an AST scan proves the
+  retired literal is gone from NPU string constants (prose comment usages
+  are naturally outside an AST string-constant scan), and the wiring,
+  deletion, Verify-phase acceptance and the MSBthPan rename are pinned.
+  The AST and rename detectors carry synthetic mutated-source
+  self-checks.
+- `Test-DownloadAndPfxHygiene.ps1` gains an NPU section and splits its
+  identity loop (password/ACL helpers four-way; the download gate stays
+  three-way — NPU performs no downloads).
+  `Test-DocumentationStateConsistency.ps1` extends the helper-presence
+  list from three scripts to four. tests/README regenerated to the 19
+  on-disk cases.
+- Negative controls against the pre-W7 tree (`13fb0a4`): G-07 fails 12
+  named assertions; the extended W4-contract, sister-identity and
+  doc-state cases fail 5 / 2 / 1. Suite: 19 cases / 763 assertions.
+
+---
+
 ## [2026-08-09] `security-narrative-closure` — Chipset r118 / Graphics r84 / NPU r59 / BthPan r65
 
 Sixth wave (W6) of the P1 audit remediation (audit v3 H-07 / H-08 /

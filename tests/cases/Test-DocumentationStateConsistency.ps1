@@ -65,8 +65,8 @@ function Get-G06MarkerCount {
 Write-TestSection 'G-06: remediation-status markers (both languages)'
 Assert-Equal 'stale status marker absent (en)' 0 (Get-G06MarkerCount -Text $textEn -Marker $staleEn)
 Assert-Equal 'stale status marker absent (ja)' 0 (Get-G06MarkerCount -Text $textJa -Marker $staleJa)
-Assert-True 'current-state marker present (en)' ($textEn.Contains('W1-W5 have landed'))
-Assert-True 'current-state marker present (ja)' (($textJa.Contains(('W1' + [char]0x301C + 'W5'))) -and ($textJa.Contains(([string][char]0x7740 + [char]0x5730) + ([string][char]0x6E08 + [char]0x307F))))
+Assert-True 'current-state marker present (en)' ($textEn.Contains('W1-W7 have landed'))
+Assert-True 'current-state marker present (ja)' (($textJa.Contains(('W1' + [char]0x301C + 'W7'))) -and ($textJa.Contains(([string][char]0x7740 + [char]0x5730) + ([string][char]0x6E08 + [char]0x307F))))
 
 Write-TestSection 'G-06: I02 activation vocabulary (both languages)'
 Assert-Equal 'retired inbox-CiTool-on-WS2022 alias absent (en)' 0 (Get-G06MarkerCount -Text $textEn -Marker $aliasEn)

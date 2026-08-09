@@ -8197,6 +8197,22 @@ failing later at P08/I01). These helpers are Windows-only cmdlet
 consumers, so the Linux harness pins them by structural contract
 (`Test-DownloadAndPfxHygiene.ps1`), not execution.
 
+**W7 extension (H-05R) — the NPU script joins the contract.** NPU r60
+adopts `New-RandomPfxPassword` / `Set-PfxFileAcl` byte-identically
+(four-way identity, `Test-SisterConsistency.ps1`), injects the per-run
+random default at Ctx construction, fail-closes the export on an empty
+password, and deletes the PFX in the post-Install block. Structural
+adaptation, recorded rather than papered over: NPU has no phase-marker
+cache, so P07 regenerates the certificate on every signing run and the
+leftover-PFX open-probe is satisfied by unconditional regeneration; and
+because the password is invocation-scoped, V01 treats a missing PFX as a
+legal post-Install state and V02 inspects the public CER when the PFX
+cannot be opened cross-run (private-key possession was proven by the P09
+signing run). Gate G-07 (`Test-NpuPfxHygiene.ps1`) pins the contract. In
+the same release the MSBthPan boot-signing evidence field
+`AmdSuppPolicyId` was renamed `MsBthPanSuppPolicyId` (the marker file
+already carried the product-correct name).
+
 ### D.58.11 ProjectPreference and the measured PnP rank (audit P1-E; W5)
 
 **The rename (H-03).** The `[C] > [B] > [A]` category override is the
