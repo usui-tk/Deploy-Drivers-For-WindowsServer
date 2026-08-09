@@ -65,7 +65,8 @@ foreach ($name in $fourWay) {
     $hashes = @($sisters | ForEach-Object { Get-TextHash (Get-FunctionText -Path $_ -Name $name) })
     Assert-Equal ('{0}: identical in all four' -f $name) 1 (@($hashes | Sort-Object -Unique)).Count
 }
-$threeWay = @('Get-EligibleInfRecordList', 'Save-WhqlCoSignPlanJson', 'Get-WhqlCoSignPlanInfo')
+$threeWay = @('Get-EligibleInfRecordList', 'Save-WhqlCoSignPlanJson', 'Get-WhqlCoSignPlanInfo',
+              'New-RandomPfxPassword', 'Set-PfxFileAcl', 'Assert-DownloadedFileSignature')
 foreach ($name in $threeWay) {
     $hashes = @($pathA | ForEach-Object { Get-TextHash (Get-FunctionText -Path $_ -Name $name) })
     Assert-Equal ('{0}: identical in the three Path A sisters' -f $name) 1 (@($hashes | Sort-Object -Unique)).Count
