@@ -13427,6 +13427,155 @@ function Get-OurSignedOemInfSet {
     return $set
 }
 
+function ConvertFrom-PnputilEnumDevicesDrivers { # psa-disable-line PSA6003 -- compound noun (e.g., Policies, Drivers, Catalogs) is semantically plural for set-returning helpers
+    # Pure parser (ruling Q3) for `pnputil /enum-devices [...] /drivers`
+    # text output (audit P1-E: the measured rank, as opposed to the
+    # ProjectPreference policy). Fixture-tested on the Linux harness.
+    # The fixture is SYNTHETIC - assembled from the Microsoft Learn
+    # syntax page and public field observations (Driver Name /
+    # Original Name / Provider Name / Driver Version / Matching
+    # Device Id / Rank); real-host validation is an operator-pending
+    # item (TESTING). Tolerant by design:
+    #   - devices split on 'Instance ID:' lines
+    #   - 'Matching Drivers:' introduces the candidate list; entries
+    #     split on 'Driver Name:' lines
+    #   - 'Rank:' is OPTIONAL (0x hex or decimal). Even without it the
+    #     documented ordering fact holds: the FIRST listed matching
+    #     driver is the best-ranked one (pnputil will not force a
+    #     lower-ranked driver onto a device).
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param(
+        [Parameter()] [AllowEmptyString()] [string]$Content
+    )
+    $devices = New-Object System.Collections.Generic.List[object]
+    if ([string]::IsNullOrWhiteSpace($Content)) { return $devices.ToArray() }
+    $lines = $Content -split "\r?\n"
+    $cur = $null
+    $curDrivers = $null
+    $curEntry = $null
+    $inMatching = $false
+    function _flushEntry {
+        if ($null -ne $curEntry -and $null -ne $curDrivers) { $curDrivers.Add($curEntry) | Out-Null }
+    }
+    foreach ($line in $lines) {
+        if ($line -match '^\s*Instance ID:\s*(.+?)\s*$') {
+            _flushEntry; $curEntry = $null; $inMatching = $false
+            if ($null -ne $cur) {
+                $cur.MatchingDrivers = $curDrivers.ToArray()
+                $devices.Add($cur) | Out-Null
+            }
+            $curDrivers = New-Object System.Collections.Generic.List[object]
+            $cur = [pscustomobject]@{
+                InstanceId      = $Matches[1]
+                Description     = $null
+                MatchingDrivers = @()
+            }
+            continue
+        }
+        if ($null -eq $cur) { continue }
+        if ($line -match '^\s*Device Description:\s*(.+?)\s*$') { $cur.Description = $Matches[1]; continue }
+        if ($line -match '^\s*Matching Drivers:\s*$') { $inMatching = $true; continue }
+        if (-not $inMatching) { continue }
+        if ($line -match '^\s*Driver Name:\s*(.+?)\s*$') {
+            _flushEntry
+            $curEntry = [pscustomobject]@{
+                DriverName       = $Matches[1]
+                OriginalName     = $null
+                ProviderName     = $null
+                DriverVersion    = $null
+                MatchingDeviceId = $null
+                Rank             = $null
+                RankRaw          = $null
+            }
+            continue
+        }
+        if ($null -eq $curEntry) { continue }
+        if ($line -match '^\s*Original Name:\s*(.+?)\s*$')      { $curEntry.OriginalName = $Matches[1]; continue }
+        if ($line -match '^\s*Provider Name:\s*(.+?)\s*$')      { $curEntry.ProviderName = $Matches[1]; continue }
+        if ($line -match '^\s*Driver Version:\s*(.+?)\s*$')     { $curEntry.DriverVersion = $Matches[1]; continue }
+        if ($line -match '^\s*Matching Device Id:\s*(.+?)\s*$') { $curEntry.MatchingDeviceId = $Matches[1]; continue }
+        if ($line -match '^\s*Rank:\s*(\S+)\s*$') {
+            $curEntry.RankRaw = $Matches[1]
+            $rankText = $Matches[1]
+            $parsed = 0L
+            if ($rankText -match '^0x[0-9A-Fa-f]+$') {
+                $curEntry.Rank = [Convert]::ToInt64($rankText.Substring(2), 16)
+            } elseif ([long]::TryParse($rankText, [ref]$parsed)) {
+                $curEntry.Rank = $parsed
+            }
+            continue
+        }
+    }
+    _flushEntry
+    if ($null -ne $cur) {
+        $cur.MatchingDrivers = $curDrivers.ToArray()
+        $devices.Add($cur) | Out-Null
+    }
+    return $devices.ToArray()
+}
+
+function Show-MeasuredDriverRankReport {
+    # Measured PnP rank capture (audit P1-E): the ProjectPreference is
+    # the project's policy; whether the self-signed driver actually
+    # binds is decided by PnP rank. Where this pnputil build supports
+    # `/enum-devices /drivers`, list the measured candidates for
+    # devices that match this run's patched INFs. Display-only
+    # evidence; when the build does not support the flags, that fact
+    # is stated and NOTHING is fabricated (negative evidence
+    # discipline).
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)] $Ctx
+    )
+    Write-Host '--- Measured PnP rank (audit P1-E) ---' -ForegroundColor Cyan
+    $raw = ''
+    try {
+        $raw = & pnputil.exe /enum-devices /drivers 2>&1 | Out-String
+    } catch {
+        Write-Detail ('  pnputil /enum-devices /drivers failed to launch: {0}' -f $_.Exception.Message) -Color DarkGray
+        return
+    }
+    if ($LASTEXITCODE -ne 0 -or ($raw -notmatch 'Instance ID')) {
+        Write-Detail '  This pnputil build does not support /enum-devices /drivers - measured rank not captured (recorded, not fabricated).' -Color DarkGray
+        return
+    }
+    $ourInfNames = @{}
+    foreach ($f in (Get-ChildItem -Path $Ctx.Paths.Patched -Filter '*.inf' -File -ErrorAction SilentlyContinue)) {
+        $ourInfNames[$f.Name.ToLowerInvariant()] = $true
+    }
+    if ($ourInfNames.Count -eq 0) {
+        Write-Detail '  No patched INFs found to match against.' -Color DarkGray
+        return
+    }
+    $devices = ConvertFrom-PnputilEnumDevicesDrivers -Content $raw
+    $shown = 0
+    foreach ($d in $devices) {
+        $matchingOurs = @($d.MatchingDrivers | Where-Object {
+            ($_.OriginalName -and $ourInfNames.ContainsKey(([string]$_.OriginalName).ToLowerInvariant())) -or
+            ($_.DriverName -and $ourInfNames.ContainsKey(([string]$_.DriverName).ToLowerInvariant()))
+        })
+        if ($matchingOurs.Count -eq 0) { continue }
+        $shown++
+        Write-Host ('  {0}' -f $d.InstanceId)
+        if ($d.Description) { Write-Detail ('    {0}' -f $d.Description) -Color DarkGray }
+        $isFirst = $true
+        foreach ($m in $d.MatchingDrivers) {
+            $ours = ($matchingOurs -contains $m)
+            $rankText = if ($null -ne $m.Rank) { ('rank {0}' -f $m.RankRaw) } else { '(no rank field)' }
+            $bestText = if ($isFirst) { 'best-ranked' } else { '' }
+            $marker = if ($ours) { '[ours]' } else { '      ' }
+            Write-Host ('    {0} {1,-14} {2,-12} {3} {4}' -f $marker, $m.DriverName, $rankText, $bestText, $m.DriverVersion) -ForegroundColor $(if ($ours) { 'Yellow' } else { 'DarkGray' })
+            $isFirst = $false
+        }
+    }
+    if ($shown -eq 0) {
+        Write-Detail '  No enumerated device lists a matching driver from this run''s patched INF set.' -Color DarkGray
+    }
+    Write-Host ''
+}
+
 function Get-DriverSourceCategory {
     # ====================================================================
     # Classify a driver by its source / publisher into one of four
@@ -15956,6 +16105,9 @@ function Invoke-InstPhase04_PostInstallVerification {
             Write-Host ('  Cleared pending-reboot marker (recorded by {0} on {1}).' -f $pending.Source, $pending.RecordedAt) -ForegroundColor DarkGray
         }
     }
+
+    # Measured rank capture (audit P1-E) - display-only evidence.
+    Show-MeasuredDriverRankReport -Ctx $Ctx
 
     # PFX hygiene (audit P1-G): the signing artifact is not needed once
     # the install pipeline has completed. The certificate stays in the
