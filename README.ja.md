@@ -110,10 +110,15 @@ BitLocker、 アンチチートソフト、 サポート影響、 証明書有�
 自己署名証明書を kernel-mode 署名者として認可し、 Secure Boot は ON のまま」 —
 が誤りであると判明し、 **撤回**されました (SPEC D.58)。 この撤回は表現の
 問題ではありません: Secure Boot 有効のまま非 WHQL ドライバをロードするとされた、
-宣伝上の機構そのものが失われています。 是正のうち完了しているのは最初の
-フェーズ (P0: 撤回・用語分離・fail-closed な base-policy ゲート) のみで、
-スクリプトを再び信頼可能にするための正確性・証跡・安全性の作業 (P1) と、
-カバレッジ・保守性の作業 (P2) は**未完了**です。 [TESTING.md](./TESTING.md) に
+宣伝上の機構そのものが失われています。 最新リリース時点の是正状況: **P0
+(撤回・用語分離・fail-closed な base-policy ゲート) と P1 のウェーブ W1〜W5 が
+着地済み**です — Windows Driver Policy とカーネルイメージ信頼の証跡、
+非 boolean の信頼分類、 ポリシー有効化の OS 分離と Mode T の明示 opt-in 化、
+fail-closed なダウンロード検証と実行ごとの PFX 衛生 (chipset/graphics/BthPan)、
+ProjectPreference と実測 PnP rank の分離。 **未完了**: P1 クローズアウト項目
+(NPU の PFX 衛生、 カーネル信頼証跡の完成、 ダウンロード上書きの分離、
+base policy の機械検証) と P2 の全体。 是正後の実機検証は未実施です。
+[TESTING.md](./TESTING.md) に
 記録された過去の検証成功はこの訂正および複数の破壊的設計変更より前のものであり、
 現在の `main` についての言明として読んではいけません。
 
@@ -136,9 +141,12 @@ BitLocker、 アンチチートソフト、 サポート影響、 証明書有�
 
 ### 何が終わればこの状況が変わるか
 
-1. **P1 監査是正** — ポリシー有効化の OS 分離、 カーネルイメージ信頼の証跡、
-   Windows Driver Policy の証跡、 非 boolean の信頼分類、 fail-closed な
-   ダウンロード検証、 PFX 鍵保護 (計画は裁定済み・未着手)。
+1. **P1 監査是正のクローズアウト** — P1 の中核ウェーブは着地済み (ポリシー
+   有効化の OS 分離、 カーネルイメージ信頼の証跡、 Windows Driver Policy の
+   証跡、 非 boolean の信頼分類、 fail-closed なダウンロード検証、
+   chipset/graphics/BthPan の PFX 鍵保護)。 残るのはクローズアウト項目
+   (NPU の PFX 衛生、 信頼証跡の完成、 ダウンロード上書きの分離、
+   base policy の機械検証)。
 2. **P2 監査是正** — E2E カバレッジ表の是正、 lab/production 記述の分離、
    姉妹スクリプト重複の方針。
 3. **訂正後モデルに対する OS ごとの実機再検証キャンペーン** — TESTING.md の
@@ -154,8 +162,8 @@ BitLocker、 アンチチートソフト、 サポート影響、 証明書有�
 
 | ファイル | 用途 | 成熟度 |
 | --- | --- | --- |
-| `Deploy-AMDChipsetDriverOnWindowsServer.ps1` | チップセットドライバパイプライン (GPIO、 SMBus、 PSP、 MicroPEP、 PMF 等)。 ソース: AMD Chipset Software EXE 約 75 MB、 INF 約 67 個。 | **安定版** — M75q Tiny Gen 2 (WS2025) と X13 Gen 1 AMD (Win11 LTSC 2024) で検証済み。 |
-| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | グラフィックスドライバパイプライン (Display、 HD Audio、 Audio CoProcessor、 ACP、 USB-C UCSI 等)。 ソース: AMD Adrenalin Edition EXE 約 600 MB、 INF 約 19 個 (Vega-Polaris Legacy ブランチ) または約 67 個 (Phoenix 以降の Main Adrenalin ブランチ)。 | **安定版** — チップセットスクリプトと同一の検証ホストで検証済み。 |
+| `Deploy-AMDChipsetDriverOnWindowsServer.ps1` | チップセットドライバパイプライン (GPIO、 SMBus、 PSP、 MicroPEP、 PMF 等)。 ソース: AMD Chipset Software EXE 約 75 MB、 INF 約 67 個。 | **過去実機検証済み** (是正前リビジョン) — M75q Tiny Gen 2 (WS2025) と X13 Gen 1 AMD (Win11 LTSC 2024)。 現行 `main` は再検証待ち。 |
+| `Deploy-AMDGraphicsDriverOnWindowsServer.ps1` | グラフィックスドライバパイプライン (Display、 HD Audio、 Audio CoProcessor、 ACP、 USB-C UCSI 等)。 ソース: AMD Adrenalin Edition EXE 約 600 MB、 INF 約 19 個 (Vega-Polaris Legacy ブランチ) または約 67 個 (Phoenix 以降の Main Adrenalin ブランチ)。 | **過去実機検証済み** (是正前リビジョン) — チップセットスクリプトと同一の検証ホスト。 現行 `main` は再検証待ち。 |
 | **`Deploy-AMDNpuDriverOnWindowsServer.ps1`** | **NPU (Ryzen AI XDNA) ドライバパイプライン (PHX/HPT/STX/KRK)。** ソース: AMD Ryzen AI Software ZIP 約 250 MB、 EULA gate あり (公開直接 URL なし)。 kernel-mode driver のみ install — Ryzen AI Software user-mode stack は対象外。 | **🆘 実験的・研究用途 — 本番運用不可。** 物理 NPU ハードウェアでの検証は未実施。 AMD アカウント自動ダウンロードは best-effort で AMD 側のフォーム変更で破綻する可能性。 Ryzen AI Software は Windows Server 2025 公式非サポート。 |
 | `Deploy-MSBthPanInboxOnWindowsServer.ps1` | **Microsoft inbox Bluetooth PAN ドライバ (`bthpan.inf` / `bthpan.sys`) 有効化パイプライン。** ソース: ホスト自身の `C:\Windows\System32\DriverStore\FileRepository\bthpan.inf_amd64_*` ディレクトリ — **リモートダウンロード不要**。 単一 INF・ 単一 HWID (`BTH\MS_BTHPAN`)。 Phantom OK (bth.inf による代理マッチ) と真の解消 (Class=Net、 Service=BthPan) を Windows Server 上で明示的に区別します。 | **新規** — 初版リリース。 Phase / Secure Boot / WDAC フレームワークは AMD スクリプトと同一を verbatim 継承。 INF パッチ対象が 1 ファイル・ 1 HWID と非常に小さい。 ThinkPad + Intel AX210 + WS2025 build 26100.32860 が第一の物理検証ターゲット予定。 |
 | `Collect-WindowsServerConfigurationEvidence.ps1` | **読み取り専用の構成情報エビデンス・コレクタ (r93+)。** OS / デバイス / ドライバストア / 証明書 / ブートセキュリティ / CodeIntegrity / `setupapi` の状態をタイムスタンプ付きエビデンス ZIP に採取し、 PASS / FAIL / REVIEW / INFO 評価レポートを出力する (exit code 0 / 2 / 1)。 単体実行のほか、 デプロイスクリプトの実行時には pre/post ペアとして自動実行される (r94 以降デフォルト。 `-SkipEvidenceCollection` でスキップ可)。 | **New** — 挙動ハーネス検証済み。 実機ホストでの検証は未実施。 |
@@ -240,7 +248,7 @@ BitLocker、 アンチチートソフト、 サポート影響、 証明書有�
 
 | 項目 | チップセットスクリプト | グラフィックススクリプト | **NPU スクリプト** | **BthPan スクリプト** |
 | --- | --- | --- | --- | --- |
-| **成熟度** | 安定版、 複数の検証サイクル完了 | 安定版、 複数の検証サイクル完了 | **🆘 実験的 — 物理 NPU ハードウェアでの検証は未実施** | **新規** — 初版リリース。 Phase / Secure Boot / WDAC フレームワークは検証済 verbatim 継承。 単一 INF surface が小さく、 1 セッションで物理検証が完結可能。 |
+| **成熟度** | 過去実機検証済み・複数サイクル (是正前)。 再検証待ち | 過去実機検証済み・複数サイクル (是正前)。 再検証待ち | **🆘 実験的 — 物理 NPU ハードウェアでの検証は未実施** | **新規** — 初版リリース。 Phase / Secure Boot / WDAC フレームワークは検証済 verbatim 継承。 単一 INF surface が小さく、 1 セッションで物理検証が完結可能。 |
 | **配布形態** | 公開 EXE 直接ダウンロード | 公開 EXE 直接ダウンロード | **EULA gate ZIP、 AMD アカウント必須** | **ダウンロード不要** — `bthpan.inf` はホスト自身の `C:\Windows\System32\DriverStore\FileRepository\bthpan.inf_amd64_*` に既に staging 済み。 |
 | **公開ダウンロード URL** | あり (直接) | あり (直接) | **なし — リリースごとに AMD アカウントログインと EULA 受諾が必須** | **該当なし — ドライバはホスト上に存在。** |
 | **AMD アカウント自動ダウンロード** | 該当なし | 該当なし | **best-effort、 AMD のフォーム HTML 構造に依存し予告なく破綻する可能性** | **該当なし。** |
@@ -291,7 +299,7 @@ BitLocker、 アンチチートソフト、 サポート影響、 証明書有�
 | OS | Build | I02 パス | 備考 |
 |---|---|---|---|
 | Windows Server 2025 | 26100 | Path A — 信頼ストア登録 (パッケージ信頼)。 WDAC supplemental の配置は明示的な `-WdacBasePolicyGuid` 指定時のみ | 主検証ターゲット。 カーネルイメージ信頼はパッケージ信頼から独立に評価されます (Mode S — SPEC D.58.7)。 Server 2025+ には Windows Driver Policy が適用されます (SPEC D.58.6)。 |
-| Windows Server 2022 | 20348 | Path A — 信頼ストア登録 (パッケージ信頼)。 WDAC supplemental の配置は明示的な `-WdacBasePolicyGuid` 指定時のみ | **実機実行の記録なし** — WS2025 と同じ MPF/CiTool ティアとして設計されていますが、 WS2022 実機で実行されたことはありません ([現在のステータス](#現在のステータス-エンドユーザー利用には未対応) を参照)。 カーネルイメージ信頼はパッケージ信頼から独立に評価されます (Mode S — SPEC D.58.7)。 |
+| Windows Server 2022 | 20348 | Path A — 信頼ストア登録 (パッケージ信頼)。 WDAC supplemental の配置は明示的な `-WdacBasePolicyGuid` 指定時のみ | **実機実行の記録なし** — WS2025 と同じ Multiple Policy Format ティアとして設計されています (**ただし inbox CiTool はなし** — 有効化はダウンロード配布の RefreshPolicy.exe か WMI bridge。 SPEC D.58.9) が、 WS2022 実機で実行されたことはありません ([現在のステータス](#現在のステータス-エンドユーザー利用には未対応) を参照)。 カーネルイメージ信頼はパッケージ信頼から独立に評価されます (Mode S — SPEC D.58.7)。 |
 | Windows Server 2019 | 17763 | **Path A** (信頼ストア登録のみ、 install 予定 driver が全て WHQL co-signed の場合) / **Path B** (`-UseTestSigning`、 firmware で Secure Boot を Disabled にすることが必須) | r70 で従来の WDAC SPF orchestrator 経路を撤回しました (SPEC §D.30 参照)。 WHQL co-signed driver (例: `AmdMicroPEP.sys`、 `amdgpio2.sys`) は信頼ストア登録のみで load されます。 非 WHQL driver (例: `amdi2c.sys`、 `amdsfhkmdf.sys`) は Path B を要します。 r71 で、 Secure Boot ON のまま運用したいホスト向けに非 WHQL driver をスキップする `-SkipNonCosignedDrivers` スイッチを追加しました。 r72 で I02 short-circuit を追加し、 `-SkipNonCosignedDrivers` + Secure Boot ON で firmware 変更なしに end-to-end でインストールが完了できるようにしました (WHQL embedded signature が kernel CI で直接 authorize されるため)。 r96 で、 初の実地実行で判明した Path A プランの欠陥 (スキーマクラッシュ・プランを空にするトリムルール・プロセス境界での分析喪失 — SPEC §D.40) を修正しました。 r97 で、 2 回目の試行で判明したプラン集計スコープと I01 判定基準を是正しました (スコープ外変種行がカウントを汚染・カタログは選択スコープ全体で自己署名されるため I01 のスキップは「自己署名対象ゼロ」のプランのみ — SPEC §D.41)。 詳細は SPEC §D.31、 §D.31.11、 §D.31.17 を参照。 |
 | Windows Server 2016 | 14393 | WS2019 と同じ | r70 以降の挙動は WS2019 と同一です。 物理 WS2016 ホストでの実機検証は待機中です。 |
 | Windows 10 / 11 (Workstation) | 任意 | PrepareVerify のみ | Install phase は自動的に block されます。 |
@@ -792,7 +800,7 @@ $cred = Get-Credential -UserName 'you@example.com' -Message 'AMD アカウント
 | Verify | V06 | HardwareImpactAnalysis | ホスト上の AMD ハードウェアを enumerate、AS-IS ドライバとパッチ済み TO-BE ドライバを比較、リスク (HIGH / MEDIUM / LOW) 分類。NPU スクリプトでは Ryzen AI Software user-mode stack 関連の通知も表示 |
 | Inst | I00 | PreInstallReview | V06 リスクサマリを表示、operator の確認を要求 (NPU スクリプトでは Ryzen AI EULA への明示的 `I AGREE` 入力も要求) |
 | Inst | I01 | TrustCertificate | CER を `LocalMachine\Root` + `LocalMachine\TrustedPublisher` に import |
-| Inst | I02 | AuthorizeDriverSigning | 当該証明書を参照する WDAC supplemental policy を build + deploy — **ただし `-WdacBasePolicyGuid` 指定時のみ**。 base policy の既定値は存在せず、 未指定の場合このフェーズは supplemental 配置を拒否します (SPEC D.58.8)。 `-UseTestSigning` 指定時のみ legacy `bcdedit /set testsigning on` 経路に fallback。 supplemental policy の有効化は 3 段階で試行します — WS2022 以降では `CiTool.exe --json`、WS2019 では WMI/CIM 経由の `PS_UpdateAndCompareCIPolicy` bridge、WS2016 ないし上記いずれも失敗したホストでは BCDEdit testsigning + 再起動 — 詳細は [SPEC §D.22](./SPEC.md) を参照 |
+| Inst | I02 | AuthorizeDriverSigning | 当該証明書を参照する WDAC supplemental policy を build + deploy — **ただし `-WdacBasePolicyGuid` 指定時のみ**。 base policy の既定値は存在せず、 未指定の場合このフェーズは supplemental 配置を拒否します (SPEC D.58.8)。 `-UseTestSigning` 指定時のみ legacy `bcdedit /set testsigning on` 経路に fallback。 supplemental policy の有効化は OS ごとの activation plan に従います (SPEC D.58.9): Windows Server 2025 / Windows 11 22H2+ では inbox の `CiTool.exe`、 WS2022 ではダウンロード配布の `RefreshPolicy.exe` か WMI/CIM 経由の `PS_UpdateAndCompareCIPolicy` bridge、 WS2016/WS2019 では supplemental 経路そのものを**拒否** (single-policy format)。 BCDEdit testsigning は明示的な `-UseTestSigning` 指定時のみ実行します (Mode T、 lab ホスト限定) |
 | Inst | I03 | InstallDrivers | 対象 INF 全てに対して `pnputil /add-driver <patched.inf> /install` を実行 |
 | Inst | I04 | PostInstallVerification | AMD ハードウェアを再 enumerate、各対象デバイスに `[C] Self-signed` ドライバが bind されたか確認。NPU スクリプトでは Ryzen AI Software user-mode stack インストール guidance も表示。 BthPan スクリプトの本 phase は言語非依存の識別子 (`DriverFileName`、`ComponentID`、`PnPDeviceID`) のみを用いるため、日本語・中国語・ドイツ語などの SKU でも正しく動作します — 詳細は [SPEC §D.19](./SPEC.md) を参照 |
 | Inst | **I05** | **ForceRebind** (**BthPan 専用**) | `I04 OverallResult = PartialOrPhantom` の場合に限り (かつその場合のみ) 起動。`Restart-PnpDevice` → `Disable/Enable-PnpDevice` → `pnputil /remove-device /scan-devices` → `Stop/Start-Service BthPan` のエスカレーション順序で再起動なしのドライバ復旧を試行します。WS2016 / WS2019 / WS2022 / WS2025 上で利用可能なコマンドレットを自動検出し、ない場合はそのアテンプトを skip して次へ進みます — 詳細は [SPEC §D.22](./SPEC.md) を参照。成功時は `I04 OverallResult` を `TrueResolution` に昇格させ、pending-reboot marker を消去します |
@@ -815,7 +823,7 @@ $cred = Get-Credential -UserName 'you@example.com' -Message 'AMD アカウント
 | `-WorkRoot`                | スクリプト別         | workspace path を上書き (Chipset: `C:\Temp\Workspace_AMD-Chipset`、 Graphics: `C:\Temp\Workspace_AMD-Graphics`、 NPU: `C:\Temp\Workspace_AMD-NPU`、 BthPan: `C:\Temp\Workspace_Microsoft-BthPan`)。 `C:\Temp\Workspace_*` 配下に配置。 `C:\Temp` がない場合はスクリプトが自動作成 |
 | `-LogFile`                 | 自動生成            | コンソール出力全体を `Start-Transcript` / `Stop-Transcript` でキャプチャするトランスクリプトのパス。 **r91+: 省略時 (デフォルト) は自動的にトランスクリプトが常時作成される** (`<WorkRoot>\\logs\\<ScriptName>_<Action>_<yyyyMMdd-HHmmss>_<PID>.log`)。 エントリバナーより前に開始されるため、 バナーと P00 の実行環境レポート全体がログに含まれる (`-CleanWorkRoot` 時は suspend/wipe/resume フローで wipe を生き延びる。 無効化スイッチはなし)。 明示的にパスを渡せば出力先を上書きできる。 ファイル側は全ストリーム (Output / Host / Error / Warning / Verbose / Debug) をプレーンテキストで受け取り、 インタラクティブコンソール側は `Write-Host -ForegroundColor` の色装飾を維持する。 レガシーな `... \\|*>&1 \\| Tee-Object -FilePath ...` イディオムは Write-Host の色情報がパイプ経由で削除されるが、 こちらは色を保持できるため推奨 |
 | `-SkipEvidenceCollection`  | (off — 採取は実行される) | **r94+ (4 本共通)。** エビデンス採取は **デフォルト有効**: `ListPhases` を除くすべての実行が、 スクリプトと同じフォルダの `Collect-WindowsServerConfigurationEvidence.ps1` を最初のフェーズ前に stage `pre`、 実行の最終ステップで stage `post` として呼び出し、 diff 可能な読み取り専用エビデンス ZIP をスクリプトフォルダに生成する。 本スイッチ指定時は両方の採取をスキップ。 ベストエフォート: コレクタ側の問題は警告のみでデプロイ実行には影響しない。 (r93 ではオプトインの `-CollectEvidence` として出荷されたが、 常時自動採取という本来要件を満たすため r94 で極性を反転 — PSA6006 がデフォルト `$true` の switch を禁止しているため。) |
-| `-PfxPassword`             | スクリプト別         | 自己署名 PFX のパスワード (Chipset / Graphics / BthPan: `'ChangeMe!2026'`、 NPU: `''`)            |
+| `-PfxPassword`             | スクリプト別         | 自己署名 PFX のパスワード。 Chipset / Graphics / BthPan: **未指定時は実行ごとのランダム 32 文字 CSPRNG** (W4)。 NPU: `''` かつ既知リテラルの export 分岐が残存 — **未解決、 監査 H-05R (W7 予定)** |
 | `-WdacPolicyGuid`          | スクリプト別 (固定 UUID v4) | WDAC 補助 policy GUID を上書き。 デフォルトはスクリプト別 (Chipset: `503860EA-…`、 Graphics: `85336828-…`、 NPU: `8B2C4F12-…`)。 レガシー deploy のクリーンアップ、 または並列複数 deploy で使用 |
 | `-ForceUnsafe`             | (off)                | **r69+ (Chipset / Graphics / BthPan のみ)。** I00 PreInstallReview で条件 C1 / C2 / C5 / C6 が成立した場合に表示される CRITICAL 承認チェックリスト (シングルディスプレイホストでの display ドライバ置換、 BitLocker ON + AMD PSP ドライバ置換、 ホストが 24+ 時間 reboot されていない、 r71: Secure-Boot-ON ホストでの WHQL co-sign 不足) をバイパス。 CI / CD 自動化用途のみ。 バイパスは `Set-DebugStep` で run transcript に記録される。 **本番では絶対に使用しないこと。** 詳細は SPEC §D.28 と §D.31.4 |
 | `-SkipNonCosignedDrivers`  | (off)                | **r71+ (Chipset / Graphics / BthPan のみ)。** インストールプランから非 WHQL co-signed driver をスキップ。 P05 が WHQL co-sign 分析を構築し、 P06 入口で `$Ctx.InfInventory` を Microsoft Windows Hardware Compatibility co-signature を持つ .sys のみを含む INF に絞り込みます。 後続フェーズ (P06 patch / P07 cert / P08 catalog / V03-V06 verify / I03 install) は全て自動的にトリム済みインベントリを参照します。 **r72+**: 本フラグが立っており、トリム後のプランが完全に WHQL co-signed の場合、 I02 が short-circuit して WDAC supplemental policy 配置・ `bcdedit` testsigning・ firmware Secure Boot 変更のいずれも行わずに完了します。 firmware で UEFI Secure Boot を ENABLED のまま運用する必要があるホスト向け。 非 WHQL driver は install されません。 **r96/r97**: トリムはスキーマ耐性化され、 意味論も是正されました — Server 互換でパッチ不要の INF は常に適格で、 WHQL co-sign 分類が要求されるのはパッチ対象サブセットのみです。 P05/P06 が分析とトリム後プランを `whql_cosign_analysis.json` / `whql_cosign_plan.json` (SchemaVersion 2・install スコープ集計・`PlanCatalogSignCount`) としてワークスペースルートに永続化するため、 `PrepareVerify` -> `Install` の分割ワークフローでもプランが参照されます。 I01 のスキップ (信頼ストア無変更) は「パイプラインが自己署名すべきカタログがプランに 1 つも無い」場合のみで、 通常のプランでは I01 は実行されます (全プランカタログが Server OS ターゲット向けに再生成・自己署名されるため)。 詳細は SPEC §D.31、 §D.31.11、 §D.31.17 |
@@ -1124,7 +1132,7 @@ P07 で生成される証明書は本パイプラインで install する全ド�
 - **鍵**: RSA 4096-bit、SHA-384 署名アルゴリズム。
 - **EKU**: Code Signing (`1.3.6.1.5.5.7.3.3`)。
 - **有効期間**: **P07 実行日から 5 年**。スクリプトでハードコードされています。
-- **保管場所**: PFX を `C:\AMD-{Chipset,Graphics,NPU}-WS\cert\` に保存。 PFX には**パスワードが設定されていますが、 固定かつ公知の既定値です** — Chipset / Graphics / BthPan は `'ChangeMe!2026'`、 NPU スクリプトは空文字列。 公知の既定値は保護になりません: 本当の保護が必要な場合は `-PfxPassword` で独自の値を指定してください。 実行ごとのランダムパスワード生成と ACL 制限は計画済みです (監査 H-05)。 本文書の以前の版は「PFX はパスワード保護されていない」と記述しており、 コードと矛盾していました。 ここに是正します (監査 L-01)。
+- **保管場所**: PFX を `C:\AMD-{Chipset,Graphics,NPU}-WS\cert\` に保存。 Chipset / Graphics / BthPan では `-PfxPassword` 未指定時に**実行ごとのランダム 32 文字 CSPRNG パスワード**が使われ (W4)、 エクスポートされた PFX は Administrators+SYSTEM に ACL 限定・**Install 完了後に削除**されます (証明書はストアに残り、 P07 が必要時に再生成)。 NPU スクリプトには空文字列既定と既知リテラルの export 分岐が残っています — 未解決、 監査 H-05R (W7 予定)。 本文書の以前の版は「PFX はパスワード保護されていない」と記述しており、 コードと矛盾していました。 ここに是正します (監査 L-01)。
 - **trust anchor の対象**: `patched\` 配下の全 `.cat` ファイル、WDAC supplemental policy、(I01 経由で) `LocalMachine\Root` + `LocalMachine\TrustedPublisher`。
 
 ### 5 年経過後の挙動
