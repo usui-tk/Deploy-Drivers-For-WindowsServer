@@ -8115,13 +8115,68 @@ completed by the P1 wave-W2 release (`BootSigningPosture` and the
 machine-verified the gate guarantees "no deployment without an
 operator-verified identity", not "the identity was machine-verified".
 
+### D.58.9 Supplemental activation paths by OS (audit P1-A; W3)
+
+Primary sources (Microsoft Learn, feature-specific sections, verified
+2026-08-09 — the `Applies to` banner is not the authority, §D.47.2):
+
+- Supplemental policies exist only in the **Multiple Policy Format**,
+  available on Windows 10 1903+ (build 18362) and **Windows Server 2022+**.
+  WS2016/WS2019 run a **single active policy** (`SiPolicy.p7b`); a
+  supplemental policy can never take effect there. (deploy-multiple-
+  appcontrol-policies; the deployment-guide script sample names the split
+  explicitly: "Multiple policy format (For Windows builds 1903+ only,
+  including Server 2022)" vs "Single policy format (Windows Server 2016
+  and 2019, and Windows 10 1809 LTSC)".)
+- **CiTool.exe ships beginning Windows 11 22H2 and Windows Server 2025.**
+  Windows Server 2022 does not ship it. (citool-commands: "It's included
+  in the Windows images starting with Windows 11, version 22H2, and
+  Windows Server 2025.") Earlier repository text claiming "WS2022+"
+  activation via CiTool was wrong and has been corrected in code comments
+  and runtime strings.
+- The no-reboot activation paths without CiTool are the **downloadable App
+  Control policy refresh tool (`RefreshPolicy.exe`)** or the **WMI bridge**
+  (`PS_UpdateAndCompareCIPolicy`). (deploy-appcontrol-policies-with-script.)
+- The memory-integrity activation known issue is scoped to **signed Base
+  policies on Windows 11 builds earlier than 24H2**; it "does not affect
+  ... deployment of unsigned policies, or deployment of supplemental
+  policies (signed or unsigned)", nor hosts without memory integrity.
+  This confirms BLOCK-3: HVCI is never a universal Server rule, and this
+  project's unsigned supplemental is outside the issue.
+
+Code consequences (Chipset r115 / Graphics r81 / NPU r58 / BthPan r63
+generation):
+
+- `Resolve-SupplementalActivationPlan` (four-way byte-identical pure
+  function, fixture-tested per ruling Q3) maps `(OsBuild, CiToolAvailable,
+  RefreshPolicyExePath, MemoryIntegrityRunning)` to the decision table:
+  build < 18362 → **refused** (`unsupported`); CiTool → `citool`;
+  else RefreshPolicy.exe present → `refreshpolicy-exe`; else `wmi-bridge`
+  with reboot as the final fallback.
+- I02 refuses the supplemental path on single-policy-format hosts instead
+  of deploying an inert `.cip` (the refusal returns, §D.57 discipline).
+  `Test-RefreshPolicyExeAvailable` is detection-only; the verified download
+  is P1-F work.
+- **Mode T is an explicit opt-in** (plan §6 / U2): reaching PATH B without
+  `-UseTestSigning` (because the WDAC path was unavailable) refuses and
+  returns instead of falling through to the BCD write. The r114-and-earlier
+  behaviour — enabling testsigning implicitly when WDAC tools were absent —
+  is retired. The bcdedit write additionally sits under a `UseTestSigning`
+  conditional; gate **G-04** (`Test-InstallPathMutationGuard.ps1`) pins
+  this in the AST, along with: no WDP GUID is ever passed to a removal
+  verb, no `bcdedit ... nointegritychecks`, and no HVCI registry write.
+- **U3 disclosure**: `Show-WindowsDriverPolicyDisclosure` runs at I02 entry
+  and prints the §D.58.6 evaluation-mode facts ONLY on build 26100+ when a
+  Windows Driver Policy GUID is proven present via policy enumeration —
+  never on 2016/2019/2022.
+
 ## Appendix: How to seed a new sister script from this SPEC
 
 If you are creating a 5th script (e.g. `Deploy-AMDRocmRuntimeOnWindowsServer.ps1`):
 
 1. **Choose a reference script.** Use one of the **production-validated** scripts: `Deploy-AMDChipsetDriverOnWindowsServer.ps1`, `Deploy-AMDGraphicsDriverOnWindowsServer.ps1`, or `Deploy-MSBthPanInboxOnWindowsServer.ps1`. **Do NOT use the NPU script as a starting template** — the NPU script is classified as "🆘 Experimental / research-grade — NOT production-ready" (see README.md "Risk classification of the four scripts"), has no physical-hardware validation runs, and its idioms have not been verified to be safe to copy. Among the three production-validated scripts, the Chipset script has the largest test surface (Phase coverage, INF patch logic, multi-OS detection) and the MSBthPan script has the cleanest single-INF / single-HWID flow — pick whichever is closer to your new script's domain. Copy that file as your starting template.
 2. Replace `$Script:ScriptName`, `$Script:ScriptVersion`, `$Script:ScriptTag`, `$Script:CertSubjectCn`, `$Script:WdacPolicyName`, `$Script:WdacPolicyGuid`, `$Script:WorkRoot` with values specific to your new script.
-3. Re-implement only the **domain helpers** section (platform detection, installer resolution, INF inventory filter). Reuse all other sections verbatim — especially the output helpers (`Write-Step`/`Write-Ok`/`Write-Caution`/`Write-Fail`/`Write-Skip`/`Write-Detail`/`_LogLine`), timestamp idioms (`(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')`), CIM-with-WMI-fallback pattern, and the `Test-WdacToolsAvailable` / `Install-AmdWdacPolicy` / `Uninstall-AmdWdacPolicy` triplet which are PS 5.1-validated and handle multiple edge cases (CiTool absent on WS2019, WS2025 build 26100 schema variant in AllowAll.xml, CIM bridge fallback via PS_UpdateAndCompareCIPolicy). **Ground-up reimplementation of these helpers is strongly discouraged** — they encode validation history that is invisible in the code itself. Two concrete cases (originally documented in the now-removed §D.25 narrative; preserved here as Windows-PowerShell-5.1 footgun examples) illustrate why: (a) `Get-Date -AsUTC` is a PS 7.1+ parameter that fails at parameter binding on PS 5.1 with a non-obvious error message — a clean-room reimplementation typed this idiom and shipped a broken script; (b) `[string]$Script:CertThumbprint = ''` inside a `param()` block silently becomes a literally-named `Script:CertThumbprint` parameter rather than a script-scope assignment, which breaks the intended `-CertThumbprint` caller convention without raising any parse-time error. Both defects survived initial code review and only surfaced under end-to-end execution. Copying a validated sister-script idiom avoids both of these failure modes by construction.
+3. Re-implement only the **domain helpers** section (platform detection, installer resolution, INF inventory filter). Reuse all other sections verbatim — especially the output helpers (`Write-Step`/`Write-Ok`/`Write-Caution`/`Write-Fail`/`Write-Skip`/`Write-Detail`/`_LogLine`), timestamp idioms (`(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')`), CIM-with-WMI-fallback pattern, and the `Test-WdacToolsAvailable` / `Install-AmdWdacPolicy` / `Uninstall-AmdWdacPolicy` triplet which are PS 5.1-validated and handle multiple edge cases (CiTool absent below Windows Server 2025, WS2025 build 26100 schema variant in AllowAll.xml, CIM bridge fallback via PS_UpdateAndCompareCIPolicy). **Ground-up reimplementation of these helpers is strongly discouraged** — they encode validation history that is invisible in the code itself. Two concrete cases (originally documented in the now-removed §D.25 narrative; preserved here as Windows-PowerShell-5.1 footgun examples) illustrate why: (a) `Get-Date -AsUTC` is a PS 7.1+ parameter that fails at parameter binding on PS 5.1 with a non-obvious error message — a clean-room reimplementation typed this idiom and shipped a broken script; (b) `[string]$Script:CertThumbprint = ''` inside a `param()` block silently becomes a literally-named `Script:CertThumbprint` parameter rather than a script-scope assignment, which breaks the intended `-CertThumbprint` caller convention without raising any parse-time error. Both defects survived initial code review and only surfaced under end-to-end execution. Copying a validated sister-script idiom avoids both of these failure modes by construction.
 4. Run `python3 psa.py <new-script>.ps1` (see A.11 for setup) until 0 errors.
 5. Add B.5 section to this SPEC.md.
 6. Add the new script to `README.md` "What's in the box" table, "Parameters" section, "Risk classification" table — and sync `README.ja.md`.

@@ -20,6 +20,79 @@ independently.
 
 ---
 
+## [2026-08-09] `activation-path-os-separation` — Chipset r115 / Graphics r81 / NPU r58 / BthPan r63
+
+Third wave (W3) of the P1 audit remediation (audit P1-A + rulings U3 and
+G-04). Sisters-only. Primary sources were re-verified against the
+feature-specific sections on Microsoft Learn before authoring (SPEC D.58.9):
+CiTool.exe ships beginning Windows 11 22H2 / Windows Server 2025 — not on
+WS2022 as this repository previously claimed — and supplemental policies
+exist only in the Multiple Policy Format (Windows 10 1903+ / WS2022+), so
+WS2016/WS2019 can never run one.
+
+### Changed — OS-separated supplemental activation (audit P1-A; SPEC D.58.9)
+
+- New four-way pure helper `Resolve-SupplementalActivationPlan`
+  (fixture-tested per ruling Q3): build < 18362 → refused; CiTool →
+  `citool`; else RefreshPolicy.exe present → `refreshpolicy-exe`; else
+  `wmi-bridge` with reboot as the final fallback. The memory-integrity
+  note records that the signed-base activation known issue does not apply
+  to this unsigned supplemental (BLOCK-3).
+- I02 gains an activation-path gate after the admissibility gate: on
+  single-policy-format hosts (WS2016/WS2019) the phase refuses and
+  returns instead of deploying an inert `.cip` into
+  `CiPolicies\Active`.
+- `Install-*WdacPolicy` dispatches on the plan: a RefreshPolicy.exe
+  branch runs ahead of CiTool (`Test-RefreshPolicyExeAvailable` is
+  detection-only — PATH and the workspace download dir; the verified
+  download is P1-F work). The CIM bridge is re-documented as the
+  WS2022-without-RefreshPolicy path; the old "WS2019 fallback" story was
+  wrong (WS2019 cannot run a supplemental at all).
+- Stale platform claims swept from comments and runtime strings
+  ("Server 2022+ CiTool", the `Test-WdacToolsAvailable` detail line, I02
+  header comments, dry-run wording, the SPEC appendix note).
+
+### Changed — Mode T becomes an explicit opt-in (plan §6 / U2; gate G-04)
+
+- Reaching PATH B without `-UseTestSigning` (because the WDAC path was
+  unavailable) now refuses and returns. The previous behaviour enabled
+  BCD testsigning **implicitly** whenever WDAC tools were absent — an
+  install run could weaken boot signing without the operator ever asking
+  for Mode T (Chipset/Graphics/BthPan; NPU was already guarded).
+- The bcdedit write block sits under an explicit `UseTestSigning`
+  conditional (defence in depth; the mechanical G-04 AST contract).
+
+### Added — conditional Windows Driver Policy disclosure (ruling U3)
+
+- `Test-WindowsDriverPolicyPresent` + `Show-WindowsDriverPolicyDisclosure`
+  (four-way): at I02 entry, ONLY on build 26100+ AND when a WDP policy
+  GUID is proven present via policy enumeration, the §D.58.6
+  evaluation-mode facts are printed (250 h / 2 boots / counter reset on
+  violation / this script never disables the policy). Never shown on
+  2016/2019/2022.
+
+### Added — acceptance-gate test case (G-04)
+
+- `Test-InstallPathMutationGuard.ps1` (AST-based): no WDP GUID passed to
+  a removal verb, no `bcdedit ... nointegritychecks`, no HVCI registry
+  write (all five product scripts); every testsigning-on write site in
+  the sisters has a `UseTestSigning` conditional ancestor. Decision-table
+  fixtures for `Resolve-SupplementalActivationPlan`; the four new W3
+  helpers registered in `Test-SisterConsistency`. **Negative controls
+  (measured, mutated /tmp copies)**: an unguarded bcdedit write, an
+  unguarded ProcessStartInfo assignment, and a WDP GUID removal are each
+  detected.
+- Suite after this release: **14 cases, 615 assertions, all passing**,
+  measured on PowerShell 7.4.6 (Core) on Linux.
+
+### Documentation
+
+- SPEC D.58.9 (new): supplemental activation paths by OS, with the
+  primary-source table and the Mode T / U3 / G-04 records.
+- README / README.ja: "What's new" latest-release entry for this wave.
+
+---
+
 ## [2026-08-09] `boot-signing-posture` — Chipset r114 / Graphics r80 / NPU r57 / BthPan r62
 
 Second wave (W2) of the P1 audit remediation (design rulings Q1–Q6; ruling
