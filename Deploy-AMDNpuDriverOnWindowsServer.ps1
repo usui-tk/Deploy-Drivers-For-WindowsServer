@@ -349,8 +349,8 @@ param(
 #   * PhaseResults - per-phase outcome registry (write side from
 #     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.08.09-r57'
-$Script:ScriptTag           = 'boot-signing-posture'
+$Script:ScriptVersion       = 'npu-2026.08.09-r58'
+$Script:ScriptTag           = 'activation-path-os-separation'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the
@@ -6593,6 +6593,83 @@ function Test-WdacSupplementalPolicyAdmissible {
     return -not [string]::IsNullOrWhiteSpace($Script:WdacBasePolicyGuid)
 }
 
+function Resolve-SupplementalActivationPlan {
+    # Pure decision function (audit P1-A): maps host facts to the
+    # activation path for this project's UNSIGNED SUPPLEMENTAL App
+    # Control policy. Every input is a parameter - the function never
+    # consults the live system - so the Linux harness fixture-tests
+    # the whole decision table (ruling Q3).
+    #
+    # Platform facts (Microsoft Learn, feature-specific sections,
+    # verified 2026-08-09 - SPEC D.58.9):
+    #   - Supplemental policies exist only in the Multiple Policy
+    #     Format: Windows 10 1903+ (build 18362) and Windows Server
+    #     2022+. WS2016/WS2019 run a single active policy; a
+    #     supplemental can never take effect there.
+    #   - CiTool.exe ships beginning Windows 11 22H2 and Windows
+    #     Server 2025. Windows Server 2022 does not ship it; the
+    #     no-reboot paths there are the downloadable RefreshPolicy.exe
+    #     or the WMI bridge.
+    #   - The memory-integrity activation known issue covers SIGNED
+    #     BASE policies on Windows 11 builds before 24H2 only; it does
+    #     not affect this unsigned supplemental deployment.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)] [int]$OsBuild,
+        [Parameter(Mandatory)] [bool]$CiToolAvailable,
+        [Parameter()] [AllowEmptyString()] [string]$RefreshPolicyExePath = '',
+        [Parameter()] [bool]$MemoryIntegrityRunning = $false
+    )
+    $plan = [pscustomobject]@{
+        SupplementalSupported = $false
+        Method                = 'unsupported'
+        Reason                = ''
+        RefreshPolicyExePath  = $RefreshPolicyExePath
+        MemoryIntegrityNote   = $null
+    }
+    if ($MemoryIntegrityRunning) {
+        $plan.MemoryIntegrityNote = 'Memory integrity is running: the signed-base-policy activation known issue does not apply to this unsigned supplemental deployment.'
+    }
+    if ($OsBuild -lt 18362) {
+        $plan.Reason = ('OS build {0} runs a single active App Control policy (Multiple Policy Format requires Windows 10 1903+ / Windows Server 2022+); a supplemental policy cannot take effect here.' -f $OsBuild)
+        return $plan
+    }
+    $plan.SupplementalSupported = $true
+    if ($CiToolAvailable) {
+        $plan.Method = 'citool'
+        $plan.Reason = 'CiTool.exe activates the policy immediately (ships beginning Windows 11 22H2 / Windows Server 2025).'
+        return $plan
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RefreshPolicyExePath)) {
+        $plan.Method = 'refreshpolicy-exe'
+        $plan.Reason = ('RefreshPolicy.exe activates the policy without a reboot ({0}).' -f $RefreshPolicyExePath)
+        return $plan
+    }
+    $plan.Method = 'wmi-bridge'
+    $plan.Reason = 'No CiTool.exe / RefreshPolicy.exe on this host: the WMI bridge (PS_UpdateAndCompareCIPolicy) is attempted, with a reboot as the final fallback.'
+    return $plan
+}
+
+function Test-RefreshPolicyExeAvailable {
+    # Detection ONLY (audit P1-A): returns the resolved path of the
+    # downloadable App Control policy refresh tool when it is already
+    # present (PATH or the workspace download directory), else $null.
+    # The verified download itself is later work (audit P1-F).
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()] $Ctx
+    )
+    $cmd = Get-Command RefreshPolicy.exe -ErrorAction SilentlyContinue
+    if ($cmd) { return [string]$cmd.Source }
+    if ($Ctx -and $Ctx.Paths -and $Ctx.Paths.Download) {
+        $candidate = [string]$Ctx.Paths.Download + '\RefreshPolicy.exe'
+        if (Test-Path -LiteralPath $candidate) { return $candidate }
+    }
+    return $null
+}
+
 function New-WdacSupplementalPolicy {
     <#
     .SYNOPSIS
@@ -6602,7 +6679,8 @@ function New-WdacSupplementalPolicy {
         Uses New-CIPolicy + Add-SignerRule + ConvertFrom-CIPolicy. The policy is
         Allow-by-default with our cert as additional kernel-mode signer.
         Deployment via CiTool --update-policy avoids the need for a reboot on
-        Windows Server 2022+ / Windows 11 22H2+.
+        Windows 11 22H2+ / Windows Server 2025 (CiTool does not ship on
+        Windows Server 2022 - audit P1-A).
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -6661,8 +6739,13 @@ function Install-WdacPolicy {
     [OutputType([hashtable])]
     param(
         [Parameter(Mandatory)][string]$BinPath,
-        [Parameter(Mandatory)][string]$PolicyGuid
+        [Parameter(Mandatory)][string]$PolicyGuid,
+        [Parameter()] $ActivationPlan
     )
+    if ($ActivationPlan -and (-not $ActivationPlan.SupplementalSupported)) {
+        # Defence in depth - I02 refuses first (audit P1-A).
+        throw ('WDAC supplemental deployment refused: {0}' -f $ActivationPlan.Reason)
+    }
 
     $citool = Get-Command CiTool.exe -ErrorAction SilentlyContinue
     if ($citool) {
@@ -6704,11 +6787,33 @@ function Install-WdacPolicy {
         $dest = Join-Path $activeDir ('{' + $PolicyGuid + '}.cip')
         Copy-Item -Path $BinPath -Destination $dest -Force
 
-        # ---- WS2019 fallback: PS_UpdateAndCompareCIPolicy CIM method ----
-        # WS2019 (build 17763) does not ship CiTool.exe but CAN hot-load
-        # a supplemental policy via the WMI/CIM bridge in
-        # root\Microsoft\Windows\CI. WS2016 lacks this class and falls
-        # through to the original "reboot may be required" path.
+        # RefreshPolicy.exe path (audit P1-A): the no-reboot activation
+        # on MPF-capable hosts without CiTool (in practice WS2022).
+        $refreshExe = if ($ActivationPlan) { [string]$ActivationPlan.RefreshPolicyExePath } else { '' }
+        if (-not [string]::IsNullOrWhiteSpace($refreshExe)) {
+            $refreshOk = $false
+            try {
+                & $refreshExe 2>&1 | Out-Null
+                if ($LASTEXITCODE -eq 0) { $refreshOk = $true }
+            } catch { # psa-disable-line PSA3004 -- intentional best-effort activation; WMI bridge and reboot remain as fallbacks
+                $refreshOk = $false
+            }
+            if ($refreshOk) {
+                Write-Ok 'RefreshPolicy.exe: policy refresh requested (no reboot).'
+                return @{
+                    ExitCode = 0
+                    Output   = @('Activated via RefreshPolicy.exe')
+                    Success  = $true
+                    Method   = 'RefreshPolicy'
+                }
+            }
+        }
+
+        # ---- WMI bridge: PS_UpdateAndCompareCIPolicy CIM method ----
+        # The no-CiTool/no-RefreshPolicy path for MPF-capable hosts (in
+        # practice Windows Server 2022). WS2019/WS2016 never reach this
+        # function: they run a single active policy and I02 refuses the
+        # supplemental path there (audit P1-A).
         $cimSucceeded   = $false
         $cimError       = ''
         try {
@@ -6726,7 +6831,7 @@ function Install-WdacPolicy {
         }
 
         if ($cimSucceeded) {
-            Write-Ok 'WS2019 CIM bridge (PS_UpdateAndCompareCIPolicy.Update): activated without reboot.'
+            Write-Ok 'WMI bridge (PS_UpdateAndCompareCIPolicy.Update): activated without reboot.'
             return @{
                 ExitCode = 0
                 Output   = @('Activated via PS_UpdateAndCompareCIPolicy')
@@ -6737,7 +6842,7 @@ function Install-WdacPolicy {
 
         Write-Caution 'CiTool not available; copied .cip to Active policy directory.'
         Write-Caution 'A reboot may be required for the policy to take effect.'
-        if ($cimError) { Write-Detail ('  (WS2019 CIM bridge tried but failed: {0})' -f $cimError) }
+        if ($cimError) { Write-Detail ('  (WMI bridge tried but failed: {0})' -f $cimError) }
         return @{
             ExitCode = 0
             Output   = @('Copied to Active dir')
@@ -8256,6 +8361,25 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
         return
     }
 
+    # ---- Activation-path gate (audit P1-A) ----
+    # Supplemental policies exist only in the Multiple Policy Format
+    # (Windows 10 1903+ / WS2022+); WS2016/WS2019 run a single active
+    # policy and the deployment below could never take effect there.
+    $activationPlan = Resolve-SupplementalActivationPlan `
+        -OsBuild ([int][Environment]::OSVersion.Version.Build) `
+        -CiToolAvailable ([bool](Get-Command CiTool.exe -ErrorAction SilentlyContinue)) `
+        -RefreshPolicyExePath ([string](Test-RefreshPolicyExeAvailable -Ctx $Ctx)) `
+        -MemoryIntegrityRunning ([bool](Get-BootSigningEnvironment).HvciRunning)
+    if (-not $activationPlan.SupplementalSupported) {
+        Write-Caution ('WDAC supplemental policy is NOT supported on this OS: {0}' -f $activationPlan.Reason)
+        Write-Caution 'Nothing was deployed. Mode T (-UseTestSigning, lab host only) is the only project-signed path here.'
+        return
+    }
+    Write-Detail ('Activation path: {0} - {1}' -f $activationPlan.Method, $activationPlan.Reason)
+    if ($activationPlan.MemoryIntegrityNote) {
+        Write-Detail ('  {0}' -f $activationPlan.MemoryIntegrityNote)
+    }
+
     $wdac = New-WdacSupplementalPolicy `
         -CerPath $Ctx.CerPath `
         -XmlOutputPath $Ctx.WdacXmlPath `
@@ -8264,7 +8388,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
         -PolicyGuid $Ctx.WdacPolicyGuid
 
     Set-DebugStep 'install WDAC policy via CiTool / Set-CIPolicy'
-    $r = Install-WdacPolicy -BinPath $wdac.BinPath -PolicyGuid $Ctx.WdacPolicyGuid
+    $r = Install-WdacPolicy -BinPath $wdac.BinPath -PolicyGuid $Ctx.WdacPolicyGuid -ActivationPlan $activationPlan
     if (-not $r.Success) {
         throw 'WDAC policy deployment failed.'
     }

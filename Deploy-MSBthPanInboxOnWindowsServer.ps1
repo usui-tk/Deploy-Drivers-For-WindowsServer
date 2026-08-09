@@ -462,8 +462,8 @@ $Script:WdfShortfall      = $null
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-$Script:ScriptVersion = 'msbthpan-2026.08.09-r62'
-$Script:ScriptTag     = 'boot-signing-posture'
+$Script:ScriptVersion = 'msbthpan-2026.08.09-r63'
+$Script:ScriptTag     = 'activation-path-os-separation'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -4029,8 +4029,11 @@ function Show-BootSigningChangeRequired {
 #     Microsoft-rooted signing.
 #   - A supplemental policy is deployed alongside the base, ADDING the
 #     self-signed cert as an allowed kernel-mode signer.
-#   - On Server 2022+/Windows 11, CiTool.exe activates the supplemental
-#     immediately (no reboot). On older systems, a reboot is required.
+#   - On Windows 11 22H2+ / Windows Server 2025, CiTool.exe activates
+#     the supplemental immediately (no reboot). Windows Server 2022
+#     needs the downloadable RefreshPolicy.exe or the WMI bridge;
+#     WS2016/WS2019 cannot run a supplemental at all (single-policy
+#     format) and I02 refuses there (audit P1-A).
 #
 # Why this is preferable to bcdedit testsigning:
 #   testsigning is silently dropped at boot when Secure Boot is on.
@@ -4075,7 +4078,7 @@ function Test-WdacToolsAvailable {
         $caps.CiToolExe = $true
         $caps.ImmediateActivation = $true
     } else {
-        $caps.Detail += 'CiTool.exe not found - policy deployment will require a reboot'
+        $caps.Detail += 'CiTool.exe not found (ships on Windows 11 22H2+ / WS2025) - activation falls back to RefreshPolicy.exe / WMI bridge / reboot'
     }
 
     $template = Join-Path $env:windir 'schemas\CodeIntegrity\ExamplePolicies\AllowAll.xml'
@@ -4157,6 +4160,83 @@ function Get-MsBthPanSuppPolicyMarkerPath {
     param($Ctx)
     if ($Ctx -and $Ctx.Paths -and $Ctx.Paths.Cert) {
         return (Join-Path $Ctx.Paths.Cert 'MsBthPanSuppPolicyId.txt')
+    }
+    return $null
+}
+
+function Resolve-SupplementalActivationPlan {
+    # Pure decision function (audit P1-A): maps host facts to the
+    # activation path for this project's UNSIGNED SUPPLEMENTAL App
+    # Control policy. Every input is a parameter - the function never
+    # consults the live system - so the Linux harness fixture-tests
+    # the whole decision table (ruling Q3).
+    #
+    # Platform facts (Microsoft Learn, feature-specific sections,
+    # verified 2026-08-09 - SPEC D.58.9):
+    #   - Supplemental policies exist only in the Multiple Policy
+    #     Format: Windows 10 1903+ (build 18362) and Windows Server
+    #     2022+. WS2016/WS2019 run a single active policy; a
+    #     supplemental can never take effect there.
+    #   - CiTool.exe ships beginning Windows 11 22H2 and Windows
+    #     Server 2025. Windows Server 2022 does not ship it; the
+    #     no-reboot paths there are the downloadable RefreshPolicy.exe
+    #     or the WMI bridge.
+    #   - The memory-integrity activation known issue covers SIGNED
+    #     BASE policies on Windows 11 builds before 24H2 only; it does
+    #     not affect this unsigned supplemental deployment.
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)] [int]$OsBuild,
+        [Parameter(Mandatory)] [bool]$CiToolAvailable,
+        [Parameter()] [AllowEmptyString()] [string]$RefreshPolicyExePath = '',
+        [Parameter()] [bool]$MemoryIntegrityRunning = $false
+    )
+    $plan = [pscustomobject]@{
+        SupplementalSupported = $false
+        Method                = 'unsupported'
+        Reason                = ''
+        RefreshPolicyExePath  = $RefreshPolicyExePath
+        MemoryIntegrityNote   = $null
+    }
+    if ($MemoryIntegrityRunning) {
+        $plan.MemoryIntegrityNote = 'Memory integrity is running: the signed-base-policy activation known issue does not apply to this unsigned supplemental deployment.'
+    }
+    if ($OsBuild -lt 18362) {
+        $plan.Reason = ('OS build {0} runs a single active App Control policy (Multiple Policy Format requires Windows 10 1903+ / Windows Server 2022+); a supplemental policy cannot take effect here.' -f $OsBuild)
+        return $plan
+    }
+    $plan.SupplementalSupported = $true
+    if ($CiToolAvailable) {
+        $plan.Method = 'citool'
+        $plan.Reason = 'CiTool.exe activates the policy immediately (ships beginning Windows 11 22H2 / Windows Server 2025).'
+        return $plan
+    }
+    if (-not [string]::IsNullOrWhiteSpace($RefreshPolicyExePath)) {
+        $plan.Method = 'refreshpolicy-exe'
+        $plan.Reason = ('RefreshPolicy.exe activates the policy without a reboot ({0}).' -f $RefreshPolicyExePath)
+        return $plan
+    }
+    $plan.Method = 'wmi-bridge'
+    $plan.Reason = 'No CiTool.exe / RefreshPolicy.exe on this host: the WMI bridge (PS_UpdateAndCompareCIPolicy) is attempted, with a reboot as the final fallback.'
+    return $plan
+}
+
+function Test-RefreshPolicyExeAvailable {
+    # Detection ONLY (audit P1-A): returns the resolved path of the
+    # downloadable App Control policy refresh tool when it is already
+    # present (PATH or the workspace download directory), else $null.
+    # The verified download itself is later work (audit P1-F).
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()] $Ctx
+    )
+    $cmd = Get-Command RefreshPolicy.exe -ErrorAction SilentlyContinue
+    if ($cmd) { return [string]$cmd.Source }
+    if ($Ctx -and $Ctx.Paths -and $Ctx.Paths.Download) {
+        $candidate = [string]$Ctx.Paths.Download + '\RefreshPolicy.exe'
+        if (Test-Path -LiteralPath $candidate) { return $candidate }
     }
     return $null
 }
@@ -4341,8 +4421,13 @@ function Install-MsBthPanWdacPolicy {
     # See SPEC D.16 for the root-cause analysis.
     param(
         [Parameter(Mandatory)] [string]$XmlPath,
-        [string]$BinaryOutPath
+        [string]$BinaryOutPath,
+        [Parameter()] $ActivationPlan
     )
+    if ($ActivationPlan -and (-not $ActivationPlan.SupplementalSupported)) {
+        # Defence in depth - I02 refuses first (audit P1-A).
+        throw ('WDAC supplemental deployment refused: {0}' -f $ActivationPlan.Reason)
+    }
     if (-not $BinaryOutPath) {
         $BinaryOutPath = [System.IO.Path]::ChangeExtension($XmlPath, '.cip')
     }
@@ -4364,7 +4449,21 @@ function Install-MsBthPanWdacPolicy {
     $citoolStdout = ''
     $citoolStderr = ''
     $citoolStatusLine = ''
-    if (Get-Command CiTool.exe -ErrorAction SilentlyContinue) {
+    # RefreshPolicy.exe path (audit P1-A): the no-reboot activation on
+    # MPF-capable hosts without CiTool (in practice Windows Server 2022).
+    $refreshExe = if ($ActivationPlan -and $ActivationPlan.Method -eq 'refreshpolicy-exe') { [string]$ActivationPlan.RefreshPolicyExePath } else { $null }
+    if ($refreshExe) {
+        try {
+            & $refreshExe 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0) {
+                $immediate = $true
+                $citoolStatusLine = ('RefreshPolicy.exe: policy refresh requested ({0})' -f $refreshExe)
+            }
+        } catch {
+            $citoolStderr = $_.Exception.Message
+        }
+    }
+    if ((-not $immediate) -and (Get-Command CiTool.exe -ErrorAction SilentlyContinue)) {
         try {
             # CiTool returns 0 on success and prints a confirmation line.
             # --json flag is REQUIRED: without it, CiTool prints
@@ -4394,12 +4493,12 @@ function Install-MsBthPanWdacPolicy {
         }
     }
 
-    # ---- WS2019 fallback: PS_UpdateAndCompareCIPolicy CIM method ----
-    # When CiTool.exe is absent (WS2019 and earlier do not ship it),
-    # the policy may still be hot-loaded via the WMI/CIM bridge
-    # PS_UpdateAndCompareCIPolicy in root\Microsoft\Windows\CI. This
-    # method exists on WS2019+ but not on WS2016, so failure here is
-    # not fatal - the legacy reboot path remains as the final fallback.
+    # ---- WMI bridge: PS_UpdateAndCompareCIPolicy CIM method ----
+    # The no-CiTool/no-RefreshPolicy path for MPF-capable hosts (in
+    # practice Windows Server 2022). WS2019/WS2016 never reach this
+    # function: they run a single active policy and I02 refuses the
+    # supplemental path there (audit P1-A). Failure here is not fatal -
+    # the reboot path remains as the final fallback.
     $cimBridgeTried   = $false
     $cimBridgeStdout  = ''
     $cimBridgeError   = ''
@@ -4429,7 +4528,7 @@ function Install-MsBthPanWdacPolicy {
         XmlPath          = $XmlPath
         BinaryPath       = $BinaryOutPath
         DeployedPath     = $deployedPath
-        ActivationMethod = if ($immediate) { if ($cimBridgeTried -and (-not $citoolStdout)) { 'CIM bridge (PS_UpdateAndCompareCIPolicy, no reboot)' } else { 'CiTool (immediate, no reboot)' } } else { 'reboot' }
+        ActivationMethod = if ($immediate) { if ($citoolStatusLine -like 'RefreshPolicy.exe:*') { 'RefreshPolicy.exe (no reboot)' } elseif ($cimBridgeTried -and (-not $citoolStdout)) { 'CIM bridge (PS_UpdateAndCompareCIPolicy, no reboot)' } else { 'CiTool (immediate, no reboot)' } } else { 'reboot' }
         RebootRequired   = -not $immediate
         CiToolStdout     = $citoolStdout
         CiToolStderr     = $citoolStderr
@@ -11517,8 +11616,10 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     #       allowlists our cert as a kernel-mode signer.
     #     - Convert to.cip and deploy under
     #       %SystemRoot%\System32\CodeIntegrity\CiPolicies\Active.
-    #     - Activate via CiTool.exe --update-policy (immediate, NO
-    #       reboot needed on WS2022+ / Windows 11 22H2+).
+    #     - Activate via CiTool.exe --update-policy (immediate on
+    #       Windows 11 22H2+ / Windows Server 2025), RefreshPolicy.exe
+    #       or the WMI bridge on WS2022; refused on WS2016/WS2019
+    #       (single-policy format - audit P1-A).
     #     - Secure Boot stays ON. testsigning stays OFF. HVCI may
     #       remain ON. No firmware changes. No kernel-load claim
     #       follows from this path (SPEC D.58.1).
@@ -11734,6 +11835,29 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
             return
         }
 
+        # ---- Activation-path gate (audit P1-A) ----
+        # Supplemental policies exist only in the Multiple Policy Format
+        # (Windows 10 1903+ / WS2022+); WS2016/WS2019 run a single
+        # active policy and the deployment below could never take
+        # effect there, so the phase refuses instead of deploying an
+        # inert file.
+        $activationPlan = Resolve-SupplementalActivationPlan `
+            -OsBuild ([int][Environment]::OSVersion.Version.Build) `
+            -CiToolAvailable ([bool](Get-Command CiTool.exe -ErrorAction SilentlyContinue)) `
+            -RefreshPolicyExePath ([string](Test-RefreshPolicyExeAvailable -Ctx $Ctx)) `
+            -MemoryIntegrityRunning ([bool]$bootEnvBefore.HvciRunning)
+        if (-not $activationPlan.SupplementalSupported) {
+            Write-Caution ('Path A (WDAC supplemental policy) is NOT supported on this OS: {0}' -f $activationPlan.Reason)
+            Write-Detail 'Nothing was deployed. Mode T (-UseTestSigning, lab host only) is the only project-signed path here.' -Color Yellow
+            Set-PhaseMarker -Ctx $Ctx -PhaseId 'I02' -Metadata @{ Refused = $true; Reason = 'mpf-not-supported' }
+            Write-PhaseFooter 'I02' 'skipped'
+            return
+        }
+        Write-Detail ('Activation path: {0} - {1}' -f $activationPlan.Method, $activationPlan.Reason) -Color Gray
+        if ($activationPlan.MemoryIntegrityNote) {
+            Write-Detail ('  {0}' -f $activationPlan.MemoryIntegrityNote) -Color DarkGray
+        }
+
         # Already deployed?
         $existing = Test-MsBthPanWdacPolicyDeployed -Ctx $Ctx
         if ($existing -and -not $Ctx.Force) {
@@ -11769,7 +11893,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
 
         # Deploy
         Write-Step 'Converting XML to .cip binary and deploying to active CI policies...'
-        $deploy = Install-MsBthPanWdacPolicy -XmlPath $xmlPath -BinaryOutPath $cipPath
+        $deploy = Install-MsBthPanWdacPolicy -XmlPath $xmlPath -BinaryOutPath $cipPath -ActivationPlan $activationPlan
         Write-Ok ('Deployed: {0}' -f $deploy.DeployedPath)
         # Migrated from bare Write-Host '...' to Write-Detail
         # for SPEC A.5 compliance. CiToolStatusLine is parsed from the
@@ -11822,6 +11946,18 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     # PATH B: legacy bcdedit testsigning
     # =====================================================================
     Set-DebugStep 'Path B: enable BCD testsigning flag'
+    # ---- Mode T opt-in guard (plan section 6 / U2; gate G-04) ----
+    # Reaching PATH B without -UseTestSigning (because the WDAC path
+    # was unavailable) must NOT fall through to a BCD write: Mode T is
+    # an explicit lab-only opt-in, never an implicit fallback.
+    if (-not $Ctx.UseTestSigning) {
+        Write-Caution 'Path A (WDAC supplemental policy) is not available on this host and -UseTestSigning was not supplied.'
+        Write-Detail 'Mode T (BCD testsigning) is an explicit lab-only opt-in; this script never enables it implicitly (gate G-04).' -Color Yellow
+        Set-PhaseMarker -Ctx $Ctx -PhaseId 'I02' -Metadata @{ Refused = $true; Reason = 'mode-t-not-opted-in' }
+        Write-PhaseFooter 'I02' 'skipped'
+        return
+    }
+
     # Already on?
     if ($bootEnvBefore.TestSigningEnabled -eq $true) {
         Write-Skip 'BCD testsigning is already ON.'
@@ -11881,37 +12017,41 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
         throw 'I02: HVCI is running - test-signed kernel images will not load. Disable HVCI / Memory Integrity first (lab host only).'
     }
 
-    # Apply testsigning
-    Write-Host '--- Applying change: bcdedit /set testsigning on ---' -ForegroundColor Cyan
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName               = 'bcdedit.exe'
-    $psi.Arguments              = '/set testsigning on'
-    $psi.UseShellExecute        = $false
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError  = $true
-    $psi.CreateNoWindow         = $true
-    $exit = $null
-    $stdoutText = ''; $stderrText = ''
-    try {
-        $proc = [System.Diagnostics.Process]::Start($psi)
-        $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
-        $stderrTask = $proc.StandardError.ReadToEndAsync()
-        $proc.WaitForExit()
-        $stdoutText = $stdoutTask.Result
-        $stderrText = $stderrTask.Result
-        $exit = $proc.ExitCode
-        $proc.Dispose()
-    } catch {
-        $stderrText = "Failed to launch bcdedit: $($_.Exception.Message)"
+    # Apply testsigning (Mode T explicit opt-in; the conditional below is
+    # the mechanical gate G-04 contract: the BCD write sits under a
+    # UseTestSigning conditional in the AST)
+    if ($Ctx.UseTestSigning) {
+        Write-Host '--- Applying change: bcdedit /set testsigning on ---' -ForegroundColor Cyan
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName               = 'bcdedit.exe'
+        $psi.Arguments              = '/set testsigning on'
+        $psi.UseShellExecute        = $false
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError  = $true
+        $psi.CreateNoWindow         = $true
+        $exit = $null
+        $stdoutText = ''; $stderrText = ''
+        try {
+            $proc = [System.Diagnostics.Process]::Start($psi)
+            $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+            $stderrTask = $proc.StandardError.ReadToEndAsync()
+            $proc.WaitForExit()
+            $stdoutText = $stdoutTask.Result
+            $stderrText = $stderrTask.Result
+            $exit = $proc.ExitCode
+            $proc.Dispose()
+        } catch {
+            $stderrText = "Failed to launch bcdedit: $($_.Exception.Message)"
+        }
+        if ($null -ne $stdoutText -and $stdoutText.Trim()) {
+            Write-Host ('    bcdedit: {0}' -f $stdoutText.Trim()) -ForegroundColor DarkGray
+        }
+        if ($null -ne $exit -and $exit -ne 0) {
+            Write-Host ('    bcdedit stderr: {0}' -f $stderrText.Trim()) -ForegroundColor Red
+            throw "bcdedit failed (exit $exit)"
+        }
+        Write-Ok 'BCD testsigning was set to ON.'
     }
-    if ($null -ne $stdoutText -and $stdoutText.Trim()) {
-        Write-Host ('    bcdedit: {0}' -f $stdoutText.Trim()) -ForegroundColor DarkGray
-    }
-    if ($null -ne $exit -and $exit -ne 0) {
-        Write-Host ('    bcdedit stderr: {0}' -f $stderrText.Trim()) -ForegroundColor Red
-        throw "bcdedit failed (exit $exit)"
-    }
-    Write-Ok 'BCD testsigning was set to ON.'
     Write-Host ''
 
     Write-Host '--- TO-BE: state immediately after I02 (effective at next reboot) ---' -ForegroundColor Cyan
