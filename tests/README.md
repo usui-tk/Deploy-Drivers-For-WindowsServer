@@ -43,6 +43,7 @@ tests/
 | `Test-CollectorPathResolution.ps1` | `Resolve-ServiceImagePath` across every `ImagePath` shape seen in the field; CM_PROB and NTSTATUS decoding, including the separation of signature failures from look-alike API mismatches |
 | `Test-CollectorSetupApiParser.ps1` | `setupapi.dev.log` failure-section extraction: section detection, missing service binaries, SetupAPI error codes, CM problem codes with NT status, absent-log handling |
 | `Test-SisterConsistency.ps1` | Shared-helper byte identity across the sisters; ValidateSet call-site conformance; `@( )` never applied to a `List[object]`; every script parses and declares a version |
+| `Test-SupplementalPolicyGate.ps1` | The WDAC supplemental path never assumes a base policy (SPEC D.58.8): the assumed GUID is gone from code string constants, `WdacBasePolicyGuidDefault` is gone repo-wide, all four sisters carry a byte-identical admissibility helper, every builder refuses an empty `BasePolicyId`, and the phase gate's refusal branch returns |
 
 ## Why these checks and not others
 

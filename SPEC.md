@@ -2049,7 +2049,7 @@ When adding a fifth sister script, the 6 cross-script-identical functions are li
 - **Self-signed cert subject**: `CN=AMD Chipset Driver Self-Sign (WS2025 Lab, At Own Risk)`
 - **Self-signed cert files**: `cert\AMD-Chipset-Driver-CodeSign.{pfx,cer}`
 - **WDAC policy GUID**: fixed `503860EA-8837-4169-9BC4-19E5AEED721B`; overridable via `-WdacPolicyGuid`. Legacy deploys used a dynamically-generated PolicyId recorded in `cert\AmdSuppPolicyId.txt`.
-- **WDAC SupplementsBasePolicyID**: `{A244370E-44C9-4C06-B551-F6016E563076}` (Windows-shipped default base CI policy); overridable via `-WdacBasePolicyGuid`
+- **WDAC SupplementsBasePolicyID**: **no default** — supplied via `-WdacBasePolicyGuid`, and the supplemental deployment is refused without it (§D.58.8). Earlier releases defaulted to the Windows-shipped `{A244370E-44C9-4C06-B551-F6016E563076}` without verifying that any base policy existed.
 
 ### Inputs
 
@@ -2220,7 +2220,7 @@ Older AMD platforms (Renoir, Cezanne) will produce fewer device-driver matches i
 - **Self-signed cert subject**: `CN=AMD Graphics Driver Self-Sign (WS2025 Lab, At Own Risk)`
 - **Self-signed cert files**: `cert\AMD-Graphics-Driver-CodeSign.{pfx,cer}`
 - **WDAC policy GUID**: fixed `85336828-3080-41C5-81EC-FD587DC090D3`; overridable via `-WdacPolicyGuid`. Legacy deploys used a dynamically-generated PolicyId recorded in `cert\AmdSuppPolicyId.txt`.
-- **WDAC SupplementsBasePolicyID**: `{A244370E-44C9-4C06-B551-F6016E563076}` (Windows-shipped default base CI policy); overridable via `-WdacBasePolicyGuid`. A legacy graphics revision used a non-standard `{B355481F-55DA-5D17-C662-07127F674187}` (see Part D D.8).
+- **WDAC SupplementsBasePolicyID**: **no default** — supplied via `-WdacBasePolicyGuid`, and the supplemental deployment is refused without it (§D.58.8). Earlier releases defaulted to the Windows-shipped `{A244370E-44C9-4C06-B551-F6016E563076}` without verifying that any base policy existed; an even earlier graphics revision used a non-standard `{B355481F-55DA-5D17-C662-07127F674187}` (see Part D D.8).
 
 ### Inputs
 
@@ -2587,7 +2587,7 @@ This had two downsides:
 2. **Operator override** via `-WdacPolicyGuid <GUID>`, accepted with or without braces. Two use cases:
    - **Legacy cleanup**: read the old PolicyId from `<workspace>\cert\AmdSuppPolicyId.txt` and pass it with `-Action Cleanup -WdacPolicyGuid <oldGuid>` to remove a legacy deploy. The new `Test-AmdWdacPolicyDeployed` also automatically falls back to reading the legacy marker file if the fixed GUID is not active, so unattended Cleanup on a legacy deploy still works without manual GUID lookup.
    - **Side-by-side**: deploy two copies of the same script with different GUIDs (rare).
-3. **Graphics-only fix**: default `SupplementsBasePolicyID` corrected from `{B355481F-...}` to the Microsoft standard `{A244370E-...}`. Overridable via `-WdacBasePolicyGuid` for environments with custom base CI policies.
+3. **Graphics-only fix**: default `SupplementsBasePolicyID` corrected from `{B355481F-...}` to the Microsoft standard `{A244370E-...}`. Overridable via `-WdacBasePolicyGuid` for environments with custom base CI policies. **[Superseded 2026-08-09]** The corrected default was still an unverified assumption about a base policy nobody had confirmed exists; there is no default at all any more (§D.58.8).
 4. **Implementation detail**: PowerShell's `Set-CIPolicyIdInfo` has no `-PolicyId` switch; we patch the `<PolicyID>` element directly in the XML after `Set-CIPolicyIdInfo -SupplementsBasePolicyID …` (no longer pass `-ResetPolicyID`).
 
 **Upgrade impact**: Same as D.7 — for a clean upgrade, run `-Action Cleanup` on the old script revision before deploying the new one. The new script's `Cleanup` action does detect legacy dynamic-GUID policies via the marker-file fallback, so an upgrade-then-cleanup also works (one extra cleanup cycle).
@@ -3867,6 +3867,8 @@ Operators who deployed Path C with an earlier release (r67 – r69) and want to 
 2. After upgrade, the four driver scripts will no longer reference the orchestrator. The `-ForceOverrideForeign`, `-AuditMode`, and `-StrictBootValidation` switches have been removed from the driver scripts' `param()` blocks; passing them will produce a parameter-binding error, which is the intended early-failure signal.
 3. If the operator has lost a host to the post-r04 catastrophic field failure (or to the 2026-05-23 incident), the recovery procedure is the same: WinRE → delete `C:\Windows\System32\CodeIntegrity\SiPolicy.p7b` → reboot → run cleanup commands documented in README's "Recovery from unbootable state" section. The orchestrator itself is no longer needed for recovery; `del` from WinRE is sufficient.
 
+**2026-08-09 addendum (ruling V1).** Microsoft's Custom Kernel Signers procedure carries an Important note documenting the same failure structure this incident hit: once a signed CI policy is deployed, it can only be updated by a policy signed by the same authority, and **deleting it without a valid replacement makes Windows fail to boot**. The 2026-05-23 recovery deleted `SiPolicy.p7b` from WinRE and the host booted — the policy this project deploys is unsigned, and Microsoft's warning concerns signed policies; that is the difference that made `del` recoverable here rather than fatal. The README recovery procedure applies to this project's unsigned artefacts only. The Server 2025+ Windows Driver Policy GUIDs (§D.58.6) must never be deleted this way.
+
 ### D.30.7 What was removed (file-level inventory)
 
 The following deletions are part of r70 (see CHANGELOG.md entry for the precise byte-level diff):
@@ -3992,7 +3994,7 @@ When all four conditions hold, the install plan WILL produce devices that fail t
 
 C6 is bypassable by `-ForceUnsafe` like every other CRITICAL item. The bypass is logged via `Set-DebugStep` with the item ID so an audit can reconstruct what was acknowledged.
 
-C6 is added only to Chipset / Graphics / BthPan. NPU's Get-CriticalRiskItem is excluded by PSA8001 because NPU refuses Install on legacy Windows Server entirely (Q-X1, see §D.27), so C6 has no call site there. On WS2022+ / WS2025, where Secure Boot ON is the supported deployment mode and the WDAC MPF path takes care of self-signed cert authorisation, C6 still fires correctly when non-WHQL drivers are present — that case is rare on AMD chipset packages but documented for completeness.
+C6 is added only to Chipset / Graphics / BthPan. NPU's Get-CriticalRiskItem is excluded by PSA8001 because NPU refuses Install on legacy Windows Server entirely (Q-X1, see §D.27), so C6 has no call site there. On WS2022+ / WS2025, where Secure Boot ON is the supported deployment mode, C6 still fires correctly when non-WHQL drivers are present — that case is rare on AMD chipset packages but documented for completeness. (This paragraph originally credited "the WDAC MPF path" with taking care of self-signed cert authorisation; that claim is retracted — §D.58.1.)
 
 ### D.31.5 Mechanism 4 — `-SkipNonCosignedDrivers` switch (`Get-EligibleInfRecordList`)
 
@@ -4041,7 +4043,7 @@ A handful of details deserve explicit recording because they tripped the impleme
 
 For clarity, r71 deliberately leaves these mechanisms unchanged:
 
-- **The WDAC MPF supplemental policy path on WS2022+ / WS2025.** Path A on modern Server SKUs continues to work exactly as before r71. The WHQL analysis is informational on those hosts; the WDAC supplemental policy authorises the self-signing certificate regardless of WHQL co-signature state.
+- **The WDAC MPF supplemental policy path on WS2022+ / WS2025.** Path A on modern Server SKUs continues to behave exactly as before r71; the WHQL analysis is informational on those hosts. **[Superseded 2026-08-09]** This bullet originally added that the supplemental policy "authorises the self-signing certificate regardless of WHQL co-signature state"; that claim is retracted (§D.58.1), and the supplemental deployment itself now requires an explicit `-WdacBasePolicyGuid` (§D.58.8).
 - **The behaviour of `-Force`.** `-Force` still bypasses I02 pre-checks including the new Path B prerequisite check. The audit trail (`Set-DebugStep`) records each bypass.
 - **The `Get-CriticalRiskItem` conditions C1, C2, C5.** Display driver replacement on single-display host, BitLocker + PSP, and 24+ hour uptime continue to be evaluated unchanged. C6 is purely additive.
 - **The NPU script.** NPU still refuses Install on legacy Windows Server (Q-X1). C6 is not added to NPU because the refuse check happens earlier than I00 and Get-CriticalRiskItem is not in NPU's source surface.
@@ -4151,7 +4153,7 @@ Test case TC14.11 in TESTING.md §14 verifies this: short-circuit → re-run wit
 
 The short-circuit fires on any supported host (WS2019, WS2016, WS2022, WS2025) when the four conditions hold. This is intentional: an all-WHQL install plan with explicit `-SkipNonCosignedDrivers` opt-in produces the same observable host state on all OS versions (no policy, no testsigning, cert in trust store). Special-casing the short-circuit to WS2019/2016 only would mean WS2022+ runs continue to deploy an unnecessary WDAC supplemental policy file on an all-WHQL install plan, which is overhead with no benefit.
 
-On WS2022+ the short-circuit's user-visible effect is "WDAC supplemental policy file is not created." Operators who specifically want the policy file (e.g. as documentation of which cert is authorized) should run without `-SkipNonCosignedDrivers`; the short-circuit will not fire and Path A will deploy the policy normally.
+On WS2022+ the short-circuit's user-visible effect is "WDAC supplemental policy file is not created." Operators who specifically want the policy file (e.g. as documentation of which cert is referenced) should run without `-SkipNonCosignedDrivers`; the short-circuit will not fire. **[Amended 2026-08-09]** Deploying the policy additionally requires an explicit `-WdacBasePolicyGuid`; without it Path A refuses the supplemental deployment (§D.58.8).
 
 #### D.31.11.7 What r72 does NOT change
 
@@ -6241,6 +6243,18 @@ vendor documentation ages against servicing, and the only defence is to
 record what the host says. §D.46.3 exists for that reason and has now earned
 its place on its first use.
 
+**2026-08-09 addendum — the fourth example, and an extension of scope
+(ruling V2).** The third-party signing-model audit surfaced the same pattern
+inside a Microsoft Learn page: the Custom Kernel Signers page's `Applies to`
+banner lists Windows Server editions, while the same page's feature-specific
+*Supported Platforms and Editions* section names Windows 11 version 24H2 and
+later only. The feature-specific section is authoritative; the banner is
+page-level metadata. The lesson therefore generalises beyond our own
+capability tables: **a capability statement is an expectation, not a fact,
+even when the document is the vendor's own** — and where two statements in
+one authoritative page disagree, the narrower, feature-specific one
+governs. Full treatment: §D.58.5.
+
 ### D.47.3 Confirmation: the `vwifibus` prediction, reproduced
 
 §D.43.3 attributed a broken Intel Wi-Fi adapter on WS2019 to a missing
@@ -7879,6 +7893,219 @@ produced in the same workspace — 55 analysed, 7 trimmed. The persisted plan
 and analysis JSON would settle it and **are not in the run-artifact archive**,
 so the state that decides Install behaviour cannot be reconstructed from the
 evidence bundle. That gap is recorded here and is the next thing to close.
+
+## D.58 Third-party audit: the kernel signing model was wrong (2026-08-09)
+
+A third-party audit of this repository's documentation and code, adjudicated
+across two rounds (v1/v2, 16 findings), reached a conclusion the project has
+now accepted: the central claim of the Path A signing model was never true,
+and our own field evidence had already said so. This section records the
+retraction, the corrected model, the terminology that prevents the error
+from being rewritten, and the two Microsoft mechanisms the old model
+conflated with. The audit report itself is not stored in this repository
+(ruling U4); this section is the project's own summary. Primary sources:
+Microsoft Learn, "Custom kernel signers" (feature-specific *Supported
+Platforms and Editions* section), and Microsoft Support, "The Windows Driver
+Policy", both retrieved 2026-08 during audit verification.
+
+### D.58.1 What we claimed, and the retraction (audit C-01)
+
+Since the WDAC path first shipped, README and SPEC asserted: *a WDAC
+supplemental Code Integrity policy authorises this pipeline's self-signed
+certificate as a kernel-mode signer, so self-signed drivers load while
+Secure Boot stays ON.* That claim is **retracted**, on two grounds:
+
+1. **A standard App Control supplemental policy does not override the
+   kernel's default driver-signing requirements.** It participates in
+   allow/deny decisions within the app-control layer; private kernel-signing
+   override is a different feature (Custom Kernel Signers, §D.58.5) with
+   prerequisites this project does not meet.
+2. **No run in this repository's record ever demonstrated the claim.** The
+   end-to-end field history is WS2019/WS2016 Path A runs, and what they
+   measured is the opposite structure (§D.58.2).
+
+The retraction is not a rewording. Statements of the form "the supplemental
+policy allowlists the cert as a kernel-mode signer" have been removed from
+the living documents (README, SPEC Parts A/B) or marked superseded where
+they sit inside historical Part D narrative. CHANGELOG history is untouched,
+as always.
+
+### D.58.2 Our own primary evidence, reread
+
+The 2026-05-23 WS2019 incident record (README, "Recovery from unbootable
+state" lineage; §D.30) already contained the disproof: after deleting
+`SiPolicy.p7b` from WinRE, **WHQL co-signed drivers loaded normally with no
+WDAC policy present at all**, while non-WHQL drivers (`amdi2c.sys`,
+`amdsfhkmdf.sys`) **remained refused by kernel CI regardless of the
+policy's presence or content**. If the supplemental policy had been doing
+what the documents said, both halves of that observation would be
+inexplicable. Code measurement agrees with the field record: the repository
+contains **zero** occurrences of `Set-RuleOption -Option 17`
+(`Enabled:Allow Supplemental Policies`), and **no** code that creates,
+detects, or verifies a base policy — the supplemental policies this project
+built declared themselves supplements of a base nobody ever confirmed
+exists (§D.58.8).
+
+### D.58.3 Terminology: three verdicts that must never share one word
+
+The retracted claim survived review for years because one word — "trust" —
+carried three meanings. The project now separates them (audit C-01/H-02):
+
+- **PackageCatalogTrust** — will PnP accept the driver *package*? This is
+  what catalog self-signing plus the I01 trust-store import establishes,
+  and it is the entirety of what "Path A" reliably does. Field-proven:
+  pnputil accepted 53/53 self-signed catalogs on WS2019.
+- **KernelImageTrust** — will Code Integrity load the *kernel image*?
+  Evaluated independently of package acceptance, against the OS's signing
+  requirements for that boot environment. Self-signing does not move it.
+- **AppControlDecision** — what does an App Control (WDAC) policy allow or
+  deny in the app-control layer? A supplemental policy contributes here,
+  under a base policy that must exist and permit supplements.
+
+The phrase "self-signed driver loaded" is a banned formulation in project
+documents: it asserts KernelImageTrust from evidence that only ever
+establishes PackageCatalogTrust. Runtime strings still contain legacy
+formulations (`EffectiveCanLoadSelfSigned` and the Path A console
+narrative); renaming evidence fields and rewriting runtime messaging is
+deliberately staged to the P1 evidence work rather than patched piecemeal
+here — recorded honestly as a temporary inconsistency in §D.58.8.
+
+### D.58.4 Four mechanisms that must not be conflated (audit F-06)
+
+| Mechanism | What it is | Where it applies |
+|---|---|---|
+| App Control **supplemental policy** | Part of allow/deny decisions in the app-control layer. **Does not override default kernel signing requirements.** | WS2022 / WS2025 (multiple-policy format) |
+| **Custom Kernel Signers (CKS)** | An independent feature that *does* override default kernel signing requirements; requires a PK/KEK-signed policy. | **Windows 11 24H2+ only** (§D.58.5) |
+| **Windows Driver Policy** | Microsoft-managed removal of default trust for *retired cross-signed* kernel drivers. Not aimed at self-signing at all. | **Server 2025+** (April 2026 wave; §D.58.6) |
+| **TESTSIGNING** | Lab mechanism; requires Secure Boot OFF. | All generations (Path B) |
+
+The April 2026 cross-signing trust removal is **not** used as grounds for
+the C-01 retraction: C-01 stands on "supplemental ≠ private kernel signing
+override" plus our own WS2019 measurements, independent of that change.
+
+### D.58.5 Custom Kernel Signers, and a Microsoft page that disagrees with itself
+
+CKS is the mechanism that actually does what our old model imagined the
+supplemental policy did. This project does not qualify for it and does not
+claim Server support for it:
+
+- The CKS page's feature-specific *Supported Platforms and Editions*
+  section names **Windows 11 version 24H2 and later** (all editions except
+  Home), via the April 2026 non-security update. The same page's top-level
+  `Applies to` banner lists Windows Server editions — and the audit's
+  ruling, which this project adopts, is that **the feature-specific section
+  is authoritative**; the banner is page-level metadata, not a feature
+  availability statement. (Registered as the fourth example in the §D.47.2
+  lineage: capability statements are expectations, not facts, even inside a
+  vendor's own authoritative page.)
+- CKS prerequisites this project does not meet: enablement is designed for
+  clean-install time; the CI policy must be signed by a key chained to the
+  platform's PK/KEK; UEFI variable access is required; and the model
+  assumes a customer-owned PKI. None of the four holds for a
+  run-anywhere lab script generating a throwaway certificate.
+- Acceptance gate **G-01**: no Server SKU is ever recorded as
+  `CustomKernelSignersSupported=true` unless Microsoft's feature-specific
+  supported-platforms table explicitly lists it.
+
+### D.58.6 Windows Driver Policy — Layer E (audit F-02/F-04/H-06, ruling V1)
+
+Separate from everything above, Windows Server 2025 and later (April 2026
+servicing wave) carry a Microsoft-managed **Windows Driver Policy** that
+removes default trust for legacy cross-signed kernel drivers. Facts this
+project records (all from Microsoft's current documentation, correcting two
+earlier research errors — 100 hours was a stale secondary source, and
+"never enforces" was an overstatement):
+
+- **Identifiable GUIDs**: Audit `{784C4414-79F4-4C32-A6A5-F0FB42A51D0D}`,
+  Enforce `{8F9CB695-5D48-48D6-A329-7202B44607E3}`. Deployed under the EFI
+  system partition at `\EFI\Microsoft\Boot\CiPolicies\Active\`, and
+  visible to `CiTool -lp`. This makes the layer **detectable**; collector
+  detection plus CodeIntegrity event 3076/3077 evidence is planned P1 work
+  (audit H-06) and is not implemented in this release.
+- **Evaluation before enforcement**: 250 hours of real use (value current
+  as of the 2026-06-09 revision of the Microsoft article) and at least 3
+  reboots — **2 boot sessions on Windows Server**. If a driver the policy
+  would block loads during evaluation, **both counters reset to zero** and
+  the evaluation period extends. Not irreversible — but an environment that
+  keeps loading such a driver may never satisfy the transition condition.
+- **Microsoft's own CKS procedure disables it** (Step 9: delete the enforce
+  GUID's `.cip` from the ESP), stating that custom-PKI-signed drivers are
+  blocked while it is active. That Microsoft requires explicit disablement
+  is the measure of the policy's strength — and exactly why this project
+  **never disables it automatically** (acceptance gate G-04): a deployment
+  tool that silently weakens a Microsoft security baseline to raise its own
+  success rate is harming the operator.
+- **Signed-policy removal is a brick**: the CKS page states a deployed
+  signed policy can only be updated by a policy signed by the same
+  authority, and deleting it without a valid replacement makes Windows
+  fail to boot. Cross-linked into the §D.30.6 incident record: our
+  2026-05-23 WinRE `del SiPolicy.p7b` recovery worked on an **unsigned**
+  policy — the same action against a signed, enrolled policy produces the
+  boot failure Microsoft describes. The README recovery procedure applies
+  to this project's unsigned artefacts only.
+
+### D.58.7 Deployment modes S / T / P
+
+The support statement "WS2022+ can run self-signed with Secure Boot ON"
+matches no mode below and is withdrawn. The project's modes are:
+
+- **Mode S (default, recommended)** — WS2016/2019/2022/2025, Secure Boot
+  stays **ON**. Catalog self-signing is performed **for PackageCatalogTrust
+  only**. Conditions (never collapsed into one boolean): (1) Secure Boot
+  remains enabled; (2) PackageCatalogTrust and KernelImageTrust are
+  evaluated **independently**; (3) every kernel image gets its trust
+  classification **recorded for the target OS**; (4) WHCP/HDC signatures
+  are the preferred, stable production trust; (5) WS2025 acceptance of
+  legacy cross-signed allow-listed drivers is recorded as an **exception**,
+  never equated with WHCP certification; (6) on WS2025, Windows Driver
+  Policy state is part of the acceptance evidence. The trust-classification
+  scheme (WHCP/HDC / LegacyCrossSigned-AllowListed /
+  LegacyCrossSigned-NotProven / PrivateOrTestSigned / Unsigned / Unknown)
+  is P1-D work.
+- **Mode T (lab-only, discouraged)** — testsigning; Secure Boot **OFF**
+  required; reinstallable lab hosts only. HVCI-off is **not** a universal
+  requirement (the relevant Microsoft note is scoped to pre-24H2 Windows 11
+  updates); HVCI handling is decided by branch conditions in the P1-A
+  activation-separation work, not by a blanket rule.
+- **Mode P (production)** — vendor/OEM Server-supported drivers, or
+  HLK/WHCP → HDC signing. **Out of scope for these scripts.**
+
+### D.58.8 Code consequence: no default base policy identity (audit C-02)
+
+The one behavioural change in this release. Every sister deployed its
+supplemental policy with `SupplementsBasePolicyID` defaulting to the
+Windows-shipped `{A244370E-44C9-4C06-B551-F6016E563076}` (NPU hardcoded it
+at the call site) — a base policy whose existence, and whose
+`Enabled:Allow Supplemental Policies` rule option 17, nothing ever checked.
+A supplemental policy targeting an absent or non-supplementable base is at
+best inert; the project treated the expectation as fact (§D.47.2 family).
+
+As of Chipset r113 / Graphics r79 / NPU r56 / BthPan r61:
+
+- `WdacBasePolicyGuidDefault` is **removed** from every script;
+  `$Script:WdacBasePolicyGuid` resolves to the operator's
+  `-WdacBasePolicyGuid` or to empty. NPU gains the `-WdacBasePolicyGuid`
+  parameter for contract parity.
+- A four-way byte-identical helper `Test-WdacSupplementalPolicyAdmissible`
+  gates the supplemental path in every authorize-signing phase. The refusal
+  **closes the phase and returns** (§D.57 discipline: a refusal must
+  refuse, not fall through to path selection); on the three Path A sisters
+  it records `Refused=true / Reason='no-verified-base-policy'` in the phase
+  marker and closes with footer status `skipped`.
+- Every supplemental-policy builder additionally **throws** on an empty
+  `BasePolicyId` — third layer, same shape as the r112 gate-before-mutation
+  layering.
+- The startup banner prints the effective value (`WdacBaseGuid`), or
+  `(none - supplemental path disabled)`.
+- Test case `Test-SupplementalPolicyGate.ps1` pins all of the above with a
+  negative control (TESTING §41).
+
+**Staged honestly:** this release ships the fail-closed identity gate only.
+Verifying that the named base policy actually exists on the host and
+carries rule option 17 is runtime evidence work (P1), as is the terminology
+sweep of runtime strings and evidence field names (§D.58.3). Until then the
+gate guarantees "no deployment without an operator-verified identity", not
+"the identity was machine-verified".
 
 ## Appendix: How to seed a new sister script from this SPEC
 

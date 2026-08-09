@@ -20,6 +20,99 @@ independently.
 
 ---
 
+## [2026-08-09] `signing-model-correction` — Chipset r113 / Graphics r79 / NPU r56 / BthPan r61
+
+A third-party audit read this repository's documentation the way a new
+operator would, and the central claim did not survive the reading. Since the
+WDAC path first shipped, README and SPEC said Path A authorises the
+pipeline's self-signed certificate as a kernel-mode signer via a WDAC
+supplemental policy, Secure Boot staying ON. No run in this repository's
+record ever demonstrated that, and the field evidence that exists shows the
+opposite structure: after the 2026-05-23 `SiPolicy.p7b` deletion, WHQL
+co-signed drivers loaded with no policy present at all, while non-WHQL
+drivers stayed refused by kernel CI regardless of the policy. The claim is
+retracted, the vocabulary that let it survive review is split into three
+verdicts, and the one behavioural change ships the retraction into code.
+Post-mortem and corrected model: SPEC D.58.
+
+### Retracted — the signing-model claim (audit C-01)
+
+- The claim "a WDAC supplemental policy authorises the self-signed cert as a
+  kernel-mode signer while Secure Boot stays ON" is withdrawn from README
+  and SPEC Parts A/B; historical Part D narrative keeps its original text
+  with superseded notes (D.8, D.31.4, D.31.11.6/7). Grounds: a standard App
+  Control supplemental policy does not override default kernel signing
+  requirements, and the repository's own WS2019 measurements already showed
+  it (SPEC D.58.1–D.58.2).
+- New terminology (SPEC D.58.3): **PackageCatalogTrust** (what catalog
+  self-signing actually establishes — pnputil accepted 53/53 on WS2019),
+  **KernelImageTrust** (evaluated independently by Code Integrity), and
+  **AppControlDecision**. "Self-signed driver loaded" is a banned
+  formulation. Runtime strings and evidence field names still carry legacy
+  wording; that sweep is deliberately staged to the P1 evidence work and
+  the inconsistency is recorded in SPEC D.58.8 rather than papered over.
+- Custom Kernel Signers is documented as **Windows 11 24H2+ only**, per the
+  feature-specific supported-platforms section that overrules the same
+  page's `Applies to` banner — registered as the fourth example in the SPEC
+  D.47.2 lineage (SPEC D.58.5). The Server 2025+ **Windows Driver Policy**
+  is documented as a separate Layer E with its identifiable GUIDs, the
+  250-hour / 2-boot-session evaluation, and the counter reset on violation
+  (SPEC D.58.6); these scripts never disable it.
+
+### Changed — the supplemental path refuses without an explicit base policy identity (audit C-02)
+
+- `WdacBasePolicyGuidDefault` is removed from Chipset / Graphics / BthPan;
+  the supplemental policy no longer targets the Windows-shipped
+  `{A244370E-…}` base by assumption. NPU, which hardcoded that GUID at the
+  `Set-CIPolicyIdInfo` call site, gains the `-WdacBasePolicyGuid` parameter
+  for contract parity and routes the call through it.
+- A four-way byte-identical `Test-WdacSupplementalPolicyAdmissible` gates
+  every authorize-signing phase: without `-WdacBasePolicyGuid` the
+  supplemental deployment is refused, and the refusal closes the phase and
+  returns (the r112 discipline), recording
+  `Reason='no-verified-base-policy'` on the Path A sisters. Every builder
+  additionally throws on an empty `BasePolicyId`, and the startup banner
+  prints the effective value or `(none - supplemental path disabled)`.
+- This release gates on the operator-supplied identity only; verifying the
+  base policy's on-host existence and rule option 17 is P1 evidence work,
+  stated as such in SPEC D.58.8.
+
+### Added — `tests/cases/Test-SupplementalPolicyGate.ps1`
+
+- 30 assertions pin the remediation: the assumed GUID appears in zero code
+  string constants per sister, `WdacBasePolicyGuidDefault` is referenced
+  zero times repo-wide, the admissibility helper exists byte-identical in
+  all four sisters, every builder guards an empty `BasePolicyId`, and the
+  phase gate's refusal branch contains a `return` (checked on the AST, not
+  by grep). **Negative control**: against the r112 tree the case reports
+  **23 failures**, each naming the offending file and line.
+- Suite after this release: **9 cases, 458 assertions, all passing**,
+  measured on PowerShell 7.4.6 (Core) on Linux per the TESTING §36
+  discipline (measured, not calculated).
+
+### Documentation
+
+- **SPEC**: new **D.58** (retraction, evidence reread, terminology, the
+  four mechanisms, CKS scope, Windows Driver Policy Layer E, modes S/T/P,
+  code consequence). Cross-references: D.47.2 fourth example (ruling V2);
+  D.30.6 links the 2026-05-23 incident to Microsoft's signed-policy-removal
+  boot-failure statement (ruling V1); Part B `SupplementsBasePolicyID`
+  lines rewritten to NO DEFAULT; superseded notes on D.8 item 3, D.31.4 C6
+  note, D.31.9 r71 bullet, D.31.11.6.
+- **README / README.ja**: the kernel-signer claim removed from the pipeline
+  summary, deployment list, phase table, and OS matrix; `-WdacBasePolicyGuid`
+  documented as NO DEFAULT in both parameter tables; a new "Windows Driver
+  Policy on Windows Server 2025+" subsection; What's new entry.
+- **PFX contradiction fixed (audit L-01)**: README claimed the PFX is not
+  password-protected; the code ships `'ChangeMe!2026'` on chipset /
+  graphics / BthPan and `''` on NPU. The document now states the measured
+  defaults and that a publicly known default is not protection; per-run
+  random passwords remain planned (audit H-05 / P1-G).
+- **TESTING §41** documents the refusal, its console shape, and the
+  measured suite; `tests/README.md` gains the case row.
+
+---
+
 ## [2026-08-09] `gate-before-mutation` — Chipset r112 / Graphics r78 / NPU r55 / BthPan r60 / Collector c10
 
 A clean Windows Server 2019 install with Secure Boot ON. The Prepare and

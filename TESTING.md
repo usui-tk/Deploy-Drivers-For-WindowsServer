@@ -3537,3 +3537,71 @@ counts, and a real query failure still lands in its `QueryError` field.
 If they reappear, the probe has been reverted to `-ErrorAction Stop`
 somewhere — the JSON will still be correct, which is exactly why this needs
 watching in the transcript rather than in the evidence.
+
+## 41. The supplemental path now refuses without a base policy identity
+
+Release: Chipset r113 / Graphics r79 / NPU r56 / BthPan r61
+(`signing-model-correction`). Background: SPEC D.58. This section is a
+reading guide plus the suite measurement; no field run of this release has
+happened yet, so every console excerpt below is reconstructed from the code,
+not quoted from a transcript.
+
+### 41.1 What changed at the console
+
+Running `-Action Install` without `-WdacBasePolicyGuid` on a host where the
+WDAC path would previously have deployed a supplemental policy now refuses
+at I02 instead. The Path A sisters print, via `Write-Caution` /
+`Write-Detail`:
+
+```
+[!] Path A (WDAC supplemental policy) is NOT admissible: no -WdacBasePolicyGuid was supplied.
+    A supplemental policy supplements a base policy that must actually exist on this host.
+    This script no longer assumes the Windows-shipped base policy GUID as a default
+    (third-party audit finding C-02; SPEC D.58.8). Supply -WdacBasePolicyGuid with the GUID
+    of a base policy you have verified is deployed with rule option 17
+    (Enabled:Allow Supplemental Policies), or use -UseTestSigning on a lab host.
+```
+
+The phase closes with footer status `skipped` and records
+`Refused = true / Reason = 'no-verified-base-policy'` in the I02 phase
+marker — the refusal refuses and returns, per the r112 discipline (SPEC
+D.57); it does not fall through to Path B. The startup banner gains one
+line, worth reading before interpreting any transcript of this release:
+
+```
+ WdacBaseGuid    : (none - supplemental path disabled)
+```
+
+A run that *should* deploy a supplemental policy therefore needs an
+operator who has verified a base policy exists on the host with rule
+option 17 (`Enabled:Allow Supplemental Policies`) and passes its GUID
+explicitly. The `-SkipNonCosignedDrivers` Path A chain is unaffected: it
+never deploys a policy, and PackageCatalogTrust via I01 does not involve
+the gate.
+
+### 41.2 What this does NOT verify yet
+
+The gate checks that the operator supplied an identity, not that the
+identity is real. On-host verification (does the named base policy exist;
+does it carry option 17) is P1 evidence work — SPEC D.58.8 states the
+staging explicitly. Read a passing I02 of this release as "the operator
+asserted a verified base policy", nothing stronger.
+
+### 41.3 Measuring the suite, and the negative control
+
+Measured per §36 (counted from the runner's output, not calculated):
+
+- **9 cases, 458 assertions, all passing** — PowerShell 7.4.6 (Core) on
+  Linux.
+- New case `Test-SupplementalPolicyGate.ps1`: 30 assertions. It checks the
+  absence of the assumed GUID from code string constants (AST string
+  constants, so historical comments stay legal), the repo-wide absence of
+  the `WdacBasePolicyGuidDefault` variable, four-way byte identity of
+  `Test-WdacSupplementalPolicyAdmissible`, an empty-`BasePolicyId` throw in
+  every builder, and — on the AST — that each phase's gate condition names
+  the helper and its refusal branch contains a `return` statement.
+- **Negative control**: with the working tree at r112 (the release being
+  corrected), the case reports **7 passed, 23 failed**, and every failure
+  names its file and line — e.g. the chipset default assignment, the NPU
+  hardcoded `Set-CIPolicyIdInfo` argument. A gate that cannot fail against
+  the defective version proves nothing (§36, tests/README).
