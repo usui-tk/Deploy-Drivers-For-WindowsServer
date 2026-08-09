@@ -6475,6 +6475,47 @@ function Set-PfxFileAcl {
     Set-Acl -LiteralPath $Path -AclObject $acl
 }
 
+function Assert-DownloadedFileSignature {
+    # Fail-closed Authenticode gate for downloaded executables (audit
+    # P1-F / H-04): Status must be Valid AND the signer subject must
+    # match the expected publisher pattern, otherwise the run stops.
+    # Applied on EVERY run - including cache hits - immediately before
+    # the file is executed or expanded. -Force downgrades the failure
+    # to a loud warning (operator-owned risk); callers pass it only
+    # where a CDN quirk is plausible (the AMD installer), never for
+    # Microsoft/7-Zip tooling.
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)] [string]$Path,
+        [Parameter(Mandatory)] [string]$DisplayName,
+        [Parameter(Mandatory)] [string]$SubjectPattern,
+        [Parameter()] [switch]$Force
+    )
+    $failReason = ''
+    try {
+        $sig = Get-AuthenticodeSignature -LiteralPath $Path -ErrorAction Stop
+        if ($sig.Status -ne 'Valid') {
+            $failReason = ('signature status is {0}' -f $sig.Status)
+        } elseif (-not $sig.SignerCertificate) {
+            $failReason = 'no signer certificate'
+        } elseif (-not [regex]::IsMatch($sig.SignerCertificate.Subject, $SubjectPattern)) {
+            $failReason = ('signer subject "{0}" does not match the expected publisher' -f $sig.SignerCertificate.Subject)
+        }
+    } catch {
+        $failReason = ('Get-AuthenticodeSignature failed: {0}' -f $_.Exception.Message)
+    }
+    if (-not $failReason) {
+        Write-Detail ('Authenticode OK: {0} ({1})' -f $DisplayName, (Split-Path -Leaf $Path)) -Color DarkGray
+        return
+    }
+    if ($Force) {
+        Write-Caution ('Authenticode verification FAILED for {0}: {1}. Proceeding because -Force was supplied (operator-owned risk).' -f $DisplayName, $failReason)
+        return
+    }
+    throw ('P1-F fail-closed: Authenticode verification failed for {0} ({1}): {2}. Delete the file and retry, or re-run with -Force to accept the risk.' -f $DisplayName, $Path, $failReason)
+}
+
 function Install-WindowsSdkFallback {
     param($OsContext, [string]$DownloadDir)
     Write-Detail "Target build : $($OsContext.SdkBuild)"
@@ -6483,6 +6524,8 @@ function Install-WindowsSdkFallback {
     if (-not (Test-Path $exe)) {
         Invoke-WebRequest -Uri $OsContext.SdkUrl -OutFile $exe -UseBasicParsing
     }
+    # Fail-closed on every run, cache hits included (audit P1-F).
+    Assert-DownloadedFileSignature -Path $exe -DisplayName 'Windows SDK installer' -SubjectPattern 'Microsoft Corporation'
     $proc = Start-Process $exe -ArgumentList $OsContext.SdkInstallArgs -Wait -PassThru # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
 
     # Some MSI / VS-style bootstrap installers (winsdksetup.exe, wdksetup.exe)
@@ -6506,6 +6549,8 @@ function Install-WindowsWdkFallback {
     if (-not (Test-Path $exe)) {
         Invoke-WebRequest -Uri $OsContext.WdkUrl -OutFile $exe -UseBasicParsing
     }
+    # Fail-closed on every run, cache hits included (audit P1-F).
+    Assert-DownloadedFileSignature -Path $exe -DisplayName 'Windows WDK installer' -SubjectPattern 'Microsoft Corporation'
     $proc = Start-Process $exe -ArgumentList $OsContext.WdkInstallArgs -Wait -PassThru # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
 
     # Same defensive check as the SDK fallback above.
@@ -9129,6 +9174,16 @@ function Invoke-PrepPhase02_AcquireTools { # psa-disable-line PSA6003 -- compoun
         }
         if (-not (Get-SevenZipPath)) {
             Write-Step '7-Zip: direct MSI fallback'
+            # P1-F fail-closed for the 7-Zip MSI without touching the
+            # canonical installer: pre-download into the cache, verify,
+            # then let the canonical function reuse the verified file
+            # (its pre-existing-file check skips the re-download).
+            $szInfo = Get-LatestSevenZipUrl
+            $szMsi = Join-Path $Ctx.Paths.Download (Split-Path $szInfo.MsiUrl -Leaf)
+            if (-not (Test-Path $szMsi)) {
+                Invoke-WebRequest -Uri $szInfo.MsiUrl -OutFile $szMsi -UseBasicParsing
+            }
+            Assert-DownloadedFileSignature -Path $szMsi -DisplayName '7-Zip MSI' -SubjectPattern 'Igor Pavlov'
             Install-SevenZipFallback -DownloadDir $Ctx.Paths.Download
         }
     }
