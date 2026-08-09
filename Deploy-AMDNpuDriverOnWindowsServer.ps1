@@ -349,8 +349,8 @@ param(
 #   * PhaseResults - per-phase outcome registry (write side from
 #     dispatcher; read side from Show-RunSummary).
 # =============================================================================
-$Script:ScriptVersion       = 'npu-2026.08.09-r56'
-$Script:ScriptTag           = 'signing-model-correction'
+$Script:ScriptVersion       = 'npu-2026.08.09-r57'
+$Script:ScriptTag           = 'boot-signing-posture'
 $Script:ScriptName          = 'Deploy-AMDNpuDriverOnWindowsServer'
 $Script:RepoUrl             = 'https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer'
 # Default fixed WDAC Policy GUID (UUID v4). Operators can override via the
@@ -1248,9 +1248,9 @@ function Write-InstallReadinessDigest {
         $bootProbed = $false
         try {
             $digestBootEnv = Get-BootSigningEnvironment
-            if ($null -ne $digestBootEnv -and $digestBootEnv.PSObject.Properties['EffectiveCanLoadSelfSigned']) {
+            if ($null -ne $digestBootEnv -and $digestBootEnv.PSObject.Properties['BootSigningPosture']) {
                 $bootProbed = $true
-                $bootBlocked = (-not $digestBootEnv.EffectiveCanLoadSelfSigned)
+                $bootBlocked = ([string]$digestBootEnv.BootSigningPosture -ne 'testsigning-active')
             }
         } catch {
             $bootProbed = $false
@@ -1273,11 +1273,12 @@ function Write-InstallReadinessDigest {
         if ($failedIds.Count -gt 0) {
             Write-Host (' Install readiness : REVIEW REQUIRED - failed: {0}' -f ($failedIds -join ', ')) -ForegroundColor Red
         } elseif ($bootProbed -and $bootBlocked) {
-            Write-Host ' Install readiness : NOT READY - no phase failed, but the boot-signing' -ForegroundColor Yellow
-            Write-Host '                     environment currently BLOCKS self-signed driver load.' -ForegroundColor Yellow
-            Write-Host '                     Drivers staged by this run will not activate on a plain' -ForegroundColor Yellow
-            Write-Host '                     reboot. See the boot-signing table above for which of' -ForegroundColor Yellow
-            Write-Host '                     Secure Boot / testsigning / WDAC has to change.' -ForegroundColor Yellow
+            Write-Host ' Install readiness : NOT READY - no phase failed, but the boot signing' -ForegroundColor Yellow
+            Write-Host '                     posture is not testsigning-active, so project-signed' -ForegroundColor Yellow
+            Write-Host '                     kernel images will not load. Drivers staged by this run' -ForegroundColor Yellow
+            Write-Host '                     will not activate on a plain reboot. See the boot-signing' -ForegroundColor Yellow
+            Write-Host '                     table above for which of Secure Boot / testsigning / HVCI' -ForegroundColor Yellow
+            Write-Host '                     has to change (Mode T lab path - SPEC D.58).' -ForegroundColor Yellow
         } elseif ($wdfExcluded -gt 0) {
             # Deliberately not NOT READY. Nothing here blocks the run: the
             # packages within the host's framework version install normally.
@@ -1292,7 +1293,7 @@ function Write-InstallReadinessDigest {
             Write-Host ' Install readiness : READY (phases) - boot-signing state could not be read,' -ForegroundColor DarkYellow
             Write-Host '                     so driver-load capability is unconfirmed.' -ForegroundColor DarkYellow
         } else {
-            Write-Host ' Install readiness : READY - no failed phases, self-signed driver load allowed.' -ForegroundColor Green
+            Write-Host ' Install readiness : READY - no failed phases; boot signing posture is testsigning-active.' -ForegroundColor Green
         }
     } catch {
         # Self-locating containment (SPEC D.41): report the exception
@@ -2125,7 +2126,7 @@ function Get-BootSigningEnvironment {
         HvciRunning                = $false
         HvciAvailable              = $false
         MemoryIntegrityEnabled     = $false
-        EffectiveCanLoadSelfSigned = $false
+        BootSigningPosture         = 'closed'
         BlockReasons               = @()
     }
 
@@ -2249,38 +2250,42 @@ function Get-BootSigningEnvironment {
         # WDAC inspection failed - leave defaults
     }
 
-    # Compute effective "can a self-signed kernel-mode driver load?"
-    # There are now TWO valid paths:
-    #   PATH 1 (Secure Boot ON, recommended):
-    #     Secure Boot ON
-    #     WDAC supplemental policy with our cert deployed (AmdSuppPolicyActive=true)
-    #   PATH 2 (Secure Boot OFF, legacy):
-    #     Secure Boot off
-    #     testsigning ON
-    #     HVCI off
-    # The caller (I02) decides which path to take based on the current
-    # firmware state and -UseTestSigning override.
+    # BootSigningPosture (terminology sweep - SPEC D.58.3 / D.58.8):
+    #   'testsigning-active'
+    #       The measured lab path (Mode T) is open: Secure Boot off, BCD
+    #       testsigning on, HVCI not running. Code Integrity accepts
+    #       test-signed kernel images in this state.
+    #   'supplemental-deployed-unverified'
+    #       A supplemental App Control policy file is deployed. This is an
+    #       AppControlDecision-layer fact only; no KernelImageTrust effect
+    #       is claimed from it (the retracted claim asserted otherwise -
+    #       see SPEC D.58.1).
+    #   'closed'
+    #       Neither of the above. Standard signing enforcement applies and
+    #       non-WHQL (project-signed) kernel images will not load.
+    # BlockReasons lists why the testsigning path is not open. The
+    # supplemental deployment state is reported separately and is never
+    # phrased as a kernel-load reason.
     $env.BlockReasons = @()
-    $path1Open = ($env.AmdSuppPolicyActive -eq $true)
-    $path2Open = ($env.SecureBootEnabled -ne $true) -and `
-                 ($env.TestSigningEnabled -eq $true) -and `
-                 (-not $env.HvciRunning)
+    $supplementalDeployed = ($env.AmdSuppPolicyActive -eq $true)
+    $testSigningPathOpen  = ($env.SecureBootEnabled -ne $true) -and `
+                            ($env.TestSigningEnabled -eq $true) -and `
+                            (-not $env.HvciRunning)
 
-    if (-not $path1Open) {
-        $env.BlockReasons += 'No WDAC supplemental policy authorizes the AMD self-signing certificate'
-    }
-    if (-not $path2Open) {
+    if (-not $testSigningPathOpen) {
         if ($env.SecureBootEnabled -eq $true) {
-            $env.BlockReasons += 'Secure Boot is ON (legacy testsigning path requires Secure Boot off)'
+            $env.BlockReasons += 'Secure Boot is ON (testsigning path requires Secure Boot off)'
         }
         if ($env.TestSigningEnabled -ne $true) {
-            $env.BlockReasons += 'BCD testsigning is OFF (legacy path)'
+            $env.BlockReasons += 'BCD testsigning is OFF'
         }
         if ($env.HvciRunning) {
-            $env.BlockReasons += 'HVCI / Memory Integrity is RUNNING (legacy path requires HVCI off)'
+            $env.BlockReasons += 'HVCI / Memory Integrity is RUNNING (testsigning path requires HVCI off)'
         }
     }
-    $env.EffectiveCanLoadSelfSigned = ($path1Open -or $path2Open)
+    $env.BootSigningPosture = if ($testSigningPathOpen) { 'testsigning-active' }
+                              elseif ($supplementalDeployed) { 'supplemental-deployed-unverified' }
+                              else { 'closed' }
 
     return $env
 }
@@ -2308,40 +2313,48 @@ function Show-BootSigningEnvironment {
         $ts  = _FmtBool $BootEnv.TestSigningEnabled
         $hv  = _FmtBool $BootEnv.HvciRunning
         $wd  = _FmtBool $BootEnv.AmdSuppPolicyActive
-        $eff = if ($BootEnv.EffectiveCanLoadSelfSigned) { 'ALLOWED' } else { 'BLOCKED' }
-        $effColor = if ($BootEnv.EffectiveCanLoadSelfSigned) { 'Green' } else { 'Yellow' }
+        $posture = [string]$BootEnv.BootSigningPosture
+        $postureColor = if ($posture -eq 'closed') { 'DarkGray' } else { 'Yellow' }
         Write-Host ('    Boot Signing        : Firmware={0,-14} SecureBoot={1,-3} TestSigning={2,-3} HVCI={3,-3} WDAC-AMD={4,-3}' -f `
             $BootEnv.FirmwareType, $sb, $ts, $hv, $wd)
-        Write-Host ('    Self-signed driver  : {0}' -f $eff) -ForegroundColor $effColor
+        Write-Host ('    Signing posture     : {0}' -f $posture) -ForegroundColor $postureColor
         return
     }
 
     # Verbose table
     Write-Host '    +------------------------+-----------+------------------------------------------------+'
-    Write-Host '    | Setting                | Value     | Role for self-signed driver load               |'
+    Write-Host '    | Setting                | Value     | Role in the boot signing posture               |'
     Write-Host '    +------------------------+-----------+------------------------------------------------+'
     $rows = @(
         @{ N='Firmware Type';         V=$BootEnv.FirmwareType;                  Note='UEFI = subject to Secure Boot policy'         },
-        @{ N='Secure Boot';           V=(_FmtTri  $BootEnv.SecureBootEnabled);  Note='Can stay ON if WDAC supplemental is deployed' },
-        @{ N='BCD testsigning';       V=(_FmtBool $BootEnv.TestSigningEnabled); Note='Legacy path only (requires Secure Boot off)'  },
+        @{ N='Secure Boot';           V=(_FmtTri  $BootEnv.SecureBootEnabled);  Note='ON closes the testsigning (Mode T) lab path' },
+        @{ N='BCD testsigning';       V=(_FmtBool $BootEnv.TestSigningEnabled); Note='Mode T lab path (requires Secure Boot off)'  },
         @{ N='VBS Running';           V=(_FmtBool $BootEnv.VbsRunning);         Note='Informational'                                 },
-        @{ N='HVCI / Memory Intgr.';  V=(_FmtBool $BootEnv.HvciRunning);        Note='Compatible with WDAC supplemental path'       },
+        @{ N='HVCI / Memory Intgr.';  V=(_FmtBool $BootEnv.HvciRunning);        Note='RUNNING closes the testsigning lab path'       },
         @{ N='WDAC tools available';  V=(_FmtBool $BootEnv.WdacToolsAvailable); Note='ConfigCI module + CiTool.exe + AllowAll tmpl' },
-        @{ N='WDAC supp (AMD cert)';  V=(_FmtBool $BootEnv.AmdSuppPolicyActive);Note='RECOMMENDED path: keeps Secure Boot ON'       }
+        @{ N='WDAC supp (AMD cert)';  V=(_FmtBool $BootEnv.AmdSuppPolicyActive);Note='AppControl layer only; no kernel-load claim'       }
     )
     foreach ($r in $rows) {
         Write-Host ('    | {0,-22} | {1,-9} | {2,-46} |' -f $r.N, $r.V, $r.Note)
     }
     Write-Host '    +------------------------+-----------+------------------------------------------------+'
 
-    if ($BootEnv.EffectiveCanLoadSelfSigned) {
-        $via = if ($BootEnv.AmdSuppPolicyActive) { 'WDAC supplemental policy (Secure Boot ON)' }
-               else { 'legacy testsigning + Secure Boot off' }
-        Write-Host  ('    EFFECTIVE: self-signed kernel-mode drivers CAN load (via {0}).' -f $via) -ForegroundColor Green
-    } else {
-        Write-Host  '    EFFECTIVE: self-signed kernel-mode drivers will NOT load.' -ForegroundColor Red
-        foreach ($reason in $BootEnv.BlockReasons) {
-            Write-Host ('      - {0}' -f $reason) -ForegroundColor Red
+    switch ([string]$BootEnv.BootSigningPosture) {
+        'testsigning-active' {
+            Write-Host  '    POSTURE: testsigning-active - Code Integrity accepts test-signed kernel images (Mode T lab state).' -ForegroundColor Yellow
+        }
+        'supplemental-deployed-unverified' {
+            Write-Host  '    POSTURE: supplemental-deployed-unverified - a supplemental App Control policy is deployed.' -ForegroundColor Yellow
+            Write-Host  '    This is an AppControlDecision-layer fact only; expect non-WHQL kernel images NOT to load (SPEC D.58).' -ForegroundColor Yellow
+            foreach ($reason in $BootEnv.BlockReasons) {
+                Write-Host ('      - {0}' -f $reason) -ForegroundColor Yellow
+            }
+        }
+        default {
+            Write-Host  '    POSTURE: closed - standard enforcement; non-WHQL (project-signed) kernel images will NOT load.' -ForegroundColor Red
+            foreach ($reason in $BootEnv.BlockReasons) {
+                Write-Host ('      - {0}' -f $reason) -ForegroundColor Red
+            }
         }
     }
     if ($BootEnv.SecureBootDetectError) {
@@ -3837,7 +3850,7 @@ function Get-SecureBootBaselineSnapshot {
         $reasons.Add('Secure Boot state could not be determined.') | Out-Null
     } elseif ($emb.SecureBootEnabled -eq $false) {
         $health = 'Warning'   # not Critical: testsigning path still works on SB-OFF hosts
-        $reasons.Add('Secure Boot is OFF in firmware - WDAC supplemental policy is unnecessary; legacy testsigning would apply.') | Out-Null
+        $reasons.Add('Secure Boot is OFF in firmware - the Mode T testsigning path is available (lab hosts; SPEC D.58).') | Out-Null
     } else {
         # Secure Boot ON - cert rollover progress matters
         $health = 'Healthy'

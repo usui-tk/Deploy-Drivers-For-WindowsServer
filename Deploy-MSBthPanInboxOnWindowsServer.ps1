@@ -30,9 +30,9 @@
                          two cases.
 
       Install (I00..I04): Trust the cert into LocalMachine\Root +
-                          TrustedPublisher, authorize the cert as a
-                          kernel-mode signer via a WDAC supplemental
-                          policy (Secure Boot stays ON), call pnputil
+                          TrustedPublisher, optionally deploy an App
+                          Control supplemental policy (AppControl layer
+                          only; no kernel-load claim - SPEC D.58), call pnputil
                           for the patched bthpan.inf, scan-devices to
                           force rebinding, and verify that bthpan.sys
                           is now loaded with Class=Net and
@@ -122,8 +122,9 @@
       I00 PreInstallReview   Final review, risk summary
       I01 TrustCertificate   Import cert to LocalMachine\Root + TrustedPublisher
       I02 AuthorizeDriverSigning
-                             Authorize self-signed driver loading.
-                             Default path: WDAC supplemental policy.
+                             Deploy the App Control supplemental policy
+                             (AppControl layer only - SPEC D.58) or
+                             enable Mode T testsigning (-UseTestSigning).
       I03 InstallDrivers     pnputil /add-driver bthpan.inf /install
                              then pnputil /scan-devices to force
                              rebinding from the proxy bth.inf to the
@@ -461,8 +462,8 @@ $Script:WdfShortfall      = $null
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-$Script:ScriptVersion = 'msbthpan-2026.08.09-r61'
-$Script:ScriptTag     = 'signing-model-correction'
+$Script:ScriptVersion = 'msbthpan-2026.08.09-r62'
+$Script:ScriptTag     = 'boot-signing-posture'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -1319,9 +1320,9 @@ function Write-InstallReadinessDigest {
         $bootProbed = $false
         try {
             $digestBootEnv = Get-BootSigningEnvironment
-            if ($null -ne $digestBootEnv -and $digestBootEnv.PSObject.Properties['EffectiveCanLoadSelfSigned']) {
+            if ($null -ne $digestBootEnv -and $digestBootEnv.PSObject.Properties['BootSigningPosture']) {
                 $bootProbed = $true
-                $bootBlocked = (-not $digestBootEnv.EffectiveCanLoadSelfSigned)
+                $bootBlocked = ([string]$digestBootEnv.BootSigningPosture -ne 'testsigning-active')
             }
         } catch {
             $bootProbed = $false
@@ -1344,11 +1345,12 @@ function Write-InstallReadinessDigest {
         if ($failedIds.Count -gt 0) {
             Write-Host (' Install readiness : REVIEW REQUIRED - failed: {0}' -f ($failedIds -join ', ')) -ForegroundColor Red
         } elseif ($bootProbed -and $bootBlocked) {
-            Write-Host ' Install readiness : NOT READY - no phase failed, but the boot-signing' -ForegroundColor Yellow
-            Write-Host '                     environment currently BLOCKS self-signed driver load.' -ForegroundColor Yellow
-            Write-Host '                     Drivers staged by this run will not activate on a plain' -ForegroundColor Yellow
-            Write-Host '                     reboot. See the boot-signing table above for which of' -ForegroundColor Yellow
-            Write-Host '                     Secure Boot / testsigning / WDAC has to change.' -ForegroundColor Yellow
+            Write-Host ' Install readiness : NOT READY - no phase failed, but the boot signing' -ForegroundColor Yellow
+            Write-Host '                     posture is not testsigning-active, so project-signed' -ForegroundColor Yellow
+            Write-Host '                     kernel images will not load. Drivers staged by this run' -ForegroundColor Yellow
+            Write-Host '                     will not activate on a plain reboot. See the boot-signing' -ForegroundColor Yellow
+            Write-Host '                     table above for which of Secure Boot / testsigning / HVCI' -ForegroundColor Yellow
+            Write-Host '                     has to change (Mode T lab path - SPEC D.58).' -ForegroundColor Yellow
         } elseif ($wdfExcluded -gt 0) {
             # Deliberately not NOT READY. Nothing here blocks the run: the
             # packages within the host's framework version install normally.
@@ -1363,7 +1365,7 @@ function Write-InstallReadinessDigest {
             Write-Host ' Install readiness : READY (phases) - boot-signing state could not be read,' -ForegroundColor DarkYellow
             Write-Host '                     so driver-load capability is unconfirmed.' -ForegroundColor DarkYellow
         } else {
-            Write-Host ' Install readiness : READY - no failed phases, self-signed driver load allowed.' -ForegroundColor Green
+            Write-Host ' Install readiness : READY - no failed phases; boot signing posture is testsigning-active.' -ForegroundColor Green
         }
     } catch {
         # Self-locating containment (SPEC D.41): report the exception
@@ -2850,8 +2852,8 @@ function Export-DebugTraceJson {
 # SECTION 1c: Boot-signing environment (Secure Boot / testsigning /
 # HVCI / VBS / Memory Integrity)
 #####################################################################
-# These helpers inspect every system-level setting that controls
-# whether a self-signed kernel-mode driver can load. They are read-only
+# These helpers inspect the system-level settings that determine the
+# boot signing posture (SPEC D.58.3). They are read-only
 # and intended to be called from:
 #   - Show-PowerShellEnvironment (P00 startup banner, compact line)
 #   - I00 PreInstallReview (dedicated section with AS-IS / TO-BE)
@@ -3333,7 +3335,7 @@ function Get-SecureBootBaselineSnapshot {
         $reasons.Add('Secure Boot state could not be determined.') | Out-Null
     } elseif ($emb.SecureBootEnabled -eq $false) {
         $health = 'Warning'   # not Critical: testsigning path still works on SB-OFF hosts
-        $reasons.Add('Secure Boot is OFF in firmware - WDAC supplemental policy is unnecessary; legacy testsigning would apply.') | Out-Null
+        $reasons.Add('Secure Boot is OFF in firmware - the Mode T testsigning path is available (lab hosts; SPEC D.58).') | Out-Null
     } else {
         # Secure Boot ON - cert rollover progress matters
         $health = 'Healthy'
@@ -3682,7 +3684,7 @@ function Get-BootSigningEnvironment {
         HvciRunning                = $false
         HvciAvailable              = $false
         MemoryIntegrityEnabled     = $false
-        EffectiveCanLoadSelfSigned = $false
+        BootSigningPosture         = 'closed'
         BlockReasons               = @()
     }
 
@@ -3806,38 +3808,42 @@ function Get-BootSigningEnvironment {
         # WDAC inspection failed - leave defaults
     }
 
-    # Compute effective "can a self-signed kernel-mode driver load?"
-    # There are now TWO valid paths:
-    #   PATH 1 (Secure Boot ON, recommended):
-    #     Secure Boot ON
-    #     WDAC supplemental policy with our cert deployed (MsBthPanSuppPolicyActive=true)
-    #   PATH 2 (Secure Boot OFF, legacy):
-    #     Secure Boot off
-    #     testsigning ON
-    #     HVCI off
-    # The caller (I02) decides which path to take based on the current
-    # firmware state and -UseTestSigning override.
+    # BootSigningPosture (terminology sweep - SPEC D.58.3 / D.58.8):
+    #   'testsigning-active'
+    #       The measured lab path (Mode T) is open: Secure Boot off, BCD
+    #       testsigning on, HVCI not running. Code Integrity accepts
+    #       test-signed kernel images in this state.
+    #   'supplemental-deployed-unverified'
+    #       A supplemental App Control policy file is deployed. This is an
+    #       AppControlDecision-layer fact only; no KernelImageTrust effect
+    #       is claimed from it (the retracted claim asserted otherwise -
+    #       see SPEC D.58.1).
+    #   'closed'
+    #       Neither of the above. Standard signing enforcement applies and
+    #       non-WHQL (project-signed) kernel images will not load.
+    # BlockReasons lists why the testsigning path is not open. The
+    # supplemental deployment state is reported separately and is never
+    # phrased as a kernel-load reason.
     $env.BlockReasons = @()
-    $path1Open = ($env.MsBthPanSuppPolicyActive -eq $true)
-    $path2Open = ($env.SecureBootEnabled -ne $true) -and `
-                 ($env.TestSigningEnabled -eq $true) -and `
-                 (-not $env.HvciRunning)
+    $supplementalDeployed = ($env.MsBthPanSuppPolicyActive -eq $true)
+    $testSigningPathOpen  = ($env.SecureBootEnabled -ne $true) -and `
+                            ($env.TestSigningEnabled -eq $true) -and `
+                            (-not $env.HvciRunning)
 
-    if (-not $path1Open) {
-        $env.BlockReasons += 'No WDAC supplemental policy authorizes the MS BthPan self-signing certificate'
-    }
-    if (-not $path2Open) {
+    if (-not $testSigningPathOpen) {
         if ($env.SecureBootEnabled -eq $true) {
-            $env.BlockReasons += 'Secure Boot is ON (legacy testsigning path requires Secure Boot off)'
+            $env.BlockReasons += 'Secure Boot is ON (testsigning path requires Secure Boot off)'
         }
         if ($env.TestSigningEnabled -ne $true) {
-            $env.BlockReasons += 'BCD testsigning is OFF (legacy path)'
+            $env.BlockReasons += 'BCD testsigning is OFF'
         }
         if ($env.HvciRunning) {
-            $env.BlockReasons += 'HVCI / Memory Integrity is RUNNING (legacy path requires HVCI off)'
+            $env.BlockReasons += 'HVCI / Memory Integrity is RUNNING (testsigning path requires HVCI off)'
         }
     }
-    $env.EffectiveCanLoadSelfSigned = ($path1Open -or $path2Open)
+    $env.BootSigningPosture = if ($testSigningPathOpen) { 'testsigning-active' }
+                              elseif ($supplementalDeployed) { 'supplemental-deployed-unverified' }
+                              else { 'closed' }
 
     return $env
 }
@@ -3854,14 +3860,13 @@ function Update-BootSigningEnvironmentForCtx {
     if ($deployed) {
         $env.MsBthPanSuppPolicyActive = $true
         $env.AmdSuppPolicyId     = $deployed.PolicyId
-        # Recompute effective with this updated knowledge
-        $env.BlockReasons = @($env.BlockReasons | Where-Object {
-            $_ -ne 'No WDAC supplemental policy authorizes the MS BthPan self-signing certificate'
-        })
-        $path2Open = ($env.SecureBootEnabled -ne $true) -and `
-                     ($env.TestSigningEnabled -eq $true) -and `
-                     (-not $env.HvciRunning)
-        $env.EffectiveCanLoadSelfSigned = ($true -or $path2Open)  # path1 is open
+        # A deployed supplemental policy is an AppControlDecision-layer
+        # fact (SPEC D.58.3). It upgrades a 'closed' posture to
+        # 'supplemental-deployed-unverified' and never overrides a
+        # measured 'testsigning-active' posture.
+        if ($env.BootSigningPosture -eq 'closed') {
+            $env.BootSigningPosture = 'supplemental-deployed-unverified'
+        }
         return $env
     }
     return $env
@@ -3890,40 +3895,48 @@ function Show-BootSigningEnvironment {
         $ts  = _FmtBool $BootEnv.TestSigningEnabled
         $hv  = _FmtBool $BootEnv.HvciRunning
         $wd  = _FmtBool $BootEnv.MsBthPanSuppPolicyActive
-        $eff = if ($BootEnv.EffectiveCanLoadSelfSigned) { 'ALLOWED' } else { 'BLOCKED' }
-        $effColor = if ($BootEnv.EffectiveCanLoadSelfSigned) { 'Green' } else { 'Yellow' }
+        $posture = [string]$BootEnv.BootSigningPosture
+        $postureColor = if ($posture -eq 'closed') { 'DarkGray' } else { 'Yellow' }
         Write-Host ('    Boot Signing        : Firmware={0,-14} SecureBoot={1,-3} TestSigning={2,-3} HVCI={3,-3} WDAC-BthPan={4,-3}' -f `
             $BootEnv.FirmwareType, $sb, $ts, $hv, $wd)
-        Write-Host ('    Self-signed driver  : {0}' -f $eff) -ForegroundColor $effColor
+        Write-Host ('    Signing posture     : {0}' -f $posture) -ForegroundColor $postureColor
         return
     }
 
     # Verbose table
     Write-Host '    +------------------------+-----------+------------------------------------------------+'
-    Write-Host '    | Setting                | Value     | Role for self-signed driver load               |'
+    Write-Host '    | Setting                | Value     | Role in the boot signing posture               |'
     Write-Host '    +------------------------+-----------+------------------------------------------------+'
     $rows = @(
         @{ N='Firmware Type';         V=$BootEnv.FirmwareType;                  Note='UEFI = subject to Secure Boot policy'         },
-        @{ N='Secure Boot';           V=(_FmtTri  $BootEnv.SecureBootEnabled);  Note='Can stay ON if WDAC supplemental is deployed' },
-        @{ N='BCD testsigning';       V=(_FmtBool $BootEnv.TestSigningEnabled); Note='Legacy path only (requires Secure Boot off)'  },
+        @{ N='Secure Boot';           V=(_FmtTri  $BootEnv.SecureBootEnabled);  Note='ON closes the testsigning (Mode T) lab path' },
+        @{ N='BCD testsigning';       V=(_FmtBool $BootEnv.TestSigningEnabled); Note='Mode T lab path (requires Secure Boot off)'  },
         @{ N='VBS Running';           V=(_FmtBool $BootEnv.VbsRunning);         Note='Informational'                                 },
-        @{ N='HVCI / Memory Intgr.';  V=(_FmtBool $BootEnv.HvciRunning);        Note='Compatible with WDAC supplemental path'       },
+        @{ N='HVCI / Memory Intgr.';  V=(_FmtBool $BootEnv.HvciRunning);        Note='RUNNING closes the testsigning lab path'       },
         @{ N='WDAC tools available';  V=(_FmtBool $BootEnv.WdacToolsAvailable); Note='ConfigCI module + CiTool.exe + AllowAll tmpl' },
-        @{ N='WDAC supp (BthPan cert)';  V=(_FmtBool $BootEnv.MsBthPanSuppPolicyActive);Note='RECOMMENDED path: keeps Secure Boot ON'       }
+        @{ N='WDAC supp (BthPan cert)';  V=(_FmtBool $BootEnv.MsBthPanSuppPolicyActive);Note='AppControl layer only; no kernel-load claim'       }
     )
     foreach ($r in $rows) {
         Write-Host ('    | {0,-22} | {1,-9} | {2,-46} |' -f $r.N, $r.V, $r.Note)
     }
     Write-Host '    +------------------------+-----------+------------------------------------------------+'
 
-    if ($BootEnv.EffectiveCanLoadSelfSigned) {
-        $via = if ($BootEnv.MsBthPanSuppPolicyActive) { 'WDAC supplemental policy (Secure Boot ON)' }
-               else { 'legacy testsigning + Secure Boot off' }
-        Write-Host  ('    EFFECTIVE: self-signed kernel-mode drivers CAN load (via {0}).' -f $via) -ForegroundColor Green
-    } else {
-        Write-Host  '    EFFECTIVE: self-signed kernel-mode drivers will NOT load.' -ForegroundColor Red
-        foreach ($reason in $BootEnv.BlockReasons) {
-            Write-Host ('      - {0}' -f $reason) -ForegroundColor Red
+    switch ([string]$BootEnv.BootSigningPosture) {
+        'testsigning-active' {
+            Write-Host  '    POSTURE: testsigning-active - Code Integrity accepts test-signed kernel images (Mode T lab state).' -ForegroundColor Yellow
+        }
+        'supplemental-deployed-unverified' {
+            Write-Host  '    POSTURE: supplemental-deployed-unverified - a supplemental App Control policy is deployed.' -ForegroundColor Yellow
+            Write-Host  '    This is an AppControlDecision-layer fact only; expect non-WHQL kernel images NOT to load (SPEC D.58).' -ForegroundColor Yellow
+            foreach ($reason in $BootEnv.BlockReasons) {
+                Write-Host ('      - {0}' -f $reason) -ForegroundColor Yellow
+            }
+        }
+        default {
+            Write-Host  '    POSTURE: closed - standard enforcement; non-WHQL (project-signed) kernel images will NOT load.' -ForegroundColor Red
+            foreach ($reason in $BootEnv.BlockReasons) {
+                Write-Host ('      - {0}' -f $reason) -ForegroundColor Red
+            }
         }
     }
     if ($BootEnv.SecureBootDetectError) {
@@ -3932,11 +3945,15 @@ function Show-BootSigningEnvironment {
 }
 
 function Show-BootSigningChangeRequired {
-    # Side-by-side AS-IS / TO-BE display. The TO-BE keeps Secure Boot
-    # ENABLED whenever possible and prefers the WDAC supplemental
-    # policy path (script-managed) over disabling Secure Boot.
-    # Falls back to documenting the legacy testsigning path only when
-    # WDAC tools are not available.
+    # Side-by-side AS-IS / TO-BE display for hosts where the project's
+    # test-signed kernel images cannot load. Honest model (SPEC D.58):
+    # the only measured path that opens KernelImageTrust for
+    # project-signed images is Mode T - BCD testsigning with Secure
+    # Boot off and HVCI off - a lab-only, explicitly opted-in state
+    # (-UseTestSigning). A WDAC supplemental policy contributes to the
+    # AppControlDecision layer only and is never presented as a way to
+    # load these drivers with Secure Boot on (that claim is retracted -
+    # SPEC D.58.1).
     param([Parameter(Mandatory)] $BootEnv)
 
     function _Status($v) {
@@ -3945,59 +3962,27 @@ function Show-BootSigningChangeRequired {
         return 'off'
     }
 
-    $useWdac = $BootEnv.WdacToolsAvailable
-
-    Write-Host  '    AS-IS (current)              TO-BE (recommended target)'
+    Write-Host  '    AS-IS (current)              TO-BE (Mode T lab target, explicit opt-in)'
     Write-Host  '    ---------------------------  --------------------------------'
     Write-Host ('    Firmware     : {0,-14}  Firmware     : {0} (no change)' -f $BootEnv.FirmwareType)
-    if ($useWdac) {
-        Write-Host ('    Secure Boot  : {0,-14}  Secure Boot  : ON     (NO CHANGE - keep enabled)' -f (_Status $BootEnv.SecureBootEnabled))
-        Write-Host ('    testsigning  : {0,-14}  testsigning  : off    (NO CHANGE - not needed with WDAC)' -f (_Status $BootEnv.TestSigningEnabled))
-        Write-Host ('    HVCI         : {0,-14}  HVCI         : {1,-6} (NO CHANGE - WDAC supplemental is HVCI-compatible)' -f (_Status $BootEnv.HvciRunning), (_Status $BootEnv.HvciRunning))
-        Write-Host ('    WDAC supp.   : {0,-14}  WDAC supp.   : ON     (script will install via I02)' -f (_Status $BootEnv.MsBthPanSuppPolicyActive))
-    } else {
-        Write-Host ('    Secure Boot  : {0,-14}  Secure Boot  : off    (USER MUST CHANGE in firmware - WDAC unavailable)' -f (_Status $BootEnv.SecureBootEnabled))
-        Write-Host ('    testsigning  : {0,-14}  testsigning  : ON     (script will set via I02 -UseTestSigning)' -f (_Status $BootEnv.TestSigningEnabled))
-        Write-Host ('    HVCI         : {0,-14}  HVCI         : off    (USER MUST DISABLE if currently on)' -f (_Status $BootEnv.HvciRunning))
-        Write-Host ('    WDAC supp.   : {0,-14}  WDAC supp.   : n/a    (tools not available on this system)' -f (_Status $BootEnv.MsBthPanSuppPolicyActive))
-    }
+    Write-Host ('    Secure Boot  : {0,-14}  Secure Boot  : off    (USER MUST CHANGE in firmware - lab host only)' -f (_Status $BootEnv.SecureBootEnabled))
+    Write-Host ('    testsigning  : {0,-14}  testsigning  : ON     (script will set via I02 -UseTestSigning)' -f (_Status $BootEnv.TestSigningEnabled))
+    Write-Host ('    HVCI         : {0,-14}  HVCI         : off    (USER MUST DISABLE if currently on)' -f (_Status $BootEnv.HvciRunning))
     Write-Host ''
 
-    if ($BootEnv.EffectiveCanLoadSelfSigned) {
-        Write-Host '    System is already in a state that allows self-signed driver loads.' -ForegroundColor Green
+    if ($BootEnv.BootSigningPosture -eq 'testsigning-active') {
+        Write-Host '    Posture is already testsigning-active (Mode T). No change is required for lab use.' -ForegroundColor Yellow
         return
     }
 
-    # ---- Recommended path (WDAC) ----
-    if ($useWdac) {
-        Write-Host '    RECOMMENDED PATH: WDAC supplemental policy (keeps Secure Boot ON)' -ForegroundColor Cyan
-        Write-Host '    --------------------------------------------------------------------'
-        Write-Host '    This path uses Windows Defender Application Control to add THIS'      -ForegroundColor Cyan
-        Write-Host '    SCRIPT''S self-signed code-signing certificate as an allowed kernel-' -ForegroundColor Cyan
-        Write-Host '    mode signer. Secure Boot stays ON, no firmware changes, no test-mode' -ForegroundColor Cyan
-        Write-Host '    watermark, no HVCI changes, and the policy can be revoked cleanly.'   -ForegroundColor Cyan
-        Write-Host ''
-        Write-Host '    The script will perform the following on your behalf in I02:'         -ForegroundColor Yellow
-        Write-Host '      1. Build a WDAC supplemental-policy XML allowlisting only this'     -ForegroundColor Yellow
-        Write-Host '         script''s self-signed cert as a kernel-mode signer.'             -ForegroundColor Yellow
-        Write-Host '      2. Convert the XML to a .cip binary policy.'                        -ForegroundColor Yellow
-        Write-Host '      3. Deploy to %SystemRoot%\System32\CodeIntegrity\CiPolicies\Active.' -ForegroundColor Yellow
-        Write-Host '      4. Activate via CiTool --update-policy (no reboot on WS2022+).'     -ForegroundColor Yellow
-        Write-Host ''
-        Write-Host '    Run:  .\Deploy-MSBthPanInboxOnWindowsServer.ps1 -Action Install -OnlyPhases I02' -ForegroundColor Yellow
-        Write-Host ''
-        Write-Host '    Reversal (later): the same script with -Action Cleanup will remove the' -ForegroundColor DarkGray
-        Write-Host '    deployed supplemental policy via CiTool --remove-policy <PolicyId>.'    -ForegroundColor DarkGray
-        return
-    }
-
-    # ---- Fallback path (testsigning, legacy) ----
-    Write-Host '    FALLBACK PATH: legacy testsigning (requires Secure Boot OFF)' -ForegroundColor DarkYellow
+    Write-Host '    PRODUCTION NOTE: WHQL/WHCP-signed drivers load with NO change to this host.' -ForegroundColor Cyan
+    Write-Host '    Project self-signing establishes PackageCatalogTrust only (PnP package'      -ForegroundColor Cyan
+    Write-Host '    acceptance); it does not establish KernelImageTrust, and there is no'        -ForegroundColor Cyan
+    Write-Host '    supported way to load these self-signed kernel images with Secure Boot ON'   -ForegroundColor Cyan
+    Write-Host '    (SPEC D.58).'                                                                -ForegroundColor Cyan
+    Write-Host ''
+    Write-Host '    LAB PATH (Mode T - requires explicit -UseTestSigning opt-in):' -ForegroundColor DarkYellow
     Write-Host '    --------------------------------------------------------------------'
-    Write-Host '    The platform is missing WDAC tooling (ConfigCI module / CiTool /'    -ForegroundColor DarkYellow
-    Write-Host '    AllowAll template). Falling back to bcdedit testsigning, which'      -ForegroundColor DarkYellow
-    Write-Host '    requires disabling Secure Boot in firmware.'                         -ForegroundColor DarkYellow
-    Write-Host ''
     $step = 1
     if ($BootEnv.SecureBootEnabled -eq $true) {
         Write-Host ('      {0}. Disable Secure Boot in firmware (UEFI setup):' -f $step) -ForegroundColor Yellow
@@ -4024,6 +4009,11 @@ function Show-BootSigningChangeRequired {
     Write-Host  '         Then reboot.'
     Write-Host ''
     Write-Host '    After all of the above, the desktop will display a "Test Mode" watermark.' -ForegroundColor DarkYellow
+    Write-Host ''
+    Write-Host '    OPTIONAL (AppControl layer only): a supplemental policy can be deployed'    -ForegroundColor DarkGray
+    Write-Host '    via I02 when -WdacBasePolicyGuid names an operator-verified base policy'    -ForegroundColor DarkGray
+    Write-Host '    (SPEC D.58.8). It affects the AppControlDecision layer and makes no'        -ForegroundColor DarkGray
+    Write-Host '    kernel-load claim.'                                                        -ForegroundColor DarkGray
 }
 
 #####################################################################
@@ -11508,7 +11498,8 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     #     - Activate via CiTool.exe --update-policy (immediate, NO
     #       reboot needed on WS2022+ / Windows 11 22H2+).
     #     - Secure Boot stays ON. testsigning stays OFF. HVCI may
-    #       remain ON. No firmware changes.
+    #       remain ON. No firmware changes. No kernel-load claim
+    #       follows from this path (SPEC D.58.1).
     #     - Reversible via -Action Cleanup (or CiTool --remove-policy).
     #
     #   PATH B (legacy, opt-in via -UseTestSigning): bcdedit testsigning
@@ -11725,7 +11716,7 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
         $existing = Test-MsBthPanWdacPolicyDeployed -Ctx $Ctx
         if ($existing -and -not $Ctx.Force) {
             Write-Skip ('WDAC supplemental policy is already deployed (PolicyId={0}).' -f $existing.PolicyId)
-            Write-Host '  Self-signed BthPan driver is already authorized. No further action needed.' -ForegroundColor Green
+            Write-Host '  The supplemental policy affects the AppControlDecision layer only; no kernel-load claim (SPEC D.58).' -ForegroundColor DarkGray
             Write-PhaseFooter 'I02' 'cached'
             return
         }
@@ -11855,17 +11846,17 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
         Write-Host ''
         Show-BootSigningChangeRequired -BootEnv $bootEnvBefore
         Write-Host ''
-        Write-Host 'Recommended: drop -UseTestSigning and let the script use the WDAC supplemental path.' -ForegroundColor Yellow
-        throw 'I02: Secure Boot is enabled - testsigning would be ignored. Use the default WDAC path or disable Secure Boot first.'
+        Write-Host 'Mode T requires Secure Boot OFF (lab host only). Disable Secure Boot in firmware first.' -ForegroundColor Yellow
+        throw 'I02: Secure Boot is enabled - testsigning would be silently dropped at boot. Disable Secure Boot in firmware first (lab host only).'
     }
 
     # Pre-check: HVCI
     if ($bootEnvBefore.HvciRunning -and -not $Ctx.Force) {
         Write-Host ''
         Write-Host '*** I02 ABORTED: -UseTestSigning was selected but HVCI is RUNNING ***' -ForegroundColor Red
-        Write-Host 'HVCI enforces a Code Integrity policy that rejects self-signed kernel-mode drivers.' -ForegroundColor Red
+        Write-Host 'HVCI enforces a Code Integrity policy that rejects test-signed kernel images.' -ForegroundColor Red
         Show-BootSigningChangeRequired -BootEnv $bootEnvBefore
-        throw 'I02: HVCI is running - self-signed drivers will not load via testsigning. Use the WDAC path or disable HVCI.'
+        throw 'I02: HVCI is running - test-signed kernel images will not load. Disable HVCI / Memory Integrity first (lab host only).'
     }
 
     # Apply testsigning
@@ -12491,7 +12482,7 @@ function Show-ReferenceLinks { # psa-disable-line PSA6003 -- compound noun (e.g.
     $sections = @(
         @{
             Heading = '[1] SECURE BOOT (UEFI signature enforcement)'
-            Why     = 'Secure Boot is what blocks self-signed kernel-mode drivers by default. The WDAC path in I02 keeps Secure Boot ENABLED while still loading the drivers - this section explains how Secure Boot works.'
+            Why     = 'Secure Boot is what blocks project-signed kernel images by default; loading them requires Mode T (testsigning, Secure Boot off, lab only - SPEC D.58). This section explains how Secure Boot works.'
             Links   = @(
                 @{ T='What Is Secure Boot for Windows'
                    U='https://learn.microsoft.com/en-us/windows-hardware/drivers/bringup/secure-boot' }
