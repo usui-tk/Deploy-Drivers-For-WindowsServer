@@ -1,0 +1,55 @@
+{
+  "SchemaVersion": "1.0",
+  "Records": [
+    {
+      "ReleaseVersion": "2.04.04.111",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/amd-ryzen--chipset-driver-release-notes--2-04-04-111-.html",
+      "Reason": "Legacy AMD release-note slug verified during bootstrap research."
+    },
+    {
+      "ReleaseVersion": "3.10.08.506",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-10-08-506.html",
+      "Reason": "Verified AMD release-note page."
+    },
+    {
+      "ReleaseVersion": "4.08.09.2337",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-08-09-2337.html",
+      "Reason": "Verified AMD release-note page."
+    },
+    {
+      "ReleaseVersion": "5.08.02.027",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-08-02-027.html",
+      "Reason": "Verified AMD release-note page."
+    },
+    {
+      "ReleaseVersion": "6.10.17.152",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-10-17-152.html",
+      "Reason": "Verified AMD release-note page."
+    },
+    {
+      "ReleaseVersion": "7.02.13.148",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-10-17-152/RN-RYZEN-CHIPSET-7-02-13-148.html",
+      "Reason": "Verified AMD release-note page; AMD currently publishes this release under a nested URL containing the preceding 6.10.17.152 path segment."
+    },
+    {
+      "ReleaseVersion": "7.11.26.2142",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-11-26-2142.html",
+      "Reason": "Verified AMD release-note page."
+    },
+    {
+      "ReleaseVersion": "8.02.18.557",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-02-18-557.html",
+      "Reason": "Verified AMD release-note page."
+    },
+    {
+      "ReleaseVersion": "8.05.04.516",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-05-04-516.html",
+      "Reason": "Verified AMD release-note page."
+    },
+    {
+      "ReleaseVersion": "8.07.16.1035",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-07-16-1035.html",
+      "Reason": "Verified AMD release-note page."
+    }
+  ]
+}

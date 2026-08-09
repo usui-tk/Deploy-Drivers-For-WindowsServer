@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-chipset-driver-research:accepted-baseline:1.0",
+  "title": "AMD Chipset Driver Research Accepted Baseline Provenance",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "BaselineLabel",
+    "FinalToolkitVersion",
+    "GeneratingToolkitVersion",
+    "SourceEvidenceZipSha256",
+    "SourceRunOverallStatus",
+    "Counts",
+    "Interpretation"
+  ],
+  "properties": {
+    "SchemaVersion": { "const": "amd-chipset-driver-research-accepted-baseline/1.0" },
+    "BaselineLabel": { "type": "string" },
+    "FinalToolkitVersion": { "const": "1.0.0" },
+    "GeneratingToolkitVersion": { "type": "string" },
+    "SourceEvidenceZipFileName": { "type": "string" },
+    "SourceEvidenceZipSha256": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+    "SourceRunId": { "type": "string" },
+    "SourceRunOverallStatus": { "type": "string" },
+    "SourceRunExitCode": { "type": "integer" },
+    "SourceRunDuration": { "type": "string" },
+    "Counts": { "type": "object" },
+    "ReleaseRange": { "type": "object" },
+    "RepositoryNormalization": { "type": "array", "items": { "type": "string" } },
+    "Interpretation": { "type": "string" }
+  }
+}

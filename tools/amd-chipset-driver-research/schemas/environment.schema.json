@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-chipset-driver-research:environment:1.0",
+  "title": "AMD Chipset Driver Research Environment Evidence",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "CollectedAtUtc",
+    "Platform",
+    "PowerShell",
+    "Dependencies",
+    "Readiness"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "1.0"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "CollectedAtUtc": {
+      "type": "string"
+    },
+    "Platform": {
+      "type": "object"
+    },
+    "PowerShell": {
+      "type": "object"
+    },
+    "Dependencies": {
+      "type": "object"
+    },
+    "Readiness": {
+      "type": "object"
+    }
+  }
+}

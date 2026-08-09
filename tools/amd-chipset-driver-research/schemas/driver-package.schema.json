@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-chipset-driver-research:driver-package:1.0",
+  "title": "AMD Chipset Driver Package Inspection",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "DriverPackages"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "1.0"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "DriverPackages": {
+      "type": "array"
+    }
+  }
+}

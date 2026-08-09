@@ -1,0 +1,418 @@
+{
+  "SchemaVersion": "1.0",
+  "ToolkitVersion": "0.4.3",
+  "GeneratedAtUtc": "2026-08-09T11:00:52.6430416Z",
+  "Releases": [
+    {
+      "ReleaseVersion": "2.04.04.111",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/amd-ryzen--chipset-driver-release-notes--2-04-04-111-.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-2-04-04-111",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes (2.04.04.111)",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:49.4376278Z",
+      "HtmlEvidencePath": "evidence/release-notes/2.04.04.111.html",
+      "HtmlSha256": "8946af349724f4c06bc6fe5dc99a3f6c84264bc14f3ffe16482df00db09448cf",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_2.04.04.111.zip",
+        "https://drivers.amd.com/drivers/amd_chipset_software_win10_2.04.04.111.zip",
+        "https://drivers.amd.com/drivers/amd_software_2.04.04.111.zip",
+        "https://drivers.amd.com/drivers/amd_chipset_software_2.04.04.111.exe",
+        "https://drivers.amd.com/drivers/amd_software_2.04.04.111.exe"
+      ]
+    },
+    {
+      "ReleaseVersion": "3.08.17.735",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-08-17-735.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-3-08-17-735",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes (3.08.17.735)",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:49.5926555Z",
+      "HtmlEvidencePath": "evidence/release-notes/3.08.17.735.html",
+      "HtmlSha256": "6e6c02676b375e233ef3c6c05fb750eb68411f01773022497170cea8ce41594b",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_3.08.17.735.zip",
+        "https://drivers.amd.com/drivers/amd_chipset_software_win10_3.08.17.735.zip",
+        "https://drivers.amd.com/drivers/amd_software_3.08.17.735.zip",
+        "https://drivers.amd.com/drivers/amd_chipset_software_3.08.17.735.exe",
+        "https://drivers.amd.com/drivers/amd_software_3.08.17.735.exe"
+      ]
+    },
+    {
+      "ReleaseVersion": "3.09.01.140",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-09-01-140.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-3-09-01-140",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes (3.09.01.140)",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:49.7136841Z",
+      "HtmlEvidencePath": "evidence/release-notes/3.09.01.140.html",
+      "HtmlSha256": "693e1980bacf00525fae0754c121ac4da37e146e7d4823bf6a836ec25ab953da",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_3.09.01.140.zip",
+        "https://drivers.amd.com/drivers/amd_chipset_software_win10_3.09.01.140.zip",
+        "https://drivers.amd.com/drivers/amd_software_3.09.01.140.zip",
+        "https://drivers.amd.com/drivers/amd_chipset_software_3.09.01.140.exe",
+        "https://drivers.amd.com/drivers/amd_software_3.09.01.140.exe"
+      ]
+    },
+    {
+      "ReleaseVersion": "3.10.08.506",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-10-08-506.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-3-10-08-506",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes (3.10.08.506)",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:49.8351985Z",
+      "HtmlEvidencePath": "evidence/release-notes/3.10.08.506.html",
+      "HtmlSha256": "fa6357d60ec900a977db870c069fb54b80080859a75b3132e7c9783f1488877b",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_3.10.08.506.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_3.10.08.506.zip",
+        "https://drivers.amd.com/drivers/amd_chipset_software_win10_3.10.08.506.zip",
+        "https://drivers.amd.com/drivers/amd_software_3.10.08.506.zip",
+        "https://drivers.amd.com/drivers/amd_software_3.10.08.506.exe"
+      ]
+    },
+    {
+      "ReleaseVersion": "4.03.03.431",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-03-03-431.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-4-03-03-431",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 4.03.03.431",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:50.0002271Z",
+      "HtmlEvidencePath": "evidence/release-notes/4.03.03.431.html",
+      "HtmlSha256": "73018ff689eac1150e203ce89ba116f1aa60f624d1f32576ab1f63af85b596f2",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_4.03.03.431.exe",
+        "https://drivers.amd.com/drivers/amd_software_4.03.03.431.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_4.03.03.431.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "4.06.10.651",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-06-10-651.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-4-06-10-651",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 4.06.10.651",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:50.1222723Z",
+      "HtmlEvidencePath": "evidence/release-notes/4.06.10.651.html",
+      "HtmlSha256": "39e68e3ab3f06fc99031a4f0fc2c14562a6780a42abdadee54b988e3888603e9",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_4.06.10.651.exe",
+        "https://drivers.amd.com/drivers/amd_software_4.06.10.651.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_4.06.10.651.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "4.08.09.2337",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-08-09-2337.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-4-08-09-2337",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 4.08.09.2337",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:50.2443008Z",
+      "HtmlEvidencePath": "evidence/release-notes/4.08.09.2337.html",
+      "HtmlSha256": "e3190a1ebf5eb9583bd1ad29010401743621670e77a20ba75415fd1043ece3df",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_4.08.09.2337.exe",
+        "https://drivers.amd.com/drivers/amd_software_4.08.09.2337.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_4.08.09.2337.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "4.09.23.507",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-09-23-507.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-4-09-23-507",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 4.09.23.507",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:50.3608508Z",
+      "HtmlEvidencePath": "evidence/release-notes/4.09.23.507.html",
+      "HtmlSha256": "57b1200609148d99b6b53e9d66ccf72584efb8d681d8867f620ecafeb0b3a5d2",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_4.09.23.507.exe",
+        "https://drivers.amd.com/drivers/amd_software_4.09.23.507.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_4.09.23.507.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "4.11.15.342",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-11-15-342.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-4-11-15-342",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 4.11.15.342",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:50.4763657Z",
+      "HtmlEvidencePath": "evidence/release-notes/4.11.15.342.html",
+      "HtmlSha256": "4a3f2015a548fe53d7f301092a9ed72f528c1dc07522b8f7423b83bfc209ec08",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_4.11.15.342.exe",
+        "https://drivers.amd.com/drivers/amd_software_4.11.15.342.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_4.11.15.342.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "5.02.19.2221",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-02-19-2221.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-5-02-19-2221",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 5.02.19.2221",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:50.5919005Z",
+      "HtmlEvidencePath": "evidence/release-notes/5.02.19.2221.html",
+      "HtmlSha256": "3fec935ace197cb21aa6b5acb6d93535b19761ce5e9a2c89220a051806ae5816",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_5.02.19.2221.exe",
+        "https://drivers.amd.com/drivers/amd_software_5.02.19.2221.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_5.02.19.2221.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "5.05.16.529",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-05-16-529.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-5-05-16-529",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 5.05.16.529",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:50.7139404Z",
+      "HtmlEvidencePath": "evidence/release-notes/5.05.16.529.html",
+      "HtmlSha256": "69375c12cedc8599a6670018b8c700eb6c10c0a511233d96a46fa72e54e638ef",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_5.05.16.529.exe",
+        "https://drivers.amd.com/drivers/amd_software_5.05.16.529.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_5.05.16.529.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "5.08.02.027",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-08-02-027.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-5-08-02-027",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 5.08.02.027",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:50.8284554Z",
+      "HtmlEvidencePath": "evidence/release-notes/5.08.02.027.html",
+      "HtmlSha256": "bcc7899b7dfcc556870a0068688ab0397f7c71f78355a53a9c157ddcc9b10bd1",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_5.08.02.027.exe",
+        "https://drivers.amd.com/drivers/amd_software_5.08.02.027.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_5.08.02.027.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "6.01.25.342",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-01-25-342.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-6-01-25-342",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 6.01.25.342",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:50.9444792Z",
+      "HtmlEvidencePath": "evidence/release-notes/6.01.25.342.html",
+      "HtmlSha256": "de1617aa30e0d6c678d1db8d03be0964771f9313d6c6302b60f61bbb0090aff0",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_6.01.25.342.exe",
+        "https://drivers.amd.com/drivers/amd_software_6.01.25.342.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_6.01.25.342.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "6.02.07.2300",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/amd-ryzen--chipset-driver-release-notes-6-02-07-2300.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-6-02-07-2300",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 6.02.07.2300",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:51.0745094Z",
+      "HtmlEvidencePath": "evidence/release-notes/6.02.07.2300.html",
+      "HtmlSha256": "930e9a45952ba39bb76d799a35f7210402d898df15f8b0947142c5d27bbf7956",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_6.02.07.2300.exe",
+        "https://drivers.amd.com/drivers/amd_software_6.02.07.2300.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_6.02.07.2300.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "6.05.28.016",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-05-28-016.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-6-05-28-016",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 6.05.28.016",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:51.1890259Z",
+      "HtmlEvidencePath": "evidence/release-notes/6.05.28.016.html",
+      "HtmlSha256": "4d27c852992ed0727e717c2ec84875d931cbbf66989f08c34e75ceabb315c5d0",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_6.05.28.016.exe",
+        "https://drivers.amd.com/drivers/amd_software_6.05.28.016.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_6.05.28.016.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "6.07.22.037",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/rn-ryzen-chipset-6-07-22-037-.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-6-07-22-037",
+      "PageTitle": "RN-RYZEN-CHIPSET-6-07-22-037",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:51.3150575Z",
+      "HtmlEvidencePath": "evidence/release-notes/6.07.22.037.html",
+      "HtmlSha256": "6255d3f103bdb3c2c874d314567b61ab49e5ab6d14eb2f7c780d7c8a0a46cabd",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_6.07.22.037.exe",
+        "https://drivers.amd.com/drivers/amd_software_6.07.22.037.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_6.07.22.037.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "6.10.17.152",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-10-17-152.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-6-10-17-152",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 6.10.17.152",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:51.4395818Z",
+      "HtmlEvidencePath": "evidence/release-notes/6.10.17.152.html",
+      "HtmlSha256": "c83d54e78ecaccd150a4345b0bd5416c88b078aa1b378f0eb338b1ae44638445",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_6.10.17.152.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_6.10.17.152.exe",
+        "https://drivers.amd.com/drivers/amd_software_6.10.17.152.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_6.10.17.152.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "7.02.13.148",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-10-17-152/RN-RYZEN-CHIPSET-7-02-13-148.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-7-02-13-148",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 7.02.13.148",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:51.7316494Z",
+      "HtmlEvidencePath": "evidence/release-notes/7.02.13.148.html",
+      "HtmlSha256": "caf0e16ac04ea42a362c56c3299a2fd25f8c8ecae31657c22f0ca37ceea32110",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_7.02.13.148.exe",
+        "https://drivers.amd.com/drivers/amd_software_7.02.13.148.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_7.02.13.148.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "7.04.09.545",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-04-09-545.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-7-04-09-545",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 7.04.09.545",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:51.8954353Z",
+      "HtmlEvidencePath": "evidence/release-notes/7.04.09.545.html",
+      "HtmlSha256": "51912fd92403bad169e84b81e7f2333ff5a8c0f4a9792b61a1ff01d7b21f730b",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_7.04.09.545.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_7.04.09.545.exe",
+        "https://drivers.amd.com/drivers/amd_software_7.04.09.545.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_7.04.09.545.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "7.06.02.123",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-06-02-123.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-7-06-02-123",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 7.06.02.123",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:52.0139489Z",
+      "HtmlEvidencePath": "evidence/release-notes/7.06.02.123.html",
+      "HtmlSha256": "37164c38bfbfd32633c42940646ce52598e205a00868bffb0f7c040bc42f8a71",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_7.06.02.123.exe",
+        "https://drivers.amd.com/drivers/amd_software_7.06.02.123.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_7.06.02.123.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "7.11.26.2142",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-11-26-2142.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-7-11-26-2142",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 7.11.26.2142",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:52.1284645Z",
+      "HtmlEvidencePath": "evidence/release-notes/7.11.26.2142.html",
+      "HtmlSha256": "1c92a354e1d3c7b0d22181a2b6773690c472b76cc7747b22ac7848cea6a40efb",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_7.11.26.2142.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_7.11.26.2142.exe",
+        "https://drivers.amd.com/drivers/amd_software_7.11.26.2142.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_7.11.26.2142.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "8.01.20.513",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-01-20-513.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-8-01-20-513",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 8.01.20.513",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:52.2495015Z",
+      "HtmlEvidencePath": "evidence/release-notes/8.01.20.513.html",
+      "HtmlSha256": "d45de8dcbd5f8c21ef9581e2cdc865190acab73a261785f3ac68732453d1ef5f",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_8.01.20.513.exe",
+        "https://drivers.amd.com/drivers/amd_software_8.01.20.513.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_8.01.20.513.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "8.02.18.557",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-02-18-557.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-8-02-18-557",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 8.02.18.557",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:52.3655299Z",
+      "HtmlEvidencePath": "evidence/release-notes/8.02.18.557.html",
+      "HtmlSha256": "5bc0b9e57e92d3f874962afad35749c95b92d06492a44434a825478baec6633a",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_8.02.18.557.exe",
+        "https://drivers.amd.com/drivers/amd_software_8.02.18.557.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_8.02.18.557.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "8.05.04.516",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-05-04-516.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-8-05-04-516",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 8.05.04.516",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:52.5100165Z",
+      "HtmlEvidencePath": "evidence/release-notes/8.05.04.516.html",
+      "HtmlSha256": "6b11adeae09e208834f786fea41d6708f05c12be73bbbf985f4fb0a0c4540d32",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_8.05.04.516.exe",
+        "https://drivers.amd.com/drivers/amd_software_8.05.04.516.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_8.05.04.516.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "8.07.16.1035",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-07-16-1035.html",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-8-07-16-1035",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 8.07.16.1035",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "RetrievedAtUtc": "2026-08-09T11:00:52.6425344Z",
+      "HtmlEvidencePath": "evidence/release-notes/8.07.16.1035.html",
+      "HtmlSha256": "b70a3fdfb9f0b1d4facf6273db344ad9999f88044c8b90784d55127db4331221",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_software_8.07.16.1035.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_8.07.16.1035.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_8.07.16.1035.zip"
+      ]
+    }
+  ]
+}

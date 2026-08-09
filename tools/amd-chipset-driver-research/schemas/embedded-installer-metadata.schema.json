@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "amd-chipset-embedded-installer-metadata.schema.json",
+  "title": "AMD Chipset Embedded Installer Metadata",
+  "type": "object",
+  "required": ["SchemaVersion", "ToolkitVersion", "GeneratedAtUtc", "Releases"],
+  "properties": {
+    "SchemaVersion": { "const": "1.0" },
+    "ToolkitVersion": { "type": "string" },
+    "GeneratedAtUtc": { "type": "string" },
+    "Releases": { "type": "array" }
+  },
+  "additionalProperties": true
+}

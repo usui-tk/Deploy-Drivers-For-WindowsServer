@@ -1,0 +1,21 @@
+# Runtime evidence and vendor artifacts are never committed.
+evidence/installers/
+evidence/release-notes/
+evidence/download-diagnostics/
+evidence/extraction-logs/
+evidence/runs/
+work/extracted/
+
+# Runtime-generated inventory is intentionally ignored.
+# The reviewed repository snapshot lives under inventory/accepted-baseline/.
+inventory/*.json
+inventory/*.csv
+!inventory/accepted-baseline/
+!inventory/accepted-baseline/**
+
+# Derived reports may be committed when explicitly reviewed.
+
+# Runtime-generated report is ignored; accepted report snapshots are versioned.
+reports/*.md
+!reports/accepted-baseline/
+!reports/accepted-baseline/**

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-chipset-driver-research:inventory:1.0",
+  "title": "AMD Chipset Driver Research Inventory",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "Purpose",
+    "CompatibilityPolicyIncluded",
+    "Releases"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "1.0"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "Purpose": {
+      "const": "ResearchInventory"
+    },
+    "CompatibilityPolicyIncluded": {
+      "const": false
+    },
+    "Releases": {
+      "type": "array"
+    },
+    "ResearchEnvironment": {
+      "type": [
+        "object",
+        "null"
+      ]
+    }
+  }
+}
