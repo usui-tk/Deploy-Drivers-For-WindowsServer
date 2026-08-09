@@ -4595,6 +4595,43 @@ function Test-RefreshPolicyExeAvailable {
     return $null
 }
 
+function Test-WindowsDriverPolicyPresent {
+    # Windows Driver Policy detection (ruling U3; SPEC D.58.6). The two
+    # policy GUIDs are Layer E constants (same values as the evidence
+    # collector). Presence is only provable via policy enumeration;
+    # when enumeration cannot see policy IDs this returns $false - the
+    # U3 disclosure is shown only when presence is proven.
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    $wdpAudit   = '784C4414-79F4-4C32-A6A5-F0FB42A51D0D'
+    $wdpEnforce = '8F9CB695-5D48-48D6-A329-7202B44607E3'
+    $active = @(Get-ActiveCodeIntegrityPolicies)
+    foreach ($p in $active) {
+        $pidText = [string]$p.PolicyId
+        if ($pidText -and (($pidText -ieq $wdpAudit) -or ($pidText -ieq $wdpEnforce))) { return $true }
+    }
+    return $false
+}
+
+function Show-WindowsDriverPolicyDisclosure {
+    # Conditional runtime disclosure (ruling U3): shown ONLY on Windows
+    # Server 2025+ (build 26100+) AND when a Windows Driver Policy is
+    # actually present. Never shown on 2016/2019/2022 - the evaluation
+    # warning does not apply there and would be noise.
+    [CmdletBinding()]
+    param()
+    if ([int][Environment]::OSVersion.Version.Build -lt 26100) { return }
+    if (-not (Test-WindowsDriverPolicyPresent)) { return }
+    Write-Host '--- Windows Driver Policy detected (Server 2025+) ---' -ForegroundColor Cyan
+    Write-Host '  This host evaluates newly-installed drivers under the Windows Driver' -ForegroundColor Cyan
+    Write-Host '  Policy layer (SPEC D.58.6): an evaluation window of 250 hours across' -ForegroundColor Cyan
+    Write-Host '  at least 2 boot sessions, where a policy violation (a blocked driver' -ForegroundColor Cyan
+    Write-Host '  loading during evaluation) RESETS the counters.'                      -ForegroundColor Cyan
+    Write-Host '  This script NEVER disables or removes that policy (gate G-04).'       -ForegroundColor Cyan
+    Write-Host ''
+}
+
 function Test-AmdWdacPolicyDeployed {
     # Returns the deployed-policy info if our supplemental is currently
     # active, otherwise $null.
@@ -14261,6 +14298,9 @@ function Invoke-InstPhase02_AuthorizeDriverSigning {
     # via an alias for backward-compatible -OnlyPhases callers.
     param($Ctx)
     Write-PhaseHeader 'I02' 'AuthorizeDriverSigning' 'Inst'
+
+    # Conditional Windows Driver Policy disclosure (ruling U3)
+    Show-WindowsDriverPolicyDisclosure
     if (-not (Test-MutatingPhaseAdmissible -Ctx $Ctx -PhaseId 'I02')) {
         Write-PhaseFooter 'I02' 'skipped'
         return
