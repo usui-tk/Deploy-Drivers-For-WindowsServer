@@ -1,0 +1,6 @@
+"InfName","DriverVer","Provider","Class","KmdfLibraryVersion","UmdfLibraryVersion"
+"alpha_driver.inf","06/01/2026,1.2.3.4","Synthetic Vendor","System","1.15",""
+"gamma.inf","06/01/2026,3.3.3.3","Synthetic Vendor","HIDClass","1.19",""
+"gamma.inf","06/01/2026,3.3.3.3","Synthetic Vendor","HIDClass","1.19",""
+"beta_driver.inf","05/05/2025,2.0.0.1","Synthetic Vendor","System","",""
+"alpha_driver.inf","01/01/2024,1.0.0.0","Synthetic Vendor","System","1.11",""

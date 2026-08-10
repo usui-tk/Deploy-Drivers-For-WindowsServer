@@ -1,0 +1,4 @@
+; synthetic fixture INF
+[Version]
+Signature="$WINDOWS NT$"
+DriverVer=06/01/2026,1.2.3.4

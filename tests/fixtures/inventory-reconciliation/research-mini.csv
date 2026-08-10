@@ -1,0 +1,5 @@
+"ReleaseVersion","InfRelativePath","InfSha256","Provider","Class","DriverVersion","DriverDate","KmdfStatus","KmdfVersions","UmdfStatus","UmdfVersions","HardwareIds"
+"9.99.0.1","dir1/alpha_driver.inf","aaaa","Synthetic Vendor","System","1.2.3.4","06/01/2026","Declared","1.15","NotDeclared","","SYN\\ALPHA0001"
+"9.99.0.1","dir1/beta-driver.inf","bbbb","Synthetic Vendor","System","2.0.0.1","05/05/2025","NotDeclared","","NotDeclared","","SYN\\BETA0001"
+"9.99.0.1","dir2/gamma.inf","cccc","Synthetic Vendor","HIDClass","3.3.3.3","06/01/2026","Declared","1.19","NotDeclared","","SYN\\GAMMA0001"
+"9.99.0.1","dir2/delta.inf","dddd","Synthetic Vendor","System","9.9.9.9","01/01/2026","NotDeclared","","NotDeclared","","SYN\\DELTA0001"
