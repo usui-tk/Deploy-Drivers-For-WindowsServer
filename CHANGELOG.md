@@ -20,6 +20,77 @@ independently.
 
 ---
 
+## [2026-08-11] `immutable-deployment-plan` — Chipset r122 / Graphics r87
+
+Wave W14 of the third-party audit remediation (v5 R5-M03; feedback R5 /
+5B-5). Design rulings Q-W14-1..6 adjudicated 2026-08-11 (all per
+recommendation): plan fixed at P06 entry after the co-sign trim and
+before the first INF mutation; P06 loops become plan-row-driven;
+downstream alignment is report-only with enforcement deferred to the
+static-first wave; per-selection payload SHA repaid (chipset via
+`Get-InfReferencedFile`, graphics via source-folder reality); BthPan is a
+documented out-of-scope; the P06 marker moves to schemaVersion 2 with an
+execution-evidence file.
+
+### Added
+
+- Canonical `deployment-plan.json`: document identity
+  (`PlanSchemaVersion` / `SourceArtifactSha256` / `InfManifestSha256` /
+  `InventorySha256` chained from the P05 marker /
+  `SkipNonCosignedDrivers` / `DegeneratePlan` / `ProjectPreference`
+  stated as policy) plus the audit's full row field set including
+  `SelectedSourceInfSha256`, `Devices[]`, `SelectionReason`,
+  `ExpectedMutation`, typed `WdfDecision`, honest
+  `PackageCompletenessDecision`, observation-only
+  `KernelTrustObservation`, and `PayloadFiles[]` SHA-256 (the W13
+  Q-W13-1 deferral repaid).
+- `deployment-plan-execution.json` (fail-open): per-row `Outcome` +
+  `PatchedInfSha256` keyed to the plan SHA — the
+  `installed -> patched INF SHA -> source INF SHA` reverse lookup.
+- Seven 2-way plan functions (`New-DeploymentPlanRow`,
+  `New-DeploymentPlanDocument`, `Get-DeploymentPlanPayloadFile`,
+  `Save-DeploymentPlanJson`, `Save-DeploymentPlanExecutionJson`,
+  `Restore-DeploymentPlanFromJson`, `Test-DeploymentPlanAlignment`) and
+  the `$Script:DeploymentPlanSchemaVersion` constant in C/G.
+- Gate G-23 `Test-DeploymentPlanImmutability.ps1` (74 assertions):
+  presence guard, C/G byte identity, pure builder fixtures, schema pins
+  with a loadability-claim field ban, writer-once and plan-driven-loop
+  structural pins, marker plan-SHA chain, report-only P08/I03 alignment
+  pins (throw statements AST-counted to zero), round-trip, and the
+  tampered-plan / out-of-plan-INF / synthetic-loadability negatives.
+  Negative control: the pre-W14 tree fails 16 named presence assertions
+  (rc=16, standalone run).
+
+### Changed
+
+- **Chipset r121 -> r122, Graphics r86 -> r87.** P06 fixes the plan
+  after the `-SkipNonCosignedDrivers` trim and before the first INF
+  mutation, and the patch/copy loops iterate PLAN rows
+  (`ExpectedMutation`-driven) — behavior-preserving by measurement
+  (`NeedsPatch` already implies `VariantSelected` AND
+  `EligibleForCatalog` at P05). A degenerate trim writes the EMPTY plan
+  before returning.
+- P06 marker: schemaVersion 2. Input `{ InventorySha256,
+  SkipNonCosignedDrivers, DeploymentPlanSchemaVersion }`; output
+  `{ DeploymentPlanSha256, PatchedCount, CopiedCount, DegeneratePlan,
+  PatchedInfManifestSha256 }`. A hit re-hashes the plan on disk and the
+  patched INF layer; misses name which side diverged (the 5B-5
+  resume-drift protection).
+- P08 and I03 entries run the report-only plan alignment check; install
+  behavior is unchanged.
+- Recorded scope reductions: the container layer stays out of the plan
+  while the shadow graph is fail-open and non-authoritative (rows chain
+  straight to `SourceArtifactSha256`); MSBthPan r68 carries no plan
+  (single-package universe; W13 set fingerprints already chain its
+  provenance).
+
+### Evidence
+
+- Suite: 28 cases / 1225 assertions green (was 27 / 1151); psa
+  repository scan at the known baseline; canon scanner: dd 125 = match
+  121 + forked-frozen 4; the seven plan functions byte-identical across
+  C/G; parse clean.
+
 ## [2026-08-10] `content-addressed-cache` — Chipset r121 / Graphics r86 / BthPan r68
 
 Wave W13 of the third-party audit remediation (v5 R5-H03 / R5-H06 /

@@ -8333,6 +8333,82 @@ Gates: G-18 (marker machinery incl. the tampered-fingerprint negative),
 G-19 (inventory identity incl. the EOL-independent rehydration-site
 census), G-21 (vocabulary pin; Declared iff observed).
 
+**W14 extension (R5-M03 / 5B-5) — the immutable DeploymentPlan.** Between
+inventory and mutation there is now a fixed, canonical artifact:
+`<WorkRoot>\deployment-plan.json`, written by P06 after the
+`-SkipNonCosignedDrivers` trim and the patched/ idempotency clean, and
+before the first INF mutation — the audit's logical contract
+`SourceArtifact -> PackageInventory -> DeploymentPlan -> PatchedArtifacts
+-> InstallResult` materialized at the point where the final selection
+exists. Document fields: `PlanSchemaVersion` (constant
+`$Script:DeploymentPlanSchemaVersion`), `GeneratedAtUtc`, `ToolIdentity`,
+`SourceArtifactSha256`, `InfManifestSha256` (chained from the P04 marker
+on resume), `InventorySha256` (chained from the P05 marker),
+`SkipNonCosignedDrivers`, `DegeneratePlan`, `ProjectPreference` (stated as
+project policy, not a rank fact — D.58.11 vocabulary), `Rows[]`. Row
+fields are the audit's set: `Inf`, `SelectedSourceInfPath`,
+`SelectedSourceInfSha256`, `Devices[]` (from the W13 rich detail; a
+legacy-CSV workspace gets an honest `PlanNote` instead), `SourceVariant`,
+`SelectionReason` (`VariantSelected+NeedsPatch` /
+`VariantSelected+ServerCompatible`, with `+CoSignTrimSurvivor` appended
+when the trim ran), `ExpectedMutation` (`PatchManufacturerDecorations` /
+`CopyOnly`), `WdfDecision` (typed observation attached),
+`PackageCompletenessDecision` (chipset: `EligibleForCatalog` +
+`MissingReferencedFiles` from the D.24 machinery — the mechanism R5-M04
+endorsed over the research basename shortcut; graphics: `Evaluated=false`
+with an honest note — it carries no phantom-reference machinery),
+`KernelTrustObservation` (`CoSigned`/`NotCoSigned`/`NotAnalysed` from the
+P05 WHQL analysis, explicitly an observation and never a loadability
+claim; gate G-23 bans loadability-shaped field names outright), and
+`PayloadFiles[]` per-file SHA-256 (the Q-W13-1 deferral repaid: chipset
+enumerates `[SourceDisksFiles*]` via `Get-InfReferencedFile`; graphics
+hashes the real source-folder set — exactly what the sibling copy
+transports).
+
+The P06 patch/copy loops iterate PLAN rows (`ExpectedMutation`-driven);
+"P06 patches no INF outside the plan" is structural, not aspirational.
+This is behavior-preserving by measurement: at P05, `NeedsPatch` already
+implies `VariantSelected` AND `EligibleForCatalog`, so the plan's patch
+row set equals the old inventory filter's. When the co-sign trim leaves
+nothing, P06 writes the EMPTY plan before its early return —
+planned-empty is distinguishable from never-planned.
+
+The P06 marker moves to schemaVersion 2: input `{ InventorySha256,
+SkipNonCosignedDrivers, DeploymentPlanSchemaVersion }`, output
+`{ DeploymentPlanSha256, PatchedCount, CopiedCount, DegeneratePlan,
+PatchedInfManifestSha256 }`. A cache hit requires the input fingerprint
+AND the plan on disk re-hashing to the recorded value AND (non-degenerate)
+the patched INF layer matching its recorded manifest; every miss names
+which side diverged. This is the 5B-5 resume-drift protection.
+
+Execution evidence lands beside the immutable plan in
+`<WorkRoot>\deployment-plan-execution.json` (fail-open, the W8 evidence
+style): per-row `Outcome` (`Patched`/`Copied`/`Failed`) and
+`PatchedInfSha256`, keyed to the plan SHA — the audit chain's
+`installed -> patched INF SHA -> source INF SHA` reverse lookup. The
+remaining upstream links were already recorded: source INF SHA ->
+`InfManifestSha256` -> `SourceArtifactSha256` -> URL/signer (W8
+SourceArtifact evidence) -> tool identity.
+
+P08 and I03 entries run a REPORT-ONLY alignment check
+(`Test-DeploymentPlanAlignment`): plan present and schema-valid, plan SHA
+matching the P06 marker record, and a census of `patched/` INFs against
+plan rows with out-of-plan INFs NAMED (the sibling-copy transport that
+today's wildcard copy performs by design). Install behavior is unchanged
+in this wave; turning the census into enforcement is deliberately a
+static-first-wave decision, where the extraction tree itself becomes
+deterministic.
+
+Scope reductions, recorded: (a) the container layer is absent from the
+plan — the only container identities live in the W12 shadow graph, which
+is fail-open and non-authoritative by ratified design, and non-authoritative
+data must not enter a canonical contract; rows chain straight to
+`SourceArtifactSha256` until the static-first wave makes container
+identity authoritative. (b) MSBthPan carries no plan (ruling Q-W14-5): a
+single-package universe with no variant selection to pin, and its
+provenance is already chained end-to-end by the W13 DriverStore set
+fingerprints.
+
 ### D.58.11 ProjectPreference and the measured PnP rank (audit P1-E; W5)
 
 **The rename (H-03).** The `[C] > [B] > [A]` category override is the

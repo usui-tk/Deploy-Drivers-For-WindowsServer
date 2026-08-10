@@ -3803,3 +3803,41 @@ every run (always on, fail-open). Reading guide:
   marker record and MSBthPan's P05 chains `CopiedSetSha256` from its P04
   record; a broken chain surfaces as a named input-side miss, not a
   guess.
+
+## 49. Reading the deployment plan and its execution evidence (W14)
+
+`<WorkRoot>\deployment-plan.json` is the immutable record of WHAT the run
+decided to deploy and WHY, fixed at P06 before the first INF mutation.
+Read `Rows[]` per INF: `SelectionReason` tells you how it entered the
+plan (`+CoSignTrimSurvivor` means `-SkipNonCosignedDrivers` ran and this
+row survived), `ExpectedMutation` tells you what P06 intended
+(`PatchManufacturerDecorations` vs `CopyOnly`),
+`SelectedSourceInfSha256` + `PayloadFiles[]` pin the exact source bytes,
+and `KernelTrustObservation` carries the WHQL co-sign observation —
+never a loadability verdict; that vocabulary is banned from the plan by
+gate G-23. `DegeneratePlan=true` with empty `Rows` is a RESULT (the trim
+left nothing installable), not a failure.
+
+`deployment-plan-execution.json` is the run's answer to the plan: per-row
+`Outcome` and the `PatchedInfSha256` actually produced, keyed to the plan
+by `PlanSha256`. The reverse lookup for any installed driver is:
+installed INF -> `PatchedInfSha256` here -> the row's
+`SelectedSourceInfSha256` -> `InfManifestSha256` / `SourceArtifactSha256`
+in the P04/P03 markers -> URL and signer in the W8 SourceArtifact
+evidence.
+
+A P08 or I03 caution naming INFs "OUTSIDE the deployment plan" is
+REPORT-ONLY in this release: those files reached `patched/` through the
+sibling-folder wildcard copy (a deliberate mechanism), they are still
+processed exactly as before, and the caution exists so the census is
+visible before the static-first wave decides on enforcement. A caution
+that the plan "does NOT hash to the value the P06 marker recorded" means
+the plan file changed after P06 — re-run P06 rather than trusting the
+workspace.
+
+MSBthPan has no plan file by ruling (single-package universe; W13 set
+fingerprints already chain its provenance) — its absence there is
+correct, not a bug. Gate G-23 (`Test-DeploymentPlanImmutability.ps1`)
+pins the whole surface: C/G identity of the seven plan functions, the
+schema with the loadability-field ban, writer-once, the plan-driven P06
+loops, the marker chain, and the tampered-plan / out-of-plan negatives.
