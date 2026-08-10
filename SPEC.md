@@ -8239,6 +8239,46 @@ sites in all three download-capable sisters pass no override; gate
 G-09 machine-pins the asymmetry, the zero-`$Force` gate body and the
 call-site/evidence pairing.
 
+**W12 extension (R5-H01 steps 1-3 / R5-H02) — static extraction shadow
+port (chipset).** The research static extractor enters the chipset
+script as a shadow, through a source-fragment mechanism:
+`tools/source-fragments/AmdStaticExtraction.fragment.ps1` is the single
+source of truth, the script embeds the marker-delimited payload
+byte-identically (markers `# ===== BEGIN/END SOURCE-FRAGMENT
+amd-static-extraction v1 =====`, placed outside every canon region), and
+gate G-17 pins the equality — edits happen in the fragment, get
+re-embedded, and the gate proves the copies. The span carries: the
+C# `ISSetupStream` decoder ported verbatim from the research toolkit
+(namespace renamed to `AmdStaticExtraction`; ISx-informed, MIT —
+attribution retained in-block per R5-M07 and recorded in the root
+`THIRD-PARTY-NOTICES.md`, gate G-22), and newly authored functions —
+`Invoke-AmdStaticExtractionShadow` (single-artifact queue-based bounded
+recursion: SHA-256 dedup, MaxDepth 0-10, probe-first EXE routing with
+7-Zip fallback, MSI OLE/CFBF magic validation, per-container records in
+the audit 13-field shape; `PartialExtraction` never equals
+`ExtractionComplete` and zero INF is never complete),
+`Get-AmdStaticMsiFileTableMap` (read-only Windows Installer COM
+`OpenDatabase` mode 0 — no msiexec, no process launch; typed
+`Read`/`Failed`/`Unavailable` status, never a guess),
+`Resolve-AmdStaticCabEntryName` (pure resolver for the suffix-versioned
+`name.infN` external-CAB convention: File-table key to `short|long` real
+name plus variant index; testable off-Windows with synthetic rows), and
+`Write-AmdStaticExtractionGraph`. P04 runs the shadow after the current
+extraction, always on and fail-open: the `Expand-AmdInstaller` tree
+stays authoritative for every downstream phase, no deployment decision
+reads the shadow output, and the graph lands in
+`<WorkRoot>\manifests\extraction-graph.json` with `ToolIdentity`, an
+`Infs[]` table (resolved names, variant indices, per-file SHA-256) and a
+`ParityNote` against the current-tree INF count; a shadow failure writes
+a `ShadowFailed` graph and the run continues. The shadow tree under
+`<WorkRoot>\shadow-extracted\` is idempotently cleaned per run and
+retained afterwards. Gate G-16 (shadow scope) proves by AST that the
+seven shadow functions and the P04 shadow try block never invoke a
+process launch, msiexec, or the executable extraction strategies. The
+graphics port is deferred as W12G; the research toolkit stays
+manifest-preserved (agreement is reported namespace-normalized by G-17,
+never enforced).
+
 ### D.58.11 ProjectPreference and the measured PnP rank (audit P1-E; W5)
 
 **The rename (H-03).** The `[C] > [B] > [A]` category override is the

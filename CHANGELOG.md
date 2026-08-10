@@ -20,6 +20,75 @@ independently.
 
 ---
 
+## [2026-08-10] `static-extractor-shadow-port` — Chipset r120
+
+Wave W12 of the P1 audit remediation (audit v5 R5-H01 migration steps
+1-3 + R5-H02, sections 3.1-3.3 and 8; feedback R3, 5B-1, 5B-2;
+plan-of-record v4; rulings Q4 = Option A fragment mechanism and
+Q5 = Chipset first). Graphics r85 / NPU r60 / BthPan r67 / Collector
+c11 unchanged; the graphics port is deferred as W12G.
+
+### Added — source-fragment mechanism and shadow port
+
+- `tools/source-fragments/AmdStaticExtraction.fragment.ps1`: canonical
+  source of the shadow block. The C# `ISSetupStream` decoder is ported
+  verbatim from the research toolkit (namespace renamed
+  `AmdStaticExtraction`; ISx-informed, MIT — in-block attribution
+  retained per R5-M07), keeping every safety property: PE/stream
+  boundary checks, filename and payload length bounds, zlib header
+  validation, MSI OLE/CFBF magic, extraction-root escape rejection,
+  per-entry SHA-256. Newly authored on top: the queue-based bounded
+  recursive shadow orchestrator (SHA-256 dedup, MaxDepth 0-10,
+  probe-first EXE routing with 7-Zip fallback, per-container records in
+  the audit 13-field shape, `PartialExtraction` never equal to
+  `ExtractionComplete`, zero INF never complete), a read-only Windows
+  Installer COM File-table reader (`OpenDatabase` mode 0 — no msiexec,
+  no process launch, typed `Read`/`Failed`/`Unavailable`), a pure
+  CAB-entry name resolver for the suffix-versioned `name.infN`
+  convention (whose absence produced the historical 31-vs-119 INF blind
+  spot), and a canonical JSON graph writer.
+- `Deploy-AMDChipsetDriverOnWindowsServer.ps1` (r120): embeds the
+  fragment payload byte-identically (markers included) outside every
+  canon region; the workspace gains `manifests/` and `shadow-extracted/`;
+  P04 runs the shadow after the current extraction — always on,
+  fail-open — and writes `manifests/extraction-graph.json`
+  (SchemaVersion 1.0, `ToolIdentity`, `Infs[]` with resolved names and
+  variant indices, `ParityNote` vs the current-tree INF count; a shadow
+  failure writes a `ShadowFailed` graph and the run continues). The
+  executable-strategy tree stays authoritative for every downstream
+  phase; no deployment decision reads the shadow output.
+- `THIRD-PARTY-NOTICES.md` (new, repository root): ISx attribution with
+  the full MIT license text, cross-referenced with the research toolkit
+  notices; the README License sections (en/ja) reference it.
+
+### Added — gates G-17, G-22 and G-16 shadow scope
+
+- `Test-ExtractionGraphCompleteness.ps1` (G-17): fragment/script
+  byte-identity (markers included, one-byte-mutation self-check),
+  structural pins, prohibited-capability scan, measured
+  decoder/resolver/orchestrator behavior with a named-field schema
+  negative, report-only research decoder agreement
+  (namespace-normalized — currently MATCH), P04 wiring and canon-safe
+  placement.
+- `Test-ThirdPartyAttributionRetention.ps1` (G-22): attribution travels
+  with the code in both copies, the root notices file with the full MIT
+  text, README references in both languages, attribution-stripped
+  synthetic negative.
+- `Test-StaticExtractionNoExecution.ps1` (G-16 shadow scope): AST proof
+  that the seven shadow functions and the P04 shadow try block never
+  invoke a process launch, msiexec, or the executable extraction
+  strategies; fail-open catch pinned; detector self-checks.
+- Suite: 24 cases / 986 assertions.
+
+### Changed — documentation
+
+- README en/ja: W12 What's-new entry (shadow mechanics, graph location,
+  disk cost, W12G deferral); License sections reference the new notices
+  file. SPEC gains the W12 extension subsection; TESTING gains section
+  47 (reading the shadow graph).
+
+---
+
 ## [2026-08-10] `inventory-reconciliation-tooling` — tools and gate G-20 (no product script changes, no version bumps)
 
 Wave W11 of the P1 audit remediation (audit v5 R5-H05 / feedback R2,

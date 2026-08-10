@@ -3745,3 +3745,32 @@ joins the research accepted baseline against a deployment run's
   are SHA-256-pinned in the report for provenance.
 - Parity here is metadata-level; the optional content-hash upgrade is
   the operator bench step described in the tool README.
+
+## 47. Reading the static-extraction shadow graph (W12)
+
+Chipset r120 writes `<WorkRoot>\manifests\extraction-graph.json` on
+every run (always on, fail-open). Reading guide:
+
+- `Status` is the headline: `ExtractionComplete` (every container
+  extracted cleanly AND at least one INF found), `PartialExtraction`
+  (clean containers but zero INF — never conflated with complete),
+  `ExtractedWithErrors` (at least one container failed),
+  `ExtractionFailed`, or `ShadowFailed` (the orchestrator itself threw;
+  the deployment run continued — the shadow is evidence, not a gate).
+- `ParityNote` is the W15 decision input:
+  `ShadowInfBaseCount + ShadowInfVariantCount` vs `CurrentTreeInfCount`.
+  Variants are the suffix-versioned `name.infN` CAB entries; counting
+  only base names reproduces the historical 31-INF blind spot.
+- `Infs[]` rows carry `CabEntryName` (as extracted), `ResolvedName`
+  (File-table `short|long` long name where available), `VariantIndex`,
+  and a per-file SHA-256.
+- `MsiFileTable.Status` is typed: `Read` (COM read succeeded),
+  `Failed` (COM present but errored), `Unavailable` (non-Windows host
+  or no MSI found). On `Failed`/`Unavailable` the resolver falls back
+  to the suffix convention and says so — it never guesses silently.
+- `Containers[]` records use the audit 13-field shape; `Depth`,
+  `ParentContainerSha256` and `ProducedContainers` reconstruct the
+  recursion tree. `Extractor` is `ISSetupStream` or `7-Zip`.
+- The shadow tree itself sits under `<WorkRoot>\shadow-extracted\`,
+  cleaned at the start of each run and retained afterwards for
+  inspection.
