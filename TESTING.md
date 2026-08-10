@@ -3774,3 +3774,32 @@ every run (always on, fail-open). Reading guide:
 - The shadow tree itself sits under `<WorkRoot>\shadow-extracted\`,
   cleaned at the start of each run and retained afterwards for
   inspection.
+
+## 48. Reading the content-addressed cache and canonical inventory (W13)
+
+- A schemaVersion-2 marker is JSON with `input` / `output` blocks, each
+  carrying `fields` and a `fingerprint` (lowercase SHA-256 of the sorted
+  canonical `key=value` lines). `meta` still holds the legacy metadata
+  payload unchanged.
+- Cache MISS diagnostics are named in the phase log: an input-side miss
+  says the artifact SHA / schema constant diverged (or the marker is
+  legacy), an output-side miss says what changed on disk (the INF layer
+  under the extract tree, or the canonical JSON's own hash). A pre-W13
+  marker always misses a fingerprinted check — re-run the phase once to
+  mint a v2 marker.
+- `-Force` misses every marker check, v2 included; it does not delete
+  evidence files.
+- `package-inventory.json` is the canonical inventory;
+  `inf_inventory.csv` and the TXT report are derived views. When they
+  disagree, the JSON wins — and a hand-edited JSON will be rejected on
+  the next cache hit because its SHA-256 no longer matches the P05
+  marker's recorded `InventorySha256`.
+- Per-record `InspectionStatus = ParseFailed` means the INF could not be
+  read; `InspectionError` carries the reason and the WDF observation for
+  that record is `ParseFailed` with zero versions. Absence of a WDF
+  declaration is `NotDeclared` — the vocabulary never renders absence as
+  a capability.
+- On resume (`-OnlyPhases`), P05 chains `InfManifestSha256` from the P04
+  marker record and MSBthPan's P05 chains `CopiedSetSha256` from its P04
+  record; a broken chain surfaces as a named input-side miss, not a
+  guess.

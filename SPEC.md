@@ -8279,6 +8279,60 @@ graphics port is deferred as W12G; the research toolkit stays
 manifest-preserved (agreement is reported namespace-normalized by G-17,
 never enforced).
 
+**W13 extension (R5-H03 / R5-H06 / R5-M01) — content-addressed cache and
+canonical inventory.** Phase markers carry schemaVersion 2: a shared pure
+primitive (`Get-PhaseFingerprintHash`; ordinal case-insensitive key order,
+canonical `key=value` lines, lowercase SHA-256 over UTF-8) fingerprints
+declared input and output field sets, `Get-PhaseMarkerRecord` is the
+parse-or-null reader, and `Test-PhaseMarker -ExpectedInputFields` demands
+existence + schemaVersion '2' + input-fingerprint equality — a legacy
+schema-less marker is a miss by design, and the eleven non-fingerprinted
+marker sites keep their exact legacy semantics because the parameter is
+optional. Fingerprinted chain (chipset/graphics): P03 input
+`{ RequestedUrl, ArtifactSha256, Attestation }` / output
+`{ Path, ArtifactSha256, SizeBytes }`, with the cache hit re-hashing the
+exact recorded file (LastWriteTime selection is gone; the URL is recorded
+identity, not a revalidation trigger — the declared 5B-3 deviation, ruled
+Q-W13-3); P04 input `{ ArtifactSha256, ExtractionSchemaVersion }` / output
+`{ InfCount, InfManifestSha256 }` where the INF-layer manifest is the
+sorted `relativePath<TAB>sha256` line set over every extracted `*.inf`
+(`Get-InfLayerManifestHash`, 2-way; the SYS/CAT payload layer is deferred
+to the W14 DeploymentPlan per ruling Q-W13-1); P05 input
+`{ InfManifestSha256, InventorySchemaVersion }` / output
+`{ InventorySha256, RowCount }`. MSBthPan adapts the contract to its
+no-download universe: P03 records the DriverStore source-set fingerprint
+(INF+SYS+CAT contents through the shared primitive) and re-verifies it on
+hit; P04/P05 chain source→copied set fingerprints on their write-only
+markers. The schema constants `$Script:ExtractionSchemaVersion` /
+`$Script:InventorySchemaVersion` are cache invalidation keys owned by the
+design-first review (ruling Q-W13-2). The W12 shadow graph participates in
+no fingerprint: fail-open evidence must never drive a cache miss.
+
+The canonical inventory artifact is `<WorkRoot>\package-inventory.json`
+(SchemaVersion / GeneratedAtUtc / ToolIdentity / SourceArtifactSha256 /
+InfManifestSha256 / PreferredVariants / Records[]). Records keep every
+historical field and add `SourceArtifactSha256`, `InfSha256`,
+`InspectionStatus` (`Inspected`/`ParseFailed` at record level — an
+unreadable INF yields a typed record, never a phase abort),
+`InspectionError`, and `Wdf.KMDF|UMDF` as `{ Status, Versions[],
+Evidence[] }` where Status draws from the five-value observation
+vocabulary `$Script:WdfObservationStatusSet` (`Declared`, `NotDeclared`,
+`ParseFailed`, `NotInspected`, `ExtractionIncomplete`) and every evidence
+item carries the raw directive line with its 1-based line number
+(`Get-InfWdfEvidence`, 2-way, raw-evidence view; the 4-way
+`Get-InfWdfRequirement` summary stays the decision view per ruling
+Q-W13-4 — Unknown is never Compatible). The CSV/TXT reports are derived
+views produced by the single property-preserving projection
+`ConvertTo-InfInventoryFlatView` (each sister's historical CSV column set
+survives with exactly `InfSha256` + `InspectionStatus` added ahead of
+`DeviceList`), and every rehydration site goes JSON-first through
+`Restore-InfInventoryContext` (P06 required-load plus chipset's three
+best-effort loaders), restoring both the flat view and the rich detail;
+the legacy CSV remains a read-only fallback for pre-W13 workspaces only.
+Gates: G-18 (marker machinery incl. the tampered-fingerprint negative),
+G-19 (inventory identity incl. the EOL-independent rehydration-site
+census), G-21 (vocabulary pin; Declared iff observed).
+
 ### D.58.11 ProjectPreference and the measured PnP rank (audit P1-E; W5)
 
 **The rename (H-03).** The `[C] > [B] > [A]` category override is the

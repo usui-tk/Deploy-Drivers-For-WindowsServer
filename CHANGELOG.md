@@ -20,6 +20,72 @@ independently.
 
 ---
 
+## [2026-08-10] `content-addressed-cache` — Chipset r121 / Graphics r86 / BthPan r68
+
+Wave W13 of the third-party audit remediation (v5 R5-H03 / R5-H06 /
+R5-M01; feedback 5B-3 / 5B-4 / Risk 4). Design rulings Q-W13-1..5
+recorded in the wave design document; the 5B-3 letter deviation (URL as
+recorded identity, not a revalidation trigger) is declared for the next
+audit pass.
+
+### Added
+
+- Shared marker machinery v2, byte-identical across Chipset / Graphics /
+  BthPan: `Get-PhaseFingerprintHash` (pure: ordinal key order, canonical
+  `key=value` lines, lowercase SHA-256), `Get-PhaseMarkerRecord`
+  (parse-or-null), and `-InputFields` / `-OutputFields` /
+  `-ExpectedInputFields` on `Set-PhaseMarker` / `Test-PhaseMarker`.
+  Markers now carry `schemaVersion: '2'` with input/output field sets and
+  fingerprints; legacy `-Metadata` payloads ride unchanged under `.meta`.
+- `Get-InfLayerManifestHash` (Chipset/Graphics, byte-identical): sorted
+  `relativePath<TAB>sha256` manifest over every extracted `*.inf`.
+- Canonical `package-inventory.json` (SchemaVersion 1) written by P05
+  (Chipset/Graphics): full rich records plus `SourceArtifactSha256`,
+  `InfSha256`, `InspectionStatus`, `InspectionError`, and typed
+  `Wdf.KMDF|UMDF` `{ Status, Versions[], Evidence[] }` evidence with
+  1-based line numbers. New five-value observation vocabulary
+  `$Script:WdfObservationStatusSet`; new 2-way helpers
+  `Get-InfWdfEvidence`, `ConvertTo-InfInventoryFlatView`,
+  `Restore-PackageInventoryFromJson`, `Restore-InfInventoryContext`.
+- Schema constants `$Script:ExtractionSchemaVersion` /
+  `$Script:InventorySchemaVersion` (cache invalidation keys).
+- Gates: `Test-PhaseMarkerFingerprint.ps1` (G-18),
+  `Test-PackageInventoryIdentity.ps1` (G-19),
+  `Test-UnknownNotCompatible.ps1` (G-21). The five marker functions join
+  the sister three-way identity list. Suite: 27 cases / 1151 assertions.
+
+### Changed
+
+- Chipset r121 / Graphics r86 — P03 cache hit trusts only the exact
+  recorded file after a live SHA-256 match (newest-by-`LastWriteTime`
+  selection removed); P03 writes record
+  `{ RequestedUrl, ArtifactSha256, Attestation }` →
+  `{ Path, ArtifactSha256, SizeBytes }`. P04 is fingerprinted on
+  `{ ArtifactSha256, ExtractionSchemaVersion }` with the INF-layer
+  manifest as recorded output; hits require input equality AND a
+  matching recomputed manifest; misses name the diverged side. P05 is
+  fingerprinted on `{ InfManifestSha256, InventorySchemaVersion }` with
+  `{ InventorySha256, RowCount }` as output; the hit path rehydrates
+  BOTH the flat view and the rich detail from the canonical JSON.
+  Per-INF `try/catch` in P05: an unreadable INF becomes a `ParseFailed`
+  record. CSV/TXT demoted to derived views; all four `Import-Csv`
+  rehydration sites (P06 required + three chipset best-effort) go
+  JSON-first through `Restore-InfInventoryContext`, with the legacy CSV
+  as a read-only fallback for pre-W13 workspaces.
+- BthPan r68 — P03 records and re-verifies the DriverStore source-set
+  content fingerprint (`LastWriteTime` leaves the trust chain); P04/P05
+  chain source→copied set fingerprints on their write-only markers.
+- `tests/cases/Test-SisterConsistency.ps1` — marker five-function
+  three-way pin added.
+
+### Unchanged (measured)
+
+- NPU r60 (carries no phase-marker machinery) and Collector c11.
+- The W12 shadow graph participates in no cache fingerprint (fail-open
+  evidence must never drive a miss).
+- Canon regions byte-identical (machine-verified per edit; scanner
+  125 = 121 match + 4 forked-frozen).
+
 ## [2026-08-10] `static-extractor-shadow-port` — Chipset r120
 
 Wave W12 of the P1 audit remediation (audit v5 R5-H01 migration steps
