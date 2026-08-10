@@ -289,7 +289,18 @@
     Delete -WorkRoot completely before running anything.
 
 .PARAMETER Force
-    Bypass cached phase markers and re-run each selected phase.
+    Bypass cached phase markers and re-run each selected phase. Since
+    W8 (audit H-04R) -Force does NOT bypass the Authenticode download
+    gate; its other powers (marker cache, policy replacement, Path-B
+    override, Mode T continuation) are unchanged.
+
+.PARAMETER AllowUnverifiedDownload
+    Sole override for the fail-closed Authenticode download gate,
+    applicable to the AMD installer download only. A FAILED
+    verification continues as operator-attested-unverified with a
+    loud warning, and the SourceArtifact evidence records the
+    attestation. Microsoft / 7-Zip tooling downloads are never
+    overridable. Off by default.
 
 .PARAMETER LogFile
     Path of the full console transcript file. When omitted, a
@@ -529,6 +540,13 @@ param(
     [switch]$CleanWorkRoot,
     [switch]$Force,
 
+    # === Download-verification override (audit H-04R / W8) =====
+    # -Force no longer bypasses the Authenticode download gate. This
+    # dedicated switch is the only override: it downgrades a FAILED
+    # verification to operator-attested-unverified (loud warning +
+    # SourceArtifact evidence) for the AMD installer download only.
+    [switch]$AllowUnverifiedDownload,
+
     # === Console transcript capture ============================
     # Optional path; when set, the script wraps its execution in
     # Start-Transcript / Stop-Transcript so the file gets every stream
@@ -682,8 +700,8 @@ $Script:WdfShortfall      = $null
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.08.09-r118'
-$Script:ScriptTag     = 'project-preference-and-measured-rank'
+$Script:ScriptVersion = 'chipset-2026.08.09-r119'
+$Script:ScriptTag     = 'download-override-separation'
 $Script:ScriptHash    = '(unknown)'
 try {
     # $PSCommandPath is the full path to the running script. Falls
@@ -6686,24 +6704,35 @@ function Set-PfxFileAcl {
 
 function Assert-DownloadedFileSignature {
     # Fail-closed Authenticode gate for downloaded executables (audit
-    # P1-F / H-04): Status must be Valid AND the signer subject must
-    # match the expected publisher pattern, otherwise the run stops.
-    # Applied on EVERY run - including cache hits - immediately before
-    # the file is executed or expanded. -Force downgrades the failure
-    # to a loud warning (operator-owned risk); callers pass it only
-    # where a CDN quirk is plausible (the AMD installer), never for
-    # Microsoft/7-Zip tooling.
+    # P1-F / H-04; override separation H-04R / W8): Status must be Valid
+    # AND the signer subject must match the expected publisher pattern,
+    # otherwise the run stops. Applied on EVERY run - including cache
+    # hits - immediately before the file is executed or expanded.
+    # -AllowUnverified downgrades the failure to a loud warning and an
+    # operator-attested-unverified record; callers wire it only from the
+    # dedicated -AllowUnverifiedDownload switch and only where a CDN
+    # quirk is plausible (the AMD installer), never for Microsoft/7-Zip
+    # tooling. -Force has no power over this gate (W8). Returns a
+    # verification record for SourceArtifact evidence.
     [CmdletBinding()]
-    [OutputType([void])]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory)] [string]$Path,
         [Parameter(Mandatory)] [string]$DisplayName,
         [Parameter(Mandatory)] [string]$SubjectPattern,
-        [Parameter()] [switch]$Force
+        [Parameter()] [switch]$AllowUnverified
     )
     $failReason = ''
+    $signerSubject = ''
+    $signerThumbprint = ''
+    $status = 'Unknown'
     try {
         $sig = Get-AuthenticodeSignature -LiteralPath $Path -ErrorAction Stop
+        $status = [string]$sig.Status
+        if ($sig.SignerCertificate) {
+            $signerSubject = [string]$sig.SignerCertificate.Subject
+            $signerThumbprint = [string]$sig.SignerCertificate.Thumbprint
+        }
         if ($sig.Status -ne 'Valid') {
             $failReason = ('signature status is {0}' -f $sig.Status)
         } elseif (-not $sig.SignerCertificate) {
@@ -6712,17 +6741,84 @@ function Assert-DownloadedFileSignature {
             $failReason = ('signer subject "{0}" does not match the expected publisher' -f $sig.SignerCertificate.Subject)
         }
     } catch {
+        $status = 'HostCannotVerify'
         $failReason = ('Get-AuthenticodeSignature failed: {0}' -f $_.Exception.Message)
+    }
+    $record = [pscustomobject]@{
+        Path               = $Path
+        DisplayName        = $DisplayName
+        AuthenticodeStatus = $status
+        SignerSubject      = $signerSubject
+        SignerThumbprint   = $signerThumbprint
+        FailReason         = $failReason
+        Attestation        = 'verified'
     }
     if (-not $failReason) {
         Write-Detail ('Authenticode OK: {0} ({1})' -f $DisplayName, (Split-Path -Leaf $Path)) -Color DarkGray
-        return
+        return $record
     }
-    if ($Force) {
-        Write-Caution ('Authenticode verification FAILED for {0}: {1}. Proceeding because -Force was supplied (operator-owned risk).' -f $DisplayName, $failReason)
-        return
+    if ($AllowUnverified) {
+        $record.Attestation = 'operator-attested-unverified'
+        Write-Caution ('Authenticode verification FAILED for {0}: {1}. Continuing as operator-attested-unverified because -AllowUnverifiedDownload was supplied - the operator owns this risk and the SourceArtifact evidence records it.' -f $DisplayName, $failReason)
+        return $record
     }
-    throw ('P1-F fail-closed: Authenticode verification failed for {0} ({1}): {2}. Delete the file and retry, or re-run with -Force to accept the risk.' -f $DisplayName, $Path, $failReason)
+    throw ('P1-F fail-closed: Authenticode verification failed for {0} ({1}): {2}. Delete the file and retry, or re-run with -AllowUnverifiedDownload to accept the risk (-Force does not bypass this gate; W8).' -f $DisplayName, $Path, $failReason)
+}
+
+function Write-SourceArtifactEvidence {
+    # SourceArtifact provenance record (audit R5-M02 shape; W8, and a
+    # precursor of the W13 provenance schema). Written beside the
+    # artifact after every completed download-verification, verified or
+    # operator-attested. Evidence writing is fail-open by design: a
+    # broken record must not stop a deploy that the fail-closed gate
+    # above has already admitted.
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)] [pscustomobject]$Record,
+        [Parameter()] [string]$RequestedUrl = '',
+        [Parameter()] [string]$ResolvedUrl = ''
+    )
+    try {
+        $item = Get-Item -LiteralPath $Record.Path -ErrorAction Stop
+        $sha = (Get-FileHash -LiteralPath $Record.Path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
+        $magic = 'unknown'
+        $head = New-Object byte[] 8
+        $fs = [System.IO.File]::OpenRead($Record.Path)
+        try {
+            $null = $fs.Read($head, 0, 8)
+        } finally {
+            $fs.Dispose()
+        }
+        if ($head[0] -eq 0x4D -and $head[1] -eq 0x5A) {
+            $magic = 'exe:MZ'
+        } elseif ($head[0] -eq 0xD0 -and $head[1] -eq 0xCF -and $head[2] -eq 0x11 -and $head[3] -eq 0xE0) {
+            $magic = 'msi:CFB'
+        }
+        $doc = [ordered]@{
+            SchemaVersion      = '1.0'
+            DisplayName        = $Record.DisplayName
+            Path               = $Record.Path
+            RequestedUrl       = $RequestedUrl
+            ResolvedUrl        = $ResolvedUrl
+            RetrievedAtUtc     = $item.LastWriteTimeUtc.ToString('o')
+            ObservedAtUtc      = [DateTime]::UtcNow.ToString('o')
+            SizeBytes          = [long]$item.Length
+            Sha256             = $sha
+            FormatValidation   = $magic
+            AuthenticodeStatus = $Record.AuthenticodeStatus
+            SignerSubject      = $Record.SignerSubject
+            SignerThumbprint   = $Record.SignerThumbprint
+            FailReason         = $Record.FailReason
+            Attestation        = $Record.Attestation
+        }
+        $leaf = [System.IO.Path]::GetFileName($Record.Path)
+        $jsonPath = Join-Path (Split-Path -Parent $Record.Path) ('source-artifact_{0}.json' -f $leaf)
+        $doc | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $jsonPath -Encoding UTF8
+        Write-Detail ('SourceArtifact evidence: {0}' -f $jsonPath) -Color DarkGray
+    } catch {
+        Write-Caution ('SourceArtifact evidence could not be written for {0}: {1}' -f $Record.DisplayName, $_.Exception.Message)
+    }
 }
 
 function Install-WindowsSdkFallback {
@@ -6734,7 +6830,8 @@ function Install-WindowsSdkFallback {
         Invoke-WebRequest -Uri $OsContext.SdkUrl -OutFile $exe -UseBasicParsing
     }
     # Fail-closed on every run, cache hits included (audit P1-F).
-    Assert-DownloadedFileSignature -Path $exe -DisplayName 'Windows SDK installer' -SubjectPattern 'Microsoft Corporation'
+    $sigRecord = Assert-DownloadedFileSignature -Path $exe -DisplayName 'Windows SDK installer' -SubjectPattern 'Microsoft Corporation'
+    Write-SourceArtifactEvidence -Record $sigRecord -RequestedUrl $OsContext.SdkUrl
     $proc = Start-Process $exe -ArgumentList $OsContext.SdkInstallArgs -Wait -PassThru # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
 
     # Some MSI / VS-style bootstrap installers (winsdksetup.exe, wdksetup.exe)
@@ -6759,7 +6856,8 @@ function Install-WindowsWdkFallback {
         Invoke-WebRequest -Uri $OsContext.WdkUrl -OutFile $exe -UseBasicParsing
     }
     # Fail-closed on every run, cache hits included (audit P1-F).
-    Assert-DownloadedFileSignature -Path $exe -DisplayName 'Windows WDK installer' -SubjectPattern 'Microsoft Corporation'
+    $sigRecord = Assert-DownloadedFileSignature -Path $exe -DisplayName 'Windows WDK installer' -SubjectPattern 'Microsoft Corporation'
+    Write-SourceArtifactEvidence -Record $sigRecord -RequestedUrl $OsContext.WdkUrl
     $proc = Start-Process $exe -ArgumentList $OsContext.WdkInstallArgs -Wait -PassThru # psa-disable-line PSA3001 -- Start-Process -ArgumentList is the canonical pattern for invoking signtool/inf2cat/pnputil with explicit args
 
     # Same defensive check as the SDK fallback above.
@@ -9703,7 +9801,8 @@ function Invoke-PrepPhase02_AcquireTools { # psa-disable-line PSA6003 -- compoun
             if (-not (Test-Path $szMsi)) {
                 Invoke-WebRequest -Uri $szInfo.MsiUrl -OutFile $szMsi -UseBasicParsing
             }
-            Assert-DownloadedFileSignature -Path $szMsi -DisplayName '7-Zip MSI' -SubjectPattern 'Igor Pavlov'
+            $sigRecord = Assert-DownloadedFileSignature -Path $szMsi -DisplayName '7-Zip MSI' -SubjectPattern 'Igor Pavlov'
+            Write-SourceArtifactEvidence -Record $sigRecord -RequestedUrl $szInfo.MsiUrl
             Install-SevenZipFallback -DownloadDir $Ctx.Paths.Download
         }
     }
@@ -9844,7 +9943,8 @@ function Invoke-PrepPhase03_FetchInstaller {
         if ($existing.Length -ge 5MB) {
             Write-Skip "Already cached: $path ($([math]::Round($existing.Length/1MB,1)) MB)"
             # Fail-closed on the cached file too (audit P1-F).
-            Assert-DownloadedFileSignature -Path $path -DisplayName 'AMD installer (cached)' -SubjectPattern 'Advanced Micro Devices' -Force:$Ctx.Force
+            $sigRecord = Assert-DownloadedFileSignature -Path $path -DisplayName 'AMD installer (cached)' -SubjectPattern 'Advanced Micro Devices' -AllowUnverified:$Ctx.AllowUnverifiedDownload
+            Write-SourceArtifactEvidence -Record $sigRecord -RequestedUrl $url
             $Ctx.Installer = $path
             Set-PhaseMarker -Ctx $Ctx -PhaseId 'P03' -Metadata @{ Url=$url; Path=$path; SizeMB=[math]::Round($existing.Length/1MB,1) }
             Write-PhaseFooter 'P03' 'done'
@@ -9912,10 +10012,13 @@ function Invoke-PrepPhase03_FetchInstaller {
 
     Write-Ok "Downloaded: $path ($sizeMB MB)"
     # Fail-closed before the file is accepted into the pipeline (audit
-    # P1-F). -Force downgrades to a warning: AMD's CDN occasionally
+    # P1-F). -AllowUnverifiedDownload downgrades to a loud warning plus
+    # an operator-attested-unverified record: AMD's CDN occasionally
     # serves repackaged binaries and the operator may need an escape
-    # hatch, unlike the Microsoft / 7-Zip tooling above.
-    Assert-DownloadedFileSignature -Path $path -DisplayName 'AMD installer' -SubjectPattern 'Advanced Micro Devices' -Force:$Ctx.Force
+    # hatch, unlike the Microsoft / 7-Zip tooling above, which stays
+    # unconditionally fail-closed. -Force has no power here (W8).
+    $sigRecord = Assert-DownloadedFileSignature -Path $path -DisplayName 'AMD installer' -SubjectPattern 'Advanced Micro Devices' -AllowUnverified:$Ctx.AllowUnverifiedDownload
+    Write-SourceArtifactEvidence -Record $sigRecord -RequestedUrl $url
     $Ctx.Installer = $path
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'P03' -Metadata @{ Url=$url; Path=$path; SizeMB=$sizeMB }
     Write-PhaseFooter 'P03' 'done'
@@ -16582,6 +16685,7 @@ $Ctx = [pscustomobject]@{
     PfxPassword     = if ([string]::IsNullOrEmpty($PfxPassword)) { New-RandomPfxPassword } else { $PfxPassword }  # per-run random default (audit P1-G)
     TimestampUrl    = $TimestampUrl
     Force           = $Force.IsPresent
+    AllowUnverifiedDownload = $AllowUnverifiedDownload.IsPresent
     CleanWorkRoot   = $CleanWorkRoot.IsPresent
     UseTestSigning  = $UseTestSigning.IsPresent
     AllowWorkstationInstall = $AllowWorkstationInstall.IsPresent
