@@ -700,7 +700,7 @@ $Script:WdfShortfall      = $null
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.08.10-r120'
+$Script:ScriptVersion = 'chipset-2026.08.10-r121'
 $Script:ScriptTag     = 'download-override-separation'
 $Script:ScriptHash    = '(unknown)'
 try {
@@ -724,6 +724,14 @@ try {
 # Compact one-line tag used in places where space is limited (per-phase
 # headers). Format: "v2026.05.09-r10/a1b2c3d4e5f6"
 $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash)
+
+# Content-addressed cache schema constants (wave W13). Cache invalidation
+# keys, not release identity: bump ExtractionSchemaVersion when the
+# extraction strategy set changes shape, and InventorySchemaVersion when the
+# package-inventory schema changes. Gate G-18 pins their existence; the
+# design-first review of any extraction/inventory change owns the bump.
+$Script:ExtractionSchemaVersion = '1'
+$Script:InventorySchemaVersion  = '1'
 
 #####################################################################
 # SECTION 0.25: Optional console transcript capture
@@ -10170,17 +10178,120 @@ function Edit-InfForServer {
 #####################################################################
 # SECTION 7: Phase idempotency helpers
 #####################################################################
-function Test-PhaseMarker {
+function Get-PhaseFingerprintHash {
+    <#
+    .SYNOPSIS
+        Pure fingerprint hash over a field set (phase marker v2).
+    .DESCRIPTION
+        Canonicalizes a hashtable as sorted "key=value" lines (ordinal
+        case-insensitive key order; values coerced to string, null to
+        empty) and returns the lowercase SHA-256 of the UTF-8 bytes.
+        Pure by design - no I/O, no context - so cache correctness is
+        fixture-testable on any host (gate G-18; audit feedback Risk 4
+        mitigation: pure fingerprint function + fixtures + marker
+        schema version).
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()] [hashtable]$Fields = @{}
+    )
+    $names = [string[]]@($Fields.Keys | ForEach-Object { [string]$_ })
+    [System.Array]::Sort($names, [System.StringComparer]::OrdinalIgnoreCase)
+    $lines = foreach ($name in $names) {
+        $value = $Fields[$name]
+        '{0}={1}' -f $name, $(if ($null -eq $value) { '' } else { [string]$value })
+    }
+    $canonical = (@($lines) -join "`n")
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hashBytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($canonical))
+        return ([System.BitConverter]::ToString($hashBytes) -replace '-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha.Dispose()
+    }
+}
+
+function Get-PhaseMarkerRecord {
+    <#
+    .SYNOPSIS
+        Parse a phase marker file; $null on absence or any parse failure.
+    #>
+    [CmdletBinding()]
+    [OutputType([object])]
     param($Ctx, [string]$PhaseId)
     $marker = Join-Path $Ctx.Paths.Markers ".$PhaseId.done"
-    if ((Test-Path $marker) -and -not $Ctx.Force) { return $true }
-    return $false
+    if (-not (Test-Path $marker)) { return $null }
+    try {
+        return (Get-Content -Path $marker -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop)
+    }
+    catch {
+        return $null
+    }
+}
+
+function Test-PhaseMarker {
+    <#
+    .SYNOPSIS
+        Phase cache check. Without -ExpectedInputFields this keeps the
+        legacy semantics (marker exists and -Force is absent); with it,
+        the check is content-addressed (marker v2).
+    .DESCRIPTION
+        Content-addressed mode requires the marker to exist, parse as
+        JSON, carry schemaVersion '2' and match the expected input
+        fingerprint computed by the pure primitive (audit R5-H03). A
+        legacy schema-less marker is a MISS by design - stale records
+        from older revisions never satisfy a fingerprinted check.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        $Ctx,
+        [string]$PhaseId,
+        [hashtable]$ExpectedInputFields
+    )
+    $marker = Join-Path $Ctx.Paths.Markers ".$PhaseId.done"
+    if (-not (Test-Path $marker)) { return $false }
+    if ($Ctx.Force) { return $false }
+    if (-not $PSBoundParameters.ContainsKey('ExpectedInputFields')) { return $true }
+    $record = Get-PhaseMarkerRecord -Ctx $Ctx -PhaseId $PhaseId
+    if ($null -eq $record) { return $false }
+    if (-not $record.PSObject.Properties['schemaVersion']) { return $false }
+    if ([string]$record.schemaVersion -ne '2') { return $false }
+    if (-not $record.PSObject.Properties['input']) { return $false }
+    if (-not $record.input.PSObject.Properties['fingerprint']) { return $false }
+    $stored = [string]$record.input.fingerprint
+    if ([string]::IsNullOrEmpty($stored)) { return $false }
+    $expected = Get-PhaseFingerprintHash -Fields $ExpectedInputFields
+    return ($stored -ceq $expected)
 }
 
 function Set-PhaseMarker {
-    param($Ctx, [string]$PhaseId, [hashtable]$Metadata = @{})
+    <#
+    .SYNOPSIS
+        Write a phase marker (schemaVersion 2). Legacy call sites keep
+        their -Metadata payload under .meta unchanged; fingerprinted
+        phases additionally supply -InputFields / -OutputFields.
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        $Ctx,
+        [string]$PhaseId,
+        [hashtable]$Metadata = @{},
+        [hashtable]$InputFields = @{},
+        [hashtable]$OutputFields = @{}
+    )
     $marker = Join-Path $Ctx.Paths.Markers ".$PhaseId.done"
-    $payload = @{ phase=$PhaseId; completedAt=(Get-Date -Format o); meta=$Metadata }
+    $payload = @{
+        phase         = $PhaseId
+        schemaVersion = '2'
+        completedAt   = (Get-Date -Format o)
+        meta          = $Metadata
+        input         = @{ fields = $InputFields;  fingerprint = (Get-PhaseFingerprintHash -Fields $InputFields) }
+        output        = @{ fields = $OutputFields; fingerprint = (Get-PhaseFingerprintHash -Fields $OutputFields) }
+    }
     $payload | ConvertTo-Json -Depth 5 | Set-Content -Path $marker -Encoding UTF8
 }
 
@@ -10188,6 +10299,44 @@ function Clear-PhaseMarker {
     param($Ctx, [string]$PhaseId)
     $marker = Join-Path $Ctx.Paths.Markers ".$PhaseId.done"
     if (Test-Path $marker) { Remove-Item $marker -Force }
+}
+function Get-InfLayerManifestHash {
+    <#
+    .SYNOPSIS
+        Content-addressed handle over the INF layer of an extraction tree.
+    .DESCRIPTION
+        Sorted canonical lines "relativePath<TAB>sha256" over every *.inf
+        under -Root, hashed as a single SHA-256. INFs are small, so this
+        stays cheap even on the measured field universe; the SYS/CAT
+        payload layer is deliberately out of scope until the DeploymentPlan
+        wave pins per-selection payload hashes (ruling Q-W13-1 Option A).
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)] [string]$Root
+    )
+    $rootFull = (Resolve-Path -LiteralPath $Root).Path
+    $infFiles = @(Get-ChildItem -Path $rootFull -Recurse -Filter *.inf -File -ErrorAction SilentlyContinue)
+    $lines = [string[]]@(foreach ($file in $infFiles) {
+        $rel = $file.FullName.Substring($rootFull.Length).TrimStart('\', '/')
+        $sha = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        "{0}`t{1}" -f $rel, $sha
+    })
+    [System.Array]::Sort($lines, [System.StringComparer]::Ordinal)
+    $canonical = (@($lines) -join "`n")
+    $shaObj = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hashBytes = $shaObj.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($canonical))
+        $manifestSha = ([System.BitConverter]::ToString($hashBytes) -replace '-', '').ToLowerInvariant()
+    }
+    finally {
+        $shaObj.Dispose()
+    }
+    return [pscustomobject]@{
+        InfCount       = $infFiles.Count
+        ManifestSha256 = $manifestSha
+    }
 }
 
 #####################################################################
@@ -10756,22 +10905,38 @@ function Invoke-PrepPhase03_FetchInstaller {
 
     Set-DebugStep 'check phase marker (cache hit?)'
     if (Test-PhaseMarker -Ctx $Ctx -PhaseId 'P03') {
-        $cached = Get-ChildItem $Ctx.Paths.Download -Filter '*.exe' -ErrorAction SilentlyContinue |
-                  Where-Object { $_.Name -match '^amd(_chipset)?_software_' } |
-                  Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        if ($cached -and $cached.Length -ge 5MB) {
-            $Ctx.Installer = $cached.FullName
-            Write-Skip "Installer already cached: $($cached.Name) ($([math]::Round($cached.Length/1MB,1)) MB)"
-            Write-PhaseFooter 'P03' 'cached'
-            return
+        # Content-addressed cache hit (marker v2, audit R5-H03): trust ONLY
+        # the exact file the marker recorded, and only after its live SHA-256
+        # matches the recorded value. Newest-by-LastWriteTime selection left
+        # the trust chain in this release - it admitted repacks, same-name
+        # swaps and stale mixes. A legacy schema-less marker is a miss.
+        $p03Record = Get-PhaseMarkerRecord -Ctx $Ctx -PhaseId 'P03'
+        $recordedPath = ''
+        $recordedSha = ''
+        if ($p03Record -and
+            $p03Record.PSObject.Properties['schemaVersion'] -and
+            ([string]$p03Record.schemaVersion -eq '2') -and
+            $p03Record.PSObject.Properties['output'] -and
+            $p03Record.output.PSObject.Properties['fields']) {
+            $p03Fields = $p03Record.output.fields
+            if ($p03Fields.PSObject.Properties['Path']) { $recordedPath = [string]$p03Fields.Path }
+            if ($p03Fields.PSObject.Properties['ArtifactSha256']) { $recordedSha = ([string]$p03Fields.ArtifactSha256).ToLowerInvariant() }
         }
-        if ($cached) {
-            Write-Caution "Cached installer is suspiciously small ($([math]::Round($cached.Length/1MB,1)) MB) - re-downloading."
-            Remove-Item $cached.FullName -Force
-            Clear-PhaseMarker -Ctx $Ctx -PhaseId 'P03'
-        } else {
-            Write-Caution 'Marker present but installer missing - re-running.'
+        if ($recordedPath -and $recordedSha -and (Test-Path -LiteralPath $recordedPath)) {
+            $liveSha = (Get-FileHash -LiteralPath $recordedPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($liveSha -ceq $recordedSha) {
+                $Ctx.Installer = $recordedPath
+                $Ctx.ArtifactSha256 = $liveSha
+                Write-Skip ("Installer cached (content-verified): {0}" -f (Split-Path -Leaf $recordedPath))
+                Write-PhaseFooter 'P03' 'cached'
+                return
+            }
+            Write-Caution 'Cached installer content differs from the marker record - re-fetching.'
         }
+        else {
+            Write-Caution 'Marker is not a v2 content record or the recorded installer is missing - re-running.'
+        }
+        Clear-PhaseMarker -Ctx $Ctx -PhaseId 'P03'
     }
 
     if ($Ctx.InstallerUrl) {
@@ -10820,7 +10985,11 @@ function Invoke-PrepPhase03_FetchInstaller {
             $sigRecord = Assert-DownloadedFileSignature -Path $path -DisplayName 'AMD installer (cached)' -SubjectPattern 'Advanced Micro Devices' -AllowUnverified:$Ctx.AllowUnverifiedDownload
             Write-SourceArtifactEvidence -Record $sigRecord -RequestedUrl $url
             $Ctx.Installer = $path
-            Set-PhaseMarker -Ctx $Ctx -PhaseId 'P03' -Metadata @{ Url=$url; Path=$path; SizeMB=[math]::Round($existing.Length/1MB,1) }
+            $Ctx.ArtifactSha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+            Set-PhaseMarker -Ctx $Ctx -PhaseId 'P03' `
+                -Metadata @{ Url=$url; Path=$path; SizeMB=[math]::Round($existing.Length/1MB,1) } `
+                -InputFields @{ RequestedUrl = [string]$url; ArtifactSha256 = $Ctx.ArtifactSha256; Attestation = [string]$sigRecord.Attestation } `
+                -OutputFields @{ Path = [string]$path; ArtifactSha256 = $Ctx.ArtifactSha256; SizeBytes = [long]$existing.Length }
             Write-PhaseFooter 'P03' 'done'
             return
         }
@@ -10894,7 +11063,11 @@ function Invoke-PrepPhase03_FetchInstaller {
     $sigRecord = Assert-DownloadedFileSignature -Path $path -DisplayName 'AMD installer' -SubjectPattern 'Advanced Micro Devices' -AllowUnverified:$Ctx.AllowUnverifiedDownload
     Write-SourceArtifactEvidence -Record $sigRecord -RequestedUrl $url
     $Ctx.Installer = $path
-    Set-PhaseMarker -Ctx $Ctx -PhaseId 'P03' -Metadata @{ Url=$url; Path=$path; SizeMB=$sizeMB }
+    $Ctx.ArtifactSha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
+    Set-PhaseMarker -Ctx $Ctx -PhaseId 'P03' `
+        -Metadata @{ Url=$url; Path=$path; SizeMB=$sizeMB } `
+        -InputFields @{ RequestedUrl = [string]$url; ArtifactSha256 = $Ctx.ArtifactSha256; Attestation = [string]$sigRecord.Attestation } `
+        -OutputFields @{ Path = [string]$path; ArtifactSha256 = $Ctx.ArtifactSha256; SizeBytes = [long](Get-Item -LiteralPath $path).Length }
     Write-PhaseFooter 'P03' 'done'
 }
 
@@ -10903,10 +11076,37 @@ function Invoke-PrepPhase04_ExtractInstaller {
     Write-PhaseHeader 'P04' 'ExtractInstaller' 'Prep'
 
     Set-DebugStep 'check phase marker (cache hit?)'
-    if (Test-PhaseMarker -Ctx $Ctx -PhaseId 'P04') {
-        Write-Skip "Extraction cached at $($Ctx.Paths.Extract)"
-        Write-PhaseFooter 'P04' 'cached'
-        return
+    $p04Expected = @{
+        ArtifactSha256          = [string]$Ctx.ArtifactSha256
+        ExtractionSchemaVersion = $Script:ExtractionSchemaVersion
+    }
+    if (Test-PhaseMarker -Ctx $Ctx -PhaseId 'P04' -ExpectedInputFields $p04Expected) {
+        # Input fingerprint matched; require the recorded INF-layer output to
+        # still be true on disk before trusting the cache (marker v2).
+        $p04Record = Get-PhaseMarkerRecord -Ctx $Ctx -PhaseId 'P04'
+        $recordedManifest = ''
+        if ($p04Record -and
+            $p04Record.PSObject.Properties['output'] -and
+            $p04Record.output.PSObject.Properties['fields'] -and
+            $p04Record.output.fields.PSObject.Properties['InfManifestSha256']) {
+            $recordedManifest = [string]$p04Record.output.fields.InfManifestSha256
+        }
+        if ($recordedManifest -and (Test-Path -LiteralPath $Ctx.Paths.Extract)) {
+            $liveLayer = Get-InfLayerManifestHash -Root $Ctx.Paths.Extract
+            if ([string]$liveLayer.ManifestSha256 -ceq $recordedManifest) {
+                $Ctx.InfManifestSha256 = [string]$liveLayer.ManifestSha256
+                Write-Skip ("Extraction cached (content-verified, {0} INF(s)) at {1}" -f $liveLayer.InfCount, $Ctx.Paths.Extract)
+                Write-PhaseFooter 'P04' 'cached'
+                return
+            }
+            Write-Caution 'Extraction cache MISS: the on-disk INF layer diverged from the marker record (output side) - re-extracting.'
+        }
+        else {
+            Write-Caution 'Extraction cache MISS: marker output record incomplete or extract tree missing - re-extracting.'
+        }
+    }
+    elseif ((-not $Ctx.Force) -and (Get-PhaseMarkerRecord -Ctx $Ctx -PhaseId 'P04')) {
+        Write-Caution 'Extraction cache MISS: marker is legacy (schema-less) or its input identity (artifact SHA / extraction schema) diverged - re-extracting.'
     }
 
     Set-DebugStep 'precondition: installer present and valid size'
@@ -10918,6 +11118,11 @@ function Invoke-PrepPhase04_ExtractInstaller {
         $Ctx.Installer = $cached.FullName
     }
     if (-not $Ctx.SevenZip) { $Ctx.SevenZip = Get-SevenZipPath }
+    if (-not $Ctx.ArtifactSha256) {
+        # Standalone/resume entry: P03 did not run in this process. Anchor
+        # the extraction identity to the actual installer bytes.
+        $Ctx.ArtifactSha256 = (Get-FileHash -LiteralPath $Ctx.Installer -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
 
     # Sanity check: AMD chipset installers are normally 50-150 MB.
     # If the file is much smaller, the download was probably an
@@ -11068,7 +11273,16 @@ function Invoke-PrepPhase04_ExtractInstaller {
         }
     }
 
-    Set-PhaseMarker -Ctx $Ctx -PhaseId 'P04'
+    Set-DebugStep 'record content-addressed extraction identity (marker v2)'
+    $infLayer = Get-InfLayerManifestHash -Root $Ctx.Paths.Extract
+    $Ctx.InfManifestSha256 = [string]$infLayer.ManifestSha256
+    Set-PhaseMarker -Ctx $Ctx -PhaseId 'P04' `
+        -InputFields @{
+            ArtifactSha256          = [string]$Ctx.ArtifactSha256
+            ExtractionSchemaVersion = $Script:ExtractionSchemaVersion } `
+        -OutputFields @{
+            InfCount          = [int]$infLayer.InfCount
+            InfManifestSha256 = [string]$infLayer.ManifestSha256 }
     Write-PhaseFooter 'P04' 'done'
 }
 
@@ -17623,6 +17837,7 @@ $Ctx = [pscustomobject]@{
     Os = $null; Paths = $null
     SevenZip = $null; Signtool = $null; Inf2cat = $null
     Installer = $null; InfInventory = $null; InfInventoryDetail = $null; PatchResults = @()
+    ArtifactSha256 = $null; InfManifestSha256 = $null  # content-addressed cache chain (marker v2, wave W13)
     PatchedDirs = @()  # rehydrated by Resume-CtxFromWorkspace
     CertPfxPath = $null; CertCerPath = $null; CertThumbprint = $null
     # List of phase IDs that will execute this run (used by P00's

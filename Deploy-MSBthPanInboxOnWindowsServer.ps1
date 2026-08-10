@@ -463,7 +463,7 @@ $Script:WdfShortfall      = $null
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
 #
-$Script:ScriptVersion = 'msbthpan-2026.08.09-r67'
+$Script:ScriptVersion = 'msbthpan-2026.08.10-r68'
 $Script:ScriptTag     = 'download-override-separation'
 $Script:ScriptHash    = '(unknown)'
 try {
@@ -8654,17 +8654,120 @@ function Edit-InfForServer {
 #####################################################################
 # SECTION 7: Phase idempotency helpers
 #####################################################################
-function Test-PhaseMarker {
+function Get-PhaseFingerprintHash {
+    <#
+    .SYNOPSIS
+        Pure fingerprint hash over a field set (phase marker v2).
+    .DESCRIPTION
+        Canonicalizes a hashtable as sorted "key=value" lines (ordinal
+        case-insensitive key order; values coerced to string, null to
+        empty) and returns the lowercase SHA-256 of the UTF-8 bytes.
+        Pure by design - no I/O, no context - so cache correctness is
+        fixture-testable on any host (gate G-18; audit feedback Risk 4
+        mitigation: pure fingerprint function + fixtures + marker
+        schema version).
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter()] [hashtable]$Fields = @{}
+    )
+    $names = [string[]]@($Fields.Keys | ForEach-Object { [string]$_ })
+    [System.Array]::Sort($names, [System.StringComparer]::OrdinalIgnoreCase)
+    $lines = foreach ($name in $names) {
+        $value = $Fields[$name]
+        '{0}={1}' -f $name, $(if ($null -eq $value) { '' } else { [string]$value })
+    }
+    $canonical = (@($lines) -join "`n")
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hashBytes = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($canonical))
+        return ([System.BitConverter]::ToString($hashBytes) -replace '-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha.Dispose()
+    }
+}
+
+function Get-PhaseMarkerRecord {
+    <#
+    .SYNOPSIS
+        Parse a phase marker file; $null on absence or any parse failure.
+    #>
+    [CmdletBinding()]
+    [OutputType([object])]
     param($Ctx, [string]$PhaseId)
     $marker = Join-Path $Ctx.Paths.Markers ".$PhaseId.done"
-    if ((Test-Path $marker) -and -not $Ctx.Force) { return $true }
-    return $false
+    if (-not (Test-Path $marker)) { return $null }
+    try {
+        return (Get-Content -Path $marker -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop)
+    }
+    catch {
+        return $null
+    }
+}
+
+function Test-PhaseMarker {
+    <#
+    .SYNOPSIS
+        Phase cache check. Without -ExpectedInputFields this keeps the
+        legacy semantics (marker exists and -Force is absent); with it,
+        the check is content-addressed (marker v2).
+    .DESCRIPTION
+        Content-addressed mode requires the marker to exist, parse as
+        JSON, carry schemaVersion '2' and match the expected input
+        fingerprint computed by the pure primitive (audit R5-H03). A
+        legacy schema-less marker is a MISS by design - stale records
+        from older revisions never satisfy a fingerprinted check.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        $Ctx,
+        [string]$PhaseId,
+        [hashtable]$ExpectedInputFields
+    )
+    $marker = Join-Path $Ctx.Paths.Markers ".$PhaseId.done"
+    if (-not (Test-Path $marker)) { return $false }
+    if ($Ctx.Force) { return $false }
+    if (-not $PSBoundParameters.ContainsKey('ExpectedInputFields')) { return $true }
+    $record = Get-PhaseMarkerRecord -Ctx $Ctx -PhaseId $PhaseId
+    if ($null -eq $record) { return $false }
+    if (-not $record.PSObject.Properties['schemaVersion']) { return $false }
+    if ([string]$record.schemaVersion -ne '2') { return $false }
+    if (-not $record.PSObject.Properties['input']) { return $false }
+    if (-not $record.input.PSObject.Properties['fingerprint']) { return $false }
+    $stored = [string]$record.input.fingerprint
+    if ([string]::IsNullOrEmpty($stored)) { return $false }
+    $expected = Get-PhaseFingerprintHash -Fields $ExpectedInputFields
+    return ($stored -ceq $expected)
 }
 
 function Set-PhaseMarker {
-    param($Ctx, [string]$PhaseId, [hashtable]$Metadata = @{})
+    <#
+    .SYNOPSIS
+        Write a phase marker (schemaVersion 2). Legacy call sites keep
+        their -Metadata payload under .meta unchanged; fingerprinted
+        phases additionally supply -InputFields / -OutputFields.
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        $Ctx,
+        [string]$PhaseId,
+        [hashtable]$Metadata = @{},
+        [hashtable]$InputFields = @{},
+        [hashtable]$OutputFields = @{}
+    )
     $marker = Join-Path $Ctx.Paths.Markers ".$PhaseId.done"
-    $payload = @{ phase=$PhaseId; completedAt=(Get-Date -Format o); meta=$Metadata }
+    $payload = @{
+        phase         = $PhaseId
+        schemaVersion = '2'
+        completedAt   = (Get-Date -Format o)
+        meta          = $Metadata
+        input         = @{ fields = $InputFields;  fingerprint = (Get-PhaseFingerprintHash -Fields $InputFields) }
+        output        = @{ fields = $OutputFields; fingerprint = (Get-PhaseFingerprintHash -Fields $OutputFields) }
+    }
     $payload | ConvertTo-Json -Depth 5 | Set-Content -Path $marker -Encoding UTF8
 }
 
@@ -8672,6 +8775,44 @@ function Clear-PhaseMarker {
     param($Ctx, [string]$PhaseId)
     $marker = Join-Path $Ctx.Paths.Markers ".$PhaseId.done"
     if (Test-Path $marker) { Remove-Item $marker -Force }
+}
+function Get-BthPanSourceSetFingerprint {
+    <#
+    .SYNOPSIS
+        Content fingerprint of the located DriverStore source set
+        (INF + SYS + catalogs) via the shared pure primitive.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)] $Source
+    )
+    $files = @($Source.InfPath, $Source.SysPath) + @($Source.CatPaths)
+    $fields = @{}
+    foreach ($filePath in $files) {
+        if ($filePath -and (Test-Path -LiteralPath $filePath)) {
+            $fields[(Split-Path -Leaf $filePath)] = (Get-FileHash -LiteralPath $filePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        }
+    }
+    return (Get-PhaseFingerprintHash -Fields $fields)
+}
+
+function Get-BthPanDirectorySetFingerprint {
+    <#
+    .SYNOPSIS
+        Content fingerprint of every file in a flat directory (the
+        copied workspace set) via the shared pure primitive.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)] [string]$Directory
+    )
+    $fields = @{}
+    foreach ($file in @(Get-ChildItem -LiteralPath $Directory -File -ErrorAction SilentlyContinue)) {
+        $fields[$file.Name] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    return (Get-PhaseFingerprintHash -Fields $fields)
 }
 
 #####################################################################
@@ -9400,10 +9541,34 @@ function Invoke-PrepPhase03_FetchInstaller {
 
     Set-DebugStep 'check phase marker (cache hit?)'
     if (Test-PhaseMarker -Ctx $Ctx -PhaseId 'P03') {
+        # Content-addressed cache hit (marker v2, audit R5-H03): the located
+        # source set is trusted only while the file contents still match the
+        # recorded set fingerprint - LastWriteTime is no longer identity.
         if ($Ctx.BthPanSource -and (Test-Path -LiteralPath $Ctx.BthPanSource.InfPath)) {
-            Write-Skip "DriverStore source already located: $($Ctx.BthPanSource.Path)"
-            Write-PhaseFooter 'P03' 'cached'
-            return
+            $p03Record = Get-PhaseMarkerRecord -Ctx $Ctx -PhaseId 'P03'
+            $recordedSetSha = ''
+            if ($p03Record -and
+                $p03Record.PSObject.Properties['schemaVersion'] -and
+                ([string]$p03Record.schemaVersion -eq '2') -and
+                $p03Record.PSObject.Properties['output'] -and
+                $p03Record.output.PSObject.Properties['fields'] -and
+                $p03Record.output.fields.PSObject.Properties['SourceSetSha256']) {
+                $recordedSetSha = [string]$p03Record.output.fields.SourceSetSha256
+            }
+            if ($recordedSetSha) {
+                $liveSetSha = Get-BthPanSourceSetFingerprint -Source $Ctx.BthPanSource
+                if ($liveSetSha -ceq $recordedSetSha) {
+                    $Ctx.BthPanSourceSetSha256 = $liveSetSha
+                    Write-Skip "DriverStore source already located (content-verified): $($Ctx.BthPanSource.Path)"
+                    Write-PhaseFooter 'P03' 'cached'
+                    return
+                }
+                Write-Caution 'DriverStore source content diverged from the marker record - re-locating.'
+            }
+            else {
+                Write-Caution 'Marker is not a v2 content record - re-running P03.'
+            }
+            Clear-PhaseMarker -Ctx $Ctx -PhaseId 'P03'
         }
     }
 
@@ -9448,6 +9613,7 @@ function Invoke-PrepPhase03_FetchInstaller {
     Write-Detail "Stamp : $($src.LastWriteTime)"
 
     $Ctx.BthPanSource = $src
+    $Ctx.BthPanSourceSetSha256 = Get-BthPanSourceSetFingerprint -Source $src
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'P03' -Metadata @{
         SourcePath     = $src.Path
         InfPath        = $src.InfPath
@@ -9455,7 +9621,7 @@ function Invoke-PrepPhase03_FetchInstaller {
         CatCount       = $src.CatPaths.Count
         HasOriginalCat = $src.HasOriginalCat
         LastWriteTime  = $src.LastWriteTime
-    }
+    } -InputFields @{} -OutputFields @{ SourceSetSha256 = [string]$Ctx.BthPanSourceSetSha256 }
     Write-PhaseFooter 'P03' 'done'
 }
 
@@ -9515,10 +9681,12 @@ function Invoke-PrepPhase04_ExtractInstaller {
     }
 
     $Ctx.ExtractedBthPanDir = $destDir
+    $Ctx.BthPanCopiedSetSha256 = Get-BthPanDirectorySetFingerprint -Directory $destDir
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'P04' -Metadata @{
         ExtractDir = $destDir
         FileCount  = $copied
-    }
+    } -InputFields @{ SourceSetSha256 = [string]$Ctx.BthPanSourceSetSha256 } `
+      -OutputFields @{ FileCount = [int]$copied; CopiedSetSha256 = [string]$Ctx.BthPanCopiedSetSha256 }
     Write-PhaseFooter 'P04' 'done'
 }
 
@@ -9839,11 +10007,23 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
         -HostUmdfVersion $wdfHostRuntime.UmdfObserved
     Show-WdfShortfallNotice -Summary $Script:WdfShortfall -Runtime $wdfHostRuntime
 
+    if (-not $Ctx.BthPanCopiedSetSha256) {
+        # Resume entry: P04 did not run in this process - chain the input
+        # identity from the P04 marker record instead of guessing.
+        $p04Record = Get-PhaseMarkerRecord -Ctx $Ctx -PhaseId 'P04'
+        if ($p04Record -and
+            $p04Record.PSObject.Properties['output'] -and
+            $p04Record.output.PSObject.Properties['fields'] -and
+            $p04Record.output.fields.PSObject.Properties['CopiedSetSha256']) {
+            $Ctx.BthPanCopiedSetSha256 = [string]$p04Record.output.fields.CopiedSetSha256
+        }
+    }
     Set-PhaseMarker -Ctx $Ctx -PhaseId 'P05' -Metadata @{
         HwidCount        = $meta.HwidCount
         NeedsPatch       = $meta.NeedsPatch
         InfVerifBaseline = $v01BaselineForMarker
-    }
+    } -InputFields @{ CopiedSetSha256 = [string]$Ctx.BthPanCopiedSetSha256 } `
+      -OutputFields @{ HwidCount = [int]$meta.HwidCount }
     Write-PhaseFooter 'P05' 'done'
 }
 
@@ -13207,6 +13387,7 @@ $Ctx = [pscustomobject]@{
     Os = $null; Paths = $null
     SevenZip = $null; Signtool = $null; Inf2cat = $null; Makecat = $null; InfVerif = $null  # Makecat for inbox-driver fallback; InfVerif for pre/post-patch validation
     Installer = $null; InfInventory = $null; InfInventoryDetail = $null; PatchResults = @()
+    BthPanSourceSetSha256 = $null; BthPanCopiedSetSha256 = $null  # content-addressed cache chain (marker v2, wave W13)
     CertPfxPath = $null; CertCerPath = $null; CertThumbprint = $null
 
     # InfVerif validation results (Stage 1 of the validation-first design)
