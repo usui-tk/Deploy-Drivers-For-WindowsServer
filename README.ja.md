@@ -1541,6 +1541,8 @@ Python ヘルパスクリプト、Bash の heredoc、ファイル書き込みを
 
 MIT ライセンスは **本リポジトリの PowerShell スクリプトおよび付属ドキュメントのみに適用**されます。スクリプトは実行時に AMD installer EXE / Ryzen AI ドライバ ZIP をダウンロードしますが、AMD のバイナリ・INF・catalog を再配布はしていません。これらのファイルには AMD の再配布規約が独立に適用されます。
 
+スクリプトへ埋め込まれたコード（MIT ライセンスの ISx プロジェクトを参考にした静的 `ISSetupStream` decoder）のサードパーティ帰属表示は [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md) に記録しています。
+
 ---
 
 ## コントリビューション

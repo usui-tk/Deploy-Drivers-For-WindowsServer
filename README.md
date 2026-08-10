@@ -1560,6 +1560,8 @@ The canonical reference for the per-file-type contract, the corrective tooling p
 
 The MIT licence applies to the **PowerShell scripts and accompanying documentation in this repository only**. The scripts download AMD installer EXEs and Ryzen AI driver ZIPs at runtime and do not redistribute AMD's binaries, INFs, or catalogs. AMD's redistribution terms apply to those files independently.
 
+Third-party attribution for code embedded in the scripts (the static `ISSetupStream` decoder, informed by the MIT-licensed ISx project) is recorded in [`THIRD-PARTY-NOTICES.md`](./THIRD-PARTY-NOTICES.md).
+
 ---
 
 ## Contributing
