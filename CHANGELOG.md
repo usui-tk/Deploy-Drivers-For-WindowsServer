@@ -20,6 +20,50 @@ independently.
 
 ---
 
+## [2026-08-10] `inventory-reconciliation-tooling` — tools and gate G-20 (no product script changes, no version bumps)
+
+Wave W11 of the P1 audit remediation (audit v5 R5-H05 / feedback R2,
+5A-2; plan-of-record v4). Formalizes the 2026-08-09 reconciliation
+analysis — which established full metadata-level coverage of a real
+field run (typed 119/119) — into committable, re-runnable assets. The
+deployment scripts and the research toolkit are untouched; the
+user-provided field evidence stays INPUT ONLY and is not committed.
+
+### Added — reconciliation tool 1.0.0
+
+- `tools/inventory-reconciliation/Compare-ResearchDeploymentInventory.ps1`
+  with its own README/CHANGELOG: typed classification (MatchedDirect /
+  MatchedVariant via suffix-versioned `name.infN` CAB entries under an
+  extraction tree, UTF-16LE no-BOM tolerant / MatchedNormalizedName /
+  ExplainedDeploymentOnly via an operator-adjudicated allowlist /
+  DeploymentOnly / ResearchOnly), SHA-256-pinned inputs, and the
+  rc-encoded exit criterion `UnexplainedDeploymentOnly = 0` — the hard
+  gate the static-extraction waves (W12/W15) depend on.
+- pwsh 7.4 quirk recorded: wrapping a `List[object]` directly in `@()`
+  throws `Argument types do not match`; `.ToArray()` is the reliable
+  materialization.
+
+### Added — synthetic fixtures and gate G-20
+
+- `tests/fixtures/inventory-reconciliation/`: freshly authored synthetic
+  sets — positive (with a UTF-16LE no-BOM `.inf2` variant), negative
+  (one unexplained row), and the allowlist that adjudicates it.
+- `Test-ResearchDeploymentParity.ps1` (G-20): verbatim classification
+  counts, the variant read path, the built-in negative control (rc=1
+  naming the row), the allowlist path, report schema/SHA pins, and a
+  committed-baseline parse smoke (643 rows measured).
+- Negative control against the pre-W11 tree (`2816dfa`): the
+  tool-presence assertion fails by name. Suite: 21 cases / 898
+  assertions.
+
+### Changed — documentation
+
+- TESTING §46 (reading the delta report, allowlist discipline); the
+  README evidence-layer paragraph gains the reconciliation sentence
+  (en/ja lock-step).
+
+---
+
 ## [2026-08-09] `download-override-separation` — Chipset r119 / Graphics r85 / BthPan r67
 
 Wave W8 of the P1 audit remediation (audit v3 H-04R / v5 R5-M05 +

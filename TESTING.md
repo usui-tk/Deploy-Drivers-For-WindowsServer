@@ -3720,3 +3720,28 @@ next to the artifact itself (workspace download directory). Reading guide:
 - The record is evidence, not a gate: writing it is fail-open by design,
   and a missing record on an admitted file indicates an evidence-path
   problem worth a REVIEW, not a deployment failure by itself.
+
+---
+
+## 46. Reading the inventory-reconciliation delta report (W11)
+
+`tools/inventory-reconciliation/Compare-ResearchDeploymentInventory.ps1`
+joins the research accepted baseline against a deployment run's
+`inf_inventory.csv` and writes a typed delta report. Reading guide:
+
+- `ExitCriterion.UnexplainedDeploymentOnly` is the headline: the tool
+  exits 0 iff it is 0. This is also the hard gate the static-extraction
+  waves (W12/W15) depend on.
+- `MatchedVariant` rows are explained by suffix-versioned CAB entries
+  (`name.infN`) under the extraction tree — the MSI external-CAB
+  multi-version convention; their `Evidence` is the variant file path.
+- `MatchedNormalizedName` rows differ only by `-`/`_` separators; the
+  research row is the `Evidence`.
+- `ExplainedDeploymentOnly` rows come from the `-KnownExplanations`
+  allowlist. Discipline: every entry requires an operator adjudication
+  `Reason`, and the allowlist is reviewed like code — it narrows a
+  named delta, never the criterion itself.
+- `ResearchOnly` is informational (one run vs 25 releases). Input files
+  are SHA-256-pinned in the report for provenance.
+- Parity here is metadata-level; the optional content-hash upgrade is
+  the operator bench step described in the tool README.

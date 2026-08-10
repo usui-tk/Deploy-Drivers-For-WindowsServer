@@ -177,7 +177,7 @@ ProjectPreference と実測 PnP rank の分離、 物語面の負債清算、 �
 
 4 つの PowerShell スクリプトは同じ 21 phase アーキテクチャ、 同じ自己署名モデル、 同じ WDAC supplemental-policy パスを共有します。 それぞれ別ワークスペース (`C:\Temp\Workspace_AMD-Chipset`、 `C:\Temp\Workspace_AMD-Graphics`、 `C:\Temp\Workspace_AMD-NPU`、 `C:\Temp\Workspace_Microsoft-BthPan`)、 別の自己署名証明書、 別の WDAC supplemental policy GUID を使用するため、 相互に干渉しません。 4 つのワークスペースはすべて `C:\Temp\Workspace_*` 配下に配置されています (クラスタ管理および一括削除を容易化する目的)。 `C:\Temp` がない場合はスクリプトが自動作成します。 `Collect-WindowsServerConfigurationEvidence.ps1` は読み取り専用の随伴スクリプトとしてこれらの隣に位置し、 専用ワークスペースを持たず、 エビデンスをスクリプトフォルダ (または `C:\Temp`) に書き出します。
 
-**エビデンス層**: [`tools/amd-chipset-driver-research/`](./tools/amd-chipset-driver-research/) には読み取り専用の research toolkit とその accepted baseline (AMD chipset 25 releases・hardware-matched INF 643 行・INF ごとの WDF 宣言と SHA-256 provenance) が置かれています。 これは**エビデンスであってポリシーではありません**: デプロイパイプラインは実行時にこれを一切読みません。 パッケージ族に関する主張 (上記の WS2016 KMDF の議論や TESTING §44 など) が、 印象ではなく実測 baseline を引用できるようにするために存在します。
+**エビデンス層**: [`tools/amd-chipset-driver-research/`](./tools/amd-chipset-driver-research/) には読み取り専用の research toolkit とその accepted baseline (AMD chipset 25 releases・hardware-matched INF 643 行・INF ごとの WDF 宣言と SHA-256 provenance) が置かれています。 これは**エビデンスであってポリシーではありません**: デプロイパイプラインは実行時にこれを一切読みません。 パッケージ族に関する主張 (上記の WS2016 KMDF の議論や TESTING §44 など) が、 印象ではなく実測 baseline を引用できるようにするために存在します。 W11 以降は [`tools/inventory-reconciliation/`](./tools/inventory-reconciliation/) がこの baseline とデプロイ実行の `inf_inventory.csv` を突合し、 parity exit criterion を機械判定します (TESTING §46)。
 
 ---
 
