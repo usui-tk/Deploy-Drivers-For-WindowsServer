@@ -732,6 +732,12 @@ $Script:ScriptShortTag = ('{0}/{1}' -f $Script:ScriptVersion, $Script:ScriptHash
 # design-first review of any extraction/inventory change owns the bump.
 $Script:ExtractionSchemaVersion = '1'
 $Script:InventorySchemaVersion  = '1'
+# Typed WDF observation vocabulary (audit R5-M01; gate G-21). Absence of a
+# declaration is recorded, never promoted to capability. ParseFailed marks
+# an unreadable INF; NotInspected and ExtractionIncomplete are reserved
+# admission states for records that were never read or came from a partial
+# extraction.
+$Script:WdfObservationStatusSet = @('Declared', 'NotDeclared', 'ParseFailed', 'NotInspected', 'ExtractionIncomplete')
 
 #####################################################################
 # SECTION 0.25: Optional console transcript capture
@@ -10338,6 +10344,166 @@ function Get-InfLayerManifestHash {
         ManifestSha256 = $manifestSha
     }
 }
+function Get-InfWdfEvidence {
+    <#
+    .SYNOPSIS
+        Typed WDF observation for one INF (audit R5-M01).
+    .DESCRIPTION
+        Returns per-family { Status, Versions[], Evidence[] } where Status is
+        Declared or NotDeclared and each Evidence item carries the raw
+        directive line with its 1-based line number. The caller owns the
+        remaining observation states of the shared vocabulary
+        ($Script:WdfObservationStatusSet): ParseFailed when the INF could not
+        be read, NotInspected / ExtractionIncomplete as reserved admission
+        states. The existing Get-InfWdfRequirement summary stays the
+        decision-summary view; this function is the raw-evidence view and
+        never collapses absence into capability.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter()] [AllowEmptyString()] [string]$Content = ''
+    )
+    $kmdfVersions = New-Object System.Collections.Generic.List[string]
+    $kmdfEvidence = New-Object System.Collections.Generic.List[object]
+    $umdfVersions = New-Object System.Collections.Generic.List[string]
+    $umdfEvidence = New-Object System.Collections.Generic.List[object]
+    $lineNumber = 0
+    foreach ($line in ($Content -split "`r?`n")) {
+        $lineNumber++
+        $kmdfMatch = [regex]::Match($line, '(?i)^\s*KmdfLibraryVersion\s*=\s*([0-9]+\.[0-9]+)')
+        if ($kmdfMatch.Success) {
+            $kmdfVersions.Add($kmdfMatch.Groups[1].Value)
+            $kmdfEvidence.Add([pscustomobject]@{ Line = $line.Trim(); LineNumber = $lineNumber })
+        }
+        $umdfMatch = [regex]::Match($line, '(?i)^\s*UmdfLibraryVersion\s*=\s*([0-9]+\.[0-9]+)')
+        if ($umdfMatch.Success) {
+            $umdfVersions.Add($umdfMatch.Groups[1].Value)
+            $umdfEvidence.Add([pscustomobject]@{ Line = $line.Trim(); LineNumber = $lineNumber })
+        }
+    }
+    return [pscustomobject]@{
+        KMDF = [pscustomobject]@{
+            Status   = $(if ($kmdfVersions.Count -gt 0) { 'Declared' } else { 'NotDeclared' })
+            Versions = $kmdfVersions.ToArray()
+            Evidence = $kmdfEvidence.ToArray()
+        }
+        UMDF = [pscustomobject]@{
+            Status   = $(if ($umdfVersions.Count -gt 0) { 'Declared' } else { 'NotDeclared' })
+            Versions = $umdfVersions.ToArray()
+            Evidence = $umdfEvidence.ToArray()
+        }
+    }
+}
+
+function ConvertTo-InfInventoryFlatView {
+    <#
+    .SYNOPSIS
+        Single projection from canonical rich records to the flat/CSV view.
+    .DESCRIPTION
+        The CSV is a derived view (audit R5-H06); this is the only place the
+        projection lives, used by the P05 export and by JSON rehydration
+        alike, so the two can never drift. Property-preserving by design:
+        every record property except the rich-only set (nested Devices[],
+        raw WDF evidence, per-record error text, the run-constant artifact
+        SHA, diagnostics) is carried in declaration order, then DeviceList
+        is appended - so each sister's historical CSV column set survives
+        with exactly the InfSha256 / InspectionStatus additions.
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param(
+        [Parameter()] [object[]]$DetailRecords = @()
+    )
+    $excluded = @('FullPath', 'Devices', 'ManufacturerEntries', 'ModelsSectionsScanned',
+                  'Wdf', 'InspectionError', 'SourceArtifactSha256')
+    $flat = foreach ($record in @($DetailRecords)) {
+        $row = [ordered]@{}
+        foreach ($property in $record.PSObject.Properties) {
+            if ($property.Name -in $excluded) { continue }
+            $row.Add($property.Name, $property.Value)
+        }
+        $deviceList = ''
+        if ($record.PSObject.Properties['Devices'] -and $record.Devices) {
+            $deviceList = ($record.Devices | ForEach-Object { "$($_.Description)|$($_.HardwareId)" }) -join ' || '
+        }
+        $row.Add('DeviceList', $deviceList)
+        [pscustomobject]$row
+    }
+    return @($flat)
+}
+
+function Restore-PackageInventoryFromJson {
+    <#
+    .SYNOPSIS
+        Schema-checked rehydration of the canonical package inventory.
+    .DESCRIPTION
+        Returns @{ Detail; Flat; Document } or $null on absence, parse
+        failure, or schema mismatch (a mismatched schema is a cache miss,
+        never a guess - audit R5-H06).
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)] [string]$Path
+    )
+    if (-not (Test-Path -LiteralPath $Path)) { return $null }
+    $doc = $null
+    try {
+        $doc = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        return $null
+    }
+    if ($null -eq $doc) { return $null }
+    if (-not $doc.PSObject.Properties['SchemaVersion']) { return $null }
+    if ([string]$doc.SchemaVersion -ne $Script:InventorySchemaVersion) { return $null }
+    if (-not $doc.PSObject.Properties['Records']) { return $null }
+    $detail = @($doc.Records)
+    return @{
+        Detail   = $detail
+        Flat     = @(ConvertTo-InfInventoryFlatView -DetailRecords $detail)
+        Document = $doc
+    }
+}
+
+function Restore-InfInventoryContext {
+    <#
+    .SYNOPSIS
+        Canonical inventory rehydration entry (audit R5-H06).
+    .DESCRIPTION
+        JSON first - restoring BOTH the flat view and the rich detail
+        (Devices[], typed WDF evidence) - with the legacy CSV as a
+        read-only fallback for pre-JSON workspaces. -Required throws when
+        nothing can be loaded.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        $Ctx,
+        [switch]$Required
+    )
+    if ($Ctx.InfInventory) { return $true }
+    $jsonPath = Join-Path $Ctx.Paths.Root 'package-inventory.json'
+    $restored = Restore-PackageInventoryFromJson -Path $jsonPath
+    if ($restored) {
+        $Ctx.InfInventoryDetail = @($restored.Detail)
+        $Ctx.InfInventory = @($restored.Flat)
+        return $true
+    }
+    $csv = Join-Path $Ctx.Paths.Root 'inf_inventory.csv'
+    if (Test-Path -LiteralPath $csv) {
+        try {
+            $Ctx.InfInventory = Import-Csv -LiteralPath $csv
+        }
+        catch {
+            Write-Verbose 'Legacy CSV rehydration failed (ignored - handled by the caller).'
+        }
+    }
+    if ($Ctx.InfInventory) { return $true }
+    if ($Required) { throw 'INF inventory missing - run Phase P05 first.' }
+    return $false
+}
 
 #####################################################################
 # SECTION 8: PREPARATION PHASES
@@ -11503,14 +11669,58 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     Write-PhaseHeader 'P05' 'AnalyzeInfs' 'Prep'
 
     Set-DebugStep 'check phase marker (cache hit?)'
-    if (Test-PhaseMarker -Ctx $Ctx -PhaseId 'P05') {
-        $csv = Join-Path $Ctx.Paths.Root 'inf_inventory.csv'
-        if (Test-Path $csv) {
-            $Ctx.InfInventory = Import-Csv $csv
-            Write-Skip "Inventory cached: $csv ($($Ctx.InfInventory.Count) rows)"
-            Write-PhaseFooter 'P05' 'cached'
-            return
+    if (-not $Ctx.InfManifestSha256) {
+        # Resume entry: P04 did not run in this process - chain the input
+        # identity from the P04 marker record instead of guessing.
+        $p04Chain = Get-PhaseMarkerRecord -Ctx $Ctx -PhaseId 'P04'
+        if ($p04Chain -and
+            $p04Chain.PSObject.Properties['output'] -and
+            $p04Chain.output.PSObject.Properties['fields'] -and
+            $p04Chain.output.fields.PSObject.Properties['InfManifestSha256']) {
+            $Ctx.InfManifestSha256 = [string]$p04Chain.output.fields.InfManifestSha256
         }
+    }
+    $p05Expected = @{
+        InfManifestSha256      = [string]$Ctx.InfManifestSha256
+        InventorySchemaVersion = $Script:InventorySchemaVersion
+    }
+    if (Test-PhaseMarker -Ctx $Ctx -PhaseId 'P05' -ExpectedInputFields $p05Expected) {
+        # Content-addressed inventory hit (marker v2): the canonical JSON
+        # must exist and hash to the recorded value; rehydration restores
+        # BOTH the flat view and the rich detail (Devices[], typed WDF
+        # evidence), ending the silent cache-hit loss (audit R5-H06).
+        $jsonPath = Join-Path $Ctx.Paths.Root 'package-inventory.json'
+        $p05Record = Get-PhaseMarkerRecord -Ctx $Ctx -PhaseId 'P05'
+        $recordedJsonSha = ''
+        if ($p05Record -and
+            $p05Record.PSObject.Properties['output'] -and
+            $p05Record.output.PSObject.Properties['fields'] -and
+            $p05Record.output.fields.PSObject.Properties['InventorySha256']) {
+            $recordedJsonSha = [string]$p05Record.output.fields.InventorySha256
+        }
+        if ($recordedJsonSha -and (Test-Path -LiteralPath $jsonPath)) {
+            $liveJsonSha = (Get-FileHash -LiteralPath $jsonPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($liveJsonSha -ceq $recordedJsonSha) {
+                $restored = Restore-PackageInventoryFromJson -Path $jsonPath
+                if ($restored) {
+                    $Ctx.InfInventoryDetail = @($restored.Detail)
+                    $Ctx.InfInventory = @($restored.Flat)
+                    Write-Skip "Inventory cached (content-verified): $jsonPath ($(@($Ctx.InfInventory).Count) rows)"
+                    Write-PhaseFooter 'P05' 'cached'
+                    return
+                }
+                Write-Caution 'Canonical inventory failed to rehydrate - re-analyzing.'
+            }
+            else {
+                Write-Caution 'Canonical inventory content diverged from the marker record - re-analyzing.'
+            }
+        }
+        else {
+            Write-Caution 'Marker output record incomplete or package-inventory.json missing - re-analyzing.'
+        }
+    }
+    elseif ((-not $Ctx.Force) -and (Get-PhaseMarkerRecord -Ctx $Ctx -PhaseId 'P05')) {
+        Write-Caution 'Inventory cache MISS: marker is legacy (schema-less) or its input identity (INF manifest / inventory schema) diverged - re-analyzing.'
     }
 
     Set-DebugStep 'enumerate INF files and select preferred variants'
@@ -11539,8 +11749,63 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     # NT decoration, matching what P06 actually writes.
     Set-DebugStep 'parse each INF for Manufacturer / decorations / metadata'
     $detailReport = foreach ($inf in $infFiles) {
-        $infData = Read-InfFile -Path $inf.FullName
         $rel = $inf.FullName.Substring($Ctx.Paths.Extract.Length).TrimStart('\')
+        $infSha = (Get-FileHash -LiteralPath $inf.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        $inspectionError = $null
+        $infData = $null
+        try {
+            $infData = Read-InfFile -Path $inf.FullName
+            if ($null -eq $infData -or $null -eq $infData.Content) {
+                throw 'Read-InfFile returned no content.'
+            }
+        }
+        catch {
+            $inspectionError = $_.Exception.Message
+        }
+        if ($null -ne $inspectionError) {
+            # A failing INF yields a typed ParseFailed record instead of
+            # aborting the phase (audit R5-M01): absence of evidence is
+            # recorded, never promoted to capability.
+            [pscustomobject]@{
+                Inf             = $inf.Name
+                FullPath        = $inf.FullName
+                RelativePath    = $rel
+                RelativeDir     = $(if ($rel.Contains('\')) { Split-Path $rel -Parent } else { '' })
+                SourceVariant   = (Get-AmdSourceVariant -RelativePath $rel)
+                VariantSelected = $false
+                Encoding        = ''
+                HasMfg          = $false
+                HasServerDeco   = $false
+                NeedsPatch      = $false
+                Provider        = ''
+                Class           = ''
+                ClassGuid       = ''
+                DriverVer       = ''
+                CatalogFile     = ''
+                Manufacturer    = ''
+                DeviceCount     = 0
+                Devices         = @()
+                ManufacturerEntries   = 0
+                ModelsSectionsScanned = 0
+                ReferencedFilesCount    = 0
+                MissingReferencedFiles  = ''
+                EligibleForCatalog      = $false
+                IsWdfDriver         = $false
+                KmdfLibraryVersion  = ''
+                UmdfLibraryVersion  = ''
+                CoInstallerVersions = ''
+                WdfSectionCount     = 0
+                SourceArtifactSha256 = [string]$Ctx.ArtifactSha256
+                InfSha256            = $infSha
+                InspectionStatus     = 'ParseFailed'
+                InspectionError      = [string]$inspectionError
+                Wdf                  = [pscustomobject]@{
+                    KMDF = [pscustomobject]@{ Status = 'ParseFailed'; Versions = @(); Evidence = @() }
+                    UMDF = [pscustomobject]@{ Status = 'ParseFailed'; Versions = @(); Evidence = @() }
+                }
+            }
+            continue
+        }
         $variant = Get-AmdSourceVariant -RelativePath $rel
         $meta = Get-InfMetadata -Content $infData.Content
         $relDir = if ($rel.Contains('\')) { Split-Path $rel -Parent } else { '' }
@@ -11602,6 +11867,12 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
             UmdfLibraryVersion  = $wdfReq.UmdfLibraryVersion
             CoInstallerVersions = $wdfReq.CoInstallerVersions
             WdfSectionCount     = $wdfReq.WdfSectionCount
+            # Content identity + typed observation (audit R5-H04 / R5-M01).
+            SourceArtifactSha256 = [string]$Ctx.ArtifactSha256
+            InfSha256            = $infSha
+            InspectionStatus     = 'Inspected'
+            InspectionError      = $null
+            Wdf                  = (Get-InfWdfEvidence -Content $infData.Content)
         }
     }
     # Stash the rich detail (with Devices array) on the context so
@@ -11609,48 +11880,25 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
     # without re-parsing INFs.
     $Ctx.InfInventoryDetail = $detailReport
 
-    # Build the CSV-friendly inventory (flat, no nested Devices array).
-    # Devices are flattened into a "DeviceList" string for CSV export.
-    $report = $detailReport | ForEach-Object {
-        $deviceList = if ($_.Devices) {
-            ($_.Devices | ForEach-Object { "$($_.Description)|$($_.HardwareId)" }) -join ' || '
-        } else { '' }
-        [pscustomobject]@{
-            Inf             = $_.Inf
-            RelativePath    = $_.RelativePath
-            RelativeDir     = $_.RelativeDir
-            SourceVariant   = $_.SourceVariant
-            VariantSelected = $_.VariantSelected
-            Encoding        = $_.Encoding
-            HasMfg          = $_.HasMfg
-            HasServerDeco   = $_.HasServerDeco
-            NeedsPatch      = $_.NeedsPatch
-            Provider        = $_.Provider
-            Class           = $_.Class
-            ClassGuid       = $_.ClassGuid
-            DriverVer       = $_.DriverVer
-            CatalogFile     = $_.CatalogFile
-            Manufacturer    = $_.Manufacturer
-            DeviceCount     = $_.DeviceCount
-            # Phantom file reference columns (see SPEC §D.24). Position
-            # before DeviceList so the typical CSV viewer column order
-            # surfaces the new diagnostic data near the existing
-            # eligibility-like columns (NeedsPatch / HasMfg).
-            ReferencedFilesCount    = $_.ReferencedFilesCount
-            MissingReferencedFiles  = $_.MissingReferencedFiles
-            EligibleForCatalog      = $_.EligibleForCatalog
-            # WDF requirement columns (SPEC D.53), carried through to the CSV
-            # so the operator can list packages that cannot load on this host
-            # before anything is installed.
-            IsWdfDriver         = $_.IsWdfDriver
-            KmdfLibraryVersion  = $_.KmdfLibraryVersion
-            UmdfLibraryVersion  = $_.UmdfLibraryVersion
-            CoInstallerVersions = $_.CoInstallerVersions
-            WdfSectionCount     = $_.WdfSectionCount
-            DeviceList      = $deviceList
-        }
+    # Flat/CSV view is a single shared projection from the canonical rich
+    # records (audit R5-H06): the CSV is a derived view, and rehydration
+    # from package-inventory.json goes through the same function so the two
+    # can never drift.
+    $report = ConvertTo-InfInventoryFlatView -DetailRecords $detailReport
+    Set-DebugStep 'write canonical package inventory (JSON) + derived CSV'
+    $jsonPath = Join-Path $Ctx.Paths.Root 'package-inventory.json'
+    $inventoryDoc = [pscustomobject][ordered]@{
+        SchemaVersion        = $Script:InventorySchemaVersion
+        GeneratedAtUtc       = [DateTime]::UtcNow.ToString('o')
+        ToolIdentity         = [pscustomobject]@{ ScriptVersion = $Script:ScriptVersion }
+        SourceArtifactSha256 = [string]$Ctx.ArtifactSha256
+        InfManifestSha256    = [string]$Ctx.InfManifestSha256
+        PreferredVariants    = @($preferredVariants)
+        Records              = @($detailReport)
     }
-    Set-DebugStep 'export inventory CSV'
+    $inventoryDoc | ConvertTo-Json -Depth 8 | Set-Content -Path $jsonPath -Encoding UTF8
+    # Derived view (audit R5-H06): the CSV is a projection of the canonical
+    # JSON above and is never read back as the cache.
     $csvPath = Join-Path $Ctx.Paths.Root 'inf_inventory.csv'
     $report | Sort-Object NeedsPatch -Descending |
         Export-Csv -Path $csvPath -NoTypeInformation -Encoding UTF8
@@ -11766,7 +12014,11 @@ function Invoke-PrepPhase05_AnalyzeInfs { # psa-disable-line PSA6003 -- compound
         -HostKmdfVersion $wdfHostRuntime.KmdfObserved `
         -HostUmdfVersion $wdfHostRuntime.UmdfObserved
     Show-WdfShortfallNotice -Summary $Script:WdfShortfall -Runtime $wdfHostRuntime
-    Set-PhaseMarker -Ctx $Ctx -PhaseId 'P05' -Metadata @{ Total=$totalAll; Selected=$totalSelected; Ineligible=$totalIneligible; CsvPath=$csvPath; ReportPath=$reportTxtPath; Variants=($preferredVariants -join ',') }
+    $inventorySha = (Get-FileHash -LiteralPath $jsonPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    Set-PhaseMarker -Ctx $Ctx -PhaseId 'P05' `
+        -Metadata @{ Total=$totalAll; Selected=$totalSelected; Ineligible=$totalIneligible; CsvPath=$csvPath; ReportPath=$reportTxtPath; JsonPath=$jsonPath; Variants=($preferredVariants -join ',') } `
+        -InputFields @{ InfManifestSha256 = [string]$Ctx.InfManifestSha256; InventorySchemaVersion = $Script:InventorySchemaVersion } `
+        -OutputFields @{ InventorySha256 = $inventorySha; RowCount = [int]@($detailReport).Count }
     Write-PhaseFooter 'P05' 'done'
 }
 
@@ -11782,11 +12034,10 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
     }
 
     Set-DebugStep 'precondition: load InfInventory (CSV fallback)'
-    if (-not $Ctx.InfInventory) {
-        $csv = Join-Path $Ctx.Paths.Root 'inf_inventory.csv'
-        if (-not (Test-Path $csv)) { throw 'INF inventory missing - run Phase P05 first.' }
-        $Ctx.InfInventory = Import-Csv $csv
-    }
+    # Canonical rehydration (audit R5-H06): JSON first - restoring the
+    # rich detail too - with the legacy CSV as a read-only fallback for
+    # pre-JSON workspaces.
+    $null = Restore-InfInventoryContext -Ctx $Ctx -Required
 
     # Apply the -SkipNonCosignedDrivers filter at P06 entry (see SPEC §D.31). Trimming
     # $Ctx.InfInventory here propagates to every downstream phase
@@ -12426,10 +12677,8 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
     # preserved.
     Set-DebugStep 'P08: load inventory for phantom file reference filtering'
     if (-not $Ctx.InfInventory) {
-        $csv = Join-Path $Ctx.Paths.Root 'inf_inventory.csv'
-        if (Test-Path -LiteralPath $csv) {
-            try { $Ctx.InfInventory = Import-Csv -LiteralPath $csv } catch {} # psa-disable-line PSA3004 -- best-effort load; missing CSV is handled below
-        }
+        # Canonical rehydration (audit R5-H06): JSON first, legacy CSV fallback.
+        $null = Restore-InfInventoryContext -Ctx $Ctx
     }
 
     $ineligibleDirs = @()
@@ -13397,10 +13646,8 @@ function Get-IneligibleInfLookup {
 
     $lookup = @{}
     if (-not $Ctx.InfInventory) {
-        $csv = Join-Path $Ctx.Paths.Root 'inf_inventory.csv'
-        if (Test-Path -LiteralPath $csv) {
-            try { $Ctx.InfInventory = Import-Csv -LiteralPath $csv } catch {} # psa-disable-line PSA3004 -- best-effort load; absence handled below
-        }
+        # Canonical rehydration (audit R5-H06): JSON first, legacy CSV fallback.
+        $null = Restore-InfInventoryContext -Ctx $Ctx
     }
     if (-not $Ctx.InfInventory) { return $lookup }
 
@@ -13456,10 +13703,8 @@ function Get-IneligibleDirSet {
 
     $dirSet = @{}
     if (-not $Ctx.InfInventory) {
-        $csv = Join-Path $Ctx.Paths.Root 'inf_inventory.csv'
-        if (Test-Path -LiteralPath $csv) {
-            try { $Ctx.InfInventory = Import-Csv -LiteralPath $csv } catch {} # psa-disable-line PSA3004 -- best-effort load
-        }
+        # Canonical rehydration (audit R5-H06): JSON first, legacy CSV fallback.
+        $null = Restore-InfInventoryContext -Ctx $Ctx
     }
     if (-not $Ctx.InfInventory) { return $dirSet }
 
