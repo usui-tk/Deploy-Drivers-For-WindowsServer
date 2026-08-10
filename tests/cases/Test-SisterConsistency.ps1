@@ -70,7 +70,7 @@ foreach ($name in $fourWay) {
 # above (NPU joined the W4 PFX contract). Assert-DownloadedFileSignature
 # stays three-way: the NPU script performs no downloads.
 $threeWay = @('Get-EligibleInfRecordList', 'Save-WhqlCoSignPlanJson', 'Get-WhqlCoSignPlanInfo',
-              'Assert-DownloadedFileSignature')
+              'Assert-DownloadedFileSignature', 'Write-SourceArtifactEvidence')
 foreach ($name in $threeWay) {
     $hashes = @($pathA | ForEach-Object { Get-TextHash (Get-FunctionText -Path $_ -Name $name) })
     Assert-Equal ('{0}: identical in the three Path A sisters' -f $name) 1 (@($hashes | Sort-Object -Unique)).Count
