@@ -700,7 +700,7 @@ $Script:WdfShortfall      = $null
 #                does NOT need manual bumping. If two users disagree
 #                about behaviour, comparing this hash tells them
 #                instantly whether they are running the same file.
-$Script:ScriptVersion = 'chipset-2026.08.10-r121'
+$Script:ScriptVersion = 'chipset-2026.08.11-r122'
 $Script:ScriptTag     = 'download-override-separation'
 $Script:ScriptHash    = '(unknown)'
 try {
@@ -738,6 +738,11 @@ $Script:InventorySchemaVersion  = '1'
 # admission states for records that were never read or came from a partial
 # extraction.
 $Script:WdfObservationStatusSet = @('Declared', 'NotDeclared', 'ParseFailed', 'NotInspected', 'ExtractionIncomplete')
+# Deployment plan schema constant (wave W14): the plan is fixed at P06
+# after the co-sign trim and before the first INF mutation, and the
+# patch/copy loops iterate plan rows. Cache invalidation key like its
+# sibling schema constants; gate G-23 pins its existence.
+$Script:DeploymentPlanSchemaVersion = '1'
 
 #####################################################################
 # SECTION 0.25: Optional console transcript capture
@@ -10504,6 +10509,305 @@ function Restore-InfInventoryContext {
     if ($Required) { throw 'INF inventory missing - run Phase P05 first.' }
     return $false
 }
+function New-DeploymentPlanRow {
+    <#
+    .SYNOPSIS
+        Pure builder for one deployment-plan row (audit R5-M03 row shape).
+    .DESCRIPTION
+        Derives SelectionReason / ExpectedMutation from the classification,
+        carries the content identity (source INF SHA) and the typed
+        observations. KernelTrustObservation is an observation, never a
+        loadability claim (SPEC D.58 discipline); PackageCompletenessDecision
+        reports honestly whether this sister evaluates references at all.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)] $Record,
+        [Parameter()] $DetailRecord = $null,
+        [Parameter(Mandatory = $true)] [bool]$NeedsPatch,
+        [Parameter(Mandatory = $true)] [bool]$TrimApplied,
+        [Parameter()] [object[]]$CoSignAnalyses = @(),
+        [Parameter()] [object[]]$PayloadFiles = @()
+    )
+    $reason = $(if ($NeedsPatch) { 'VariantSelected+NeedsPatch' } else { 'VariantSelected+ServerCompatible' })
+    if ($TrimApplied) { $reason = $reason + '+CoSignTrimSurvivor' }
+    $devices = @()
+    $planNote = ''
+    if ($null -ne $DetailRecord -and $DetailRecord.PSObject.Properties['Devices'] -and $DetailRecord.Devices) {
+        $devices = @($DetailRecord.Devices | ForEach-Object {
+            [pscustomobject]@{ Description = [string]$_.Description; HardwareId = [string]$_.HardwareId }
+        })
+    }
+    else {
+        $planNote = 'rich detail unavailable (legacy CSV workspace) - Devices not recorded'
+    }
+    $wdfObservation = $null
+    if ($null -ne $DetailRecord -and $DetailRecord.PSObject.Properties['Wdf'] -and $DetailRecord.Wdf) {
+        $wdfObservation = [pscustomobject]@{
+            KmdfStatus = [string]$DetailRecord.Wdf.KMDF.Status
+            UmdfStatus = [string]$DetailRecord.Wdf.UMDF.Status
+        }
+    }
+    $wdfDecision = [pscustomobject]@{
+        IsWdfDriver        = ($Record.IsWdfDriver -eq $true -or $Record.IsWdfDriver -eq 'True')
+        KmdfLibraryVersion = [string]$Record.KmdfLibraryVersion
+        UmdfLibraryVersion = [string]$Record.UmdfLibraryVersion
+        Observation        = $wdfObservation
+    }
+    $completeness = $null
+    if ($Record.PSObject.Properties['EligibleForCatalog']) {
+        $missingText = ''
+        if ($Record.PSObject.Properties['MissingReferencedFiles']) { $missingText = [string]$Record.MissingReferencedFiles }
+        $completeness = [pscustomobject]@{
+            Evaluated              = $true
+            EligibleForCatalog     = ($Record.EligibleForCatalog -eq $true -or $Record.EligibleForCatalog -eq 'True')
+            MissingReferencedFiles = $missingText
+        }
+    }
+    else {
+        $completeness = [pscustomobject]@{
+            Evaluated = $false
+            Note      = 'no phantom-reference machinery in this sister'
+        }
+    }
+    $coSignObservation = 'NotAnalysed'
+    foreach ($analysis in @($CoSignAnalyses)) {
+        if ($null -eq $analysis) { continue }
+        if ([string]$analysis.InfName -ieq [string]$Record.Inf) {
+            $coSignObservation = $(if ($analysis.IsFullyCoSigned) { 'CoSigned' } else { 'NotCoSigned' })
+            break
+        }
+    }
+    $infSha = ''
+    if ($Record.PSObject.Properties['InfSha256']) { $infSha = [string]$Record.InfSha256 }
+    return [pscustomobject]@{
+        Inf                         = [string]$Record.Inf
+        SelectedSourceInfPath       = [string]$Record.RelativePath
+        SelectedSourceInfSha256     = $infSha
+        Devices                     = $devices
+        SourceVariant               = [string]$Record.SourceVariant
+        SelectionReason             = $reason
+        ExpectedMutation            = $(if ($NeedsPatch) { 'PatchManufacturerDecorations' } else { 'CopyOnly' })
+        WdfDecision                 = $wdfDecision
+        PackageCompletenessDecision = $completeness
+        KernelTrustObservation      = [pscustomobject]@{
+            CoSignObservation = $coSignObservation
+            Note              = 'observation only; no loadability claim (SPEC D.58)'
+        }
+        PayloadFiles                = @($PayloadFiles)
+        PlanNote                    = $planNote
+    }
+}
+
+function New-DeploymentPlanDocument {
+    <#
+    .SYNOPSIS
+        Pure builder for the deployment-plan document (wave W14).
+    .DESCRIPTION
+        The container layer is deliberately absent: the shadow extraction
+        graph is fail-open and non-authoritative while the authoritative
+        extraction is executable-based, so rows chain straight to
+        SourceArtifactSha256 (recorded scope reduction; see SPEC).
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)] $Ctx,
+        [Parameter()] [object[]]$Rows = @(),
+        [Parameter()] [string]$InventorySha256 = '',
+        [Parameter()] [switch]$Degenerate
+    )
+    return [pscustomobject][ordered]@{
+        PlanSchemaVersion      = $Script:DeploymentPlanSchemaVersion
+        GeneratedAtUtc         = [DateTime]::UtcNow.ToString('o')
+        ToolIdentity           = [pscustomobject]@{ ScriptVersion = $Script:ScriptVersion }
+        SourceArtifactSha256   = [string]$Ctx.ArtifactSha256
+        InfManifestSha256      = [string]$Ctx.InfManifestSha256
+        InventorySha256        = [string]$InventorySha256
+        SkipNonCosignedDrivers = [bool]$Script:SkipNonCosignedDrivers
+        DegeneratePlan         = [bool]$Degenerate
+        ProjectPreference      = '[C] self-signed > [B] vendor > [A] inbox (project policy, not a rank fact)'
+        Rows                   = @($Rows)
+    }
+}
+
+function Get-DeploymentPlanPayloadFile {
+    <#
+    .SYNOPSIS
+        Per-selection payload identity (the W13 ruling deferral repaid).
+    .DESCRIPTION
+        Uses the sister's reference-enumeration machinery when it exists
+        (chipset: Get-InfReferencedFile over [SourceDisksFiles*], the
+        mechanism the audit endorsed over the research shortcut); otherwise
+        hashes the real files in the INF's source folder - which is exactly
+        the set the P06 sibling copy transports into patched/.
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param(
+        [Parameter(Mandatory = $true)] $Record,
+        [Parameter(Mandatory = $true)] [string]$SourceRoot
+    )
+    $payload = New-Object System.Collections.Generic.List[object]
+    $infFull = Join-Path $SourceRoot $Record.RelativePath
+    if (-not (Test-Path -LiteralPath $infFull)) { return @() }
+    $infDir = Split-Path $infFull -Parent
+    if (Get-Command -Name 'Get-InfReferencedFile' -ErrorAction SilentlyContinue) {
+        $infData = $null
+        try { $infData = Read-InfFile -Path $infFull } catch { $infData = $null }
+        if ($null -ne $infData -and $null -ne $infData.Content) {
+            foreach ($ref in @(Get-InfReferencedFile -Content $infData.Content -InfDirectory $infDir)) {
+                $sha = $null
+                if ($ref.Present -and $ref.Path) {
+                    $sha = (Get-FileHash -LiteralPath $ref.Path -Algorithm SHA256).Hash.ToLowerInvariant()
+                }
+                $payload.Add([pscustomobject]@{ Name = [string]$ref.Name; Present = [bool]$ref.Present; Sha256 = $sha })
+            }
+        }
+        return $payload.ToArray()
+    }
+    foreach ($file in @(Get-ChildItem -LiteralPath $infDir -File -ErrorAction SilentlyContinue)) {
+        if ($file.FullName -ieq $infFull) { continue }
+        $payload.Add([pscustomobject]@{
+            Name    = $file.Name
+            Present = $true
+            Sha256  = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        })
+    }
+    return $payload.ToArray()
+}
+
+function Save-DeploymentPlanJson {
+    <#
+    .SYNOPSIS
+        The single writer of deployment-plan.json (G-23 pins writer-once).
+        Returns the written file's lowercase SHA-256.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)] $Ctx,
+        [Parameter(Mandatory = $true)] $Document
+    )
+    $planPath = Join-Path $Ctx.Paths.Root 'deployment-plan.json'
+    $Document | ConvertTo-Json -Depth 8 | Set-Content -Path $planPath -Encoding UTF8
+    return (Get-FileHash -LiteralPath $planPath -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Save-DeploymentPlanExecutionJson {
+    <#
+    .SYNOPSIS
+        Execution evidence beside the immutable plan (fail-open, the W8
+        evidence style): per-row Outcome and the patched INF SHA, keyed to
+        the plan by its SHA-256 - the audit chain's
+        installed -> patched INF SHA -> source INF SHA reverse lookup.
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory = $true)] $Ctx,
+        [Parameter()] [string]$PlanSha256 = '',
+        [Parameter()] [object[]]$Rows = @()
+    )
+    try {
+        $doc = [pscustomobject][ordered]@{
+            PlanSchemaVersion = $Script:DeploymentPlanSchemaVersion
+            GeneratedAtUtc    = [DateTime]::UtcNow.ToString('o')
+            PlanSha256        = [string]$PlanSha256
+            Rows              = @($Rows)
+        }
+        $execPath = Join-Path $Ctx.Paths.Root 'deployment-plan-execution.json'
+        $doc | ConvertTo-Json -Depth 6 | Set-Content -Path $execPath -Encoding UTF8
+    }
+    catch {
+        Write-Caution ('deployment-plan execution evidence not persisted: {0}' -f $_.Exception.Message)
+    }
+}
+
+function Restore-DeploymentPlanFromJson {
+    <#
+    .SYNOPSIS
+        Schema-checked read-only rehydration of the deployment plan;
+        $null on absence, parse failure, or schema mismatch.
+    #>
+    [CmdletBinding()]
+    [OutputType([object])]
+    param(
+        [Parameter(Mandatory = $true)] [string]$Path
+    )
+    if (-not (Test-Path -LiteralPath $Path)) { return $null }
+    $doc = $null
+    try {
+        $doc = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        return $null
+    }
+    if ($null -eq $doc) { return $null }
+    if (-not $doc.PSObject.Properties['PlanSchemaVersion']) { return $null }
+    if ([string]$doc.PlanSchemaVersion -ne $Script:DeploymentPlanSchemaVersion) { return $null }
+    if (-not $doc.PSObject.Properties['Rows']) { return $null }
+    return $doc
+}
+
+function Test-DeploymentPlanAlignment {
+    <#
+    .SYNOPSIS
+        Report-only plan alignment check for downstream phases (W14).
+    .DESCRIPTION
+        Named warnings, never a throw, no behavior change: verifies the
+        plan on disk still hashes to what the P06 marker recorded, and
+        censuses patched/ INFs against the plan rows. Out-of-plan INFs
+        (sibling-copy transport) are NAMED but still processed - the
+        enforcement decision is deliberately deferred to the static-first
+        wave.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory = $true)] $Ctx,
+        [Parameter(Mandatory = $true)] [string]$PhaseLabel
+    )
+    $aligned = $true
+    $planPath = Join-Path $Ctx.Paths.Root 'deployment-plan.json'
+    $plan = Restore-DeploymentPlanFromJson -Path $planPath
+    if ($null -eq $plan) {
+        Write-Caution ('{0}: no readable deployment-plan.json (pre-plan workspace or schema mismatch) - proceeding without plan alignment.' -f $PhaseLabel)
+        return $false
+    }
+    $p06Record = Get-PhaseMarkerRecord -Ctx $Ctx -PhaseId 'P06'
+    $recordedPlanSha = ''
+    if ($p06Record -and
+        $p06Record.PSObject.Properties['output'] -and
+        $p06Record.output.PSObject.Properties['fields'] -and
+        $p06Record.output.fields.PSObject.Properties['DeploymentPlanSha256']) {
+        $recordedPlanSha = [string]$p06Record.output.fields.DeploymentPlanSha256
+    }
+    if ($recordedPlanSha) {
+        $livePlanSha = (Get-FileHash -LiteralPath $planPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($livePlanSha -cne $recordedPlanSha) {
+            Write-Caution ('{0}: deployment-plan.json does NOT hash to the value the P06 marker recorded - the plan changed after P06.' -f $PhaseLabel)
+            $aligned = $false
+        }
+    }
+    else {
+        Write-Caution ('{0}: P06 marker carries no DeploymentPlanSha256 (legacy marker) - plan/marker chain not verifiable.' -f $PhaseLabel)
+        $aligned = $false
+    }
+    $planNames = @{}
+    foreach ($row in @($plan.Rows)) { $planNames[[string]$row.Inf] = $true }
+    $outside = New-Object System.Collections.Generic.List[string]
+    foreach ($inf in @(Get-ChildItem -Path $Ctx.Paths.Patched -Recurse -Filter *.inf -ErrorAction SilentlyContinue)) {
+        if (-not $planNames.ContainsKey($inf.Name)) { $outside.Add($inf.Name) }
+    }
+    if ($outside.Count -gt 0) {
+        Write-Caution ('{0}: {1} INF(s) under patched/ are OUTSIDE the deployment plan (sibling-copy transport): {2}' -f $PhaseLabel, $outside.Count, ((@($outside) | Sort-Object -Unique) -join ', '))
+        Write-Detail '  Report-only in this release: behavior is unchanged; enforcement is a static-first wave decision.' -Color DarkGray
+        $aligned = $false
+    }
+    return $aligned
+}
 
 #####################################################################
 # SECTION 8: PREPARATION PHASES
@@ -12027,10 +12331,66 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
     Write-PhaseHeader 'P06' 'PatchInfs' 'Prep'
 
     Set-DebugStep 'check phase marker (cache hit?)'
-    if (Test-PhaseMarker -Ctx $Ctx -PhaseId 'P06') {
-        Write-Skip "Patched INFs cached at $($Ctx.Paths.Patched)"
-        Write-PhaseFooter 'P06' 'cached'
-        return
+    $p06InventorySha = ''
+    $p05Chain = Get-PhaseMarkerRecord -Ctx $Ctx -PhaseId 'P05'
+    if ($p05Chain -and
+        $p05Chain.PSObject.Properties['output'] -and
+        $p05Chain.output.PSObject.Properties['fields'] -and
+        $p05Chain.output.fields.PSObject.Properties['InventorySha256']) {
+        $p06InventorySha = [string]$p05Chain.output.fields.InventorySha256
+    }
+    $p06Expected = @{
+        InventorySha256             = $p06InventorySha
+        SkipNonCosignedDrivers      = [bool]$Script:SkipNonCosignedDrivers
+        DeploymentPlanSchemaVersion = $Script:DeploymentPlanSchemaVersion
+    }
+    if (Test-PhaseMarker -Ctx $Ctx -PhaseId 'P06' -ExpectedInputFields $p06Expected) {
+        # Content-addressed cache hit (marker v2, wave W14): trust the cached
+        # patched tree only while the deployment plan on disk hashes to the
+        # recorded value AND (for a non-degenerate plan) the patched INF
+        # layer still matches its recorded manifest.
+        $p06Record = Get-PhaseMarkerRecord -Ctx $Ctx -PhaseId 'P06'
+        $recordedPlanSha = ''
+        $recordedPatchedManifest = ''
+        $recordedDegenerate = ''
+        if ($p06Record -and
+            $p06Record.PSObject.Properties['output'] -and
+            $p06Record.output.PSObject.Properties['fields']) {
+            $p06Fields = $p06Record.output.fields
+            if ($p06Fields.PSObject.Properties['DeploymentPlanSha256']) { $recordedPlanSha = [string]$p06Fields.DeploymentPlanSha256 }
+            if ($p06Fields.PSObject.Properties['PatchedInfManifestSha256']) { $recordedPatchedManifest = [string]$p06Fields.PatchedInfManifestSha256 }
+            if ($p06Fields.PSObject.Properties['DegeneratePlan']) { $recordedDegenerate = [string]$p06Fields.DegeneratePlan }
+        }
+        $planPath = Join-Path $Ctx.Paths.Root 'deployment-plan.json'
+        if ($recordedPlanSha -and (Test-Path -LiteralPath $planPath)) {
+            $livePlanSha = (Get-FileHash -LiteralPath $planPath -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($livePlanSha -ceq $recordedPlanSha) {
+                $patchedOk = $false
+                if ($recordedDegenerate -eq 'True') {
+                    $patchedOk = $true
+                }
+                elseif ($recordedPatchedManifest -and (Test-Path -LiteralPath $Ctx.Paths.Patched)) {
+                    $livePatched = Get-InfLayerManifestHash -Root $Ctx.Paths.Patched
+                    $patchedOk = ([string]$livePatched.ManifestSha256 -ceq $recordedPatchedManifest)
+                }
+                if ($patchedOk) {
+                    if ($recordedDegenerate -eq 'True') { $Ctx.DegeneratePlan = $true }
+                    Write-Skip "Patched INFs cached (content-verified) at $($Ctx.Paths.Patched)"
+                    Write-PhaseFooter 'P06' 'cached'
+                    return
+                }
+                Write-Caution 'P06 cache MISS: the patched INF layer diverged from the marker record (output side) - re-patching.'
+            }
+            else {
+                Write-Caution 'P06 cache MISS: deployment-plan.json diverged from the marker record - re-planning.'
+            }
+        }
+        else {
+            Write-Caution 'P06 cache MISS: marker output record incomplete or deployment-plan.json missing - re-running.'
+        }
+    }
+    elseif ((-not $Ctx.Force) -and (Get-PhaseMarkerRecord -Ctx $Ctx -PhaseId 'P06')) {
+        Write-Caution 'P06 cache MISS: marker is legacy (schema-less) or its input identity (inventory SHA / co-sign trim flag / plan schema) diverged - re-running.'
     }
 
     Set-DebugStep 'precondition: load InfInventory (CSV fallback)'
@@ -12097,7 +12457,15 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
             Write-Detail  '    3. Leave the affected devices unbound.'
             Write-Host ''
             Set-DebugStep 'P06: degenerate plan - zero catalog-eligible INFs after trim'
-            Set-PhaseMarker -Ctx $Ctx -PhaseId 'P06' -Metadata @{ DegeneratePlan = $true; AnalysedInfCount = @($Ctx.WhqlCoSignAnalysis).Count; EligibleInfCount = $afterCount }
+            # The empty plan IS the plan (wave W14): write it and record its
+            # identity so a resume run can distinguish planned-empty from
+            # never-planned.
+            $degenerateDoc = New-DeploymentPlanDocument -Ctx $Ctx -Rows @() -InventorySha256 $p06InventorySha -Degenerate
+            $degeneratePlanSha = Save-DeploymentPlanJson -Ctx $Ctx -Document $degenerateDoc
+            Set-PhaseMarker -Ctx $Ctx -PhaseId 'P06' `
+                -Metadata @{ DegeneratePlan = $true; AnalysedInfCount = @($Ctx.WhqlCoSignAnalysis).Count; EligibleInfCount = $afterCount } `
+                -InputFields $p06Expected `
+                -OutputFields @{ DeploymentPlanSha256 = $degeneratePlanSha; PatchedCount = 0; CopiedCount = 0; DegeneratePlan = $true }
             if ($Ctx.WhqlCoSignAnalysis) {
                 Save-WhqlCoSignPlanJson -Ctx $Ctx -PreTrimRecords $preTrimRecords -EligibleRecords @($Ctx.InfInventory)
             }
@@ -12190,13 +12558,54 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
             Write-Detail ("  - {0,-30}  missing: {1}" -f $e.Inf, $missing) -Color DarkGray
         }
     }
-    Write-Step "Patching $($needsPatch.Count) INF file(s)..."
+    Set-DebugStep 'fix the deployment plan (wave W14) - before the first INF mutation'
+    if (-not $Ctx.InfManifestSha256) {
+        # Resume entry: P04 did not run in this process - chain the identity
+        # from the P04 marker record instead of guessing.
+        $p04Chain = Get-PhaseMarkerRecord -Ctx $Ctx -PhaseId 'P04'
+        if ($p04Chain -and
+            $p04Chain.PSObject.Properties['output'] -and
+            $p04Chain.output.PSObject.Properties['fields'] -and
+            $p04Chain.output.fields.PSObject.Properties['InfManifestSha256']) {
+            $Ctx.InfManifestSha256 = [string]$p04Chain.output.fields.InfManifestSha256
+        }
+    }
+    $detailByPath = @{}
+    foreach ($detailRecord in @($Ctx.InfInventoryDetail)) {
+        if ($null -ne $detailRecord -and $detailRecord.PSObject.Properties['RelativePath']) {
+            $detailByPath[[string]$detailRecord.RelativePath] = $detailRecord
+        }
+    }
+    $coSignSet = @()
+    if ($Ctx.WhqlCoSignAnalysis) { $coSignSet = @($Ctx.WhqlCoSignAnalysis) }
+    $trimApplied = [bool]$Script:SkipNonCosignedDrivers
+    $planRows = New-Object System.Collections.Generic.List[object]
+    foreach ($record in $needsPatch) {
+        $detail = $null
+        if ($detailByPath.ContainsKey([string]$record.RelativePath)) { $detail = $detailByPath[[string]$record.RelativePath] }
+        $payloadFiles = @(Get-DeploymentPlanPayloadFile -Record $record -SourceRoot $Ctx.Paths.Extract)
+        $planRows.Add((New-DeploymentPlanRow -Record $record -DetailRecord $detail -NeedsPatch $true -TrimApplied $trimApplied -CoSignAnalyses $coSignSet -PayloadFiles $payloadFiles))
+    }
+    foreach ($record in $copyOnly) {
+        $detail = $null
+        if ($detailByPath.ContainsKey([string]$record.RelativePath)) { $detail = $detailByPath[[string]$record.RelativePath] }
+        $payloadFiles = @(Get-DeploymentPlanPayloadFile -Record $record -SourceRoot $Ctx.Paths.Extract)
+        $planRows.Add((New-DeploymentPlanRow -Record $record -DetailRecord $detail -NeedsPatch $false -TrimApplied $trimApplied -CoSignAnalyses $coSignSet -PayloadFiles $payloadFiles))
+    }
+    $deploymentPlanDoc = New-DeploymentPlanDocument -Ctx $Ctx -Rows $planRows.ToArray() -InventorySha256 $p06InventorySha
+    $deploymentPlanSha = Save-DeploymentPlanJson -Ctx $Ctx -Document $deploymentPlanDoc
+    $planPatchRows = @($deploymentPlanDoc.Rows | Where-Object { $_.ExpectedMutation -ceq 'PatchManufacturerDecorations' })
+    $planCopyRows  = @($deploymentPlanDoc.Rows | Where-Object { $_.ExpectedMutation -ceq 'CopyOnly' })
+    Write-Ok ("Deployment plan fixed: {0} row(s) ({1} to patch / {2} copy-only) -> deployment-plan.json [sha256 {3}...]" -f @($deploymentPlanDoc.Rows).Count, $planPatchRows.Count, $planCopyRows.Count, $deploymentPlanSha.Substring(0, 12))
+
+    Write-Step "Patching $($planPatchRows.Count) INF file(s)..."
 
     $results = @()
+    $executionRows = New-Object System.Collections.Generic.List[object]
     Set-DebugStep 'patch each INF needing Server decorations (Edit-InfForServer)'
-    foreach ($row in $needsPatch) {
-        $src = Join-Path $Ctx.Paths.Extract $row.RelativePath
-        $dst = Join-Path $Ctx.Paths.Patched $row.RelativePath
+    foreach ($row in $planPatchRows) {
+        $src = Join-Path $Ctx.Paths.Extract $row.SelectedSourceInfPath
+        $dst = Join-Path $Ctx.Paths.Patched $row.SelectedSourceInfPath
         $dstDir = Split-Path $dst -Parent
         if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Path $dstDir -Force | Out-Null }
         $srcFolder = Split-Path $src -Parent
@@ -12207,20 +12616,26 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
             $r | Add-Member -NotePropertyName 'OutputPath' -NotePropertyValue $dst -Force
             $r | Add-Member -NotePropertyName 'SourceVariant' -NotePropertyValue $row.SourceVariant -Force
             $results += $r
+            $executionRows.Add([pscustomobject]@{
+                Inf              = [string]$row.Inf
+                Outcome          = 'Patched'
+                PatchedInfSha256 = (Get-FileHash -LiteralPath $dst -Algorithm SHA256).Hash.ToLowerInvariant()
+            })
             Write-Ok "Patched: $($row.Inf) [variant=$($row.SourceVariant) decorations=$($r.Decorations.Count) mirrored=$($r.SectionsMirrored)]"
         } catch {
+            $executionRows.Add([pscustomobject]@{ Inf = [string]$row.Inf; Outcome = 'Failed'; PatchedInfSha256 = $null })
             Write-Fail "$($row.Inf) [variant=$($row.SourceVariant)]: $($_.Exception.Message)"
         }
     }
 
     # Copy-only loop for already-Server-compatible INFs.
     Set-DebugStep 'copy already-Server-compatible INFs (no rewrite)'
-    if ($copyOnly.Count -gt 0) {
-        Write-Step "Copying $($copyOnly.Count) already-Server-compatible INF file(s) (no patching needed)..."
+    if ($planCopyRows.Count -gt 0) {
+        Write-Step "Copying $($planCopyRows.Count) already-Server-compatible INF file(s) (no patching needed)..."
         $copiedCount = 0
-        foreach ($row in $copyOnly) {
-            $src = Join-Path $Ctx.Paths.Extract $row.RelativePath
-            $dst = Join-Path $Ctx.Paths.Patched $row.RelativePath
+        foreach ($row in $planCopyRows) {
+            $src = Join-Path $Ctx.Paths.Extract $row.SelectedSourceInfPath
+            $dst = Join-Path $Ctx.Paths.Patched $row.SelectedSourceInfPath
             $dstDir = Split-Path $dst -Parent
             if (-not (Test-Path $dstDir)) { New-Item -ItemType Directory -Path $dstDir -Force | Out-Null }
             $srcFolder = Split-Path $src -Parent
@@ -12230,18 +12645,38 @@ function Invoke-PrepPhase06_PatchInfs { # psa-disable-line PSA6003 -- compound n
                 # the patching loop's wildcard copy above.
                 Copy-Item -Path (Join-Path $srcFolder '*') -Destination $dstDir -Recurse -Force
                 $copiedCount++
+                $copiedInfPath = Join-Path $Ctx.Paths.Patched $row.SelectedSourceInfPath
+                if (Test-Path -LiteralPath $copiedInfPath) {
+                    $executionRows.Add([pscustomobject]@{
+                        Inf              = [string]$row.Inf
+                        Outcome          = 'Copied'
+                        PatchedInfSha256 = (Get-FileHash -LiteralPath $copiedInfPath -Algorithm SHA256).Hash.ToLowerInvariant()
+                    })
+                }
             } catch {
                 Write-Caution "Copy failed for $($row.Inf): $($_.Exception.Message)"
             }
         }
-        Write-Ok "Copied $copiedCount of $($copyOnly.Count) Server-compatible INF(s) to patched/"
+        Write-Ok "Copied $copiedCount of $($planCopyRows.Count) Server-compatible INF(s) to patched/"
     }
 
     $Ctx.PatchResults = $results
-    Set-PhaseMarker -Ctx $Ctx -PhaseId 'P06' -Metadata @{
-        Patched=$results.Count
-        Copied =$copyOnly.Count   # diagnostic field
-    }
+    Set-DebugStep 'write deployment-plan execution evidence + marker v2 (wave W14)'
+    Save-DeploymentPlanExecutionJson -Ctx $Ctx -PlanSha256 $deploymentPlanSha -Rows $executionRows.ToArray()
+    $patchedLayer = Get-InfLayerManifestHash -Root $Ctx.Paths.Patched
+    Set-PhaseMarker -Ctx $Ctx -PhaseId 'P06' `
+        -Metadata @{
+            Patched=$results.Count
+            Copied =$planCopyRows.Count   # diagnostic field
+        } `
+        -InputFields $p06Expected `
+        -OutputFields @{
+            DeploymentPlanSha256     = $deploymentPlanSha
+            PatchedCount             = [int]$results.Count
+            CopiedCount              = [int]$planCopyRows.Count
+            DegeneratePlan           = $false
+            PatchedInfManifestSha256 = [string]$patchedLayer.ManifestSha256
+        }
     Write-PhaseFooter 'P06' 'done'
 }
 
@@ -12454,6 +12889,9 @@ function Invoke-PrepPhase08_GenerateCatalogs { # psa-disable-line PSA6003 -- com
 
     Set-DebugStep 'precondition: Patched dir + inf2cat available'
     if (-not (Test-Path $Ctx.Paths.Patched)) { throw 'Patched dir missing - run P06 first.' }
+    # Report-only plan alignment (wave W14): named warnings on divergence;
+    # enforcement is deliberately deferred to the static-first wave.
+    $null = Test-DeploymentPlanAlignment -Ctx $Ctx -PhaseLabel 'P08'
     if (-not $Ctx.Inf2cat) { $Ctx.Inf2cat = Find-KitTool 'inf2cat.exe' }
     if (-not $Ctx.Inf2cat) { throw 'inf2cat.exe not found - run P02 first.' }
 
@@ -16839,6 +17277,9 @@ function Invoke-InstPhase03_InstallDrivers { # psa-disable-line PSA6003 -- compo
     if (-not (Test-Path $Ctx.Paths.Patched)) {
         throw "I03: patched directory missing ($($Ctx.Paths.Patched)) - run P06 (PatchInfs) first."
     }
+    # Report-only plan alignment (wave W14): named warnings on divergence;
+    # enforcement is deliberately deferred to the static-first wave.
+    $null = Test-DeploymentPlanAlignment -Ctx $Ctx -PhaseLabel 'I03'
     $infs = Get-ChildItem -Path $Ctx.Paths.Patched -Recurse -Filter *.inf
     if ($infs.Count -eq 0) {
         throw 'I03: no patched INFs to install - run P06 (PatchInfs) first.'
