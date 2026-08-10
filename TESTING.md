@@ -3698,3 +3698,25 @@ the in-repo research layer:
   never explained by a ceiling.
 - **Standing**: the baseline is **evidence, not policy**. No pipeline
   decision consumes it at run time; it exists to be cited.
+
+---
+
+## 45. Reading SourceArtifact evidence files (W8)
+
+Every completed download-verification writes `source-artifact_<file>.json`
+next to the artifact itself (workspace download directory). Reading guide:
+
+- `Attestation` is the headline: `verified` means the Authenticode gate
+  passed; `operator-attested-unverified` means the operator supplied
+  `-AllowUnverifiedDownload` on a FAILED verification and owns the risk —
+  `FailReason` says why it failed, and `AuthenticodeStatus` may read
+  `HostCannotVerify` when the host could not run the check at all.
+- `Sha256` is always present and is the join key toward the research
+  baseline and future provenance work (W13); `RetrievedAtUtc` is the
+  artifact's own mtime (cache-honest), `ObservedAtUtc` is when the record
+  was written.
+- `FormatValidation` is a minimal magic check (`exe:MZ`, `msi:CFB`,
+  `unknown`) — it detects container mismatch, not content validity.
+- The record is evidence, not a gate: writing it is fail-open by design,
+  and a missing record on an admitted file indicates an evidence-path
+  problem worth a REVIEW, not a deployment failure by itself.

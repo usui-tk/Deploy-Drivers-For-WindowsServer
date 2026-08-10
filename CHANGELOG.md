@@ -20,6 +20,58 @@ independently.
 
 ---
 
+## [2026-08-09] `download-override-separation` — Chipset r119 / Graphics r85 / BthPan r67
+
+Wave W8 of the P1 audit remediation (audit v3 H-04R / v5 R5-M05 +
+R5-M02; plan-of-record v4; rulings Q3/Q4 of plan v3 and Q-W8-1).
+NPU r60 and Collector c11 are unchanged.
+
+### Changed — the download-verification override is separated from -Force
+
+- The shared `Assert-DownloadedFileSignature` gate (three-way
+  byte-identical) takes a dedicated `AllowUnverified` switch and carries
+  no `$Force` reference. Default behavior is unchanged fail-closed. With
+  the switch, a FAILED verification continues as
+  `operator-attested-unverified` with a loud warning; hosts where
+  `Get-AuthenticodeSignature` cannot run surface as `HostCannotVerify`
+  under the same attested vocabulary. The gate returns a verification
+  record consumed by the evidence writer.
+- Chipset/Graphics gain the top-level `-AllowUnverifiedDownload` switch,
+  wired to exactly the two AMD installer call sites per script. The
+  Microsoft SDK/WDK and 7-Zip sites in all three download-capable
+  sisters pass no override and stay unconditionally fail-closed.
+  MSBthPan has no bypass-capable site and deliberately gains no new
+  parameter. `-Force` keeps its marker-cache, policy-replace, Path-B and
+  Mode T powers.
+
+### Added — SourceArtifact provenance evidence (R5-M02 shape)
+
+- New `Write-SourceArtifactEvidence` (three-way byte-identical): every
+  completed verification writes `source-artifact_<file>.json` beside the
+  artifact — SchemaVersion, RequestedUrl/ResolvedUrl, RetrievedAtUtc
+  (the artifact's own mtime; cache-honest) plus ObservedAtUtc,
+  SizeBytes, Sha256, FormatValidation (MZ/CFB magic), Authenticode
+  fields, FailReason, Attestation. Evidence writing is fail-open; the
+  verification gate stays fail-closed. This is a W13 provenance
+  precursor and a partial answer to R5-H03 (downloads previously left
+  no SHA record).
+
+### Added — gate G-09 and identity-list extension
+
+- New case `Test-DownloadOverrideSeparation.ps1` (G-09): retired
+  downgrade phrasing pinned to zero across the five products (synthetic
+  self-check included); AST-pinned gate contract (param rename,
+  zero-`$Force` body, attested vocabulary, record return); switch/Ctx/
+  call-site wiring on chipset/graphics; the fail-closed asymmetry and
+  the gate-call/evidence-write pairing; the R5-M02 field set.
+- `Write-SourceArtifactEvidence` joins the three-way identity list in
+  `Test-SisterConsistency.ps1`. Division of labor recorded: identity is
+  vacuous on absence, so presence is G-09's assertion.
+- Negative control against the pre-W8 tree (`9fa5584`): G-09 fails 33
+  named assertions. Suite: 20 cases / 873 assertions.
+
+---
+
 ## [2026-08-09] `ws2016-ceiling-retraction-and-rank-narrative-sweep` — documentation and gate G-05/F9+F10 (no behavioral script changes, no version bumps)
 
 Wave W10 of the P1 audit remediation (audit v5 P1-A / feedback R1, 5A-1,

@@ -111,14 +111,14 @@ BitLocker、 アンチチートソフト、 サポート影響、 証明書有�
 が誤りであると判明し、 **撤回**されました (SPEC D.58)。 この撤回は表現の
 問題ではありません: Secure Boot 有効のまま非 WHQL ドライバをロードするとされた、
 宣伝上の機構そのものが失われています。 最新リリース時点の是正状況: **P0
-(撤回・用語分離・fail-closed な base-policy ゲート) と P1 のウェーブ W1〜W7 が
+(撤回・用語分離・fail-closed な base-policy ゲート) と P1 のウェーブ W1〜W8 が
 着地済み**です — Windows Driver Policy とカーネルイメージ信頼の証跡、
 非 boolean の信頼分類、 ポリシー有効化の OS 分離と Mode T の明示 opt-in 化、
 fail-closed なダウンロード検証と実行ごとの PFX 衛生 (W7 以降は 4 姉妹全て)、
-ProjectPreference と実測 PnP rank の分離、 そして物語面の負債清算。
+ProjectPreference と実測 PnP rank の分離、 物語面の負債清算、 そして
+ダウンロード上書き分離と SourceArtifact 証跡 (W8)。
 **未完了**: P1 クローズアウト項目
-(カーネル信頼証跡の完成、 ダウンロード上書きの分離、
-base policy の機械検証) と P2 の全体。 是正後の実機検証は未実施です。
+(カーネル信頼証跡の完成、 base policy の機械検証) と P2 の全体。 是正後の実機検証は未実施です。
 [TESTING.md](./TESTING.md) に
 記録された過去の検証成功はこの訂正および複数の破壊的設計変更より前のものであり、
 現在の `main` についての言明として読んではいけません。
@@ -146,8 +146,7 @@ base policy の機械検証) と P2 の全体。 是正後の実機検証は未�
    有効化の OS 分離、 カーネルイメージ信頼の証跡、 Windows Driver Policy の
    証跡、 非 boolean の信頼分類、 fail-closed なダウンロード検証、
    chipset/graphics/BthPan の PFX 鍵保護)。 残るのはクローズアウト項目
-   (NPU の PFX 衛生、 信頼証跡の完成、 ダウンロード上書きの分離、
-   base policy の機械検証)。
+   (信頼証跡の完成、 base policy の機械検証)。
 2. **P2 監査是正** — E2E カバレッジ表の是正、 lab/production 記述の分離、
    姉妹スクリプト重複の方針。
 3. **訂正後モデルに対する OS ごとの実機再検証キャンペーン** — TESTING.md の
@@ -184,7 +183,9 @@ base policy の機械検証) と P2 の全体。 是正後の実機検証は未�
 
 ## 新着情報
 
-**最新リリース: `2026-08-09` — NPU r60 / BthPan r66** (`npu-pfx-hygiene-and-msbthpan-rename`): 監査是正の第 7 ウェーブ (W7) として **H-05R** をクローズしました。 NPU スクリプトが他 3 姉妹の W4 PFX 契約に参加します: `New-RandomPfxPassword` と `Set-PfxFileAcl` をバイト同一で採用 (three-way → **four-way**)、 `-PfxPassword` 未指定時は Ctx が**実行ごとのランダム 32 文字 CSPRNG パスワード**を注入、 export は空パスワードで fail-closed となり PFX を Administrators+SYSTEM に ACL 限定、 **Install 完了後に PFX を削除**します (証明書はストアに残存)。 固定の既知リテラル export 分岐と、 その傍らにあった未実装の「re-encode」コメントは退役。 パスワードが実行スコープになったため、 V01 は PFX 不在を Install 後の期待状態として扱い、 V02 は実行を跨いで PFX を開けない場合に公開 CER を検査します (秘密鍵の保持は P09 の署名実行で証明済み)。 構造上の適応も隠さず記録: NPU には phase-marker キャッシュが無いため P07 は署名実行のたびに証明書を再生成し、 leftover PFX の open-probe は無条件再生成で充足されます。 MSBthPan の boot-signing 証跡フィールド `AmdSuppPolicyId` は **`MsBthPanSuppPolicyId`** へリネーム (マーカーファイルは既に正しい名前でした)。 新ゲート **G-07** `Test-NpuPfxHygiene.ps1` が契約を pin し、 AST/リネーム検出器は合成 self-check を内蔵 (pre-W7 ツリーへの陰性対照: **12 件の named failures**、 拡張した W4 契約・姉妹同一性・doc-state ケースで 5 / 2 / 1 件)。 スイート実測は **19 ケース / 763 assertions**。
+**最新リリース: `2026-08-09` — Chipset r119 / Graphics r85 / BthPan r67** (`download-override-separation`): 監査是正の第 8 ウェーブ (W8) として **H-04R** (v5 R5-M05) をクローズし、 **SourceArtifact** provenance 記録 (R5-M02 形) を導入しました。 `-Force` は Authenticode ダウンロードゲートをバイパスしなくなります — marker キャッシュ・policy 置換・Path-B・Mode T の各権能は不変です。 唯一の override は新設の **`-AllowUnverifiedDownload`** (chipset/graphics) で、 到達先は AMD インストーラサイトのみ。 検証 FAILED を **operator-attested-unverified** として LOUD warning つきで続行し、 `Get-AuthenticodeSignature` が実行できないホストは `HostCannotVerify` として同じ attested 語彙に載ります。 Microsoft SDK/WDK と 7-Zip のサイト (MSBthPan 含む) は override を渡さず、 無条件 fail-closed のまま機械ピンされます。 検証が完了するたびに `source-artifact_<file>.json` が artifact の隣に書き出されます (SchemaVersion / URL / RetrievedAtUtc+ObservedAtUtc / SizeBytes / **Sha256** / MZ・CFB マジックによる FormatValidation / Authenticode 各フィールド / Attestation) — W13 provenance schema の先行実装であり、 ダウンロード SHA 未記録 (R5-H03) の artifact レベルでの部分消化でもあります。 証跡書出は fail-open・ゲートは fail-closed。 新ゲート **G-09** `Test-DownloadOverrideSeparation.ps1` が上記全てを pin し (pre-W8 ツリーへの陰性対照: **33 件の named failures**)、 `Write-SourceArtifactEvidence` は three-way 同一性リストに参加。 スイート実測は **20 ケース / 873 assertions**。
+
+- **`2026-08-09` — NPU r60 / BthPan r66** (`npu-pfx-hygiene-and-msbthpan-rename`): 監査是正の第 7 ウェーブ (W7) として **H-05R** をクローズしました。 NPU スクリプトが他 3 姉妹の W4 PFX 契約に参加します: `New-RandomPfxPassword` と `Set-PfxFileAcl` をバイト同一で採用 (three-way → **four-way**)、 `-PfxPassword` 未指定時は Ctx が**実行ごとのランダム 32 文字 CSPRNG パスワード**を注入、 export は空パスワードで fail-closed となり PFX を Administrators+SYSTEM に ACL 限定、 **Install 完了後に PFX を削除**します (証明書はストアに残存)。 固定の既知リテラル export 分岐と、 その傍らにあった未実装の「re-encode」コメントは退役。 パスワードが実行スコープになったため、 V01 は PFX 不在を Install 後の期待状態として扱い、 V02 は実行を跨いで PFX を開けない場合に公開 CER を検査します (秘密鍵の保持は P09 の署名実行で証明済み)。 構造上の適応も隠さず記録: NPU には phase-marker キャッシュが無いため P07 は署名実行のたびに証明書を再生成し、 leftover PFX の open-probe は無条件再生成で充足されます。 MSBthPan の boot-signing 証跡フィールド `AmdSuppPolicyId` は **`MsBthPanSuppPolicyId`** へリネーム (マーカーファイルは既に正しい名前でした)。 新ゲート **G-07** `Test-NpuPfxHygiene.ps1` が契約を pin し、 AST/リネーム検出器は合成 self-check を内蔵 (pre-W7 ツリーへの陰性対照: **12 件の named failures**、 拡張した W4 契約・姉妹同一性・doc-state ケースで 5 / 2 / 1 件)。 スイート実測は **19 ケース / 763 assertions**。
 
 - **`2026-08-09` — Chipset r118 / Graphics r84 / NPU r59 / BthPan r65** (`security-narrative-closure`): 監査是正の第 6 ウェーブ (W6) として、 物語面の負債を清算しました。 撤回済みの署名モデルは P0 の撤回後も help テキスト・コメント・実行時文字列の中に生き残っていました — supplemental policy は依然「default path」と呼ばれ、「Secure Boot は ON のまま」という便益を宣伝し、 ガイダンスブロックは「自己署名証明書を追加する」とカーネルロードの文脈で説明していました。 これらを全量掃引し、 supplemental の説明は一律に「*optional な App Control supplemental policy、 明示的な `-WdacBasePolicyGuid` が必須、 AppControlDecision レイヤーのみ*」(SPEC D.58) に統一。 I02 の tools 不在分岐は、 実際にはもう辿らない testsigning 経路ではなく、 実際に行う拒否をそのまま表示するようになりました。 Mode T ゲートの文言は Microsoft の TESTSIGNING ページで一次資料再検証済み: Secure Boot ON では `bcdedit` の**書込がコマンド実行時に拒否**されます (「silently dropped at next boot」ではありません)。 HVCI 下の拒否は保守的な*プロジェクト方針*として明記されました (Microsoft は HVCI 下で test-signing を要求するのであって、 拒否するのではありません)。 本文書自身の状態セクション、 I02 有効化テーブル、 PFX 行、 成熟度ラベルもツリーに同期。 これを 2 つの新ゲートが保持します: **G-05** `Test-RetiredSigningNarrative.ps1` は正規化した論理ブロックを走査するため、 行折返しや markdown 強調で撤回語彙を隠せません (r117 ツリーへの陰性対照: 45 件の named findings — 手動測量が見落とし G-05 が検出した 2 箇所のコメントを含む)。 **G-06/G-10** `Test-DocumentationStateConsistency.ps1` は状態マーカー・有効化語彙・PFX の doc/code 突合・tests/README のケース表行数・成熟度語彙を両言語で pin します (陰性対照: 27 件の named failures)。 スイート実測は 18 ケース / 743 assertions。
 
@@ -844,7 +845,8 @@ $cred = Get-Credential -UserName 'you@example.com' -Message 'AMD アカウント
 | `-InstallerUrl`     | `''`                             | AMD インストーラ EXE の URL を明示指定 — URL 探索 probe を bypass                                    |
 | `-AmdLandingUrls`   | スクリプト別デフォルト array     | インストーラ EXE URL を scrape するための landing page (AMD のサイト構造変更時のみ override)         |
 | `-AmdFallbackUrl`   | スクリプト別デフォルト URL       | landing page の scraping が失敗した時の last-resort ハードコード URL                                 |
-| `-Force`            | (off)                            | 既存 workspace ファイルの強制上書き (要注意)                                                        |
+| `-Force`            | (off)                            | 既存 workspace ファイルの強制上書き (要注意)。 W8 以降、 Authenticode ダウンロードゲートは**バイパスしません** |
+| `-AllowUnverifiedDownload` | (off)                     | fail-closed ダウンロードゲートの唯一の override — AMD インストーラ限定。 operator-attested-unverified として LOUD warning＋SourceArtifact 記録つきで続行。 Microsoft/7-Zip の DL は常に override 不可 |
 | `-TimestampUrl`     | `http://timestamp.digicert.com`  | `signtool sign /tr` 用 RFC 3161 タイムスタンプサーバ                                                |
 | `-WdacBasePolicyGuid` | **(なし)** | WDAC 補助 policy が target とする SupplementsBasePolicyID。 **既定値なし** — 未指定の場合 supplemental 配置は拒否されます。 rule option 17 (`Enabled:Allow Supplemental Policies`) 付きで配置済みであることを確認した base policy の GUID を指定してください。 SPEC D.58.8 |
 

@@ -8220,6 +8220,25 @@ the same release the MSBthPan boot-signing evidence field
 `AmdSuppPolicyId` was renamed `MsBthPanSuppPolicyId` (the marker file
 already carried the product-correct name).
 
+**W8 extension (H-04R) — override separation and SourceArtifact
+evidence.** `-Force` no longer reaches the download gate: the shared
+`Assert-DownloadedFileSignature` takes a dedicated `AllowUnverified`
+switch (wired only from the chipset/graphics top-level
+`-AllowUnverifiedDownload`, and only at the AMD installer sites),
+carries no `$Force` reference, and returns a verification record. A
+FAILED verification either throws (default) or continues as
+`operator-attested-unverified`; a host where `Get-AuthenticodeSignature`
+cannot run surfaces as `HostCannotVerify` under the same attested
+vocabulary. Every completed verification writes an R5-M02-shaped
+`source-artifact_<file>.json` beside the artifact (SchemaVersion,
+RequestedUrl/ResolvedUrl, RetrievedAtUtc from the artifact's own mtime
+plus ObservedAtUtc, SizeBytes, Sha256, FormatValidation from MZ/CFB
+magic, Authenticode fields, FailReason, Attestation) — evidence is
+fail-open, the gate stays fail-closed. The Microsoft SDK/WDK and 7-Zip
+sites in all three download-capable sisters pass no override; gate
+G-09 machine-pins the asymmetry, the zero-`$Force` gate body and the
+call-site/evidence pairing.
+
 ### D.58.11 ProjectPreference and the measured PnP rank (audit P1-E; W5)
 
 **The rename (H-03).** The `[C] > [B] > [A]` category override is the
