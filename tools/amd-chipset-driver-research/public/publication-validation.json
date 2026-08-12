@@ -1,0 +1,1 @@
+{"SchemaVersion":"amd-chipset-publication-validation/1.0","ToolkitVersion":"2.0.0","GeneratedAtUtc":"2026-08-12T06:12:43.9449968Z","Status":"Pass","ErrorCount":0,"Errors":[],"Policy":"public/** is the only generated repository-publication surface; JSON privacy validation is performed on decoded scalar values and publication is fail-closed."}
