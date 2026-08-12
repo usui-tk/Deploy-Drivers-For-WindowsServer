@@ -56,6 +56,15 @@
 *.pfx   binary
 *.cer   binary
 
+# Generated research dataset is stored VERBATIM, not normalised.
+# tools/amd-chipset-driver-research/public/** is a machine-generated evidence
+# surface whose publication-manifest.json records the SHA-256 of every payload
+# file. EOL normalisation would rewrite those bytes at commit time and the
+# recorded hashes would no longer verify against a fresh clone, destroying the
+# artifact's self-verification. '-text' keeps the generator's bytes exactly as
+# they were audited. Same reasoning as the *.cmd rule above.
+tools/amd-chipset-driver-research/public/**  -text
+
 # GitHub language detection: count .ps1 lines toward "PowerShell"
 *.ps1 linguist-language=PowerShell
 
