@@ -20,6 +20,62 @@ independently.
 
 ---
 
+## [2026-08-12] `amd-chipset-research-v2.0.0` — research toolkit and generated dataset (no product script changes, no version bumps)
+
+Promotes `tools/amd-chipset-driver-research/` to toolkit version **2.0.0** and
+publishes, for the first time, the complete generated research dataset it
+produces. The four deployment scripts and the Collector are untouched; this is a
+research-asset release. The toolkit was developed by a separate model and the
+package was independently audited here before merge.
+
+**Publication model.** The 1.0.0-era `inventory/accepted-baseline/` snapshot is
+retired (kept in Git history only). Generated output now lives under a single
+allow-listed directory, `public/**`, defined by the new `PUBLICATION-POLICY.md`:
+`public/**` is the only generated surface intended for commit, while
+`inventory/`, `reports/`, `work/` and `private/evidence/` are runtime staging and
+stay untracked. The dataset is **65 files** — 25 per-release canonical Raw JSON
+analyses, aggregate indexes, 28 reports, a run summary, a publication validation
+record and a `publication-manifest.json` that records size, SHA-256, generation
+mode and originating source hash for all 64 payload files.
+
+**Generated data is never hand-edited.** Every published file is either
+toolkit-generated, a byte-for-byte copy of the runtime artifact, or a
+deterministic UTF-8/LF normalization of one; the manifest carries
+`HandEdited: false` for all 64 entries and the audit re-derived every hash. A
+wrong generated value is fixed in the generator and the run repeated — not
+patched in place.
+
+**Dataset content.** 25 AMD chipset releases (2.04.04.111 through 8.07.16.1035),
+643 INF package records with exact key-set equality against the published
+inventory CSV, MSI declarative analysis parsing 25/25 read-only with 13,993
+selected rows and zero all-null rows, and per-release Windows Server
+applicability for WS2016/2019/2022/2025 whose 700 summary figures are
+recomputable from the published Raw JSON alone.
+
+**Vendor evidence is byte-faithful.** Path portability is field-scoped: AMD
+selector, MSI and embedded-XML tokens such as `/SETFILTERUSB`, `/SETRYZENPPKG`,
+`/SETPCI`, `/info.xml` and `/DevID.xml` are evidence values and are recorded
+exactly as they appear in the vendor binary, while execution-host paths are
+normalized. Aggregate indexes additionally canonicalize the Windows PowerShell
+5.1 `{ value, Count }` collection wrapper to plain arrays — recognition requires
+an enumerable `value` whose length matches `Count`, so a domain object that
+merely carries those two property names is left alone — and publication fails
+closed if a wrapper survives. Canonical per-release Raw JSON is never rewritten
+by that projection.
+
+**Gate G-20 repointed.** `Test-ResearchDeploymentParity.ps1` read the retired
+baseline CSV; it now reads `public/inventory/amd-chipset-driver-inventory.csv`
+(643 rows, same schema). The `inventory-reconciliation` tool takes its inventory
+path as a parameter and needed no code change, only corrected prose. Negative
+control measured: without the repoint the gate fails by name on the merged tree.
+The suite is unchanged at **28 cases / 1225 assertions**.
+
+**Also in this release.** New `PUBLICATION-POLICY.md`, `TESTING.md`,
+`QT-SELECTOR-REVERSE-ENGINEERING.md` and `INF-ANALYSIS-SYNC.md`; eleven new
+JSON schemas covering the public surface; seven authored Windows qualification
+reports for the 1.2.x development line.
+
+
 ## [2026-08-11] `immutable-deployment-plan` — Chipset r122 / Graphics r87
 
 Wave W14 of the third-party audit remediation (v5 R5-M03; feedback R5 /

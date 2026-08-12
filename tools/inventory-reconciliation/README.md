@@ -1,7 +1,7 @@
 # Inventory Reconciliation Tool
 
-`Compare-ResearchDeploymentInventory.ps1` (1.0.0) joins the research
-accepted-baseline inventory (`tools/amd-chipset-driver-research/`, 25 AMD
+`Compare-ResearchDeploymentInventory.ps1` (1.0.0) joins the published
+research inventory (`tools/amd-chipset-driver-research/public/`, 25 AMD
 chipset releases) against a deployment run's `inf_inventory.csv` and
 classifies every deployment row. It formalizes the 2026-08-09
 reconciliation session (audit v5 R5-H05 / feedback R2), whose analysis

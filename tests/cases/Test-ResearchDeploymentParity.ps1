@@ -97,11 +97,11 @@ try {
     Assert-Equal 'the row is now ExplainedDeploymentOnly' 1 $explained.Count
     Assert-True 'the adjudication Reason is carried as evidence' ($explained[0].Evidence.Contains('adjudicated'))
 
-    Write-TestSection 'G-20: real-baseline smoke (committed baseline only)'
-    $baseline = Join-Path $RepoRoot 'tools/amd-chipset-driver-research/inventory/accepted-baseline/amd-chipset-driver-inventory.csv'
-    Assert-True 'accepted baseline present' (Test-Path -LiteralPath $baseline)
+    Write-TestSection 'G-20: real-baseline smoke (published research inventory only)'
+    $baseline = Join-Path $RepoRoot 'tools/amd-chipset-driver-research/public/inventory/amd-chipset-driver-inventory.csv'
+    Assert-True 'published research inventory present' (Test-Path -LiteralPath $baseline)
     $rows = @(Import-Csv -LiteralPath $baseline)
-    Assert-True ('baseline parses with more than 600 rows (measured: {0})' -f $rows.Count) ($rows.Count -gt 600)
+    Assert-True ('published research inventory parses with more than 600 rows (measured: {0})' -f $rows.Count) ($rows.Count -gt 600)
 } finally {
     Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
 }

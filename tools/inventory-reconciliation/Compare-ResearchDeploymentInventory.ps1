@@ -6,7 +6,7 @@
 .SYNOPSIS
     Research/deployment inventory reconciliation (audit R5-H05 / W11).
 .DESCRIPTION
-    Joins the research accepted-baseline inventory (25 AMD chipset
+    Joins the published research inventory (25 AMD chipset
     releases) against a deployment run's inf_inventory.csv and classifies
     every deployment row:
 
