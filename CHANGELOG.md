@@ -20,6 +20,53 @@ independently.
 
 ---
 
+## [2026-08-13] `amd-graphics-research-v1.0.0` — new research toolkit and generated dataset (no product script changes, no version bumps)
+
+Adds `tools/amd-graphics-driver-research/` at toolkit version **1.0.0**: the
+PowerShell research script, its documentation, 29 JSON schemas, curated seed and
+regression data, 18 authored reports, and the complete generated dataset under
+`public/**`. The four deployment scripts and the Collector are untouched — this
+is a research-asset release, developed by a separate model and independently
+audited here before merge.
+
+**What it researches.** The toolkit discovers AMD graphics driver products and
+releases, acquires and extracts real vendor artifacts, and analyses their INF
+content for Windows Server applicability. It is research tooling and is not part
+of the deployment pipeline. The dataset covers **23 selected artifacts** across
+**21 product groups**, carrying **482 INF driver records** and **1,928** Windows
+Server applicability rows in each of three compatibility matrices. Per-artifact
+driver counts are self-consistent in 23 of 23 documents and agree with the
+aggregate index with no per-key differences.
+
+**Same publication model as the chipset toolkit.** `public/**` is the only
+generated surface intended for commit, defined by the toolkit's own
+`PUBLICATION-POLICY.md`; `inventory/`, `reports/`, `work/` and `private/` are
+runtime staging and stay untracked. Generated JSON and CSV are compact at
+generation time and published byte-for-byte with no publication-time
+reserialization, while generated Markdown is normalized to UTF-8 without BOM
+with LF. `publication-manifest.json` records size, SHA-256, generation mode and
+originating source hash for all 64 payload files, every entry carrying
+`HandEdited: false`. A wrong generated value is fixed in the generator and the
+run repeated, never patched in place.
+
+**Schemas validate the committed data.** All 29 schemas compile as Draft 2020-12
+and validate all 35 published JSON documents with zero errors, so a consumer can
+check the dataset with the schemas that ship beside it. Two distinct catalogue
+schemas are kept deliberately: `product-group-catalog.schema.json` describes the
+curated seed catalogue under `data/`, and `product-groups.schema.json` describes
+the generated `inventory/product-groups.json`.
+
+**Verbatim storage.** `.gitattributes` gains a rule storing this toolkit's
+`public/**` verbatim, as it already does for the chipset toolkit. The dataset's
+generated JSON and CSV keep CRLF, and EOL normalisation at commit time would
+rewrite those bytes and break the manifest's self-verification against a fresh
+clone.
+
+**No repository gate changes.** Nothing in `tests/` referenced this path before
+this release, so no gate needed repointing. The suite is unchanged at **28 cases
+/ 1225 assertions**.
+
+
 ## [2026-08-12] `amd-chipset-research-v2.0.0` — research toolkit and generated dataset (no product script changes, no version bumps)
 
 Promotes `tools/amd-chipset-driver-research/` to toolkit version **2.0.0** and
