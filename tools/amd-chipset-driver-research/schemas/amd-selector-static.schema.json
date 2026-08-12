@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-chipset-driver-research:amd-selector-static:1.2",
+  "title": "AMD Chipset Static Selector Analysis (Qt compiled-selector evidence)",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "Releases"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-chipset-selector-static/1.2"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "AnalysisBoundary": {
+      "type": "string"
+    },
+    "Releases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ReleaseVersion",
+          "DevIdRuleCount",
+          "DevIdRules",
+          "MsiDeclarativeAnalysis"
+        ],
+        "properties": {
+          "ReleaseVersion": {
+            "type": "string"
+          },
+          "DevIdRuleCount": {
+            "type": "integer"
+          },
+          "DevIdRules": {
+            "type": "array"
+          },
+          "MsiDeclarativeAnalysis": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "Notes": {
+            "type": "array"
+          },
+          "SelectorBinaryEvidence": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "Status": {
+                "type": "string"
+              },
+              "SelectorBinaryPath": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "SelectorBinarySha256": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "StringEvidence": {
+                "type": "array"
+              },
+              "UnicodeStringEvidence": {
+                "type": "array"
+              },
+              "CompiledSelectorContract": {
+                "type": [
+                  "object",
+                  "null"
+                ],
+                "properties": {
+                  "SchemaVersion": {
+                    "const": "amd-chipset-compiled-selector-contract/1.0"
+                  },
+                  "ContractId": {
+                    "type": "string"
+                  },
+                  "EvidenceLevel": {
+                    "const": "AmdCompiledStaticProven"
+                  },
+                  "Scope": {
+                    "type": "object"
+                  },
+                  "HostOsDetection": {
+                    "type": "object"
+                  },
+                  "InfoXmlFilter": {
+                    "type": "object"
+                  },
+                  "FilterUsbRule": {
+                    "type": "object"
+                  },
+                  "ReverseEngineeringNotes": {
+                    "type": "array"
+                  },
+                  "RyzenPpkgRule": {
+                    "type": "object"
+                  }
+                },
+                "additionalProperties": true
+              },
+              "Notes": {
+                "type": "array"
+              }
+            },
+            "additionalProperties": true
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "amd-chipset-public-release-index.schema.json",
+  "title": "AMD Chipset Public Release Index",
+  "type": "object",
+  "required": ["SchemaVersion", "ToolkitVersion", "CanonicalRawData", "ReleaseCount", "Releases"],
+  "properties": {
+    "SchemaVersion": {"const": "amd-chipset-public-release-index/1.0"},
+    "ToolkitVersion": {"type": "string"},
+    "GeneratedAtUtc": {"type": "string"},
+    "CanonicalRawData": {"type": "string"},
+    "ReleaseCount": {"type": "integer", "minimum": 0},
+    "Releases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ReleaseVersion", "AnalysisFile", "AnalysisSha256", "DriverPackageCount", "ProductRecordCount", "DevIdRuleCount"],
+        "properties": {
+          "ReleaseVersion": {"type": "string"},
+          "AnalysisFile": {"type": "string"},
+          "AnalysisSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "DriverPackageCount": {"type": "integer", "minimum": 0},
+          "ProductRecordCount": {"type": "integer", "minimum": 0},
+          "DevIdRuleCount": {"type": "integer", "minimum": 0}
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

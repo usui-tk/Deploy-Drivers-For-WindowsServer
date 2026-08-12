@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-chipset-driver-research:release-analysis:2.4",
+  "title": "AMD Chipset Per-Release Semantic Analysis",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "Release",
+    "WindowsServerProfiles",
+    "Summary",
+    "DriverPackages"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-chipset-driver-release-analysis/2.5"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "AnalysisSemantics": {
+      "type": "object"
+    },
+    "Release": {
+      "type": "object"
+    },
+    "WindowsServerProfiles": {
+      "type": "array"
+    },
+    "Summary": {
+      "type": "object"
+    },
+    "DriverPackages": {
+      "type": "array"
+    }
+  }
+}

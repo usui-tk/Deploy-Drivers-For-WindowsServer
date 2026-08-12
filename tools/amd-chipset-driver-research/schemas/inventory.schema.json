@@ -33,6 +33,12 @@
         "object",
         "null"
       ]
+    },
+    "WindowsServerStaticAnalysisIncluded": {
+      "type": "boolean"
+    },
+    "WindowsServerProfiles": {
+      "type": "array"
     }
   }
 }

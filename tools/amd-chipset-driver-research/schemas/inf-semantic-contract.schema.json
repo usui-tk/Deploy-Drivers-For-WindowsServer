@@ -1,0 +1,226 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:deploy-drivers-for-windowsserver:amd-inf-semantic-contract:1.0",
+  "title": "Shared AMD INF Semantic Contract — Chipset / Graphics",
+  "description": "Cross-tool semantic vocabulary. This contract aligns meaning without requiring identical outer JSON document shapes or shared PowerShell modules.",
+  "type": "object",
+  "properties": {
+    "ContractVersion": {
+      "const": "amd-inf-semantic-contract/1.0"
+    },
+    "IdentifierTaxonomyVersion": {
+      "const": "amd-inf-identifier-taxonomy/1.0"
+    },
+    "CanonicalUnitKind": {
+      "enum": [
+        "ReleaseVersion",
+        "ArtifactKey"
+      ]
+    },
+    "WdfScope": {
+      "enum": [
+        "InfWideConservative",
+        "DDInstallScoped"
+      ]
+    },
+    "CanonicalStaticAssessment": {
+      "$ref": "#/$defs/canonicalStaticAssessment"
+    },
+    "RuntimeCompatibilityProven": {
+      "const": false
+    },
+    "Identifier": {
+      "$ref": "#/$defs/identifier"
+    },
+    "ServerProfile": {
+      "$ref": "#/$defs/serverProfile"
+    },
+    "VendorEvidenceScope": {
+      "$ref": "#/$defs/vendorEvidenceScope"
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "canonicalStaticAssessment": {
+      "type": "string",
+      "enum": [
+        "NativeCandidate",
+        "ProjectionCandidate",
+        "WdfRequirementReview",
+        "ReviewRequired",
+        "NotApplicable",
+        "Indeterminate"
+      ]
+    },
+    "identifier": {
+      "type": "object",
+      "required": [
+        "Raw",
+        "Kind",
+        "DisplayName",
+        "IsPnpHardwareId",
+        "IsSoftwareComponentId",
+        "Notes"
+      ],
+      "properties": {
+        "Raw": {
+          "type": "string"
+        },
+        "Kind": {
+          "type": "string",
+          "enum": [
+            "MissingIdentifier",
+            "RootEnumeratedHardwareId",
+            "DeviceClassSpecificId",
+            "GenericHardwareId",
+            "EnumeratorHardwareId",
+            "NetworkSoftwareComponentId",
+            "NetworkComponentOrSoftwareId",
+            "InfModelIdentifier",
+            "UnclassifiedIdentifier"
+          ]
+        },
+        "DisplayName": {
+          "type": "string"
+        },
+        "Enumerator": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "IsPnpHardwareId": {
+          "type": "boolean"
+        },
+        "IsSoftwareComponentId": {
+          "type": "boolean"
+        },
+        "Notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "serverProfile": {
+      "type": "object",
+      "required": [
+        "ProfileId",
+        "Architecture",
+        "OSMajorVersion",
+        "OSMinorVersion",
+        "BuildNumber",
+        "ProductType"
+      ],
+      "properties": {
+        "ProfileId": {
+          "type": "string"
+        },
+        "ShortName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "Architecture": {
+          "const": "amd64"
+        },
+        "OSMajorVersion": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "OSMinorVersion": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "BuildNumber": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ProductType": {
+          "type": "integer",
+          "enum": [
+            1,
+            2,
+            3
+          ]
+        },
+        "SuiteMask": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "DocumentedKMDF": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ObservedKMDF": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "DocumentedUMDF": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ObservedUMDF": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "WdfConfidence": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "OSMajor": {
+          "type": "integer"
+        },
+        "OSMinor": {
+          "type": "integer"
+        },
+        "Build": {
+          "type": "integer"
+        },
+        "Kmdf": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "Umdf": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "Id": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    },
+    "vendorEvidenceScope": {
+      "type": "string",
+      "enum": [
+        "StaticDeclarative",
+        "StaticBinaryInference",
+        "DynamicObservedSingleHost",
+        "DynamicObservedMultiHost",
+        "Emulated",
+        "EmulationConfirmed",
+        "Unresolved"
+      ]
+    }
+  }
+}

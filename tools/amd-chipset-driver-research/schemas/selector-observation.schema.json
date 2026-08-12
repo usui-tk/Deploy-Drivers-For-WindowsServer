@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-chipset-driver-research:selector-observation:1.1",
+  "title": "Observed AMD Selector Device Log",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "SourceSha256",
+    "Host",
+    "DeviceIds",
+    "CandidateEvents",
+    "RemovalEvents",
+    "ImplicitRemovalEvents",
+    "FinalSupportedListObserved",
+    "FinalSelectionStatus",
+    "FinalSupportedFeatures"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-chipset-selector-observation/1.1"
+    },
+    "ObservedReleaseVersion": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "SourcePath": {
+      "type": "string"
+    },
+    "SourceSha256": {
+      "type": "string"
+    },
+    "Host": {
+      "type": "object",
+      "properties": {
+        "WindowsCaption": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "OSVersion": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "BuildNumber": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "ProductType": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "ProductTypeDerivation": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "Architecture": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "CPU": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "DeviceIds": {
+      "type": "array"
+    },
+    "ObservedDeviceGroups": {
+      "type": "array"
+    },
+    "CandidateEvents": {
+      "type": "array"
+    },
+    "RemovalEvents": {
+      "type": "array"
+    },
+    "ImplicitRemovalEvents": {
+      "type": "array"
+    },
+    "FinalSupportedListObserved": {
+      "type": "boolean"
+    },
+    "FinalSelectionStatus": {
+      "enum": [
+        "NotObserved",
+        "ObservedEmpty",
+        "ObservedNonEmpty"
+      ]
+    },
+    "FinalSupportedRawLine": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "FinalSupportedFeatures": {
+      "type": "array"
+    },
+    "FinalSupportedProperties": {
+      "type": "array"
+    },
+    "InstallAttempts": {
+      "type": "array"
+    },
+    "Summary": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}

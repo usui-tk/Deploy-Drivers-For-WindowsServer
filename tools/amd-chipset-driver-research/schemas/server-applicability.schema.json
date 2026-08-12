@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-chipset-driver-research:server-applicability:1.0",
+  "title": "Windows Server Static Applicability",
+  "type": "object",
+  "required": [
+    "Profile",
+    "AsPublishedStatus",
+    "ServerProjectionStatus",
+    "StaticAssessment",
+    "WdfAssessment",
+    "RuntimeCompatibilityProven",
+    "CanonicalStaticAssessment"
+  ],
+  "properties": {
+    "Profile": {
+      "type": "object"
+    },
+    "AsPublishedStatus": {
+      "type": "string"
+    },
+    "ServerProjectionStatus": {
+      "type": "string"
+    },
+    "StaticAssessment": {
+      "type": "string"
+    },
+    "AsPublishedSelections": {
+      "type": "array"
+    },
+    "ServerProjectionSelections": {
+      "type": "array"
+    },
+    "NativeDevices": {
+      "type": "array"
+    },
+    "ProjectionDevices": {
+      "type": "array"
+    },
+    "WdfAssessment": {
+      "type": "object"
+    },
+    "RuntimeCompatibilityProven": {
+      "const": false
+    },
+    "CanonicalStaticAssessment": {
+      "$ref": "inf-semantic-contract.schema.json#/$defs/canonicalStaticAssessment"
+    }
+  }
+}

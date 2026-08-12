@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-chipset-driver-research:host-inventory:1.0",
+  "title": "Read-only AMD Chipset Host Inventory",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "Source",
+    "Devices"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-chipset-host-inventory/1.0"
+    },
+    "CollectedAtUtc": {
+      "type": "string"
+    },
+    "Source": {
+      "type": "string"
+    },
+    "OS": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "CPU": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "WDF": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "Devices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "InstanceId",
+          "HardwareIds",
+          "CompatibleIds"
+        ],
+        "properties": {
+          "InstanceId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "Name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "HardwareIds": {
+            "type": "array"
+          },
+          "CompatibleIds": {
+            "type": "array"
+          },
+          "MatchingDeviceId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "CurrentDriver": {
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

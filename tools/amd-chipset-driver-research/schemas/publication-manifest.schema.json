@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "amd-chipset-publication-manifest.schema.json",
+  "title": "AMD Chipset Public Repository Publication Manifest",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "PublicRootPolicy",
+    "PrivateDataPolicy",
+    "TransformationPolicy",
+    "FileCount",
+    "ManifestEntryCount",
+    "PublicFileCountIncludingManifest",
+    "Files",
+    "ManifestedPayloadSizeBytes",
+    "LargestManifestedFileSizeBytes",
+    "LargestManifestedFileRelativePath"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-chipset-publication-manifest/1.1"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "PublicRootPolicy": {
+      "type": "string"
+    },
+    "PrivateDataPolicy": {
+      "type": "string"
+    },
+    "TransformationPolicy": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "FileCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "Files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "RelativePath",
+          "SizeBytes",
+          "Sha256",
+          "Classification",
+          "GenerationMode",
+          "HandEdited"
+        ],
+        "properties": {
+          "RelativePath": {
+            "type": "string"
+          },
+          "SizeBytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "Sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "Classification": {
+            "const": "PublicRepositoryArtifact"
+          },
+          "GenerationMode": {
+            "enum": [
+              "ToolkitGenerated",
+              "ByteCopyFromRuntimeCanonical",
+              "ByteCopyFromRuntime",
+              "MarkdownLfNoBomFromRuntime"
+            ]
+          },
+          "SourceRelativePath": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "SourceSha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "HandEdited": {
+            "const": false
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "ManifestEntryCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "PublicFileCountIncludingManifest": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "ManifestedPayloadSizeBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "LargestManifestedFileSizeBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "LargestManifestedFileRelativePath": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": true
+}

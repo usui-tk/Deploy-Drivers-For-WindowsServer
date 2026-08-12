@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-chipset-driver-research:msi-observation:1.1",
+  "title": "Observed AMD MSI Verbose Log",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "SourceSha256",
+    "TransactionMode",
+    "MsiNtProductTypes",
+    "SetProperties",
+    "AddLocalObserved",
+    "AddLocalFeatures"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-chipset-msi-observation/1.1"
+    },
+    "SourcePath": {
+      "type": "string"
+    },
+    "SourceSha256": {
+      "type": "string"
+    },
+    "ReleaseVersion": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "CommandLine": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ActionProperty": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "TransactionMode": {
+      "enum": [
+        "AdministrativeExtraction",
+        "NormalInstallOrSelection",
+        "MaintenanceOrUpgrade",
+        "Uninstall",
+        "Unknown"
+      ]
+    },
+    "MsiNtProductTypes": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      }
+    },
+    "PrimaryMsiNtProductType": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "SetProperties": {
+      "type": "array"
+    },
+    "AddLocalObserved": {
+      "type": "boolean"
+    },
+    "AddLocalFeatures": {
+      "type": "array"
+    },
+    "FeatureSelectionInterpretation": {
+      "type": "string"
+    },
+    "FinalInstallStatus": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": true
+}

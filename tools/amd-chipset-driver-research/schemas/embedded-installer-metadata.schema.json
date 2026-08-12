@@ -5,7 +5,7 @@
   "type": "object",
   "required": ["SchemaVersion", "ToolkitVersion", "GeneratedAtUtc", "Releases"],
   "properties": {
-    "SchemaVersion": { "const": "1.0" },
+    "SchemaVersion": { "const": "1.1" },
     "ToolkitVersion": { "type": "string" },
     "GeneratedAtUtc": { "type": "string" },
     "Releases": { "type": "array" }

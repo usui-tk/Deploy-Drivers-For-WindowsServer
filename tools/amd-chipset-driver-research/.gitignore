@@ -1,21 +1,17 @@
-# Runtime evidence and vendor artifacts are never committed.
-evidence/installers/
-evidence/release-notes/
-evidence/download-diagnostics/
-evidence/extraction-logs/
-evidence/runs/
-work/extracted/
+# Generated-output trust boundary:
+#   public/** is intentionally tracked and is the ONLY generated surface intended for unattended commits.
+#   Static script/schema/data/docs are normal reviewed source content and are not governed by this generated-output rule.
 
-# Runtime-generated inventory is intentionally ignored.
-# The reviewed repository snapshot lives under inventory/accepted-baseline/.
-inventory/*.json
-inventory/*.csv
-!inventory/accepted-baseline/
-!inventory/accepted-baseline/**
+# Private/debug evidence and vendor artifacts are never generated-output commit targets.
+private/
+evidence/
+work/
 
-# Derived reports may be committed when explicitly reviewed.
+# Runtime staging is never committed. The generated commit-safe surface is public/.
+inventory/**
+!inventory/.gitkeep
+reports/amd-chipset-driver-history.md
+reports/amd-chipset-windows-server-compatibility.md
+reports/releases/
 
-# Runtime-generated report is ignored; accepted report snapshots are versioned.
-reports/*.md
-!reports/accepted-baseline/
-!reports/accepted-baseline/**
+# public/** is intentionally NOT ignored; automation may stage this directory explicitly after validation.

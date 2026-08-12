@@ -3,13 +3,38 @@
   "$id": "amd-chipset-driver-research-evidence.schema.json",
   "title": "AMD Chipset Driver Research Evidence Run",
   "type": "object",
-  "required": ["SchemaVersion", "ToolkitVersion", "GeneratedAtUtc", "OverallStatus", "ExitCode"],
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "GeneratedAtUtc",
+    "OverallStatus",
+    "ExitCode"
+  ],
   "properties": {
-    "SchemaVersion": { "const": "amd-chipset-driver-research-evidence/1.0" },
-    "ToolkitVersion": { "type": "string" },
-    "GeneratedAtUtc": { "type": "string" },
-    "OverallStatus": { "enum": ["Pass", "ReviewRequired", "FatalError"] },
-    "ExitCode": { "type": "integer", "enum": [0, 1, 2] }
+    "SchemaVersion": {
+      "const": "amd-chipset-driver-research-evidence/1.1"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "OverallStatus": {
+      "enum": [
+        "Pass",
+        "ReviewRequired",
+        "FatalError"
+      ]
+    },
+    "ExitCode": {
+      "type": "integer",
+      "enum": [
+        0,
+        1,
+        2
+      ]
+    }
   },
   "additionalProperties": true
 }

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "amd-chipset-public-run-summary.schema.json",
+  "title": "AMD Chipset Public Run Summary",
+  "type": "object",
+  "required": ["SchemaVersion", "ToolkitVersion", "OverallStatus", "ExitCode", "SelectedStages", "PublicationContract"],
+  "properties": {
+    "SchemaVersion": {"const": "amd-chipset-public-run-summary/1.0"},
+    "ToolkitVersion": {"type": "string"},
+    "GeneratedAtUtc": {"type": "string"},
+    "OverallStatus": {"type": "string"},
+    "ExitCode": {"type": "integer"},
+    "SelectedStages": {"type": "array", "items": {"type": "string"}},
+    "ScriptSha256": {"type": ["string", "null"]},
+    "PublicationContract": {"type": "object"}
+  },
+  "additionalProperties": true
+}

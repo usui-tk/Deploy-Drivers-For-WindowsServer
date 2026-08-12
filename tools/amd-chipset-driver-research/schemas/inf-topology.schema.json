@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-chipset-driver-research:inf-topology:1.1",
+  "title": "INF Semantic Topology",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ManufacturerEntries",
+    "ModelsSections",
+    "ParseWarnings",
+    "SharedContractVersion",
+    "IdentifierTaxonomyVersion"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-inf-topology/1.1"
+    },
+    "Encoding": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ManufacturerEntryCount": {
+      "type": "integer"
+    },
+    "ManufacturerEntries": {
+      "type": "array"
+    },
+    "ModelsSectionCount": {
+      "type": "integer"
+    },
+    "ModelsSections": {
+      "type": "array"
+    },
+    "ParseWarnings": {
+      "type": "array"
+    },
+    "SharedContractVersion": {
+      "const": "amd-inf-semantic-contract/1.0"
+    },
+    "IdentifierTaxonomyVersion": {
+      "const": "amd-inf-identifier-taxonomy/1.0"
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "object",
+      "required": [
+        "Raw",
+        "Kind",
+        "DisplayName",
+        "IsPnpHardwareId",
+        "IsSoftwareComponentId",
+        "Notes"
+      ],
+      "properties": {
+        "Raw": {
+          "type": "string"
+        },
+        "Kind": {
+          "type": "string",
+          "enum": [
+            "MissingIdentifier",
+            "RootEnumeratedHardwareId",
+            "DeviceClassSpecificId",
+            "GenericHardwareId",
+            "EnumeratorHardwareId",
+            "NetworkSoftwareComponentId",
+            "NetworkComponentOrSoftwareId",
+            "InfModelIdentifier",
+            "UnclassifiedIdentifier"
+          ]
+        },
+        "DisplayName": {
+          "type": "string"
+        },
+        "Enumerator": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "IsPnpHardwareId": {
+          "type": "boolean"
+        },
+        "IsSoftwareComponentId": {
+          "type": "boolean"
+        },
+        "Notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

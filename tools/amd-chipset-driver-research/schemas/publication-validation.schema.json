@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "amd-chipset-publication-validation.schema.json",
+  "title": "AMD Chipset Public Repository Publication Validation",
+  "type": "object",
+  "required": ["SchemaVersion", "ToolkitVersion", "Status", "ErrorCount", "Errors", "Policy"],
+  "properties": {
+    "SchemaVersion": {"const": "amd-chipset-publication-validation/1.0"},
+    "ToolkitVersion": {"type": "string"},
+    "GeneratedAtUtc": {"type": "string"},
+    "Status": {"enum": ["Pass", "Fail"]},
+    "ErrorCount": {"type": "integer", "minimum": 0},
+    "Errors": {"type": "array", "items": {"type": "string"}},
+    "Policy": {"type": "string"}
+  },
+  "additionalProperties": true
+}

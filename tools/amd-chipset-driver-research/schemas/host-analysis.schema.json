@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-chipset-driver-research:host-analysis:1.2",
+  "title": "AMD Chipset Host PnP and Selector Analysis",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "Status",
+    "Releases"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-chipset-host-analysis/1.3"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "Status": {
+      "type": "string"
+    },
+    "Semantics": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "Host": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "Observation": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "Releases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ReleaseVersion",
+          "SelectorCandidates",
+          "SelectorComparison",
+          "WindowsPnpInfMatches",
+          "Summary"
+        ],
+        "properties": {
+          "ReleaseVersion": {
+            "type": "string"
+          },
+          "SelectorCandidates": {
+            "type": "array"
+          },
+          "SelectorComparison": {
+            "type": "array"
+          },
+          "MsiObservation": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "WindowsPnpInfMatches": {
+            "type": "array"
+          },
+          "Summary": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}
