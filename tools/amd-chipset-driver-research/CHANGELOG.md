@@ -1,5 +1,10 @@
 # Changelog
-
+## v2.0.0 documentation alignment — 2026-08-13 (documentation only)
+- Reorganizes the AMD Chipset Driver Research Toolkit documentation without changing `Invoke-AmdChipsetDriverResearch.ps1`, toolkit version, schemas, static data, or generated `public/**` research artifacts.
+- Aligns the tool-top Markdown surface with the AMD Graphics Driver Research Toolkit: `README.md`, `SPEC.md`, `TESTING.md`, `RESEARCH-NOTES.md`, `CHANGELOG.md`, `PUBLICATION-POLICY.md`, and `THIRD-PARTY-NOTICES.md`.
+- Rewrites README as the stable current entry point, moves normative requirements into SPEC, expands TESTING into the current release/integration gate, and consolidates reverse-engineering plus downstream self-signed-driver engineering knowledge in `RESEARCH-NOTES.md`.
+- Moves the former top-level `INF-ANALYSIS-SYNC.md` and `QT-SELECTOR-REVERSE-ENGINEERING.md` narratives to `reports/design-history/` and adds `reports/README.md`; no historical research content is discarded.
+- Clarifies that historical reports are evidence/history, while top-level v2.0.0 documents define the current contract.
 ## 2.0.0 — pre-release aggregate-schema hardening — 2026-08-12
 
 - Reviewed the first 2.0.0 Windows regeneration: research execution itself passed (10/10 stages, 25 releases, 643 INF package records, MSI 25/25 `ParsedReadOnly`, F-01 token corruption 0, public identity/privacy checks healthy).
