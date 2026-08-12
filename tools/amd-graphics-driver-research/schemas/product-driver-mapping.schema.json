@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "amd-graphics-product-driver-mapping.schema.json",
+  "title": "AMD Graphics Product Driver Mapping",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "ProductCount",
+    "DriverEntryCount",
+    "UniqueArtifactUrlCount",
+    "Products",
+    "DriverEntries",
+    "ArtifactMappings",
+    "MetadataCompleteness",
+    "CanProceedToAcquire",
+    "LatestFetchFailureCount",
+    "PreviousFetchFailureCount",
+    "NoDriverEntryProductCount"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "enum": [
+        "amd-graphics-product-driver-mapping/1.1",
+        "amd-graphics-product-driver-mapping/1.2"
+      ]
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "ProductCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "DriverEntryCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "UniqueArtifactUrlCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "Products": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "DriverEntries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ProductKey",
+          "ProductGroupKey",
+          "DriverTrackKey",
+          "OperatingSystemTrack",
+          "PackageFamily",
+          "ArtifactRole",
+          "ReleaseVersion",
+          "MajorGeneration",
+          "DownloadUrl",
+          "FileName",
+          "SourcePageUrl"
+        ],
+        "properties": {
+          "ProductKey": {
+            "type": "string"
+          },
+          "ProductGroupKey": {
+            "type": "string"
+          },
+          "DriverTrackKey": {
+            "type": "string"
+          },
+          "OperatingSystemTrack": {
+            "type": "string"
+          },
+          "PublishedOsLabel": {},
+          "PackageFamily": {
+            "type": "string"
+          },
+          "Branch": {
+            "type": "string"
+          },
+          "ArtifactRole": {
+            "type": "string"
+          },
+          "ReleaseKey": {
+            "type": "string"
+          },
+          "ReleaseVersion": {
+            "type": "string"
+          },
+          "MajorGeneration": {
+            "type": "integer"
+          },
+          "ReleaseSortKey": {
+            "type": "string"
+          },
+          "DriverTitle": {},
+          "ReleaseQuality": {},
+          "FileSizeText": {},
+          "ReleaseDateText": {},
+          "DownloadUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "FileName": {
+            "type": "string"
+          },
+          "ArtifactKey": {
+            "type": "string"
+          },
+          "SourcePageKind": {
+            "type": "string"
+          },
+          "SourcePageUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "SelectionTrackKey": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "ArtifactMappings": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "CatalogKind": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "CatalogVersion": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "MetadataCompleteness": {
+      "enum": [
+        "Complete",
+        "Partial",
+        "Empty"
+      ]
+    },
+    "CanProceedToAcquire": {
+      "type": "boolean"
+    },
+    "LatestFetchFailureCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "PreviousFetchFailureCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "NoDriverEntryProductCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "FetchFailureProductKeys": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "NoDriverEntryProductKeys": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "RecoveredFetchProductCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "FallbackFetchProductCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "RetryAttemptCount": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": true
+}

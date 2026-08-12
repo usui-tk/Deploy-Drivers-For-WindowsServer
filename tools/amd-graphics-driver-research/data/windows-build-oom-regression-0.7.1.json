@@ -1,0 +1,64 @@
+{
+  "SchemaVersion": "amd-graphics-driver-research-windows-build-oom-regression/1.0",
+  "ToolkitVersion": "0.7.1",
+  "SourceEvidence": {
+    "FileName": "AmdGraphicsDriverResearchEvidence_20260811-034850_Windows.zip",
+    "Sha256": "1876e37e555d14cb7414c3bb6d7ce480a1489d41b119b1684331e804d1cb9470",
+    "ToolkitVersion": "0.7.0",
+    "StageResults": {
+      "Test": "PASS",
+      "ProductDiscover": "PASS",
+      "ProductMetadata": "PASS",
+      "Select": "PASS",
+      "Acquire": "PASS",
+      "Extract": "PASS",
+      "Inspect": "PASS",
+      "Build": "FAIL"
+    },
+    "UniqueArtifacts": 23,
+    "EstimatedDownloadGiB": 19.54,
+    "InfRecords": 482,
+    "InfParseFailures": 0,
+    "KmdfDeclarations": 198,
+    "UmdfDeclarations": 16,
+    "LegacyDriverPackagesJsonBytes": 956685128,
+    "BuildFailure": "System.OutOfMemoryException in ConvertTo-Json / StringBuilder.ToString"
+  },
+  "Fix": {
+    "DriverPackageIndexSchema": "amd-graphics-driver-packages-index/3.0",
+    "PerArtifactDetailSchema": "amd-graphics-driver-packages-artifact/1.0",
+    "StorageModel": "PerArtifactDetailJson",
+    "CompactJson": true,
+    "TopLevelInventoryEmbedsDriverPackages": false,
+    "AggregateSelectedHardwareIdArraysDuplicated": false,
+    "DetailedDeviceMatrixDefault": false,
+    "ArtifactBoundaryGarbageCollection": true,
+    "LegacyMonolithicBuildRejected": true
+  },
+  "Replay": {
+    "PowerShellVersion": "7.6.4",
+    "ArtifactRecords": 23,
+    "InfRows": 482,
+    "ServerRows": 1928,
+    "BuildStageSeconds": 25.78,
+    "ProcessWallSecondsApprox": 28.35,
+    "PeakRssKiB": 856952,
+    "PerArtifactDetailTotalBytes": 181243552,
+    "LargestPerArtifactDetailBytes": 17902543,
+    "Status": "PASS"
+  },
+  "RealArtifactRegression": {
+    "Artifact": "amd-software-pro-edition-26.q1-winsvr2022-vega-polaris.exe",
+    "InfRecords": 5,
+    "InfParseFailures": 0,
+    "Stages": {
+      "Test": "PASS",
+      "Acquire": "PASS",
+      "Extract": "PASS",
+      "Inspect": "PASS",
+      "Build": "PASS"
+    },
+    "FinalAssessment": "Pass"
+  },
+  "WindowsPowerShell51FinalConfirmationRequired": true
+}

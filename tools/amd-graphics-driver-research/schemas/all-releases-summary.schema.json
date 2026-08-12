@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-graphics-driver-research:all-releases-summary:1.2",
+  "title": "AMD Graphics All Releases Summary 1.2",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "ArtifactCount",
+    "Artifacts"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-graphics-all-releases-summary/1.2"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "SourceOfTruth": {
+      "type": "string"
+    },
+    "ArtifactCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "Artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ArtifactKey",
+          "ReleaseKey"
+        ],
+        "properties": {
+          "ArtifactKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ReleaseKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "DriverCount": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

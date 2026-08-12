@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "amd-graphics-product-group-catalog.schema.json",
+  "title": "AMD Graphics Curated Product Group Catalog",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "CatalogKind",
+    "CatalogVersion",
+    "Scope",
+    "CoveragePolicy",
+    "MajorGenerationPolicy",
+    "Products"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-graphics-product-group-catalog/2.2"
+    },
+    "CatalogKind": {
+      "const": "CuratedProductGroups"
+    },
+    "CatalogVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "Scope": {
+      "type": "string",
+      "minLength": 1
+    },
+    "CoveragePolicy": {
+      "const": "RepresentativeProductPerProductGroup"
+    },
+    "MajorGenerationPolicy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ExcludedByDefault": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "Products": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "Url",
+          "ProductGroupDisplayName",
+          "GraphicsKind",
+          "Reason",
+          "Authority"
+        ],
+        "properties": {
+          "Url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "ProductGroupDisplayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "GraphicsKind": {
+            "enum": [
+              "dGPU",
+              "dGPU-Pro",
+              "iGPU",
+              "iGPU-Pro"
+            ]
+          },
+          "Reason": {
+            "type": "string",
+            "minLength": 1
+          },
+          "Authority": {
+            "const": "AMDOfficialSupportPage"
+          },
+          "AlternateUrls": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uri"
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

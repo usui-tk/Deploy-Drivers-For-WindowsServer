@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-graphics-driver-research:inf-topology:1.0",
+  "title": "AMD Graphics INF Topology",
+  "type": "object",
+  "required": ["SchemaVersion", "Status", "ManufacturerEntries", "TargetEntries", "ModelsSections"],
+  "properties": {
+    "SchemaVersion": { "const": "inf-topology/1.0" },
+    "Status": { "type": "string" },
+    "ManufacturerEntries": { "type": "array" },
+    "TargetEntries": { "type": "array" },
+    "ModelsSections": { "type": "array" },
+    "TopologyHardwareIds": { "type": "array" }
+  },
+  "additionalProperties": true
+}

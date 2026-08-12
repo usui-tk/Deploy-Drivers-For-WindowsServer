@@ -1,0 +1,230 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "amd-graphics-product-catalog.schema.json",
+  "title": "AMD Graphics Product Catalog",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "ProductCount",
+    "ProductGroupCount",
+    "Products",
+    "ProductGroups"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "type": "string"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "Completeness": {
+      "enum": [
+        "CuratedProductGroupCatalog",
+        "SitemapBackedBestEffort",
+        "SeedOnlyFallback",
+        "NoUsableProducts"
+      ]
+    },
+    "ProductCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ProductGroupCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "Products": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/product"
+      }
+    },
+    "ProductGroups": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/group"
+      }
+    },
+    "DiscoveryDiagnostics": {
+      "type": "object"
+    },
+    "CoverageStatus": {
+      "enum": [
+        "CuratedResearchScope",
+        "BestEffort",
+        "Partial",
+        "Empty"
+      ]
+    },
+    "CanClaimFullProductCatalog": {
+      "type": "boolean"
+    },
+    "CatalogKind": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "CatalogVersion": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "CatalogScope": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "CatalogCoveragePolicy": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "CatalogExcludedByDefault": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "product": {
+      "type": "object",
+      "required": [
+        "ProductKey",
+        "ProductGroupKey",
+        "RootCategory",
+        "ProductFamilySlug",
+        "ProductLineSlug",
+        "ProductModelSlug",
+        "LatestPageUrl",
+        "PreviousPageUrl"
+      ],
+      "properties": {
+        "ProductKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ProductGroupKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "RootCategory": {
+          "enum": [
+            "graphics",
+            "processors"
+          ]
+        },
+        "ProductFamilySlug": {
+          "type": "string"
+        },
+        "ProductLineSlug": {
+          "type": "string"
+        },
+        "ProductModelSlug": {
+          "type": "string"
+        },
+        "PathSegments": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "LatestPageUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "PreviousPageUrl": {
+          "type": "string",
+          "format": "uri"
+        },
+        "DiscoverySource": {
+          "type": "string"
+        },
+        "DiscoveryDetail": {},
+        "DiscoveredAtUtc": {
+          "type": "string"
+        },
+        "ProductGroupDisplayName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "GraphicsKind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "FallbackLatestPageUrls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        "FallbackPreviousPageUrls": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "group": {
+      "type": "object",
+      "required": [
+        "ProductGroupKey",
+        "RootCategory",
+        "ProductFamilySlug",
+        "ProductLineSlug",
+        "ProductCount"
+      ],
+      "properties": {
+        "ProductGroupKey": {
+          "type": "string"
+        },
+        "RootCategory": {
+          "enum": [
+            "graphics",
+            "processors"
+          ]
+        },
+        "ProductFamilySlug": {
+          "type": "string"
+        },
+        "ProductLineSlug": {
+          "type": "string"
+        },
+        "ProductCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ProductGroupDisplayName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "GraphicsKind": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

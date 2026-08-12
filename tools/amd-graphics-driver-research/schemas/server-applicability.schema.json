@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-graphics-driver-research:server-applicability:2.2",
+  "title": "AMD Graphics Windows Server Static Applicability 2.2",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "Purpose",
+    "ServerProfiles",
+    "Rows"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "windows-server-applicability/2.2"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "Purpose": {
+      "const": "StaticWindowsServerApplicabilityAnalysisSummary"
+    },
+    "Policy": {
+      "type": "string"
+    },
+    "EvidenceLayers": {
+      "type": "array"
+    },
+    "ServerProfiles": {
+      "type": "array"
+    },
+    "RowCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "Rows": {
+      "type": "array"
+    },
+    "SharedContractVersion": {
+      "const": "amd-inf-semantic-contract/1.0"
+    },
+    "IdentifierTaxonomyVersion": {
+      "const": "amd-inf-identifier-taxonomy/1.0"
+    },
+    "WdfScope": {
+      "const": "InfWideConservative"
+    }
+  },
+  "additionalProperties": true
+}

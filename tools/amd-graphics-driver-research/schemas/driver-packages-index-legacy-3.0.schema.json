@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-graphics-driver-research:driver-packages-index:3.0",
+  "title": "AMD Graphics Driver Package Inspection Index",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "ArtifactCount",
+    "DriverPackageCount",
+    "Artifacts"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-graphics-driver-packages-index/3.0"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "StorageModel": {
+      "type": "string"
+    },
+    "ArtifactCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "DriverPackageCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "KmdfDeclarationCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "UmdfDeclarationCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "Artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ArtifactKey",
+          "ReleaseKey",
+          "ReleaseVersion",
+          "DriverPackageCount",
+          "ParseFailureCount",
+          "DetailJson"
+        ],
+        "properties": {
+          "ArtifactKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ReleaseKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ReleaseVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "PackageFamily": {
+            "type": "string"
+          },
+          "Branch": {
+            "type": "string"
+          },
+          "ArtifactRole": {
+            "type": "string"
+          },
+          "InspectionStatus": {
+            "type": "string"
+          },
+          "DriverPackageCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "ParseFailureCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "KmdfDeclarationCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "UmdfDeclarationCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "DetailJson": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

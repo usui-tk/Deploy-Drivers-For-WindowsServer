@@ -1,0 +1,32 @@
+{
+  "SchemaVersion": "amd-graphics-windows-publication-portability-regression/1.0",
+  "SourceToolkitVersion": "0.8.1",
+  "TargetToolkitVersion": "0.8.2",
+  "SourceEvidenceSha256": "e41279142a596e3c305fdf9eb4d2215ca946aaf9d564cb71584a49a9fda5f500",
+  "SourcePublicZipSha256": "6be60db5984b7cc1d55f301eda625946dc47a0075f7ee63bbc13f0565e4f6d4f",
+  "SourceRun": {
+    "OverallStatus": "Pass",
+    "ExitCode": 0,
+    "SelectedArtifacts": 23,
+    "CurrentDrivers": 482,
+    "ParseFailures": 0,
+    "CumulativeArtifacts": 27,
+    "CumulativeDrivers": 551,
+    "ServerRows": 2204
+  },
+  "SourcePublication": {
+    "PrivateReferenceManifestSha256": "f988131cac9590a4caf1c8df5463639748604d6eb4c52bdf6247ea94f6674b6e",
+    "PublicManifestSha256": "f988131cac9590a4caf1c8df5463639748604d6eb4c52bdf6247ea94f6674b6e",
+    "ManifestReferenceMatches": true,
+    "ManifestEntryCount": 72,
+    "WindowsBackslashRelativePathCount": 68,
+    "PrivacyFindingCount": 0
+  },
+  "Hardening": [
+    "POSIX-relative publication manifest paths",
+    "exact public file-set validation",
+    "manifest size/SHA-256 validation",
+    "public run-summary/selection/cumulative dataset cross-check",
+    "PublicationManifestSelfTest"
+  ]
+}

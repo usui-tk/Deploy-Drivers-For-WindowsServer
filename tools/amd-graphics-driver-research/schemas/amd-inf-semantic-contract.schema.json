@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-driver-research:inf-semantic-contract:1.0",
+  "title": "AMD INF Semantic Contract",
+  "type": "object",
+  "required": [
+    "SharedContractVersion",
+    "IdentifierTaxonomyVersion",
+    "InfTopologySchemaVersion",
+    "WdfScope",
+    "RuntimeCompatibilityBoundary"
+  ],
+  "properties": {
+    "SharedContractVersion": {
+      "const": "amd-inf-semantic-contract/1.0"
+    },
+    "IdentifierTaxonomyVersion": {
+      "const": "amd-inf-identifier-taxonomy/1.0"
+    },
+    "InfTopologySchemaVersion": {
+      "const": "amd-inf-topology/1.1"
+    },
+    "WdfScope": {
+      "const": "InfWideConservative"
+    },
+    "RuntimeCompatibilityBoundary": {
+      "const": "NotEstablished"
+    }
+  },
+  "additionalProperties": true
+}

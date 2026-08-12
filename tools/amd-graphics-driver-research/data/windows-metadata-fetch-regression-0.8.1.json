@@ -1,0 +1,150 @@
+{
+  "SchemaVersion": "amd-graphics-windows-metadata-fetch-regression/1.0",
+  "ToolkitVersion": "0.8.1",
+  "GeneratedAtUtc": "2026-08-11T10:38:54.598861+00:00",
+  "SourceEvidence": {
+    "FileName": "AmdGraphicsDriverResearchEvidence_20260811-100331_Windows.zip",
+    "Sha256": "f0e3e738feb53bc1c1ba15666ff4e6ac1cc6602f6929084a8e67cec4b7c084fa"
+  },
+  "Observed080Run": {
+    "StageResults": [
+      {
+        "Name": "Test",
+        "Status": "PASS",
+        "Reason": null
+      },
+      {
+        "Name": "ProductDiscover",
+        "Status": "PASS",
+        "Reason": null
+      },
+      {
+        "Name": "ProductMetadata",
+        "Status": "PASS",
+        "Reason": null
+      },
+      {
+        "Name": "Select",
+        "Status": "PASS",
+        "Reason": null
+      },
+      {
+        "Name": "Acquire",
+        "Status": "BLOCKED",
+        "Reason": "Product metadata coverage is Partial: latest fetch failures=2; previous fetch failures=0; products with no graphics driver entries=2. Acquisition was blocked to prevent a partial three-generation baseline."
+      },
+      {
+        "Name": "Extract",
+        "Status": "SKIPPED",
+        "Reason": "Prerequisite pipeline stage did not complete: Acquire BLOCKED - Product metadata coverage is Partial: latest fetch failures=2; previous fetch failures=0; products with no graphics driver entries=2. Acquisition was blocked to prevent a partial three-generation baseline."
+      },
+      {
+        "Name": "Inspect",
+        "Status": "SKIPPED",
+        "Reason": "Prerequisite pipeline stage did not complete: Acquire BLOCKED - Product metadata coverage is Partial: latest fetch failures=2; previous fetch failures=0; products with no graphics driver entries=2. Acquisition was blocked to prevent a partial three-generation baseline."
+      },
+      {
+        "Name": "Build",
+        "Status": "SKIPPED",
+        "Reason": "Prerequisite pipeline stage did not complete: Acquire BLOCKED - Product metadata coverage is Partial: latest fetch failures=2; previous fetch failures=0; products with no graphics driver entries=2. Acquisition was blocked to prevent a partial three-generation baseline."
+      }
+    ],
+    "MetadataCompleteness": "Partial",
+    "ProductCount": 21,
+    "DriverEntryCount": 1100,
+    "UniqueArtifactUrlCount": 279,
+    "LatestFetchFailureCount": 2,
+    "PreviousFetchFailureCount": 0,
+    "NoDriverEntryProductCount": 2,
+    "FailedProducts": [
+      {
+        "ProductKey": "processors|ryzen-pro|ryzen-pro-5000-series|amd-ryzen-7-pro-5755ge",
+        "ProductGroupKey": "processors|ryzen-pro|ryzen-pro-5000-series",
+        "LatestPageUrl": "https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen-pro/ryzen-pro-5000-series/amd-ryzen-7-pro-5755ge.html",
+        "PreviousPageUrl": "https://www.amd.com/en/support/downloads/previous-drivers.html/processors/ryzen-pro/ryzen-pro-5000-series/amd-ryzen-7-pro-5755ge.html",
+        "LatestFetchStatus": "FetchFailed",
+        "LatestFetchError": "HTTP 403 Forbidden for https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen-pro/ryzen-pro-5000-series/amd-ryzen-7-pro-5755ge.html",
+        "PreviousFetchStatus": "NotRequested",
+        "PreviousFetchError": null,
+        "DriverEntryCount": 0
+      },
+      {
+        "ProductKey": "processors|ryzen-pro|ryzen-pro-8000-series|amd-ryzen-7-pro-8700g",
+        "ProductGroupKey": "processors|ryzen-pro|ryzen-pro-8000-series",
+        "LatestPageUrl": "https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen-pro/ryzen-pro-8000-series/amd-ryzen-7-pro-8700g.html",
+        "PreviousPageUrl": "https://www.amd.com/en/support/downloads/previous-drivers.html/processors/ryzen-pro/ryzen-pro-8000-series/amd-ryzen-7-pro-8700g.html",
+        "LatestFetchStatus": "FetchFailed",
+        "LatestFetchError": "HTTP 403 Forbidden for https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen-pro/ryzen-pro-8000-series/amd-ryzen-7-pro-8700g.html",
+        "PreviousFetchStatus": "NotRequested",
+        "PreviousFetchError": null,
+        "DriverEntryCount": 0
+      }
+    ],
+    "ProductMetadataElapsedMilliseconds": 6980
+  },
+  "Diagnosis": {
+    "DirectCause": "Two curated Ryzen PRO primary latest support-page requests returned HTTP 403; Acquire then correctly blocked the partial three-generation baseline.",
+    "DirectoryReorganizationDirectCause": false,
+    "DirectoryReorganizationNote": "The public/private layout can change cache availability, but the recorded failure itself is an HTTP 403 response from the AMD page requests, not a local path resolution failure.",
+    "TransientVendorEdgeHypothesis": "PlausibleNotProven"
+  },
+  "Hardening": {
+    "ProductMetadataRetryCountDefault": 3,
+    "ProductMetadataRequestDelayMillisecondsDefault": 350,
+    "RetryableStatusCodes": [
+      403,
+      408,
+      425,
+      429,
+      500,
+      502,
+      503,
+      504
+    ],
+    "PrimaryFallbackGroups": [
+      {
+        "ProductGroupKey": "processors|ryzen-pro|ryzen-pro-5000-series",
+        "PrimaryModel": "amd-ryzen-7-pro-5755ge",
+        "AlternateModels": [
+          "amd-ryzen-7-pro-5750ge"
+        ]
+      },
+      {
+        "ProductGroupKey": "processors|ryzen-pro|ryzen-pro-8000-series",
+        "PrimaryModel": "amd-ryzen-7-pro-8700g",
+        "AlternateModels": [
+          "amd-ryzen-7-pro-8700ge",
+          "amd-ryzen-5-pro-8600g"
+        ]
+      }
+    ],
+    "PreviousDriversFetchedForCuratedProcessorWhenLatestFails": true,
+    "FetchProvenanceSidecar": true,
+    "BlockedDownstreamAssessmentStatus": "SKIP",
+    "ReviewRequiredPublicationPolicy": "PreservePreviousValidatedPublicSurface"
+  },
+  "Qualification": {
+    "ScriptSha256": "5698332bb707e16c1632ac451c579358232238c831d80ea0f26a032d122805bb",
+    "AstParseErrors": 0,
+    "TestStage": "Pass",
+    "ProductDiscoverStage": "Pass",
+    "CuratedCatalogVersion": "2026-08-11.2",
+    "CuratedProductCount": 21,
+    "CuratedProductGroupCount": 21,
+    "ResilientFetchRuntimeTest": {
+      "RetrySuccess": true,
+      "RetryStatus": "RetriedFetched",
+      "RetryAttemptCount": 3,
+      "RetryRecovered": true,
+      "FallbackSuccess": true,
+      "FallbackStatus": "FallbackFetched",
+      "FallbackAttemptCount": 3,
+      "FallbackSource": "Alternate",
+      "FallbackEffectiveUri": "http://127.0.0.1:18766/fallback",
+      "NotFoundSuccess": false,
+      "NotFoundAttemptCount": 1,
+      "NotFoundStatusCode": null
+    },
+    "LiveWindowsMetadataRetryQualification": "PendingUserRerun"
+  }
+}

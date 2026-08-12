@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-driver-research:inf-identifier-taxonomy:1.0",
+  "title": "AMD INF Identifier Taxonomy",
+  "type": "object",
+  "required": [
+    "Raw",
+    "Kind",
+    "DisplayName",
+    "IsPnpHardwareId",
+    "IsSoftwareComponentId",
+    "Notes"
+  ],
+  "properties": {
+    "Raw": {
+      "type": "string"
+    },
+    "Kind": {
+      "enum": [
+        "MissingIdentifier",
+        "RootEnumeratedHardwareId",
+        "DeviceClassSpecificId",
+        "GenericHardwareId",
+        "EnumeratorHardwareId",
+        "NetworkSoftwareComponentId",
+        "NetworkComponentOrSoftwareId",
+        "InfModelIdentifier",
+        "UnclassifiedIdentifier"
+      ]
+    },
+    "DisplayName": {
+      "type": "string"
+    },
+    "Enumerator": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "IsPnpHardwareId": {
+      "type": "boolean"
+    },
+    "IsSoftwareComponentId": {
+      "type": "boolean"
+    },
+    "Notes": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-graphics-driver-research:embedded-installer-metadata:2.1",
+  "title": "AMD Graphics Embedded Installer Metadata Evidence",
+  "type": "object",
+  "required": ["SchemaVersion", "ToolkitVersion", "GeneratedAtUtc", "Releases"],
+  "properties": {
+    "SchemaVersion": { "const": "2.1" },
+    "ToolkitVersion": { "type": "string" },
+    "GeneratedAtUtc": { "type": "string" },
+    "Purpose": { "const": "EmbeddedInstallerMetadataEvidence" },
+    "InterpretationPolicy": { "type": "string" },
+    "Releases": { "type": "array" }
+  },
+  "additionalProperties": true
+}

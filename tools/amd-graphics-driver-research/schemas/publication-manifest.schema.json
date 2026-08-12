@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AMD Graphics public publication manifest",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "GeneratedAtUtc",
+    "PathFormat",
+    "ManifestSelfIncluded",
+    "PublicRootPolicy",
+    "PrivateDataPolicy",
+    "CanonicalJsonPolicy",
+    "FileCount",
+    "ManifestEntryCount",
+    "PublicFileCountIncludingManifest",
+    "ManifestedPayloadSizeBytes",
+    "LargestManifestedFileSizeBytes",
+    "LargestManifestedFileRelativePath",
+    "Files"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-graphics-publication-manifest/1.3"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "PathFormat": {
+      "const": "POSIXRelative"
+    },
+    "ManifestSelfIncluded": {
+      "const": false
+    },
+    "PublicRootPolicy": {
+      "type": "string"
+    },
+    "PrivateDataPolicy": {
+      "type": "string"
+    },
+    "CanonicalJsonPolicy": {
+      "type": "string"
+    },
+    "TransformationPolicy": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "FileCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ManifestEntryCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "PublicFileCountIncludingManifest": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "ManifestedPayloadSizeBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "LargestManifestedFileSizeBytes": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "LargestManifestedFileRelativePath": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "Files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "RelativePath",
+          "SizeBytes",
+          "Sha256",
+          "Classification",
+          "GenerationMode",
+          "HandEdited"
+        ],
+        "properties": {
+          "RelativePath": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\).+$"
+          },
+          "SizeBytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "Sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "Classification": {
+            "const": "PublicRepositoryArtifact"
+          },
+          "GenerationMode": {
+            "enum": [
+              "ByteCopyFromRuntimeCanonical",
+              "ByteCopyFromRuntime",
+              "ByteCopyFromRuntimeReport",
+              "ToolkitGeneratedOrPreservedBaseline",
+              "MarkdownLfNoBomFromRuntime",
+              "ToolkitGeneratedMarkdownLfNoBom",
+              "ToolkitGeneratedOrPreservedMarkdownLfNoBom"
+            ]
+          },
+          "SourceRelativePath": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "SourceSha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "HandEdited": {
+            "const": false
+          }
+        }
+      }
+    }
+  }
+}

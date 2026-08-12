@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-graphics-driver-research:driver-packages-integrity:1.0",
+  "title": "AMD Graphics Driver Package Shard Integrity",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "Status",
+    "ArtifactCount",
+    "DriverPackageCount",
+    "Errors",
+    "Artifacts"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-graphics-driver-packages-integrity/1.0"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "Status": {
+      "enum": [
+        "Pass",
+        "Fail"
+      ]
+    },
+    "IndexSchemaVersion": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ArtifactCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "DriverPackageCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ParseFailureCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "KmdfDeclarationCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "UmdfDeclarationCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "Errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "Artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ArtifactKey",
+          "DetailJson",
+          "DetailJsonSha256",
+          "DetailJsonSizeBytes",
+          "DriverPackageCount",
+          "ParseFailureCount"
+        ],
+        "properties": {
+          "ArtifactKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "DetailJson": {
+            "type": "string",
+            "minLength": 1
+          },
+          "DetailJsonSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "DetailJsonSizeBytes": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "DriverPackageCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "ParseFailureCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "KmdfDeclarationCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "UmdfDeclarationCount": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-graphics-driver-research:assessment:1.2",
+  "title": "AMD Graphics Driver Research Final Assessment 1.2",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "GeneratedAtUtc",
+    "OverallStatus",
+    "ExitCode",
+    "Items"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-graphics-driver-research-assessment/1.2"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "OverallStatus": {
+      "enum": [
+        "Pass",
+        "ReviewRequired",
+        "FatalError"
+      ]
+    },
+    "ExitCode": {
+      "type": "integer"
+    },
+    "Items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "Name",
+          "Status",
+          "Detail"
+        ],
+        "properties": {
+          "Name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "Status": {
+            "enum": [
+              "PASS",
+              "REVIEW",
+              "SKIP"
+            ]
+          },
+          "Detail": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

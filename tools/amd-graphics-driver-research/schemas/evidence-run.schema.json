@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-graphics-driver-research:evidence-run:1.0",
+  "title": "AMD Graphics Driver Research Evidence Run",
+  "type": "object",
+  "required": ["SchemaVersion", "ToolkitVersion", "GeneratedAtUtc", "OverallStatus", "ExitCode"],
+  "properties": {
+    "SchemaVersion": { "const": "amd-graphics-driver-research-evidence/1.0" },
+    "ToolkitVersion": { "type": "string" },
+    "GeneratedAtUtc": { "type": "string" },
+    "OverallStatus": { "enum": ["Pass", "ReviewRequired", "FatalError"] },
+    "ExitCode": { "type": "integer", "enum": [0, 1, 2] }
+  },
+  "additionalProperties": true
+}

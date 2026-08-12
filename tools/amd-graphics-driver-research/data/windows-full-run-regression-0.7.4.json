@@ -1,0 +1,86 @@
+{
+  "SchemaVersion": "amd-graphics-windows-full-run-regression/0.7.4",
+  "ToolkitVersion": "0.7.4",
+  "GeneratedAtUtc": "2026-08-11T09:10:30Z",
+  "SourceEvidence": {
+    "FileName": "AmdGraphicsDriverResearchEvidence_20260811-080459_Windows.zip",
+    "Sha256": "093e2bc38b3a4f843bdee4d0e8b9c66d418f2a7c0a75c72705e05b3dcfb1d210",
+    "SourceToolkitVersion": "0.7.3",
+    "SourceScriptSha256": "32c7a678fe60fe0927b7d32cf297d306a491ce26787da2bd42be7887b1fe0ca5"
+  },
+  "ObservedRun": {
+    "OverallStatus": "Pass",
+    "ExitCode": 0,
+    "StageCount": 8,
+    "StageStatuses": {
+      "Test": "PASS",
+      "ProductDiscover": "PASS",
+      "ProductMetadata": "PASS",
+      "Select": "PASS",
+      "Acquire": "PASS",
+      "Extract": "PASS",
+      "Inspect": "PASS",
+      "Build": "PASS"
+    },
+    "TotalElapsed": "40m35.3s"
+  },
+  "Selection": {
+    "ProductGroups": 21,
+    "DriverEntries": 1148,
+    "SelectionTrackCount": 38,
+    "TrackGenerationSelectionCount": 95,
+    "ArtifactSelectionCount": 95,
+    "UniqueSelectedArtifactCount": 23,
+    "EstimatedDownloadBytes": 20981376616,
+    "ActualAcquiredBytes": 20226623856,
+    "SizeVariancePercent": -3.6,
+    "EvidenceConflictCount": 3,
+    "ArtifactRoleTransitionTrackCount": 21,
+    "UnknownSizeArtifactCount": 0
+  },
+  "ArtifactPipelineAudit": {
+    "SelectedArtifactCount": 23,
+    "AcquiredArtifactCount": 23,
+    "ExtractedArtifactCount": 23,
+    "InspectedArtifactCount": 23,
+    "SelectionAcquisitionArtifactKeyDifferences": 0,
+    "AcquisitionExtractionArtifactKeyDifferences": 0,
+    "ExtractionInspectionArtifactKeyDifferences": 0,
+    "AcquisitionExtractionSha256Mismatches": 0,
+    "Status": "Pass"
+  },
+  "InspectBuild": {
+    "CurrentArtifactCount": 23,
+    "CurrentInfCount": 482,
+    "ParseFailureCount": 0,
+    "KmdfDeclarationCount": 198,
+    "UmdfDeclarationCount": 16,
+    "DriverPackageShardIntegrity": "Pass",
+    "CumulativeArtifactCount": 27,
+    "CumulativeDriverCount": 551,
+    "CumulativeServerRowCount": 2204,
+    "BuildAggregateIntegrity": "Pass"
+  },
+  "EvidenceArchiveAudit": {
+    "ZipEntryCount": 141,
+    "EvidenceManifestFileCount": 140,
+    "ManifestFilesVerified": 140,
+    "ManifestHashOrSizeErrors": 0,
+    "JsonDocumentsParsed": 74,
+    "JsonParseErrors": 0,
+    "UnmanifestedFilesExcludingManifest": 0
+  },
+  "Hardening": {
+    "UnsupportedSchemaSelfTest": "StructuredReviewNoThrow",
+    "ArtifactPipelineConsistencyAssessment": true,
+    "EstimatedVsActualDownloadSizeReported": true,
+    "CanonicalBaselinePromotedArtifactCount": 27,
+    "FinalScriptSha256": "376c33f4b7a88828ab9ee6a268dcaeda6e68f02f23e823e28ab36aa022ca27f8",
+    "PowerShellAstErrors": 0
+  },
+  "RemainingNotes": [
+    "Three OS-track evidence conflicts remain preserved as provenance and were deterministically resolved by the existing filename override policy.",
+    "Twenty-one selection tracks contain ArtifactRole transitions across generations; role transitions are retained as evidence and do not split the stable selection track.",
+    "Windows PowerShell 5.1 confirmation of the new 0.7.4 reporting-only hardening remains a follow-up gate; the underlying 0.7.3 full pipeline is already confirmed Pass."
+  ]
+}

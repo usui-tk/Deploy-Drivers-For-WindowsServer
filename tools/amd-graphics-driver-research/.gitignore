@@ -1,0 +1,17 @@
+# Generated-output trust boundary:
+#   public/** is intentionally tracked and is the ONLY generated surface intended for unattended commits.
+#   Static script/schema/data/docs are normal reviewed source content and are not governed by this generated-output rule.
+
+# Private/debug evidence and vendor artifacts are never generated-output commit targets.
+private/
+evidence/
+work/
+
+# Runtime staging is never committed. The generated commit-safe surface is public/.
+inventory/**
+!inventory/.gitkeep
+reports/amd-graphics-driver-history.md
+reports/windows-server-compatibility-analysis.md
+reports/releases/
+
+# public/** is intentionally NOT ignored; GitHub Actions may stage this directory explicitly after validation.

@@ -1,0 +1,276 @@
+{
+  "SchemaVersion": "amd-graphics-semantic-sync-regression/1.0",
+  "ToolkitVersion": "0.5.0",
+  "GeneratedAtUtc": "2026-08-10T15:41:16.225557+00:00",
+  "SourceFeedback": "AMD-Graphics-Driver-Research-0.4.3-SYNC-FEEDBACK.md",
+  "SourceBaseline": {
+    "GraphicsVersion": "0.4.3",
+    "GraphicsPackageSha256": "0b699923f21dc0454eb29140ac2f1e1bbfee2c111d9cac46c37c1431ea2eb48c",
+    "ChipsetReferenceVersion": "1.2.2-dev-preview",
+    "ChipsetArtifactsModified": false,
+    "HistoricalGraphicsEvidenceRewritten": false
+  },
+  "SemanticContract": {
+    "SharedContractVersion": "amd-inf-semantic-contract/1.0",
+    "IdentifierTaxonomyVersion": "amd-inf-identifier-taxonomy/1.0",
+    "InfTopologySchemaVersion": "amd-inf-topology/1.1",
+    "WdfScope": "InfWideConservative",
+    "DDInstallScopedClaimed": false,
+    "RuntimeCompatibilityBoundary": "NotEstablished"
+  },
+  "SyntheticRegression": {
+    "FinalTestResult": "PASS",
+    "WindowsServerAnalysisSelfTest": "PASS",
+    "InfIdentifierTaxonomySelfTest": "PASS",
+    "GraphicsIdentitySelfTest": "PASS"
+  },
+  "Artifacts": [
+    {
+      "FileName": "whql-amd-software-adrenalin-edition-23.11.1-win10-win11-nov3-rdna-combined.json",
+      "ReleaseKey": "Adrenalin|Main|23.11.1",
+      "ArtifactRole": "RDNACombined",
+      "InstallerSha256": "dfc701c2580d14f8ccb729d62e88640e8ba661701d0ea270fb8e63d3f75a19e7",
+      "DriverCount": 29,
+      "LegacyStaticAssessmentChangeCount": 0,
+      "NewlyRetainedTopologyIdentifierUniqueCount": 13,
+      "NewlyRetainedTopologyIdentifierOccurrenceCount": 13,
+      "NewlyRetainedTopologyIdentifierExamples": [
+        "ACP\\DEVTYPE_0002&DEVREV_0000&VEN_1022&DEV_15E2",
+        "ACP\\DEVTYPE_0002&DEVREV_0062&VEN_1022&DEV_15E2",
+        "ACP\\DEVTYPE_0003&DEVREV_0000&VEN_1022&DEV_15E2",
+        "ACP\\DEVTYPE_0004&DEVREV_0000&VEN_1022&DEV_15E2",
+        "ACP\\DEVTYPE_0005&DEVREV_0000&VEN_1022&DEV_15E2",
+        "ACP\\DEVTYPE_0006&DEVREV_0000&VEN_1022&DEV_15E2",
+        "ACP\\VEN_1002&DEV_15E2&I2S_0000",
+        "ACP\\VEN_1022&DEV_15E2",
+        "SOUNDWIRE\\SDCA_06&MAN_025D&FUNC_0714&TYPE_02&VER_01&ADR_02&LID_01&UID_00&SUBSYS_15E21022&DynamicEnumMicrophone0",
+        "{4DCB0606-6415-4A36-BDC5-9B1792117DC9}\\Capture",
+        "{4DCB0606-6415-4A36-BDC5-9B1792117DC9}\\Render",
+        "{4DCB0606-6415-4A36-BDC5-9B1792117DC9}\\UajCapture"
+      ],
+      "IdentifierKindCounts": {
+        "EnumeratorHardwareId": 3894,
+        "RootEnumeratedHardwareId": 5,
+        "DeviceClassSpecificId": 4
+      }
+    },
+    {
+      "FileName": "whql-amd-software-adrenalin-edition-23.11.1-win10-win11-nov3-rdna.json",
+      "ReleaseKey": "Adrenalin|Main|23.11.1",
+      "ArtifactRole": "RDNA",
+      "InstallerSha256": "f50417bf6f041898d9518eac8de0174dff82d05f576d3e87230f38f04f3a2a86",
+      "DriverCount": 21,
+      "LegacyStaticAssessmentChangeCount": 0,
+      "NewlyRetainedTopologyIdentifierUniqueCount": 13,
+      "NewlyRetainedTopologyIdentifierOccurrenceCount": 13,
+      "NewlyRetainedTopologyIdentifierExamples": [
+        "ACP\\DEVTYPE_0002&DEVREV_0000&VEN_1022&DEV_15E2",
+        "ACP\\DEVTYPE_0002&DEVREV_0062&VEN_1022&DEV_15E2",
+        "ACP\\DEVTYPE_0003&DEVREV_0000&VEN_1022&DEV_15E2",
+        "ACP\\DEVTYPE_0004&DEVREV_0000&VEN_1022&DEV_15E2",
+        "ACP\\DEVTYPE_0005&DEVREV_0000&VEN_1022&DEV_15E2",
+        "ACP\\DEVTYPE_0006&DEVREV_0000&VEN_1022&DEV_15E2",
+        "ACP\\VEN_1002&DEV_15E2&I2S_0000",
+        "ACP\\VEN_1022&DEV_15E2",
+        "SOUNDWIRE\\SDCA_06&MAN_025D&FUNC_0714&TYPE_02&VER_01&ADR_02&LID_01&UID_00&SUBSYS_15E21022&DynamicEnumMicrophone0",
+        "{4DCB0606-6415-4A36-BDC5-9B1792117DC9}\\Capture",
+        "{4DCB0606-6415-4A36-BDC5-9B1792117DC9}\\Render",
+        "{4DCB0606-6415-4A36-BDC5-9B1792117DC9}\\UajCapture"
+      ],
+      "IdentifierKindCounts": {
+        "EnumeratorHardwareId": 2564,
+        "RootEnumeratedHardwareId": 3,
+        "DeviceClassSpecificId": 4
+      }
+    },
+    {
+      "FileName": "amd-software-pro-edition-26.q1-win11-rdna.json",
+      "ReleaseKey": "ProEdition|MultiArtifact|26.Q1",
+      "ArtifactRole": "RDNA",
+      "InstallerSha256": "12482d7df129ebf40fb79c84e79e17f26dc9dac45f17961e6d18b5f8d39ae6d8",
+      "DriverCount": 39,
+      "LegacyStaticAssessmentChangeCount": 0,
+      "NewlyRetainedTopologyIdentifierUniqueCount": 55,
+      "NewlyRetainedTopologyIdentifierOccurrenceCount": 62,
+      "NewlyRetainedTopologyIdentifierExamples": [
+        "ACP\\DEVTYPE_0002&DEVREV_0000&VEN_1022&DEV_15E2&REV_60",
+        "ACP\\DEVTYPE_0002&DEVREV_0000&VEN_1022&DEV_15E2&REV_63",
+        "ACP\\DEVTYPE_0002&DEVREV_0000&VEN_1022&DEV_15E2&REV_6F",
+        "ACP\\DEVTYPE_0002&DEVREV_0000&VEN_1022&DEV_15E2&REV_70",
+        "ACP\\DEVTYPE_0002&DEVREV_0000&VEN_1022&DEV_15E2&REV_71",
+        "ACP\\DEVTYPE_0002&DEVREV_0000&VEN_1022&DEV_15E2&REV_72",
+        "ACP\\DEVTYPE_0002&DEVREV_0062&VEN_1022&DEV_15E2&REV_62",
+        "ACP\\DEVTYPE_0003&DEVREV_0000&VEN_1022&DEV_15E2&REV_60",
+        "ACP\\DEVTYPE_0003&DEVREV_0000&VEN_1022&DEV_15E2&REV_63",
+        "ACP\\DEVTYPE_0003&DEVREV_0000&VEN_1022&DEV_15E2&REV_6F",
+        "ACP\\DEVTYPE_0003&DEVREV_0000&VEN_1022&DEV_15E2&REV_70",
+        "ACP\\DEVTYPE_0003&DEVREV_0000&VEN_1022&DEV_15E2&REV_71"
+      ],
+      "IdentifierKindCounts": {
+        "EnumeratorHardwareId": 469,
+        "RootEnumeratedHardwareId": 2,
+        "DeviceClassSpecificId": 10
+      }
+    },
+    {
+      "FileName": "amd-software-pro-edition-26.q1-winsvr2022-vega-polaris.json",
+      "ReleaseKey": "ProEdition|MultiArtifact|26.Q1",
+      "ArtifactRole": "WindowsServer-PolarisVega",
+      "InstallerSha256": "08f5966167a77aa064ba609889362ead3daea5421908d4d475f7fddddc555f0a",
+      "DriverCount": 5,
+      "LegacyStaticAssessmentChangeCount": 0,
+      "NewlyRetainedTopologyIdentifierUniqueCount": 0,
+      "NewlyRetainedTopologyIdentifierOccurrenceCount": 0,
+      "NewlyRetainedTopologyIdentifierExamples": [],
+      "IdentifierKindCounts": {
+        "EnumeratorHardwareId": 632,
+        "RootEnumeratedHardwareId": 1
+      }
+    }
+  ],
+  "RegressionSummary": {
+    "ArtifactCount": 4,
+    "LegacyStaticAssessmentChangeCount": 0,
+    "NewlyRetainedTopologyIdentifierOccurrencesByArtifact": 88,
+    "NewlyRetainedTopologyIdentifierUniqueValuesSummedByArtifact": 81,
+    "IdentifierKindCountsAcrossModels": {
+      "EnumeratorHardwareId": 7559,
+      "RootEnumeratedHardwareId": 11,
+      "DeviceClassSpecificId": 18
+    },
+    "CumulativeInfTopologyRecords": 94,
+    "CumulativeInfServerRows": 376,
+    "CumulativeDeviceServerRows": 21131
+  },
+  "NativeServerControl": {
+    "Artifact": "amd-software-pro-edition-26.q1-winsvr2022-vega-polaris.exe",
+    "PrimaryInf": "u2197744.inf",
+    "ExpectedAndObserved": [
+      {
+        "ServerId": "windows-server-2016",
+        "StaticAssessment": "NOT_APPLICABLE",
+        "CanonicalStaticAssessment": "NotApplicable",
+        "AsPublished": "ExplicitlyExcluded",
+        "WdfScope": "InfWideConservative",
+        "RuntimeCompatibility": "NotEstablished",
+        "RuntimeCompatibilityProven": false
+      },
+      {
+        "ServerId": "windows-server-2019",
+        "StaticAssessment": "NOT_APPLICABLE",
+        "CanonicalStaticAssessment": "NotApplicable",
+        "AsPublished": "ExplicitlyExcluded",
+        "WdfScope": "InfWideConservative",
+        "RuntimeCompatibility": "NotEstablished",
+        "RuntimeCompatibilityProven": false
+      },
+      {
+        "ServerId": "windows-server-2022",
+        "StaticAssessment": "NATIVE_CANDIDATE",
+        "CanonicalStaticAssessment": "NativeCandidate",
+        "AsPublished": "NativeApplicable",
+        "WdfScope": "InfWideConservative",
+        "RuntimeCompatibility": "NotEstablished",
+        "RuntimeCompatibilityProven": false
+      },
+      {
+        "ServerId": "windows-server-2025",
+        "StaticAssessment": "NATIVE_CANDIDATE",
+        "CanonicalStaticAssessment": "NativeCandidate",
+        "AsPublished": "NativeApplicable",
+        "WdfScope": "InfWideConservative",
+        "RuntimeCompatibility": "NotEstablished",
+        "RuntimeCompatibilityProven": false
+      },
+      {
+        "ServerId": "windows-server-2016",
+        "StaticAssessment": "NATIVE_CANDIDATE",
+        "CanonicalStaticAssessment": "NativeCandidate",
+        "AsPublished": "NativeApplicable",
+        "WdfScope": "InfWideConservative",
+        "RuntimeCompatibility": "NotEstablished",
+        "RuntimeCompatibilityProven": false
+      },
+      {
+        "ServerId": "windows-server-2019",
+        "StaticAssessment": "NATIVE_CANDIDATE",
+        "CanonicalStaticAssessment": "NativeCandidate",
+        "AsPublished": "NativeApplicable",
+        "WdfScope": "InfWideConservative",
+        "RuntimeCompatibility": "NotEstablished",
+        "RuntimeCompatibilityProven": false
+      },
+      {
+        "ServerId": "windows-server-2022",
+        "StaticAssessment": "NATIVE_CANDIDATE",
+        "CanonicalStaticAssessment": "NativeCandidate",
+        "AsPublished": "NativeApplicable",
+        "WdfScope": "InfWideConservative",
+        "RuntimeCompatibility": "NotEstablished",
+        "RuntimeCompatibilityProven": false
+      },
+      {
+        "ServerId": "windows-server-2025",
+        "StaticAssessment": "NATIVE_CANDIDATE",
+        "CanonicalStaticAssessment": "NativeCandidate",
+        "AsPublished": "NativeApplicable",
+        "WdfScope": "InfWideConservative",
+        "RuntimeCompatibility": "NotEstablished",
+        "RuntimeCompatibilityProven": false
+      }
+    ]
+  },
+  "FinalAudit": {
+    "FinalScriptSha256": "c5db55562aee6d9c5ebb3793672d22e393409b7b6e14ffbca19263d2fcd0f706",
+    "PowerShellAstParseErrors": 0,
+    "JsonFilesParsed": 29,
+    "PortableAbsolutePathLeakCount": 0,
+    "SchemaValidation": [
+      [
+        "whql-amd-software-adrenalin-edition-23.11.1-win10-win11-nov3-rdna-combined.json",
+        "release-analysis",
+        "PASS"
+      ],
+      [
+        "whql-amd-software-adrenalin-edition-23.11.1-win10-win11-nov3-rdna-combined.json",
+        "nested-inf-topology",
+        "PASS"
+      ],
+      [
+        "whql-amd-software-adrenalin-edition-23.11.1-win10-win11-nov3-rdna.json",
+        "release-analysis",
+        "PASS"
+      ],
+      [
+        "whql-amd-software-adrenalin-edition-23.11.1-win10-win11-nov3-rdna.json",
+        "nested-inf-topology",
+        "PASS"
+      ],
+      [
+        "amd-software-pro-edition-26.q1-win11-rdna.json",
+        "release-analysis",
+        "PASS"
+      ],
+      [
+        "amd-software-pro-edition-26.q1-win11-rdna.json",
+        "nested-inf-topology",
+        "PASS"
+      ],
+      [
+        "amd-software-pro-edition-26.q1-winsvr2022-vega-polaris.json",
+        "release-analysis",
+        "PASS"
+      ],
+      [
+        "amd-software-pro-edition-26.q1-winsvr2022-vega-polaris.json",
+        "nested-inf-topology",
+        "PASS"
+      ],
+      [
+        "windows-server-applicability.json",
+        "server-applicability",
+        "PASS"
+      ]
+    ]
+  }
+}

@@ -1,0 +1,189 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "amd-graphics-product-selection-plan.schema.json",
+  "title": "AMD Graphics Product Selection Plan",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "SelectionPolicy",
+    "MajorGenerationCount",
+    "TrackGenerationSelectionCount",
+    "ArtifactSelectionCount",
+    "SelectionTrackCount",
+    "UniqueSelectedArtifactCount",
+    "Selections",
+    "SelectedArtifacts"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-graphics-product-selection-plan/1.2"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "SelectionPolicy": {
+      "type": "string"
+    },
+    "MajorGenerationCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "ProductGroupFilter": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "UniqueSelectedArtifactCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "EstimatedDownloadBytes": {
+      "type": [
+        "integer",
+        "number"
+      ],
+      "minimum": 0
+    },
+    "Selections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "SelectionTrackKey",
+          "DriverTrackKey",
+          "ProductGroupKey",
+          "OperatingSystemTrack",
+          "PackageFamily",
+          "ArtifactRole",
+          "MajorGeneration",
+          "ReleaseVersion",
+          "DownloadUrl",
+          "Reason"
+        ],
+        "properties": {
+          "DriverTrackKey": {
+            "type": "string"
+          },
+          "ProductGroupKey": {
+            "type": "string"
+          },
+          "OperatingSystemTrack": {
+            "type": "string"
+          },
+          "PackageFamily": {
+            "type": "string"
+          },
+          "ArtifactRole": {
+            "type": "string"
+          },
+          "MajorGeneration": {
+            "type": "integer"
+          },
+          "ReleaseVersion": {
+            "type": "string"
+          },
+          "DownloadUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "Reason": {
+            "const": "LatestReleaseInMajorGenerationForStableProductTrack"
+          },
+          "SelectionTrackKey": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "SelectedArtifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "DownloadUrl",
+          "FileName"
+        ],
+        "properties": {
+          "DownloadUrl": {
+            "type": "string",
+            "format": "uri"
+          },
+          "FileName": {
+            "type": "string"
+          },
+          "SelectionTrackReferences": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "DriverTrackReferences": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "MaximumSelectedArtifactCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "MaximumEstimatedDownloadGiB": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ProductCatalogCompleteness": {
+      "type": "string"
+    },
+    "TrackEvidenceConflictCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "SelectionTrackCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "TrackGenerationSelectionCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "EstimatedDownloadCompleteness": {
+      "type": "string",
+      "enum": [
+        "Complete",
+        "Partial"
+      ]
+    },
+    "UnknownSizeArtifactCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ArtifactRoleTransitionTrackCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ArtifactRoleTransitions": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "ArtifactSelectionCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ProductMetadataCompleteness": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

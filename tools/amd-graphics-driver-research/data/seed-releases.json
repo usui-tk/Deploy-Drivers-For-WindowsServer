@@ -1,0 +1,76 @@
+{
+  "SchemaVersion": "amd-graphics-driver-research-seeds/1.0",
+  "Purpose": "Curated bootstrap identities for AMD graphics release discovery. Seeds are discovery hints, not an accepted historical baseline.",
+  "Records": [
+    {
+      "ReleaseVersion": "26.7.1",
+      "PackageFamily": "Adrenalin",
+      "Branch": "Main",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RAD-WIN-26-7-1.html",
+      "Reason": "Current-era Main/RDNA representative release."
+    },
+    {
+      "ReleaseVersion": "26.5.2",
+      "PackageFamily": "Adrenalin",
+      "Branch": "PolarisVega",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RAD-WIN-26-5-2-POLARIS-VEGA.html",
+      "Reason": "Current-era Polaris/Vega branch representative release."
+    },
+    {
+      "ReleaseVersion": "25.8.1",
+      "PackageFamily": "Adrenalin",
+      "Branch": "Main",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RAD-WIN-25-8-1.html",
+      "Reason": "Same public version exists in split-era Main and Polaris/Vega streams."
+    },
+    {
+      "ReleaseVersion": "25.8.1",
+      "PackageFamily": "Adrenalin",
+      "Branch": "PolarisVega",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RAD-WIN-25-8-1-POLARIS-VEGA.html",
+      "Reason": "Same-version branch identity regression seed."
+    },
+    {
+      "ReleaseVersion": "23.11.1",
+      "PackageFamily": "Adrenalin",
+      "Branch": "Main",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RAD-WIN-23-11-1.html",
+      "Reason": "Branch-split transition representative release."
+    },
+    {
+      "ReleaseVersion": "23.11.1",
+      "PackageFamily": "Adrenalin",
+      "Branch": "PolarisVega",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RAD-WIN-23-11-1-POLARIS-VEGA.html",
+      "Reason": "Branch-split transition Polaris/Vega representative release."
+    },
+    {
+      "ReleaseVersion": "23.9.1",
+      "PackageFamily": "Adrenalin",
+      "Branch": "Unified",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RAD-WIN-23-9-1.html",
+      "Reason": "Pre-split unified Adrenalin representative release."
+    },
+    {
+      "ReleaseVersion": "22.7.1",
+      "PackageFamily": "Adrenalin",
+      "Branch": "Unified",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RAD-WIN-22-7-1.html",
+      "Reason": "Older unified Adrenalin representative release for container/history qualification."
+    },
+    {
+      "ReleaseVersion": "26.Q1",
+      "PackageFamily": "ProEdition",
+      "Branch": "MultiArtifact",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-PRO-WIN-26-Q1.html",
+      "Reason": "PRO Edition representative release with multiple RDNA/Pre-RDNA/Server artifacts."
+    },
+    {
+      "ReleaseVersion": "22.Q4",
+      "PackageFamily": "ProEdition",
+      "Branch": "MultiArtifact",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-PRO-WIN-22-Q4.html",
+      "Reason": "Historical PRO Edition representative release."
+    }
+  ]
+}

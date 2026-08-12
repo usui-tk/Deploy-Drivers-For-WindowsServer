@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-graphics-driver-research:build-integrity:1.0",
+  "title": "AMD Graphics Build Aggregate Integrity",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "Status",
+    "CurrentArtifactCount",
+    "CurrentDriverCount",
+    "CumulativeArtifactCount",
+    "CumulativeDriverCount",
+    "TopologyArtifactCount",
+    "ServerRowCount",
+    "ServerProfileCount",
+    "Errors"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-graphics-build-integrity/1.0"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "Status": {
+      "enum": [
+        "Pass",
+        "Fail"
+      ]
+    },
+    "CurrentArtifactCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "CurrentDriverCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "CumulativeArtifactCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "CumulativeDriverCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "TopologyArtifactCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ServerRowCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ServerProfileCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "Errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": true
+}

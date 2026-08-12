@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-graphics-driver-research:inf-topology:1.1",
+  "title": "AMD Shared INF Semantic Topology",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "SharedContractVersion",
+    "IdentifierTaxonomyVersion",
+    "Status",
+    "ManufacturerEntries",
+    "TargetEntries",
+    "ModelsSections",
+    "TopologyHardwareIds",
+    "ParseWarnings"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-inf-topology/1.1"
+    },
+    "SharedContractVersion": {
+      "const": "amd-inf-semantic-contract/1.0"
+    },
+    "IdentifierTaxonomyVersion": {
+      "const": "amd-inf-identifier-taxonomy/1.0"
+    },
+    "Status": {
+      "type": "string"
+    },
+    "ManufacturerEntries": {
+      "type": "array"
+    },
+    "TargetEntries": {
+      "type": "array"
+    },
+    "ModelsSections": {
+      "type": "array"
+    },
+    "TopologyHardwareIds": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ParseWarnings": {
+      "type": "array"
+    }
+  },
+  "$defs": {
+    "identifier": {
+      "type": "object",
+      "required": [
+        "Raw",
+        "Kind",
+        "DisplayName",
+        "IsPnpHardwareId",
+        "IsSoftwareComponentId",
+        "Notes"
+      ],
+      "properties": {
+        "Raw": {
+          "type": "string"
+        },
+        "Kind": {
+          "type": "string"
+        },
+        "DisplayName": {
+          "type": "string"
+        },
+        "Enumerator": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "IsPnpHardwareId": {
+          "type": "boolean"
+        },
+        "IsSoftwareComponentId": {
+          "type": "boolean"
+        },
+        "Notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

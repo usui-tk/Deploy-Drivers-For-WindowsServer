@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-graphics-driver-research:driver-packages-artifact:1.0",
+  "title": "AMD Graphics Per-Artifact Driver Package Inspection",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "ArtifactKey",
+    "ReleaseKey",
+    "ReleaseVersion",
+    "DriverPackageCount",
+    "ParseFailureCount",
+    "DriverPackages"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-graphics-driver-packages-artifact/1.0"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "ArtifactKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ReleaseKey": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ReleaseVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "PackageFamily": {
+      "type": "string"
+    },
+    "Branch": {
+      "type": "string"
+    },
+    "ArtifactRole": {
+      "type": "string"
+    },
+    "DriverPackageCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ParseFailureCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "KmdfDeclarationCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "UmdfDeclarationCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "DriverPackages": {
+      "type": "array"
+    }
+  },
+  "additionalProperties": true
+}

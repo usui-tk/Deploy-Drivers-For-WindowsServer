@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-graphics-driver-research:release:1.2",
+  "title": "AMD Graphics Release Discovery 1.2",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "Releases"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "1.2"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "Completeness": {
+      "type": "string"
+    },
+    "ReleaseCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "Releases": {
+      "type": "array"
+    }
+  }
+}

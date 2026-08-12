@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AMD Graphics public surface privacy and dataset validation",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "GeneratedAtUtc",
+    "Status",
+    "ErrorCount",
+    "Errors",
+    "PrivacyStatus",
+    "PrivacyErrorCount",
+    "DatasetConsistencyStatus",
+    "DatasetConsistencyErrorCount",
+    "JsonWhitespaceStatus",
+    "JsonWhitespaceErrorCount",
+    "JsonFileCount",
+    "MarkdownFileCount",
+    "MarkdownFormatErrorCount",
+    "MarkdownFormatStatus",
+    "JsonDecodedScalarValidation",
+    "Policy"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-graphics-publication-validation/1.3"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "Status": {
+      "enum": [
+        "Pass",
+        "Fail"
+      ]
+    },
+    "ErrorCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "Errors": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "PrivacyStatus": {
+      "enum": [
+        "Pass",
+        "Fail"
+      ]
+    },
+    "PrivacyErrorCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "DatasetConsistencyStatus": {
+      "enum": [
+        "Pass",
+        "Fail"
+      ]
+    },
+    "DatasetConsistencyErrorCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "JsonWhitespaceStatus": {
+      "enum": [
+        "Pass",
+        "Fail"
+      ]
+    },
+    "JsonWhitespaceErrorCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "JsonFileCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "JsonDecodedScalarValidation": {
+      "const": true
+    },
+    "Policy": {
+      "type": "string"
+    },
+    "MarkdownFormatStatus": {
+      "enum": [
+        "Pass",
+        "Fail"
+      ]
+    },
+    "MarkdownFormatErrorCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "MarkdownFileCount": {
+      "type": "integer",
+      "minimum": 0
+    }
+  }
+}

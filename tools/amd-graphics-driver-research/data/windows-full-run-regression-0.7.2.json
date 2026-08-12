@@ -1,0 +1,95 @@
+{
+  "SchemaVersion": "amd-graphics-windows-full-run-regression/1.0",
+  "ToolkitVersionReviewed": "0.7.1",
+  "HardeningToolkitVersion": "0.7.2",
+  "GeneratedAtUtc": "2026-08-11T06:45:00Z",
+  "Evidence": {
+    "FileName": "AmdGraphicsDriverResearchEvidence_20260811-053612_Windows.zip",
+    "Sha256": "0b6c46d77ec8770e5af1ee0cd462923a4f5bf1444fd22b8530cec8f7818c8f52",
+    "SizeBytes": 16777105,
+    "Platform": "Windows",
+    "PowerShellVersion": "5.1.26100.8972"
+  },
+  "Run": {
+    "OverallStatus": "Pass",
+    "ExitCode": 0,
+    "StageCount": 8,
+    "StagePassCount": 8,
+    "TotalDurationMilliseconds": 2423294,
+    "BuildDurationMilliseconds": 45264
+  },
+  "ProductScope": {
+    "CuratedProductGroups": 21,
+    "MetadataCompleteness": "Complete",
+    "DriverEntries": 1148,
+    "SelectionTrackCount": 38,
+    "TrackGenerationSelectionCount": 95,
+    "ArtifactSelectionCount": 95,
+    "UniqueSelectedArtifactCount": 23,
+    "EstimatedDownloadBytes": 20981376616,
+    "TrackEvidenceConflictCount": 3,
+    "ArtifactRoleTransitionTrackCount": 21
+  },
+  "DeepAnalysis": {
+    "AcquiredArtifacts": 23,
+    "ExtractedArtifacts": 23,
+    "InfCount": 482,
+    "InfParseFailures": 0,
+    "KmdfDeclarationCount": 198,
+    "UmdfDeclarationCount": 16,
+    "ServerRowsCurrentRun": 1928
+  },
+  "ShardAudit": {
+    "IndexSchemaVersion": "amd-graphics-driver-packages-index/3.0",
+    "IndexArtifactCount": 23,
+    "DetailFileCount": 23,
+    "SummedDriverPackageCount": 482,
+    "MissingDetailFiles": 0,
+    "IndexDetailCountMismatches": 0,
+    "ArtifactKeyMismatches": 0
+  },
+  "PostRunAggregateAudit": {
+    "AllReleasesArtifactCount": 27,
+    "AllReleasesDriverCount": 551,
+    "TopologyArtifactCountObserved": 23,
+    "TopologyDriverCountObserved": 551,
+    "WindowsServerArtifactCountObserved": 23,
+    "WindowsServerRowsObserved": 1928,
+    "ExpectedWindowsServerRows": 2204,
+    "MissingRetainedArtifacts": [
+      "Adrenalin|Main|23.11.1|whql-amd-software-adrenalin-edition-23.11.1-win10-win11-nov3-rdna-combined.exe",
+      "Adrenalin|Main|23.11.1|whql-amd-software-adrenalin-edition-23.11.1-win10-win11-nov3-rdna.exe",
+      "ProEdition|MultiArtifact|26.Q1|amd-software-pro-edition-26.q1-win11-vega-polaris.exe",
+      "ProEdition|MultiArtifact|26.Q1|amd-software-pro-edition-26.q1-winsvr2022-vega-polaris.exe"
+    ],
+    "Finding": "Retained historical artifacts were preserved in all-releases-summary but not migrated into the 0.7.1 lightweight topology/Server aggregate."
+  },
+  "Hardening": {
+    "DriverPackageIndexSchema": "amd-graphics-driver-packages-index/3.1",
+    "PerDetailSha256AndSize": true,
+    "ShardIntegrityGate": true,
+    "BuildAggregateIntegrityGate": true,
+    "LegacyServerRowsMigratedInMemory": true,
+    "HistoricalCanonicalEvidenceRewritten": false,
+    "ExpectedCumulativeArtifactCountAfterMigration": 27,
+    "ExpectedCumulativeDriverCountAfterMigration": 551,
+    "ExpectedCumulativeServerRowsAfterMigration": 2204
+  },
+  "Regression": {
+    "SyntheticAndSelfTests": "Pass",
+    "LegacyMigrationReplay": {
+      "Status": "Pass",
+      "CurrentArtifacts": 1,
+      "CurrentDrivers": 19,
+      "CumulativeArtifacts": 6,
+      "CumulativeDrivers": 127,
+      "ServerRows": 508
+    },
+    "TamperDetection": {
+      "Status": "Pass",
+      "ExpectedBuildExitCode": 2,
+      "DetectedShardErrors": 4
+    },
+    "Index31HashValidationReplay": "Pass"
+  }
+}

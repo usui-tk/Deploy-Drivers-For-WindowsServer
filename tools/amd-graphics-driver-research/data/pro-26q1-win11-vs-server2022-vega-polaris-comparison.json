@@ -1,0 +1,369 @@
+{
+  "SchemaVersion": "amd-graphics-pro-sibling-comparison/1.0",
+  "ToolkitVersion": "0.5.0",
+  "GeneratedAtUtc": "2026-08-10T16:45:00Z",
+  "Comparison": "PRO Edition 26.Q1 Windows 11 Vega/Polaris vs Windows Server 2022 Vega/Polaris",
+  "ReleaseKey": "ProEdition|MultiArtifact|26.Q1",
+  "Artifacts": {
+    "Windows11VegaPolaris": {
+      "FileName": "amd-software-pro-edition-26.q1-win11-vega-polaris.exe",
+      "ArtifactRole": "PolarisVega",
+      "SizeBytes": 676208616,
+      "Sha256": "282c2cfa41e6257f6489c1891844217f86ebb614cf7ce9e133203ee6f994d11d",
+      "BuildVersion": "23.19.24-251211a-197745C-AMD-Software-PRO-Edition",
+      "InfCount": 14,
+      "ManifestPackageCount": 10,
+      "ManifestPackageTypeCounts": [
+        {
+          "PackageType": "DRIVER",
+          "Count": 6
+        },
+        {
+          "PackageType": "MSI",
+          "Count": 3
+        },
+        {
+          "PackageType": "SPECIAL",
+          "Count": 1
+        }
+      ],
+      "ManifestPackages": [
+        {
+          "PackageType": "DRIVER",
+          "ProductName": "AMD ACP BT Audio Filter Driver",
+          "Description": "AMD Audio CoProcessor Bluetooth Audio Filter Driver",
+          "Version": "6.0.0.44",
+          "DriverPackageInfFile": "amdacpbt.INF",
+          "ManifestUrl": "Drivers\\Audio\\ACPBtAfd\\WT64A\\amdacpbt.INF"
+        },
+        {
+          "PackageType": "DRIVER",
+          "ProductName": "AMD Display Driver",
+          "Description": "Display driver for Windows 10",
+          "Version": "31.0.21924.61",
+          "DriverPackageInfFile": "U0197745.INF",
+          "ManifestUrl": "Drivers\\Display\\WT6A_INF\\U0197745.INF"
+        },
+        {
+          "PackageType": "DRIVER",
+          "ProductName": "AMD HDMI Audio Driver",
+          "Description": "Driver for HDAudio device",
+          "Version": "10.0.1.30",
+          "DriverPackageInfFile": "AtihdWT6.INF",
+          "ManifestUrl": "Drivers\\Audio\\HDMI\\WT64A\\AtihdWT6.INF"
+        },
+        {
+          "PackageType": "DRIVER",
+          "ProductName": "AMD Navi UCSI Driver",
+          "Description": "AMD Navi UCSI Driver",
+          "Version": "1.0.0.33",
+          "DriverPackageInfFile": "amducsi.INF",
+          "ManifestUrl": "Drivers\\SBDrv\\AMDUCSI\\WT64A\\amducsi.INF"
+        },
+        {
+          "PackageType": "MSI",
+          "ProductName": "AMD Radeon USB LED Application",
+          "Description": "Radeon USB LED",
+          "Version": "1.0.1",
+          "DriverPackageInfFile": null,
+          "ManifestUrl": "Apps\\RadeonLED\\RadeonLED.msi"
+        },
+        {
+          "PackageType": "DRIVER",
+          "ProductName": "AMD Radeon USB LED Driver",
+          "Description": "AMD Radeon USB LED Driver",
+          "Version": "1.0.0.0",
+          "DriverPackageInfFile": "amdusbledfd.INF",
+          "ManifestUrl": "Drivers\\RadeonLED\\WT64A\\amdusbledfd.INF"
+        },
+        {
+          "PackageType": "DRIVER",
+          "ProductName": "AMD Streaming Audio Filter Driver",
+          "Description": "AMD Streaming Audio Filter Driver",
+          "Version": "1.0.0.9",
+          "DriverPackageInfFile": "amdsafd.INF",
+          "ManifestUrl": "Drivers\\Audio\\SAFD\\WT64A\\amdsafd.INF"
+        },
+        {
+          "PackageType": "MSI",
+          "ProductName": "AMD User Experience Program Installer",
+          "Description": "AMD User Experience Program Software",
+          "Version": "2319.0.0.1211",
+          "DriverPackageInfFile": null,
+          "ManifestUrl": "Apps\\AUEP64\\AUEP64.msi"
+        },
+        {
+          "PackageType": "MSI",
+          "ProductName": "CCC Slim",
+          "Description": "AMD Catalyst Control Center Slim",
+          "Version": "2025.1211.1558.1996",
+          "DriverPackageInfFile": null,
+          "ManifestUrl": "Apps\\CCCSlim\\ccc-slim.msi"
+        },
+        {
+          "PackageType": "SPECIAL",
+          "ProductName": "USBC PD Firmware Updater",
+          "Description": "Application to update USBC PD Firmware",
+          "Version": "2.11.1.1",
+          "DriverPackageInfFile": null,
+          "ManifestUrl": "Apps\\USBCPDFW\\usbcpdfw.exe"
+        }
+      ]
+    },
+    "WindowsServer2022VegaPolaris": {
+      "FileName": "amd-software-pro-edition-26.q1-winsvr2022-vega-polaris.exe",
+      "ArtifactRole": "WindowsServer-PolarisVega",
+      "SizeBytes": 612792696,
+      "Sha256": "08f5966167a77aa064ba609889362ead3daea5421908d4d475f7fddddc555f0a",
+      "BuildVersion": "23.19.24-251211a-197744C-AMD-Software-PRO-Edition",
+      "InfCount": 5,
+      "ManifestPackageCount": 3,
+      "ManifestPackageTypeCounts": [
+        {
+          "PackageType": "DRIVER",
+          "Count": 1
+        },
+        {
+          "PackageType": "MSI",
+          "Count": 2
+        }
+      ],
+      "ManifestPackages": [
+        {
+          "PackageType": "DRIVER",
+          "ProductName": "AMD Display Driver",
+          "Description": "Display driver for Windows Server 2022",
+          "Version": "31.0.21924.61",
+          "DriverPackageInfFile": "U2197744.INF",
+          "ManifestUrl": "Drivers\\Display\\WT6A_INF\\U2197744.INF"
+        },
+        {
+          "PackageType": "MSI",
+          "ProductName": "AMD User Experience Program Installer",
+          "Description": "AMD User Experience Program Software",
+          "Version": "2319.0.0.1211",
+          "DriverPackageInfFile": null,
+          "ManifestUrl": "Apps\\AUEP64\\AUEP64.msi"
+        },
+        {
+          "PackageType": "MSI",
+          "ProductName": "CCC Slim",
+          "Description": "AMD Catalyst Control Center Slim",
+          "Version": "2025.1211.1558.1996",
+          "DriverPackageInfFile": null,
+          "ManifestUrl": "Apps\\CCCSlim\\ccc-slim.msi"
+        }
+      ]
+    }
+  },
+  "InfComparison": {
+    "CommonInfBasenames": [
+      "amdafd.inf",
+      "amdfendr.inf",
+      "amdocl.inf"
+    ],
+    "CommonInfCount": 3,
+    "ByteIdenticalCommonInf": [
+      "amdafd.inf",
+      "amdfendr.inf",
+      "amdocl.inf"
+    ],
+    "Windows11OnlyInfBasenames": [
+      "amdacpbt.inf",
+      "amdacpbusext.inf",
+      "amdfdans.inf",
+      "amdpcibridgeextension.inf",
+      "amdsafd.inf",
+      "amducsi.inf",
+      "amdusbledfd.inf",
+      "amdwin-u0197745.inf",
+      "atihdwt6.inf",
+      "u0197745.inf"
+    ],
+    "WindowsServer2022OnlyInfBasenames": [
+      "amdwin-u2197744.inf",
+      "u2197744.inf"
+    ]
+  },
+  "PrimaryDisplayComparison": {
+    "Windows11": {
+      "InfFileName": "u0197745.inf",
+      "InfSha256": "c0ef638b92af82492f647d183d0ef7a5fea84ba1b2c30c03d9efa2ca3ce96762",
+      "DriverVersion": "31.0.21924.61",
+      "CatalogFile": "u0197745.cat",
+      "TopologyHardwareIdCount": 343,
+      "FlatHardwareIdCount": 380,
+      "TargetOSVersions": [
+        "NTamd64.10.0.1..16299",
+        "NTamd64.10.0.1",
+        "NTamd64.6.0.1",
+        "NTamd64.6.1.1",
+        "NTamd64.6.2.1",
+        "NTamd64.6.3.1"
+      ],
+      "ServerApplicability": {
+        "WS2016": {
+          "AsPublished": "NotApplicableByBuild",
+          "ServerProjection": "ExplicitlyExcluded",
+          "StaticAssessment": "NOT_APPLICABLE",
+          "CanonicalStaticAssessment": "NotApplicable",
+          "SelectedModelCount": 0,
+          "RuntimeCompatibility": "NotEstablished"
+        },
+        "WS2019": {
+          "AsPublished": "NotApplicableByProductType",
+          "ServerProjection": "ProjectionCandidate",
+          "StaticAssessment": "PATCH_CANDIDATE",
+          "CanonicalStaticAssessment": "ProjectionCandidate",
+          "SelectedModelCount": 343,
+          "RuntimeCompatibility": "NotEstablished"
+        },
+        "WS2022": {
+          "AsPublished": "NotApplicableByProductType",
+          "ServerProjection": "ProjectionCandidate",
+          "StaticAssessment": "PATCH_CANDIDATE",
+          "CanonicalStaticAssessment": "ProjectionCandidate",
+          "SelectedModelCount": 343,
+          "RuntimeCompatibility": "NotEstablished"
+        },
+        "WS2025": {
+          "AsPublished": "NotApplicableByProductType",
+          "ServerProjection": "ProjectionCandidate",
+          "StaticAssessment": "PATCH_CANDIDATE",
+          "CanonicalStaticAssessment": "ProjectionCandidate",
+          "SelectedModelCount": 343,
+          "RuntimeCompatibility": "NotEstablished"
+        }
+      },
+      "Amgkmdag": {
+        "RawValue": "%13%\\B025592\\amdkmdag.sys",
+        "FileName": "amdkmdag.sys",
+        "Sha256": "0e6934af190259e85ea267a35ffa170a93543ae13acaf9eb3d242856d3015c55",
+        "FileVersion": null,
+        "ProductVersion": null,
+        "EvidenceLineNumber": 1101,
+        "EvidenceRawLine": "ServiceBinary = %13%\\B025592\\amdkmdag.sys"
+      }
+    },
+    "WindowsServer2022": {
+      "InfFileName": "u2197744.inf",
+      "InfSha256": "d88f4b551db22ad12e20157edd3cc6b32514bcf69c2512e09a907a81d521a45d",
+      "DriverVersion": "31.0.21924.61",
+      "CatalogFile": "u2197744.cat",
+      "TopologyHardwareIdCount": 314,
+      "FlatHardwareIdCount": 348,
+      "TargetOSVersions": [
+        "NTamd64.10.0.2..20348",
+        "NTamd64.10.0.3..20348",
+        "NTamd64.10.0.2",
+        "NTamd64.10.0.3",
+        "NTamd64.6.0.2",
+        "NTamd64.6.0.3",
+        "NTamd64.6.1.2",
+        "NTamd64.6.1.3",
+        "NTamd64.6.2.2",
+        "NTamd64.6.2.3",
+        "NTamd64.6.3.2",
+        "NTamd64.6.3.3"
+      ],
+      "ServerApplicability": {
+        "WS2016": {
+          "AsPublished": "ExplicitlyExcluded",
+          "ServerProjection": "ExplicitlyExcluded",
+          "StaticAssessment": "NOT_APPLICABLE",
+          "CanonicalStaticAssessment": "NotApplicable",
+          "SelectedModelCount": 0,
+          "RuntimeCompatibility": "NotEstablished"
+        },
+        "WS2019": {
+          "AsPublished": "ExplicitlyExcluded",
+          "ServerProjection": "ExplicitlyExcluded",
+          "StaticAssessment": "NOT_APPLICABLE",
+          "CanonicalStaticAssessment": "NotApplicable",
+          "SelectedModelCount": 0,
+          "RuntimeCompatibility": "NotEstablished"
+        },
+        "WS2022": {
+          "AsPublished": "NativeApplicable",
+          "ServerProjection": "NativeApplicable",
+          "StaticAssessment": "NATIVE_CANDIDATE",
+          "CanonicalStaticAssessment": "NativeCandidate",
+          "SelectedModelCount": 314,
+          "RuntimeCompatibility": "NotEstablished"
+        },
+        "WS2025": {
+          "AsPublished": "NativeApplicable",
+          "ServerProjection": "NativeApplicable",
+          "StaticAssessment": "NATIVE_CANDIDATE",
+          "CanonicalStaticAssessment": "NativeCandidate",
+          "SelectedModelCount": 314,
+          "RuntimeCompatibility": "NotEstablished"
+        }
+      },
+      "Amgkmdag": {
+        "RawValue": "%13%\\B025592\\amdkmdag.sys",
+        "FileName": "amdkmdag.sys",
+        "Sha256": "81efe80963103513979a0923320c0c1b29f800d382d4baac9a19fc7bf92446c2",
+        "FileVersion": null,
+        "ProductVersion": null,
+        "EvidenceLineNumber": 1222,
+        "EvidenceRawLine": "ServiceBinary = %13%\\B025592\\amdkmdag.sys"
+      },
+      "Amdgpuv": {
+        "RawValue": "%13%\\B025592\\amdgpuv.sys",
+        "FileName": "amdgpuv.sys",
+        "Sha256": "42985bf440d0b81e79d3b72795c568c141b52ee791114d5e4d1fbaa6e3754ba7",
+        "FileVersion": null,
+        "ProductVersion": null,
+        "EvidenceLineNumber": 1301,
+        "EvidenceRawLine": "ServiceBinary = %13%\\B025592\\amdgpuv.sys"
+      }
+    },
+    "HardwareIdSetRelationship": {
+      "IntersectionCount": 314,
+      "ServerSetIsSubsetOfWindows11": true,
+      "Windows11OnlyCount": 29,
+      "WindowsServer2022OnlyCount": 0,
+      "Windows11OnlyHardwareIds": [
+        "PCI\\VEN_1002&DEV_1636&SUBSYS_509917AA&REV_D1",
+        "PCI\\VEN_1002&DEV_1636&SUBSYS_509917AA&REV_D3",
+        "PCI\\VEN_1002&DEV_1638&SUBSYS_509B17AA&REV_C1",
+        "PCI\\VEN_1002&DEV_1638&SUBSYS_509B17AA&REV_C2",
+        "PCI\\VEN_1002&DEV_1638&SUBSYS_509B17AA&REV_C3",
+        "PCI\\VEN_1002&DEV_1638&SUBSYS_509B17AA&REV_D1",
+        "PCI\\VEN_1002&DEV_1638&SUBSYS_509B17AA&REV_D2",
+        "PCI\\VEN_1002&DEV_1638&SUBSYS_509B17AA&REV_D3",
+        "PCI\\VEN_1002&DEV_66A1&REV_06",
+        "PCI\\VEN_1002&DEV_67DF&REV_C0",
+        "PCI\\VEN_1002&DEV_67EB&REV_00",
+        "PCI\\VEN_1002&DEV_67EF&REV_C2",
+        "PCI\\VEN_1002&DEV_67EF&REV_E3",
+        "PCI\\VEN_1002&DEV_67FF&REV_C0",
+        "PCI\\VEN_1002&DEV_6863&REV_00",
+        "PCI\\VEN_1002&DEV_6867&REV_00",
+        "PCI\\VEN_1002&DEV_687F&REV_01",
+        "PCI\\VEN_1002&DEV_6981&REV_00",
+        "PCI\\VEN_1002&DEV_6981&REV_01",
+        "PCI\\VEN_1002&DEV_6981&SUBSYS_09261028&REV_00",
+        "PCI\\VEN_1002&DEV_6981&SUBSYS_09271028&REV_00",
+        "PCI\\VEN_1002&DEV_6981&SUBSYS_19261028&REV_00",
+        "PCI\\VEN_1002&DEV_6981&SUBSYS_19271028&REV_00",
+        "PCI\\VEN_1002&DEV_6981&SUBSYS_854C103C&REV_01",
+        "PCI\\VEN_1002&DEV_6987&SUBSYS_08B81028&REV_C3",
+        "PCI\\VEN_1002&DEV_6987&SUBSYS_08B91028&REV_C3",
+        "PCI\\VEN_1002&DEV_699F&REV_C3",
+        "PCI\\VEN_1002&DEV_69AF&REV_C0",
+        "PCI\\VEN_1002&DEV_69AF&REV_C7"
+      ],
+      "WindowsServer2022OnlyHardwareIds": []
+    }
+  },
+  "KeyFindings": [
+    "Both artifacts carry Display Driver version 31.0.21924.61, but their primary Display INF files and amdkmdag.sys hashes differ.",
+    "The Server 2022 primary Display topology contains 314 HWIDs, all of which are present in the Windows 11 topology; Windows 11 contains 29 additional HWIDs.",
+    "The three common INF basenames amdafd.inf, amdfendr.inf and amdocl.inf are byte-identical by SHA-256.",
+    "Windows 11 primary Display targeting uses ProductType=1 client sections; the Server artifact uses populated ProductType=2/3 sections with minimum build 20348 and empty less-specific Server/DC sections.",
+    "Server artifact additionally declares amdgpuv service/binary evidence; runtime compatibility is not established by static analysis."
+  ],
+  "InterpretationBoundary": "Published/Embedded intent, INF static selection and runtime compatibility remain separate evidence layers."
+}

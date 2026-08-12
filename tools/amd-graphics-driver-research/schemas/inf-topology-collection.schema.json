@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-graphics-driver-research:inf-topology-collection:2.0",
+  "title": "AMD Graphics INF Topology Collection 2.0",
+  "description": "Published aggregate-reference topology index. Driver details remain in inventory/releases/** canonical per-artifact JSON; this document references those artifacts rather than embedding Drivers.",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "SharedContractVersion",
+    "IdentifierTaxonomyVersion",
+    "GeneratedAtUtc",
+    "SourceOfTruth",
+    "EmbeddedDrivers",
+    "ArtifactCount",
+    "DriverCount",
+    "Artifacts"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "inf-topology-collection/2.0"
+    },
+    "ToolkitVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "SharedContractVersion": {
+      "const": "amd-inf-semantic-contract/1.0"
+    },
+    "IdentifierTaxonomyVersion": {
+      "const": "amd-inf-identifier-taxonomy/1.0"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "SourceOfTruth": {
+      "type": "string",
+      "minLength": 1
+    },
+    "EmbeddedDrivers": {
+      "const": false
+    },
+    "ArtifactCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "DriverCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "Artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ReleaseVersion",
+          "ReleaseKey",
+          "ArtifactKey",
+          "ArtifactRole",
+          "CanonicalJson",
+          "DriverCount"
+        ],
+        "properties": {
+          "ReleaseVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ReleaseKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ArtifactKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ArtifactRole": {
+            "type": "string",
+            "minLength": 1
+          },
+          "CanonicalJson": {
+            "type": "string",
+            "minLength": 1
+          },
+          "DriverCount": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

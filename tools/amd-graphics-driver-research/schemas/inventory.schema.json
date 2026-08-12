@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-graphics-driver-research:inventory:2.1",
+  "title": "AMD Graphics Driver Research Inventory",
+  "type": "object",
+  "required": ["SchemaVersion", "Purpose", "CompatibilityPolicyIncluded", "Releases"],
+  "properties": {
+    "SchemaVersion": { "const": "2.1" },
+    "ToolkitVersion": { "type": "string" },
+    "GeneratedAtUtc": { "type": "string" },
+    "Purpose": { "const": "ResearchInventory" },
+    "CompatibilityPolicyIncluded": { "const": false },
+    "EvidenceLayerPolicy": { "type": "string" },
+    "Releases": { "type": "array" },
+    "ResearchEnvironment": { "type": ["object", "null"] }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AMD Graphics repository-safe run summary",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "GeneratedAtUtc",
+    "OverallStatus",
+    "ExitCode",
+    "SelectedStages",
+    "Privacy"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-graphics-public-run-summary/1.0"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "OverallStatus": {
+      "type": "string"
+    },
+    "ExitCode": {
+      "type": "integer"
+    },
+    "SelectedStages": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ScriptSha256": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ProductSelection": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "PublishedDataset": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "BuildIntegrity": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "Privacy": {
+      "type": "object",
+      "required": [
+        "Classification",
+        "ContainsHostEnvironment",
+        "ContainsAbsoluteLocalPaths"
+      ],
+      "properties": {
+        "Classification": {
+          "const": "PublicRepositoryArtifact"
+        },
+        "ContainsHostEnvironment": {
+          "const": false
+        },
+        "ContainsAbsoluteLocalPaths": {
+          "const": false
+        },
+        "DebugEvidenceLocation": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

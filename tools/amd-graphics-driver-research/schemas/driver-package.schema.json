@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-graphics-driver-research:driver-package:2.0",
+  "title": "AMD Graphics Driver Package Inspection",
+  "type": "object",
+  "required": ["SchemaVersion", "ToolkitVersion", "DriverPackages"],
+  "properties": {
+    "SchemaVersion": { "const": "2.0" },
+    "ToolkitVersion": { "type": "string" },
+    "GeneratedAtUtc": { "type": "string" },
+    "AnalysisPolicy": { "type": "string" },
+    "DriverPackageCount": { "type": "integer", "minimum": 0 },
+    "DriverPackages": { "type": "array" }
+  },
+  "additionalProperties": true
+}

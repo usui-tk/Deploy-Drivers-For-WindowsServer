@@ -1,0 +1,66 @@
+{
+  "SchemaVersion": "amd-graphics-windows-summary-regression/0.7.3",
+  "ToolkitVersion": "0.7.3",
+  "SourceEvidence": "AmdGraphicsDriverResearchEvidence_20260811-064906_Windows.zip",
+  "SourceToolkitVersion": "0.7.2",
+  "SourceScriptSha256": "c5ace18f3bf3ff12cc833483e4164f4a8b45a22c15f5031daa907274fff3cf1e",
+  "ObservedStageExecution": {
+    "StageCount": 8,
+    "Passed": 8,
+    "Failed": 0,
+    "Blocked": 0,
+    "Skipped": 0
+  },
+  "ObservedSelection": {
+    "SelectionTrackCount": 38,
+    "TrackGenerationSelectionCount": 95,
+    "ArtifactSelectionCount": 95,
+    "UniqueSelectedArtifactCount": 23,
+    "EstimatedDownloadBytes": 20981376616,
+    "TrackEvidenceConflictCount": 3,
+    "ArtifactRoleTransitionTrackCount": 21,
+    "UnknownSizeArtifactCount": 0
+  },
+  "ObservedInspection": {
+    "SchemaVersion": "amd-graphics-driver-packages-index/3.1",
+    "ArtifactCount": 23,
+    "DriverPackageCount": 482,
+    "ParseFailureCount": 0,
+    "KmdfDeclarationCount": 198,
+    "UmdfDeclarationCount": 16
+  },
+  "ObservedShardIntegrity": {
+    "Status": "Pass",
+    "ArtifactCount": 23,
+    "DriverPackageCount": 482,
+    "ParseFailureCount": 0
+  },
+  "ObservedBuildIntegrity": {
+    "Status": "Pass",
+    "CurrentArtifactCount": 23,
+    "CurrentDriverCount": 482,
+    "CumulativeArtifactCount": 27,
+    "CumulativeDriverCount": 551,
+    "ServerRowCount": 2204,
+    "Errors": 0
+  },
+  "FalseReviewItemsIn0702": [
+    {
+      "Name": "ProductSelection",
+      "Cause": "Invalid parenthesized inline PowerShell if expressions in format arguments"
+    },
+    {
+      "Name": "InfInspection",
+      "Cause": "Assessment schema check accepted index 3.0 but omitted current index 3.1"
+    }
+  ],
+  "Expected0703Assessment": {
+    "ProductSelection": "PASS",
+    "InfInspection": "PASS",
+    "DriverPackageShardIntegrity": "PASS",
+    "InspectionAssessmentConsistency": "PASS",
+    "BuildAggregateIntegrity": "PASS",
+    "OverallStatus": "Pass",
+    "ExitCode": 0
+  }
+}

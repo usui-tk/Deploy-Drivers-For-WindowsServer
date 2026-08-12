@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-graphics-driver-research:release-analysis:1.2",
+  "title": "AMD Graphics Canonical Per-Artifact Analysis 1.2",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "RecordType",
+    "Release",
+    "Artifact",
+    "Drivers"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-graphics-driver-analysis/1.2"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "RecordType": {
+      "const": "CanonicalPerArtifactAnalysis"
+    },
+    "Release": {
+      "type": "object"
+    },
+    "Artifact": {
+      "type": "object"
+    },
+    "AnalysisPolicy": {
+      "type": "object"
+    },
+    "WindowsServerProfiles": {
+      "type": "array"
+    },
+    "DriverCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "Drivers": {
+      "type": "array"
+    },
+    "AnalysisSemantics": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}

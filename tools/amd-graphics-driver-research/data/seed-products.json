@@ -1,0 +1,171 @@
+{
+  "SchemaVersion": "amd-graphics-product-group-catalog/2.2",
+  "CatalogKind": "CuratedProductGroups",
+  "CatalogVersion": "2026-08-11.2",
+  "Scope": "Windows 10/11 and Windows Server static graphics-driver research for current and recent AMD Radeon dGPU/professional and Ryzen processor-integrated Radeon product groups. Each row is an AMD official support page used as a representative entry point for one product group; it is not a claim to enumerate every product model.",
+  "CoveragePolicy": "RepresentativeProductPerProductGroup",
+  "MajorGenerationPolicy": "Each product-group/OS/package-family track selects the latest artifact from each of the newest three available driver major generations.",
+  "ExcludedByDefault": [
+    "Radeon R9/R7/R5 legacy families",
+    "Radeon HD legacy families",
+    "FirePro legacy families",
+    "mobile-only professional groups unless explicitly added",
+    "embedded graphics families unless explicitly added"
+  ],
+  "Products": [
+    {
+      "Url": "https://www.amd.com/en/support/downloads/drivers.html/graphics/radeon-rx/radeon-rx-9000-series/amd-radeon-rx-9070-xt.html",
+      "ProductGroupDisplayName": "Radeon RX 9000 Series",
+      "GraphicsKind": "dGPU",
+      "Reason": "Current Radeon RX desktop generation representative.",
+      "Authority": "AMDOfficialSupportPage"
+    },
+    {
+      "Url": "https://www.amd.com/en/support/downloads/drivers.html/graphics/radeon-rx/radeon-rx-7000-series/amd-radeon-rx-7900-xtx.html",
+      "ProductGroupDisplayName": "Radeon RX 7000 Series",
+      "GraphicsKind": "dGPU",
+      "Reason": "RDNA 3 Radeon RX desktop representative.",
+      "Authority": "AMDOfficialSupportPage"
+    },
+    {
+      "Url": "https://www.amd.com/en/support/downloads/drivers.html/graphics/radeon-rx/radeon-rx-6000-series/amd-radeon-rx-6750-xt.html",
+      "ProductGroupDisplayName": "Radeon RX 6000 Series",
+      "GraphicsKind": "dGPU",
+      "Reason": "RDNA 2 Radeon RX desktop representative.",
+      "Authority": "AMDOfficialSupportPage"
+    },
+    {
+      "Url": "https://www.amd.com/en/support/downloads/drivers.html/graphics/radeon-rx/radeon-rx-5000-series/amd-radeon-rx-5700.html",
+      "ProductGroupDisplayName": "Radeon RX 5000 Series",
+      "GraphicsKind": "dGPU",
+      "Reason": "RDNA 1 Radeon RX desktop representative.",
+      "Authority": "AMDOfficialSupportPage"
+    },
+    {
+      "Url": "https://www.amd.com/en/support/downloads/drivers.html/graphics/radeon-rx/radeon-rx-vega-series/amd-radeon-vii.html",
+      "ProductGroupDisplayName": "Radeon RX Vega Series",
+      "GraphicsKind": "dGPU",
+      "Reason": "Vega-era desktop representative relevant to legacy Server fallback research.",
+      "Authority": "AMDOfficialSupportPage"
+    },
+    {
+      "Url": "https://www.amd.com/en/support/downloads/drivers.html/graphics/radeon-600-500-400/radeon-rx-500-series/radeon-rx-580.html",
+      "ProductGroupDisplayName": "Radeon RX 500 Series",
+      "GraphicsKind": "dGPU",
+      "Reason": "Polaris legacy desktop representative.",
+      "Authority": "AMDOfficialSupportPage"
+    },
+    {
+      "Url": "https://www.amd.com/en/support/downloads/drivers.html/graphics/radeon-ai-pro/radeon-ai-pro-r9000-series/amd-radeon-ai-pro-r9700.html",
+      "ProductGroupDisplayName": "Radeon AI PRO R9000 Series",
+      "GraphicsKind": "dGPU-Pro",
+      "Reason": "Current AI workstation graphics representative.",
+      "Authority": "AMDOfficialSupportPage"
+    },
+    {
+      "Url": "https://www.amd.com/en/support/downloads/drivers.html/graphics/radeon-pro/radeon-pro-w7000-series/amd-radeon-pro-w7800.html",
+      "ProductGroupDisplayName": "Radeon PRO W7000 Series",
+      "GraphicsKind": "dGPU-Pro",
+      "Reason": "RDNA 3 workstation representative.",
+      "Authority": "AMDOfficialSupportPage"
+    },
+    {
+      "Url": "https://www.amd.com/en/support/downloads/drivers.html/graphics/radeon-pro/radeon-pro-w6000-series/amd-radeon-pro-w6400.html",
+      "ProductGroupDisplayName": "Radeon PRO W6000 Series",
+      "GraphicsKind": "dGPU-Pro",
+      "Reason": "Workstation and Windows Server reference representative.",
+      "Authority": "AMDOfficialSupportPage"
+    },
+    {
+      "Url": "https://www.amd.com/en/support/downloads/drivers.html/graphics/radeon-pro/radeon-pro-w5000-series/radeon-pro-w5700.html",
+      "ProductGroupDisplayName": "Radeon PRO W5000 Series",
+      "GraphicsKind": "dGPU-Pro",
+      "Reason": "RDNA 1 workstation representative.",
+      "Authority": "AMDOfficialSupportPage"
+    },
+    {
+      "Url": "https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen/ryzen-ai-400-series/amd-ryzen-ai-7-450.html",
+      "ProductGroupDisplayName": "Ryzen AI 400 Series",
+      "GraphicsKind": "iGPU",
+      "Reason": "Current Ryzen AI processor-integrated Radeon graphics representative.",
+      "Authority": "AMDOfficialSupportPage"
+    },
+    {
+      "Url": "https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen/ryzen-ai-max-series/amd-ryzen-ai-max-plus-395.html",
+      "ProductGroupDisplayName": "Ryzen AI Max 300 Series",
+      "GraphicsKind": "iGPU",
+      "Reason": "High-end processor-integrated Radeon graphics representative.",
+      "Authority": "AMDOfficialSupportPage"
+    },
+    {
+      "Url": "https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen/ryzen-ai-300-series/amd-ryzen-ai-9-hx-370.html",
+      "ProductGroupDisplayName": "Ryzen AI 300 Series",
+      "GraphicsKind": "iGPU",
+      "Reason": "Modern mobile processor-integrated Radeon graphics representative.",
+      "Authority": "AMDOfficialSupportPage"
+    },
+    {
+      "Url": "https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen/ryzen-9000-series/amd-ryzen-9-9950x.html",
+      "ProductGroupDisplayName": "Ryzen 9000 Series",
+      "GraphicsKind": "iGPU",
+      "Reason": "AM5 desktop processor with integrated Radeon graphics representative.",
+      "Authority": "AMDOfficialSupportPage"
+    },
+    {
+      "Url": "https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen/ryzen-8000-series/amd-ryzen-7-8700g.html",
+      "ProductGroupDisplayName": "Ryzen 8000 Series",
+      "GraphicsKind": "iGPU",
+      "Reason": "Phoenix desktop APU Radeon graphics representative.",
+      "Authority": "AMDOfficialSupportPage"
+    },
+    {
+      "Url": "https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen/ryzen-7000-series/amd-ryzen-7-7700x.html",
+      "ProductGroupDisplayName": "Ryzen 7000 Series",
+      "GraphicsKind": "iGPU",
+      "Reason": "AM5 desktop processor with integrated Radeon graphics representative.",
+      "Authority": "AMDOfficialSupportPage"
+    },
+    {
+      "Url": "https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen/ryzen-5000-series/amd-ryzen-7-5700g.html",
+      "ProductGroupDisplayName": "Ryzen 5000 G-Series",
+      "GraphicsKind": "iGPU",
+      "Reason": "Consumer Cezanne/Vega APU representative.",
+      "Authority": "AMDOfficialSupportPage"
+    },
+    {
+      "Url": "https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen-pro/ryzen-ai-max-pro-300-series/amd-ryzen-ai-max-plus-pro-395.html",
+      "ProductGroupDisplayName": "Ryzen AI Max PRO 300 Series",
+      "GraphicsKind": "iGPU-Pro",
+      "Reason": "Current business high-end processor-integrated Radeon graphics representative.",
+      "Authority": "AMDOfficialSupportPage"
+    },
+    {
+      "Url": "https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen-pro/ryzen-ai-pro-300-series/amd-ryzen-ai-7-pro-350.html",
+      "ProductGroupDisplayName": "Ryzen AI PRO 300 Series",
+      "GraphicsKind": "iGPU-Pro",
+      "Reason": "Modern business mobile processor-integrated Radeon graphics representative.",
+      "Authority": "AMDOfficialSupportPage"
+    },
+    {
+      "Url": "https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen-pro/ryzen-pro-8000-series/amd-ryzen-7-pro-8700g.html",
+      "ProductGroupDisplayName": "Ryzen PRO 8000 Series",
+      "GraphicsKind": "iGPU-Pro",
+      "Reason": "Modern business desktop APU with Radeon 780M representative.",
+      "Authority": "AMDOfficialSupportPage",
+      "AlternateUrls": [
+        "https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen-pro/ryzen-pro-8000-series/amd-ryzen-7-pro-8700ge.html",
+        "https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen-pro/ryzen-pro-8000-series/amd-ryzen-5-pro-8600g.html"
+      ]
+    },
+    {
+      "Url": "https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen-pro/ryzen-pro-5000-series/amd-ryzen-7-pro-5755ge.html",
+      "ProductGroupDisplayName": "Ryzen PRO 5000 Series",
+      "GraphicsKind": "iGPU-Pro",
+      "Reason": "Cezanne/Vega business APU representative.",
+      "Authority": "AMDOfficialSupportPage",
+      "AlternateUrls": [
+        "https://www.amd.com/en/support/downloads/drivers.html/processors/ryzen-pro/ryzen-pro-5000-series/amd-ryzen-7-pro-5750ge.html"
+      ]
+    }
+  ]
+}

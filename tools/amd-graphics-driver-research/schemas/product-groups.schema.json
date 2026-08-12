@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-graphics-driver-research:product-groups:1.0",
+  "title": "AMD Graphics Published Product Groups 1.0",
+  "description": "Schema for generated inventory/product-groups.json. This is distinct from product-group-catalog.schema.json, which validates the curated data/seed-products.json input catalog.",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "GeneratedAtUtc",
+    "ProductGroupCount",
+    "ProductGroups"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-graphics-product-groups/1.0"
+    },
+    "ToolkitVersion": {
+      "type": "string",
+      "minLength": 1
+    },
+    "GeneratedAtUtc": {
+      "type": "string"
+    },
+    "ProductGroupCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ProductGroups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ProductGroupKey",
+          "ProductGroupDisplayName",
+          "GraphicsKind",
+          "RootCategory",
+          "ProductFamilySlug",
+          "ProductLineSlug",
+          "ProductCount",
+          "GraphicsProductCount",
+          "DriverTrackKeys",
+          "ProductKeys"
+        ],
+        "properties": {
+          "ProductGroupKey": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ProductGroupDisplayName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "GraphicsKind": {
+            "enum": [
+              "dGPU",
+              "dGPU-Pro",
+              "iGPU",
+              "iGPU-Pro"
+            ]
+          },
+          "RootCategory": {
+            "enum": [
+              "graphics",
+              "processors"
+            ]
+          },
+          "ProductFamilySlug": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ProductLineSlug": {
+            "type": "string",
+            "minLength": 1
+          },
+          "ProductCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "GraphicsProductCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "DriverTrackKeys": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "ProductKeys": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}
