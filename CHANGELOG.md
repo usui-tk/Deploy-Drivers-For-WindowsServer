@@ -20,6 +20,50 @@ independently.
 
 ---
 
+## [2026-08-14] `psa-tools-layer-scope` — document the static-analysis contract for the `tools/` layer (no product script changes, no version bumps)
+
+`SPEC.md` gains **A.11.4b** and **A.11.4c**. Nothing executable changes; this
+closes a documentation gap that the NPU research toolkit merge made visible.
+
+**The gap.** The **Required gate** in A.11 governs the four deployment scripts
+and the evidence collector. It said nothing about the five PowerShell files
+under `tools/`, so a repository-wide `psa.py -r --config .psa.config.json .`
+had no documented expected result. With three research toolkits now merged,
+that run reports **exit 2**, and there was no way to tell from the repository
+whether that was a regression or the normal state.
+
+**A.11.4b** states the scope and records the observed per-file baseline for all
+five `tools/` scripts. The research layer is deliberately not held to the root
+scripts' 0/0/0 baseline — it is authored by separate models against their own
+conventions — but the counts must be **known and stable**, so a change is a
+signal to investigate. The gate that must stay at exit 0 remains the root-script
+invocation.
+
+**A.11.4c** registers the two `PSA2011` findings in
+`Invoke-AmdNpuDriverResearch.ps1` as **analyzer false positives**, with the
+evidence. The rule matches on a physical line; on the two lines in question the
+`-LiteralPath` belongs to a neighbouring `Test-Path` / `Copy-Item` call while
+the `Split-Path` calls use positional `-Path`. An AST walk over all 10
+`Split-Path` commands in the file finds **zero** carrying both `-LiteralPath`
+and `-Parent`; the register ships that walk as a runnable snippet. Line numbers
+are deliberately omitted because they move on every regeneration.
+
+**Why the finding is recorded rather than suppressed.** An inline
+`# psa-disable-file PSA2011` would edit the script, and the toolkit's
+`public/publication-manifest.json` binds its generated dataset to that script's
+SHA-256 — the same hash recorded by both qualification runs. One byte would
+detach the shipped artifact from the evidence that qualified it. Disabling
+`PSA2011` repository-wide was also rejected: it guards a real ja-JP Windows
+PowerShell 5.1 failure mode in the four deployment scripts, which are the ones
+that actually run on Japanese Windows Server hosts. The correct fix is upstream
+in `psa.py`, which should bind `-LiteralPath` to its own command rather than
+matching across statement separators.
+
+Chipset r122 / Graphics r87 / NPU r60 / BthPan r68 / Collector c11 are
+unchanged, and the suite is unchanged at **28 cases / 1225 assertions**.
+
+---
+
 ## [2026-08-14] `amd-npu-research-v1.0.0` — new research toolkit and generated dataset (no product script changes, no version bumps)
 
 Adds `tools/amd-npu-driver-research/` at toolkit version **1.0.0**: the
