@@ -20,6 +20,75 @@ independently.
 
 ---
 
+## [2026-08-14] `amd-npu-research-v1.0.0` — new research toolkit and generated dataset (no product script changes, no version bumps)
+
+Adds `tools/amd-npu-driver-research/` at toolkit version **1.0.0**: the
+PowerShell research script, its documentation, 24 JSON schemas, curated source
+data, a hardware identity evidence collector, and the complete generated
+dataset under `public/**`. 79 files. The four deployment scripts and the
+Collector are untouched — this is a research-asset release, developed by a
+separate model and independently audited here across four review cycles before
+merge.
+
+**What it researches.** The toolkit builds a machine-readable exact-SKU
+applicability model for AMD Ryzen AI NPU drivers on Windows Server, rather than
+a CPU-name-to-URL map. It resolves an exact CPU SKU through codename, reviewed
+NPU identity, driver-release capability and AMD published support evidence to
+either a publicly obtainable artifact or `ReviewRequired`. It never executes an
+AMD installer and never modifies vendor payloads. The dataset covers **112
+exact processor SKUs**, **336** compatibility matrix rows and **112**
+applicability rows. The three recommendation decisions partition the 112
+processors exactly: **62** select the latest published static candidate, **22**
+need no NPU driver, and **28** are `ReviewRequired`. That last class is an
+intentional fail-closed outcome for insufficiently evidenced combinations, not
+an incomplete feature — no `ReviewRequired` or `NoNpuDriverRequired` row
+carries a recommended artifact, and the authenticated 314 package stays
+`ManualPrivateOnly` with `RecommendationEligible: false` in **0** rows.
+
+**Same publication model as its predecessors.** `public/**` is the only
+generated surface intended for commit, defined by the toolkit's own
+`PUBLICATION-POLICY.md`; `inventory/`, `private/`, `work/` and `reports/` are
+runtime staging and stay untracked behind `.gitkeep` placeholders. Generated
+JSON and Markdown are UTF-8 without BOM with LF. `publication-manifest.json`
+records path, length and SHA-256 for all **22** payload files and binds them to
+the source script hash, every entry carrying `HandEdited: false`. A wrong
+generated value is fixed in the generator and the run repeated, never patched
+in place. `.gitattributes` stores this toolkit's `public/**` verbatim, as it
+already does for the chipset and graphics toolkits.
+
+**Qualified as released.** The exact script committed here completed **13/13**
+stages with exit code 0 on Windows PowerShell 5.1.26100.9168 and on PowerShell
+7.6.4 on Linux, both runs recording the committed script's SHA-256. The Windows
+run performed a fresh automatic vendor re-acquisition with `PackagePath=[]`,
+recording all three reviewed public artifacts as `Downloaded` at their
+previously reviewed hashes — re-fetching from AMD produced byte-identical
+packages. The two runtimes produce **byte-identical** public surfaces, 23/23.
+
+**Verified independently before merge.** The publication manifest re-verifies
+**22/22** from a fresh clone together with the source script hash. Provenance
+was walked to the vendor payloads: each release document's artifact hash
+matches the vendor ZIP, and the INF, installer, driver binary and `xrt-smi`
+hashes inside the 376 package were recomputed from inside the archive. Source
+data validates **12/12** against dedicated Draft 2020-12 schemas, each probed
+with a corrupted instance to confirm it constrains rather than merely passes,
+and a registration contract rejects an unregistered `data/*.json` by name.
+Partial-stage selection fails closed: a stage whose prerequisite was not run is
+`BLOCKED` with the prerequisite named, not silently reported as passing.
+
+**What it does not claim.** No Windows Server NPU runtime proof. The reviewed
+INF selector floor `NTamd64.10.0...22000` and the absence of a `ProductType`
+server exclusion support static-candidate reasoning only. The Ryzen AI Z2
+Extreme evidence is Windows **client** runtime only, recorded with
+`serverRuntimeProof: false`, and the STXA/STXB question stays open as
+`firmwareDeviceRevisionStatus: "Unresolved"`. The shipped collector is 1.2.1
+while the hardware evidence was collected by 1.2.0, and the toolkit's
+documentation retains that disclaimer.
+
+Chipset r122 / Graphics r87 / NPU r60 / BthPan r68 / Collector c11 are
+unchanged, and the suite is unchanged at **28 cases / 1225 assertions**.
+
+---
+
 ## [2026-08-13] `amd-graphics-research-v1.0.0` — new research toolkit and generated dataset (no product script changes, no version bumps)
 
 Adds `tools/amd-graphics-driver-research/` at toolkit version **1.0.0**: the
