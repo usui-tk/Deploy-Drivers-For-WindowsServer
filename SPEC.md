@@ -912,7 +912,7 @@ repository-shipped `.psa.config.json`:
 | `tools/amd-chipset-driver-research/Invoke-AmdChipsetDriverResearch.ps1` | 0 | 100 | 126 |
 | `tools/amd-graphics-driver-research/Invoke-AmdGraphicsDriverResearch.ps1` | 0 | 87 | 118 |
 | `tools/amd-npu-driver-research/Invoke-AmdNpuDriverResearch.ps1` | **2** | 78 | 89 |
-| `tools/amd-npu-driver-research/tools/Collect-AmdNpuHardwareIdentityEvidence.ps1` | 0 | 15 | 0 |
+| `tools/amd-npu-driver-research/tools/Collect-AmdNpuHardwareIdentityEvidence.ps1` | 0 | 14 | 0 |
 | `tools/source-fragments/AmdStaticExtraction.fragment.ps1` | 0 | 0 | 0 |
 
 A repository-wide `psa.py -r --config .psa.config.json .` therefore exits **2**,

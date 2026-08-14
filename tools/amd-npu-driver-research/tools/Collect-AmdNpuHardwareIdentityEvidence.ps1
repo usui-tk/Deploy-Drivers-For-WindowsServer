@@ -1,4 +1,4 @@
-#requires -Version 5.1
+﻿#requires -Version 5.1
 <#
 .SYNOPSIS
     Collects read-only AMD platform hardware identity evidence for NPU research from Windows.

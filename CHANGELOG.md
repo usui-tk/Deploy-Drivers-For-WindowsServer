@@ -20,6 +20,45 @@ independently.
 
 ---
 
+## [2026-08-14] `collector-utf8-bom` — restore the `.ps1` encoding contract in the NPU research collector (no product script changes, no version bumps)
+
+`tools/amd-npu-driver-research/tools/Collect-AmdNpuHardwareIdentityEvidence.ps1`
+gains its UTF-8 BOM. One file, one byte-order mark, no content change.
+
+**The violation.** The repository stores every `.ps1` as UTF-8 **with** BOM and
+CRLF; `.gitattributes` carries `*.ps1 text working-tree-encoding=UTF-8
+eol=crlf`. The collector arrived from its upstream toolkit with LF and no BOM.
+The `eol=crlf` rule silently repaired the line endings on checkout, so the
+working tree was already correct there — but `working-tree-encoding=UTF-8` does
+not synthesise a BOM, so the missing BOM survived into the repository. It was
+the only violation among the repository's 41 `.ps1` / `.psm1` files.
+
+**How it was missed.** `psa.py` had been reporting it all along. `PSA7001`
+("PowerShell script lacks UTF-8 BOM") fired on this file from the moment it
+landed. The pre-merge review read the repository-wide scan as a pass/fail on
+the error count and let a single warning pass unexamined. Recorded here because
+the failure was in how the gate output was read, not in the gate.
+
+**Why it was safe to correct.** The collector's hash is bound by nothing: it is
+not the `Source` of `public/publication-manifest.json` (that is
+`Invoke-AmdNpuDriverResearch.ps1`), it is not among the 22 manifest payload
+entries, no test case references it, and no toolkit document records its digest.
+This is the opposite of the `PSA2011` case in A.11.4c, where the analyzer
+finding is a false positive *and* the file is hash-bound, so the finding is
+registered rather than edited. Here the finding is real and the file is free,
+so it is fixed. The file is pure ASCII, so the BOM changes no character's
+meaning; `ParseFile` reports 0 errors before and after.
+
+**Verification.** All 41 `.ps1` / `.psm1` files now satisfy the contract, and a
+repository-wide `--include PSA7001` scan reports zero findings and exits 0. The
+collector's entry in the A.11.4b baseline table moves from 15 warnings to 14,
+the difference being the retired `PSA7001`.
+
+Chipset r122 / Graphics r87 / NPU r60 / BthPan r68 / Collector c11 are
+unchanged, and the suite is unchanged at **28 cases / 1225 assertions**.
+
+---
+
 ## [2026-08-14] `psa-tools-layer-scope` — document the static-analysis contract for the `tools/` layer (no product script changes, no version bumps)
 
 `SPEC.md` gains **A.11.4b** and **A.11.4c**. Nothing executable changes; this
