@@ -1,6 +1,22 @@
-# AMD Chipset Driver Research — Historical Reports Index
+# AMD Chipset Driver Research — Authored Records Index
 
-The top-level documentation describes the stable current v2.0.0 contract. This directory retains generated runtime-report locations and authored historical research/qualification records that explain how specific behaviors were discovered and validated.
+The top-level documentation describes the stable current v2.0.0 contract. This
+directory retains the authored historical research and qualification records
+that explain how specific behaviors were discovered and validated.
+
+This directory holds **authored** records: design and qualification narratives
+written by a person or a model, reviewed, and committed. It exists so that the
+authored/generated boundary is visible in the directory tree rather than
+maintained as a list of file names in `.gitignore`.
+
+The counterpart directories are:
+
+| Directory | Written by | Committed |
+| --- | --- | --- |
+| `authored/**` | a person or a model | yes, after review |
+| `public/**` | the toolkit | yes, per `PUBLICATION-POLICY.md` |
+| `reports/**`, `inventory/**`, `work/**`, `private/**` | the toolkit at run time | no |
+
 
 Use:
 
@@ -21,11 +37,12 @@ Use:
 
 These files were moved from the tool top directory during the v2.0.0 documentation alignment. Their historical content is retained; current stable conclusions are consolidated in `RESEARCH-NOTES.md` and normative requirements in `SPEC.md`.
 
-## Generated runtime reports
+## Generated reports live elsewhere
 
-The toolkit may generate runtime staging reports beneath `reports/**`. Generated commit-safe reports are published beneath `public/reports/**` according to `PUBLICATION-POLICY.md`.
-
-Runtime generated reports are not automatically repository-tracked merely because they are Markdown.
+The toolkit writes runtime staging reports beneath `reports/**`, which is
+ignored in its entirety. Generated commit-safe reports are published beneath
+`public/reports/**` according to `PUBLICATION-POLICY.md`. Nothing generated is
+committed from this directory.
 
 ## Historical-report policy
 
@@ -33,4 +50,4 @@ Historical reports MAY retain development-version terminology, old file location
 
 They SHOULD NOT be treated as the current operational/normative contract when they conflict with the current top-level v2.0.0 documents.
 
-New one-off qualification/reverse-engineering narratives SHOULD normally be placed under `reports/**` rather than added to the tool top directory.
+New one-off qualification/reverse-engineering narratives SHOULD normally be placed under `authored/**` rather than added to the tool top directory.

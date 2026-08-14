@@ -53,7 +53,7 @@ PUBLICATION-POLICY.md
 THIRD-PARTY-NOTICES.md
 ```
 
-One-off design/qualification narratives SHOULD live under `reports/**`, not the tool top directory.
+One-off design/qualification narratives SHOULD live under `authored/**`, not the tool top directory. `reports/**` is script-generated runtime staging and is never committed.
 
 ## 3. Runtime and source encoding
 
@@ -475,7 +475,8 @@ The following are not automatic generated-commit surfaces:
 ```text
 private/**
 inventory/**
-reports/** generated runtime reports
+reports/** script-generated runtime reports (never committed)
+authored/** authored design/qualification records (committed)
 work/**
 evidence/** legacy location
 ```

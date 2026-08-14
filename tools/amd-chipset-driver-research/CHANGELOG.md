@@ -1,4 +1,25 @@
 # Changelog
+## Authored/generated separation — 2026-08-14 (documentation and repository layout only)
+
+The name list in `.gitignore` had drifted: the toolkit writes
+`reports/amd-chipset-host-analysis.md`, which the list did not cover, so that
+generated report was committable. Directory separation removes the class.
+
+- Separates authored records from script-generated output by directory. The
+  authored design/qualification narratives move from `reports/` to a new
+  `authored/` directory as a pure rename; no file content changes.
+- Replaces the hand-maintained generated-file name list in `.gitignore` with a
+  whole-directory rule. `reports/**` is now ignored in its entirety apart from
+  its `.gitkeep`, so a newly generated report can no longer become committable
+  by being absent from a list.
+- Adopts the repository-wide `tools/` layer convention: `authored/**` and
+  `public/**` are committed; `inventory/**`, `private/**`, `work/**` and
+  `reports/**` are runtime staging carrying one tracked `.gitkeep` each.
+- Updates the internal documentation references and the normative statements
+  that previously directed new one-off narratives into `reports/**`.
+- No PowerShell change, no toolkit version change, and no generated `public/**`
+  byte changes.
+
 ## v2.0.0 documentation alignment — 2026-08-13 (documentation only)
 - Reorganizes the AMD Chipset Driver Research Toolkit documentation without changing `Invoke-AmdChipsetDriverResearch.ps1`, toolkit version, schemas, static data, or generated `public/**` research artifacts.
 - Aligns the tool-top Markdown surface with the AMD Graphics Driver Research Toolkit: `README.md`, `SPEC.md`, `TESTING.md`, `RESEARCH-NOTES.md`, `CHANGELOG.md`, `PUBLICATION-POLICY.md`, and `THIRD-PARTY-NOTICES.md`.

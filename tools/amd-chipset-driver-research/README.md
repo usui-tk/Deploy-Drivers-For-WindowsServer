@@ -215,7 +215,7 @@ AMD's setup selector is treated as an independent evidence plane. The toolkit ma
 
 Evidence levels are explicit. `AmdCompiledStaticProven` is always scoped to an exact selector binary hash. Rules are not generalized across releases merely because two installers use the same Qt generation.
 
-The major-version findings and downstream engineering implications are summarized in `RESEARCH-NOTES.md`; the detailed historical reverse-engineering report is retained under `reports/design-history/`.
+The major-version findings and downstream engineering implications are summarized in `RESEARCH-NOTES.md`; the detailed historical reverse-engineering report is retained under `authored/design-history/`.
 
 ## WDF analysis
 
@@ -250,7 +250,8 @@ amd-chipset-driver-research/
   inventory/                # runtime staging; not a generated commit surface
   private/                  # private/debug evidence
   work/                     # extraction/download workspace
-  reports/                  # generated reports + historical research/qualification records
+  authored/                 # authored research/qualification records (reviewed, committed)
+  reports/                  # script-generated runtime reports (never committed)
 ```
 
 ### Documentation map
@@ -264,9 +265,9 @@ amd-chipset-driver-research/
 | `CHANGELOG.md` | Version-by-version implementation history |
 | `PUBLICATION-POLICY.md` | Generated public/private boundary and publication transaction |
 | `THIRD-PARTY-NOTICES.md` | Third-party attribution |
-| `reports/README.md` | Index of historical qualification/design reports |
+| `authored/README.md` | Index of authored qualification/design records |
 
-One-off reverse-engineering and qualification narratives are intentionally kept out of the tool top directory. They remain under `reports/**` as evidence of how a behavior was discovered or qualified.
+One-off reverse-engineering and qualification narratives are intentionally kept out of the tool top directory. They remain under `authored/**` as evidence of how a behavior was discovered or qualified.
 
 ## Public repository outputs and private evidence
 

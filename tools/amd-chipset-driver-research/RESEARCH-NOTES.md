@@ -62,7 +62,7 @@ The most important generation boundary is **6.x -> 7.x**:
 
 This is a real implementation-generation boundary, not just a release-number difference.
 
-Detailed historical code-level analysis is retained in `reports/design-history/QT-SELECTOR-REVERSE-ENGINEERING.md`.
+Detailed historical code-level analysis is retained in `authored/design-history/QT-SELECTOR-REVERSE-ENGINEERING.md`.
 
 ## 4. Historical 2.x availability changed during Windows qualification
 
@@ -232,7 +232,7 @@ Simple “HWID appears anywhere in the INF” logic loses critical TargetOSVersi
 
 Likewise, scanning every `*.NT*` section as a Models section creates false structure.
 
-The shared Chipset/Graphics INF semantic contract was developed specifically to avoid these shortcuts. The historical synchronization note is retained under `reports/design-history/INF-ANALYSIS-SYNC.md`.
+The shared Chipset/Graphics INF semantic contract was developed specifically to avoid these shortcuts. The historical synchronization note is retained under `authored/design-history/INF-ANALYSIS-SYNC.md`.
 
 ## 13. Native applicability and Server projection are different facts
 
@@ -566,9 +566,9 @@ Use these layers:
 - `public/inventory/releases/**` — canonical per-release Raw JSON;
 - `public/inventory/**` — generated indexes/aggregate views;
 - `public/reports/**` — generated current reports;
-- `reports/design-history/QT-SELECTOR-REVERSE-ENGINEERING.md` — historical detailed selector RE narrative;
-- `reports/design-history/INF-ANALYSIS-SYNC.md` — historical Chipset/Graphics semantic-sync narrative;
-- `reports/README.md` — historical report index/policy;
+- `authored/design-history/QT-SELECTOR-REVERSE-ENGINEERING.md` — historical detailed selector RE narrative;
+- `authored/design-history/INF-ANALYSIS-SYNC.md` — historical Chipset/Graphics semantic-sync narrative;
+- `authored/README.md` — authored-record index/policy;
 - `CHANGELOG.md` — implementation chronology.
 
 When a historical report conflicts with `SPEC.md`, the current normative specification wins. When report prose conflicts with public Raw JSON, investigate the generator/evidence chain rather than editing the generated data.

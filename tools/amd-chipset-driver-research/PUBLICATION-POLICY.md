@@ -23,7 +23,8 @@ Generated public data is produced by `Invoke-AmdChipsetDriverResearch.ps1`. **Ge
 | `public/**` | Public repository artifact | **Yes** | Canonical per-release Raw JSON, public indexes, reports, run summary, validation and manifest |
 | `private/evidence/**` | Private/debug evidence | **No** | Host/runtime paths, environment, transcripts, diagnostic logs, optional vendor binaries |
 | `inventory/**` | Runtime staging | **No** | Current-run intermediate and aggregate JSON/CSV |
-| `reports/**` generated reports | Runtime staging | **No** | Build-stage Markdown before publication normalization |
+| `reports/**` | Runtime staging | **No** | Script-generated build-stage Markdown before publication normalization |
+| `authored/**` | Authored records | **Yes** | Reviewed design/qualification narratives written by a person or a model |
 | `work/**` | Runtime/vendor workspace | **No** | Extracted installer payload and temporary files |
 | script/docs/schemas/data | Reviewed source | Explicit source change only | Tool implementation and normative documentation |
 
