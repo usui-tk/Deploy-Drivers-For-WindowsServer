@@ -1,5 +1,22 @@
 # Changelog
 
+## Authored/generated separation — 2026-08-14 (documentation and repository layout only)
+
+- Adds an `authored/` directory with its index, matching the chipset and
+  graphics toolkits. It is currently empty apart from the index: this toolkit
+  reached 1.0.0 with its narratives held in the tool top directory.
+- Adopts the shared `tools/` layer `.gitignore`. The placeholder set becomes one
+  `.gitkeep` per runtime staging directory (`inventory/`, `private/`, `work/`,
+  `reports/`); the former `private/evidence/.gitkeep` is folded into
+  `private/.gitkeep`.
+- States in `PUBLICATION-POLICY.md` that authored narratives belong under
+  `authored/**` and that `reports/**` is generated runtime staging.
+- No PowerShell change, no toolkit version change, and no generated `public/**`
+  byte changes. `Invoke-AmdNpuDriverResearch.ps1` keeps SHA-256
+  `2dc94306ed7f9838a05be21ae2d6f44494446aaeded9ad978d3ebde5be0c04cf`, so the
+  publication manifest's source binding and both 1.0.0 qualification runs remain
+  valid.
+
 ## 1.0.0 — 2026-08-14
 
 Stable-version release candidate prepared after independent Audit #3 APPROVE; main-toolkit v1.0.0 qualification is complete and Audit #4 is pending.

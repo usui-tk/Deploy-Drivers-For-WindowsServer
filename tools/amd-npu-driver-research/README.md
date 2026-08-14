@@ -420,6 +420,7 @@ Deploy-Drivers-For-WindowsServer/
       ├─ ARCHITECTURE-PARITY.md
       ├─ data/
       ├─ schemas/
+      ├─ authored/
       ├─ public/
       ├─ inventory/
       ├─ private/

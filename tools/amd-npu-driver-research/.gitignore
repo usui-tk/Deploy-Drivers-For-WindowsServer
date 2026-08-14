@@ -1,10 +1,26 @@
+# Commit-surface boundary for this research toolkit.
+#
+# Two kinds of content live here and they are separated by directory, not by a
+# list of file names. A name list has to be maintained in step with the
+# generator and silently fails open when it drifts.
+#
+#   authored/**   Written by a person or a model, reviewed, and committed.
+#   public/**     Written by the toolkit and committed. The only generated
+#                 commit surface, defined by PUBLICATION-POLICY.md.
+#   everything    Runtime staging. Never committed beyond a .gitkeep
+#   below         placeholder that records the directory's existence.
+#
+# public/** and authored/** are deliberately absent from this file: they are
+# tracked, so no rule is needed.
+
 inventory/*
 !inventory/.gitkeep
+
 private/*
-!private/evidence/
-private/evidence/*
-!private/evidence/.gitkeep
+!private/.gitkeep
+
 work/*
 !work/.gitkeep
+
 reports/*
 !reports/.gitkeep

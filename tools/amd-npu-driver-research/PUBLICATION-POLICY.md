@@ -13,6 +13,8 @@ The following are runtime staging and MUST NOT be automatically committed beyond
 
 Reviewed source files such as the PowerShell script, schemas, data contracts, and authored documentation are normal source content outside `public/**`.
 
+Authored one-off design and qualification narratives belong under `authored/**`, which is committed after review. `reports/**` is script-generated runtime staging and is ignored in its entirety; nothing generated is committed from it.
+
 ## No post-generation editing
 
 Generated `public/**` files MUST NOT be hand edited. Fix the generator or reviewed source data and regenerate.
