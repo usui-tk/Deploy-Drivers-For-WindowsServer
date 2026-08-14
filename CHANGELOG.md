@@ -20,6 +20,68 @@ independently.
 
 ---
 
+## [2026-08-14] `tools-authored-generated-separation` — separate authored records from generated output across the research toolkits (no product script changes, no version bumps)
+
+The three research toolkits under `tools/` now share one directory contract, and
+`SPEC.md` gains **A.11.4d** to define it. No PowerShell changes anywhere, no
+toolkit version bumps, and no generated `public/**` byte changes.
+
+**The problem.** `reports/` held two different kinds of file. The toolkits write
+generated reports there, and the chipset and graphics toolkits also kept their
+authored design and qualification narratives there. The two were separated only
+by a list of generated file names in `.gitignore`.
+
+That list had already drifted. The chipset generator writes
+`reports/amd-chipset-host-analysis.md`, which the list never covered, so a
+generated report was committable in violation of the toolkit's own publication
+policy. Worse for a reader, the word `reports` meant three different things at
+once: `public/reports/` (generated, committed), `reports/` (authored,
+committed), and `reports/releases/` plus the named files (generated, ignored).
+Provenance made it sharper still — a publication manifest entry carries
+`RelativePath: reports/X` relative to `public/` and `SourceRelativePath:
+reports/X` relative to the tool root, the same string naming two files with
+different hashes.
+
+**The fix is structural.** Authored records move to a new `authored/` directory
+as a pure rename — 29 files across chipset and graphics, no content change — and
+`reports/` becomes script-generated staging only. Every generated path the
+chipset and graphics generators write is now ignored, including the one the list
+had missed, and no list is left to drift.
+
+The split is by **who wrote the file**, not by file type: an authored Markdown
+record and a generated Markdown report are both Markdown, and only the directory
+tells them apart. `authored/README.md` in each toolkit states that axis, because
+a directory name that needs explaining should carry the explanation.
+
+**One `.gitignore` for all three.** The rule blocks are now byte-identical,
+ignoring whole runtime directories rather than named files. Placeholders are
+regularised to exactly one tracked `.gitkeep` per runtime staging directory
+(`inventory/`, `private/`, `work/`, `reports/`). This also retires two
+long-standing inconsistencies: the chipset toolkit tracked `work/.gitkeep`
+despite ignoring `work/`, the only tracked-but-ignored file in the repository;
+and the NPU toolkit's `private/evidence/.gitkeep` is folded into
+`private/.gitkeep`.
+
+**A.11.4d** records the contract, the invariant that a toolkit's on-disk file
+count must equal its tracked count, and the mechanical check for it — including
+the detail that `git check-ignore` stays silent for tracked paths unless
+`--no-index` is passed, which is exactly the case worth catching. It also fixes
+dotfile ownership: `.gitignore`, `.gitkeep` and the root `.gitattributes` are
+maintained on the repository side and are not accepted from a candidate archive.
+
+Seven normative statements in the toolkits' own `SPEC.md`, `TESTING.md`,
+`PUBLICATION-POLICY.md` and `README.md` still directed new one-off narratives
+into `reports/**`; they now point at `authored/**`. Past `CHANGELOG.md` entries
+in the toolkits keep their original wording and therefore still reference the
+old paths, per the rule that history is not rewritten.
+
+Tracked and on-disk counts now agree exactly for all three toolkits — chipset
+110, graphics 135, NPU 80 — with zero tracked-but-ignored files. Chipset r122 /
+Graphics r87 / NPU r60 / BthPan r68 / Collector c11 are unchanged, and the suite
+is unchanged at **28 cases / 1225 assertions**.
+
+---
+
 ## [2026-08-14] `collector-utf8-bom` — restore the `.ps1` encoding contract in the NPU research collector (no product script changes, no version bumps)
 
 `tools/amd-npu-driver-research/tools/Collect-AmdNpuHardwareIdentityEvidence.ps1`

@@ -974,6 +974,87 @@ matching across statement separators on a shared line. Until that lands, this
 register is the repository's record. If the count in the table above changes,
 re-run the AST check before assuming the new finding is another false positive.
 
+### A.11.4d Directory contract for the `tools/` research layer
+
+The analysis scope above assumes a stable layout. This section defines it, so
+that a reviewer can tell what a file under `tools/` is by where it sits rather
+than by reading the generator.
+
+Every research toolkit under `tools/` uses the same seven directories:
+
+| Directory | Written by | Committed |
+| --- | --- | --- |
+| tool top level (`README.md`, `SPEC.md`, script, ...) | a person or a model | yes, after review |
+| `authored/**` | a person or a model | yes, after review |
+| `data/**`, `schemas/**` | a person or a model | yes, after review |
+| `public/**` | the toolkit | yes, per the toolkit's `PUBLICATION-POLICY.md` |
+| `inventory/**` | the toolkit at run time | no |
+| `private/**` | the toolkit at run time | no |
+| `work/**` | the toolkit at run time | no |
+| `reports/**` | the toolkit at run time | no |
+
+**One axis, one directory.** The split is by *who wrote the file*, not by file
+type. An authored Markdown record and a generated Markdown report are both
+Markdown; only the directory distinguishes them.
+
+**The separation is structural, never a name list.** Each toolkit's
+`.gitignore` ignores whole runtime directories:
+
+```gitignore
+inventory/*
+!inventory/.gitkeep
+
+private/*
+!private/.gitkeep
+
+work/*
+!work/.gitkeep
+
+reports/*
+!reports/.gitkeep
+```
+
+`authored/**` and `public/**` are deliberately absent: they are tracked, so no
+rule is needed. All three toolkits carry byte-identical rule blocks.
+
+This form is required rather than preferred, and the reason is a defect that
+actually occurred. The chipset and graphics toolkits previously named their
+generated reports individually, for example
+`reports/amd-chipset-driver-history.md`. The chipset generator also writes
+`reports/amd-chipset-host-analysis.md`, which was never added to the list, so
+that generated file was committable in violation of the toolkit's own
+publication policy. A name list has to be maintained in step with the generator
+and fails open when it drifts; a whole-directory rule cannot.
+
+**Placeholders.** Each runtime staging directory carries exactly one tracked
+`.gitkeep`, and no other tracked file. The placeholders are documentary: a
+toolkit runs correctly with all four directories absent, because it creates
+them on demand. They exist so a fresh clone shows the intended layout.
+
+**The invariant.** For every toolkit, the number of files on disk in the commit
+candidate must equal the number `git` will track. A file that ships in a
+candidate but matches an ignore rule is a defect even when it is inert, because
+it makes the declared surface disagree with the committed one. Check it
+mechanically rather than by reading `.gitignore`:
+
+```bash
+# Files that are tracked despite matching an ignore rule.
+for f in $(git ls-files tools/<toolkit>); do
+    git check-ignore --no-index -q "$f" && echo "IGNORED but TRACKED: $f"
+done
+```
+
+`git check-ignore` without `--no-index` stays silent for tracked paths, which
+makes a tracked-but-ignored file invisible in exactly the case worth catching.
+
+**Merge procedure.** Toolkit candidates are supplied as archives by the model
+that develops them. Dotfiles under `tools/` — `.gitignore` and `.gitkeep`, and
+the repository-root `.gitattributes` — are maintained on the repository side and
+are not accepted from a candidate archive. A candidate that needs a dotfile
+change raises it as a request. Before merging, place the candidate in a
+disposable repository, run `git add -A`, and confirm the tracked count equals
+the candidate's file count.
+
 ### Rule coverage
 
 `psa.py` ships a check set grouped into **ten categories** (`PSA1xxx` syntax balance, `PSA2xxx` variable / scope, `PSA3xxx` coding pattern, `PSA4xxx` style / info, `PSA5xxx` security, `PSA6xxx` best practice, `PSA7xxx` file format / encoding, `PSA8xxx` cross-file consistency, `PSA9xxx` complexity / metrics, plus the project / pipeline convention family `PSAP0xxx`). The exact rule count grows as new defect classes are productionised upstream; this section names the categories rather than the count to avoid mechanical drift each time a rule is added. Notable rule lineage (most recent additions first):
