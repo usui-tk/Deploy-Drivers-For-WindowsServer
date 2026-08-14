@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/tools/amd-npu-driver-research/schemas/source-data/processor-driver-applicability.source.schema.json",
+  "title": "AMD NPU reviewed source data: processor-driver-applicability.json",
+  "description": "Schema for Git-tracked reviewed source data. This is distinct from the PascalCase generated public schema.",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "reviewedAt": {
+      "type": "string"
+    },
+    "scope": {
+      "type": "string"
+    },
+    "unknownProcessorPolicy": {
+      "type": "string"
+    },
+    "unknownHardwarePolicy": {
+      "type": "string"
+    },
+    "recommendationPolicy": {
+      "type": "object",
+      "properties": {
+        "publiclyObtainableArtifactsOnly": {
+          "type": "boolean"
+        },
+        "privateQualificationArtifactsNeverRecommended": {
+          "type": "boolean"
+        },
+        "highestReviewedPublishedStaticCandidate": {
+          "type": "boolean"
+        },
+        "windowsServerRuntimeProofRequiredForRuntimeClaim": {
+          "type": "boolean"
+        },
+        "seriesNameOnlyInferenceProhibited": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "publiclyObtainableArtifactsOnly",
+        "privateQualificationArtifactsNeverRecommended",
+        "highestReviewedPublishedStaticCandidate",
+        "windowsServerRuntimeProofRequiredForRuntimeClaim",
+        "seriesNameOnlyInferenceProhibited"
+      ]
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "artifactFileName": {
+            "type": "string"
+          },
+          "artifactSha256": {
+            "type": "string"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "statement"
+        ]
+      }
+    },
+    "privateQualificationArtifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "artifactId": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "acquisitionPolicy": {
+            "type": "string"
+          },
+          "recommendationEligible": {
+            "type": "boolean"
+          },
+          "evidenceClass": {
+            "type": "string"
+          },
+          "embeddedInfDriverVersion": {
+            "type": "string"
+          },
+          "infModelsSection": {
+            "type": "string"
+          },
+          "broadInfDeviceIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "publishedSupportedCodenames": {
+            "type": "array",
+            "items": {}
+          },
+          "sourceIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "artifactId",
+          "fileName",
+          "sha256",
+          "acquisitionPolicy",
+          "recommendationEligible",
+          "evidenceClass",
+          "embeddedInfDriverVersion",
+          "infModelsSection",
+          "broadInfDeviceIds",
+          "publishedSupportedCodenames",
+          "sourceIds",
+          "notes"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "reviewedAt",
+    "scope",
+    "unknownProcessorPolicy",
+    "unknownHardwarePolicy",
+    "recommendationPolicy",
+    "sources",
+    "privateQualificationArtifacts"
+  ]
+}

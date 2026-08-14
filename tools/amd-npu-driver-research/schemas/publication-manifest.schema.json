@@ -1,0 +1,12 @@
+{
+  "$schema":"https://json-schema.org/draft/2020-12/schema",
+  "$id":"https://example.invalid/amd-npu-driver-research/publication-manifest.schema.json",
+  "title":"AMD NPU research publication manifest",
+  "type":"object",
+  "required":["SchemaVersion","ToolVersion","HandEdited","Source","GeneratedFiles"],
+  "properties":{
+    "SchemaVersion":{"const":"1.0"},"ToolVersion":{"type":"string"},"HandEdited":{"const":false},
+    "Source":{"type":"object","required":["Path","Sha256"],"properties":{"Path":{"const":"Invoke-AmdNpuDriverResearch.ps1"},"Sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}}},
+    "GeneratedFiles":{"type":"array","items":{"type":"object","required":["Path","Length","Sha256"],"properties":{"Path":{"type":"string"},"Length":{"type":"integer","minimum":0},"Sha256":{"type":"string","pattern":"^[0-9a-f]{64}$"}}}}
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/tools/amd-npu-driver-research/schemas/source-data/windows-server-profiles.source.schema.json",
+  "title": "AMD NPU reviewed source data: windows-server-profiles.json",
+  "description": "Schema for Git-tracked reviewed source data. This is distinct from the PascalCase generated public schema.",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "profiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "major": {
+            "type": "integer"
+          },
+          "minor": {
+            "type": "integer"
+          },
+          "build": {
+            "type": "integer"
+          },
+          "productType": {
+            "type": "integer"
+          },
+          "architecture": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "major",
+          "minor",
+          "build",
+          "productType",
+          "architecture"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "profiles"
+  ]
+}

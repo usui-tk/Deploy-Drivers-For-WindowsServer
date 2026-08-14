@@ -1,0 +1,43 @@
+{
+  "schemaVersion": "amd-npu-published-driver-artifacts/1.1",
+  "reviewedAtUtc": "2026-08-13T05:30:00Z",
+  "discovery": {
+    "documentationUrl": "https://ryzenai.docs.amd.com/en/latest/inst.html",
+    "policy": "Discover AMD documentation URLs for ZIP/EXE/MSI/CAB/7z driver artifacts, normalize reviewed and currently observed artifacts in Metadata, then acquire selected packages. Static extraction is 7-Zip based and bounded. Unknown discovered hashes remain unreviewed and never inherit a known installer, driver-binary, or compatibility contract."
+  },
+  "artifacts": [
+    {
+      "artifactId": "rai-1.5-280",
+      "fileName": "NPU_RAI1.5_280_WHQL.zip",
+      "downloadUrl": "https://download.amd.com/opendownload/RyzenAI/Driver/NPU_RAI1.5_280_WHQL.zip",
+      "expectedSha256": "a278a2c92cdc47e0da4cab2cbdb5347a127eee67311927578f4e151618446ce4",
+      "expectedSizeBytes": 31239718,
+      "publishedDriverLabel": "32.0.203.280",
+      "sourceStatus": "HistoricalReviewedDirectUrl",
+      "defaultAcquire": true,
+      "artifactFormat": "zip"
+    },
+    {
+      "artifactId": "rai-280",
+      "fileName": "NPU_RAI_280_WHQL.zip",
+      "downloadUrl": "https://download.amd.com/opendownload/RyzenAI/Driver/NPU_RAI_280_WHQL.zip",
+      "expectedSha256": "803afe1e2d75b717f60a368453306ccbd4877cdd936b6531b946b95109a22144",
+      "expectedSizeBytes": 31416645,
+      "publishedDriverLabel": "32.0.203.280",
+      "sourceStatus": "CurrentAmdDocumentation",
+      "defaultAcquire": true,
+      "artifactFormat": "zip"
+    },
+    {
+      "artifactId": "rai-376",
+      "fileName": "NPU_RAI_376_WHQL.zip",
+      "downloadUrl": "https://download.amd.com/opendownload/RyzenAI/Driver/NPU_RAI_376_WHQL.zip",
+      "expectedSha256": "aa836cbfcad5d0782c79b58f197aa50624af37e7cb8311c5f94d85b0dc3ccaad",
+      "expectedSizeBytes": 26936876,
+      "publishedDriverLabel": "32.0.203.376",
+      "sourceStatus": "CurrentAmdDocumentation",
+      "defaultAcquire": true,
+      "artifactFormat": "zip"
+    }
+  ]
+}

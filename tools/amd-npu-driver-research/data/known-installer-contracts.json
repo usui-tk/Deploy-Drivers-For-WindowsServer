@@ -1,0 +1,171 @@
+{
+  "schemaVersion": "1.0",
+  "contracts": [
+    {
+      "sha256": "70259d1d182d7e9413cfb3cb8608bcba16f8142c6aee96fac2df2feb99366016",
+      "artifactName": "npu_sw_installer.exe",
+      "evidenceLevel": "StaticDisassemblyProven",
+      "analysisStatus": "Historical Ryzen AI 1.5 installer; exact-hash contract. The recovered NPU device matcher and Windows routing thresholds match routing semantic family v1, while the PE binary is distinct.",
+      "deviceMatcher": {
+        "regex": "PCI\\\\VEN_1022&DEV_(1502|17F0)",
+        "deviceIds": [
+          "1502",
+          "17F0"
+        ],
+        "revisionDiscriminatorObserved": false,
+        "revisionStatement": "No REV_ selector was observed in ASCII strings or the recovered device matcher. This does not prove that revision is unused in every code path."
+      },
+      "platformFamilies": [
+        {
+          "deviceId": "1502",
+          "installerLabel": "PHX",
+          "researchInterpretation": "Phoenix / Hawk Point family"
+        },
+        {
+          "deviceId": "17F0",
+          "installerLabel": "STX",
+          "researchInterpretation": "Strix / Krackan family"
+        }
+      ],
+      "osGates": [
+        {
+          "condition": "major != 10",
+          "action": "Other/unknown path",
+          "confidence": "High"
+        },
+        {
+          "condition": "major == 10 and build >= 26100",
+          "action": "Install MCDM driver",
+          "confidence": "High"
+        },
+        {
+          "condition": "major == 10 and 22621 <= build < 26100 and UBR >= 3527",
+          "action": "Install MCDM driver",
+          "confidence": "High"
+        },
+        {
+          "condition": "major == 10 and 22621 <= build < 26100 and UBR < 3527",
+          "action": "Install WDF/NULL driver",
+          "confidence": "High"
+        },
+        {
+          "condition": "major == 10 and 22000 <= build < 22621",
+          "action": "Install WDF/NULL driver",
+          "confidence": "High"
+        },
+        {
+          "condition": "major == 10 and build < 22000",
+          "action": "Windows 10 path / WDF-NULL path",
+          "confidence": "Medium"
+        }
+      ],
+      "driverPaths": [
+        "npu_mcdm_stack_prod\\kipudrv.inf",
+        "npu_wdf_stack_prod\\kipudrv\\kipudrv.inf"
+      ],
+      "observedApiFamilies": [
+        "SetupAPI",
+        "CfgMgr32",
+        "NewDev/DiInstallDriverA",
+        "Registry",
+        "WMI"
+      ],
+      "requiredStringEvidence": [
+        "NPU Smart Installer application",
+        "Windows 24 detected. Version:",
+        "Windows 11 MCDM OS detected. Version:",
+        "Windows 11 WDF OS detected. Version:",
+        "Installing MCDM driver from",
+        "Installing WDF/NULL driver from",
+        "PCI\\\\VEN_1022&DEV_(1502|17F0)",
+        "This is a PHX platform with MCDM installed.",
+        "This is a STX platform with MCDM installed."
+      ],
+      "contractId": "npu-smart-installer-70259d1d182d",
+      "routingSemanticId": "amd-npu-smart-installer-routing-v1"
+    },
+    {
+      "sha256": "96dc03e574e9dfb2c45543833d8a66d5bcecb9af48e9beac07ea72cccf3ce755",
+      "artifactName": "npu_sw_installer.exe",
+      "evidenceLevel": "StaticDisassemblyProven",
+      "analysisStatus": "Initial reverse engineering; exact-hash contract; recovered routing semantics v1",
+      "deviceMatcher": {
+        "regex": "PCI\\\\VEN_1022&DEV_(1502|17F0)",
+        "deviceIds": [
+          "1502",
+          "17F0"
+        ],
+        "revisionDiscriminatorObserved": false,
+        "revisionStatement": "No REV_ selector was observed in ASCII strings or the recovered device matcher. This does not prove that revision is unused in every code path."
+      },
+      "platformFamilies": [
+        {
+          "deviceId": "1502",
+          "installerLabel": "PHX",
+          "researchInterpretation": "Phoenix / Hawk Point family"
+        },
+        {
+          "deviceId": "17F0",
+          "installerLabel": "STX",
+          "researchInterpretation": "Strix / Krackan family"
+        }
+      ],
+      "osGates": [
+        {
+          "condition": "major != 10",
+          "action": "Other/unknown path",
+          "confidence": "High"
+        },
+        {
+          "condition": "major == 10 and build >= 26100",
+          "action": "Install MCDM driver",
+          "confidence": "High"
+        },
+        {
+          "condition": "major == 10 and 22621 <= build < 26100 and UBR >= 3527",
+          "action": "Install MCDM driver",
+          "confidence": "High"
+        },
+        {
+          "condition": "major == 10 and 22621 <= build < 26100 and UBR < 3527",
+          "action": "Install WDF/NULL driver",
+          "confidence": "High"
+        },
+        {
+          "condition": "major == 10 and 22000 <= build < 22621",
+          "action": "Install WDF/NULL driver",
+          "confidence": "High"
+        },
+        {
+          "condition": "major == 10 and build < 22000",
+          "action": "Windows 10 path / WDF-NULL path",
+          "confidence": "Medium"
+        }
+      ],
+      "driverPaths": [
+        "npu_mcdm_stack_prod\\kipudrv.inf",
+        "npu_wdf_stack_prod\\kipudrv\\kipudrv.inf"
+      ],
+      "observedApiFamilies": [
+        "SetupAPI",
+        "CfgMgr32",
+        "NewDev/DiInstallDriverA",
+        "Registry",
+        "WMI"
+      ],
+      "requiredStringEvidence": [
+        "NPU Smart Installer application",
+        "Windows 24 detected. Version:",
+        "Windows 11 MCDM OS detected. Version:",
+        "Windows 11 WDF OS detected. Version:",
+        "Installing MCDM driver from",
+        "Installing WDF/NULL driver from",
+        "PCI\\\\VEN_1022&DEV_(1502|17F0)",
+        "This is a PHX platform with MCDM installed.",
+        "This is a STX platform with MCDM installed."
+      ],
+      "contractId": "npu-smart-installer-96dc03e574e9",
+      "routingSemanticId": "amd-npu-smart-installer-routing-v1"
+    }
+  ]
+}

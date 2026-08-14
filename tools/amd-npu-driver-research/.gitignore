@@ -1,0 +1,10 @@
+inventory/*
+!inventory/.gitkeep
+private/*
+!private/evidence/
+private/evidence/*
+!private/evidence/.gitkeep
+work/*
+!work/.gitkeep
+reports/*
+!reports/.gitkeep

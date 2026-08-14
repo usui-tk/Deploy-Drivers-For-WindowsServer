@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/tools/amd-npu-driver-research/schemas/source-data/predecessor-extraction-core-contract.source.schema.json",
+  "title": "AMD NPU reviewed source data: predecessor-extraction-core-contract.json",
+  "description": "Schema for Git-tracked reviewed source data. This is distinct from the PascalCase generated public schema.",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "amd-npu-predecessor-extraction-core-contract/1.0"
+    },
+    "reviewedAtUtc": {
+      "type": "string"
+    },
+    "selectedSource": {
+      "type": "object",
+      "properties": {
+        "tool": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "sourceSha256": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "tool",
+        "url",
+        "sourceSha256"
+      ]
+    },
+    "functions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "sha256"
+        ]
+      }
+    },
+    "semanticContract": {
+      "type": "object",
+      "properties": {
+        "externalExtractor": {
+          "type": "string"
+        },
+        "listProbeArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "extractArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "supportedTopLevelFormats": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "boundedRecursion": {
+          "type": "boolean"
+        },
+        "defaultMaxDepth": {
+          "type": "integer"
+        },
+        "maximumMaxDepth": {
+          "type": "integer"
+        },
+        "vendorExecutablesExecuted": {
+          "type": "boolean"
+        },
+        "ordinaryPeWithoutContainerPayloadIsNotExecuted": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "externalExtractor",
+        "listProbeArgs",
+        "extractArgs",
+        "supportedTopLevelFormats",
+        "boundedRecursion",
+        "defaultMaxDepth",
+        "maximumMaxDepth",
+        "vendorExecutablesExecuted",
+        "ordinaryPeWithoutContainerPayloadIsNotExecuted"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "reviewedAtUtc",
+    "selectedSource",
+    "functions",
+    "semanticContract"
+  ]
+}

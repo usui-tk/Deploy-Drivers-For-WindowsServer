@@ -1,0 +1,293 @@
+{
+  "schemaVersion": "1.0",
+  "contracts": [
+    {
+      "contractId": "ipustack-e5d77c30128e",
+      "sha256": "e5d77c30128e02149a3c88bb66d16302d5569ff7030e859bfb73eada46953a4e",
+      "artifactName": "ipustack.sys",
+      "fileVersionObserved": "32.00.0203.280",
+      "evidenceLevel": "StaticDisassemblyProven",
+      "identitySemanticId": "amd-npu-ipustack-broad-platform-v1",
+      "analysisStatus": "Exact-hash Windows MCDM driver contract. Broad platform display-name selection is recovered, but no granular 1..8 firmware device-revision refinement path is observed in this exact binary.",
+      "broadPlatformMap": [
+        {
+          "value": 0,
+          "label": "NPU Phoenix"
+        },
+        {
+          "value": 1,
+          "label": "NPU Strix"
+        },
+        {
+          "value": 2,
+          "label": "NPU Strix"
+        },
+        {
+          "value": 3,
+          "label": "NPU Strix Halo"
+        },
+        {
+          "value": 4,
+          "label": "NPU Krackan"
+        }
+      ],
+      "broadPlatformDefaultLabel": "NPU",
+      "firmwareDeviceRevision": {
+        "refinementObserved": false,
+        "messageOpcode": null,
+        "messageOpcodePrimitiveObserved": false,
+        "defaultUnknownValue": null,
+        "map": [],
+        "statement": "The exact 280 binary exposes broad Phoenix/Strix/Strix-Halo/Krackan display-name selection. A dedicated return-0x117 command primitive and the granular STXA/STXB/KRK1/KRK2/HALO/GPT1/GPT2/GPT3 map observed in 376 are not present in this exact hash. Generic response handling contains a 0x117 comparison, so absence of the dedicated primitive must not be interpreted as proof that all 0x117-related protocol awareness is absent."
+      },
+      "requiredStringEvidence": [
+        "NPU Phoenix",
+        "NPU Strix",
+        "NPU Strix Halo",
+        "NPU Krackan"
+      ],
+      "staticEvidence": {
+        "displaySelectionVa": "0x14000cfdf",
+        "stringAddresses": {
+          "NPU Phoenix": "0x1400560f0",
+          "NPU Strix": "0x140056100",
+          "NPU Strix Halo": "0x140056110",
+          "NPU Krackan": "0x140056120",
+          "NPU": "0x140056130"
+        }
+      },
+      "codenameRecognition": [
+        {
+          "codename": "Phoenix",
+          "mode": "BroadPlatformLabel",
+          "statement": "Broad platform value 0 renders NPU Phoenix."
+        },
+        {
+          "codename": "Hawk Point",
+          "mode": "Shared1502BroadFamilyOnly",
+          "statement": "Hawk Point shares the reviewed DEV_1502 broad identity; the exact driver display label remains NPU Phoenix and does not separately distinguish Hawk Point."
+        },
+        {
+          "codename": "Strix Point",
+          "mode": "BroadPlatformLabel",
+          "statement": "Broad platform values 1 and 2 render NPU Strix."
+        },
+        {
+          "codename": "Strix Halo",
+          "mode": "BroadPlatformLabel",
+          "statement": "Broad platform value 3 renders NPU Strix Halo."
+        },
+        {
+          "codename": "Krackan Point",
+          "mode": "BroadPlatformLabel",
+          "statement": "Broad platform value 4 renders NPU Krackan."
+        }
+      ]
+    },
+    {
+      "contractId": "ipustack-24f8c7220b86",
+      "sha256": "24f8c7220b86ccb8246845c3dd25f55be4e64b2fac1aab1fbac1e1f8226d4a42",
+      "artifactName": "ipustack.sys",
+      "fileVersionObserved": "32.00.20101.3760",
+      "evidenceLevel": "StaticDisassemblyProven",
+      "identitySemanticId": "amd-npu-ipustack-firmware-revision-v2",
+      "analysisStatus": "Exact-hash Windows MCDM driver contract. Broad platform selection is followed, for broad values 1..4, by a secondary 1..8 revision refinement whose numeric values and labels align with upstream amdxdna AIE2 device revisions. A dedicated 0x117 command primitive is present.",
+      "broadPlatformMap": [
+        {
+          "value": 0,
+          "label": "NPU Phoenix",
+          "refinement": "None"
+        },
+        {
+          "value": 1,
+          "label": "STX Chipset NPU",
+          "refinement": "FirmwareDeviceRevision"
+        },
+        {
+          "value": 2,
+          "label": "STX Chipset NPU",
+          "refinement": "FirmwareDeviceRevision"
+        },
+        {
+          "value": 3,
+          "label": "STX Chipset NPU",
+          "refinement": "FirmwareDeviceRevision"
+        },
+        {
+          "value": 4,
+          "label": "STX Chipset NPU",
+          "refinement": "FirmwareDeviceRevision"
+        },
+        {
+          "value": 5,
+          "label": "NPU Medusa",
+          "refinement": "None"
+        },
+        {
+          "value": 6,
+          "label": "NPU Soundwave",
+          "refinement": "None"
+        },
+        {
+          "value": 7,
+          "label": "NPU Medusa PF",
+          "refinement": "None"
+        },
+        {
+          "value": 8,
+          "label": "NPU Medusa VF",
+          "refinement": "None"
+        },
+        {
+          "value": 9,
+          "label": "NPU Soundwave PF",
+          "refinement": "None"
+        },
+        {
+          "value": 10,
+          "label": "NPU Soundwave VF",
+          "refinement": "None"
+        }
+      ],
+      "broadPlatformDefaultLabel": "NPU",
+      "firmwareDeviceRevision": {
+        "refinementObserved": true,
+        "messageOpcode": "0x117",
+        "messageOpcodePrimitiveObserved": true,
+        "defaultUnknownValue": 9,
+        "map": [
+          {
+            "value": 1,
+            "symbol": "STXA",
+            "label": "NPU Strix",
+            "codename": "Strix Point"
+          },
+          {
+            "value": 2,
+            "symbol": "STXB",
+            "label": "NPU Strix",
+            "codename": "Strix Point"
+          },
+          {
+            "value": 3,
+            "symbol": "KRK1",
+            "label": "NPU Krackan",
+            "codename": "Krackan Point"
+          },
+          {
+            "value": 4,
+            "symbol": "KRK2",
+            "label": "NPU Krackan2",
+            "codename": "Krackan Point"
+          },
+          {
+            "value": 5,
+            "symbol": "HALO",
+            "label": "NPU Strix Halo",
+            "codename": "Strix Halo"
+          },
+          {
+            "value": 6,
+            "symbol": "GPT1",
+            "label": "NPU GorgonPoint1",
+            "codename": "Gorgon Point"
+          },
+          {
+            "value": 7,
+            "symbol": "GPT2",
+            "label": "NPU GorgonPoint2",
+            "codename": "Gorgon Point"
+          },
+          {
+            "value": 8,
+            "symbol": "GPT3",
+            "label": "NPU GorgonPoint3",
+            "codename": "Gorgon Point"
+          }
+        ],
+        "statement": "Static disassembly strongly establishes a firmware-reported device-revision refinement path: output is initialized to 9 (unknown), the exact binary includes a dedicated primitive returning opcode 0x117, and the 1..8 branch labels align numerically and semantically with upstream Linux amdxdna MSG_OP_GET_DEV_REVISION / enum aie2_dev_revision. This is distinct from PCI REV_XX."
+      },
+      "requiredStringEvidence": [
+        "NPU Strix",
+        "NPU Strix Halo",
+        "NPU Krackan",
+        "NPU Krackan2",
+        "NPU GorgonPoint1",
+        "NPU GorgonPoint2",
+        "NPU GorgonPoint3",
+        "STX Chipset NPU",
+        "NPU Phoenix",
+        "NPU Medusa",
+        "NPU Soundwave"
+      ],
+      "staticEvidence": {
+        "broadPlatformGetterCallVa": "0x14000fea5",
+        "firmwareRevisionWrapperCallVa": "0x14000fec9",
+        "firmwareRevisionWrapperVa": "0x1400541d4",
+        "firmwareRevisionDefaultUnknownVa": "0x1400541da",
+        "secondaryRevisionSelectionVa": "0x14000fece",
+        "messageOpcodePrimitiveVa": "0x14001b190",
+        "messageOpcodePrimitiveFileOffset": "0x1a590",
+        "responseHandlerOpcodeCompareVa": "0x140009dd3",
+        "stringAddresses": {
+          "NPU Strix": "0x1400649a0",
+          "NPU Strix Halo": "0x1400649b0",
+          "NPU Krackan": "0x1400649c0",
+          "NPU Krackan2": "0x1400649d0",
+          "NPU GorgonPoint1": "0x1400649e0",
+          "NPU GorgonPoint2": "0x140064a00",
+          "NPU GorgonPoint3": "0x140064a20",
+          "STX Chipset NPU": "0x140064a40",
+          "NPU Phoenix": "0x140064a50",
+          "NPU Medusa": "0x140064a60",
+          "NPU Soundwave": "0x140064a70",
+          "NPU Medusa PF": "0x140064a80",
+          "NPU Medusa VF": "0x140064a90",
+          "NPU Soundwave PF": "0x140064aa0",
+          "NPU Soundwave VF": "0x140064ac0",
+          "NPU": "0x140064ae0"
+        }
+      },
+      "upstreamCorrelation": {
+        "source": "Linux upstream amdxdna",
+        "opcodeSymbol": "MSG_OP_GET_DEV_REVISION",
+        "opcode": "0x117",
+        "unknownEnumValue": 9,
+        "featureAvailability": "AIE2_GET_DEV_REVISION from firmware 6.24; all features in major 7",
+        "statement": "The upstream enum order is STXA=1, STXB=2, KRK1=3, KRK2=4, HALO=5, GPT1=6, GPT2=7, GPT3=8, UNKN=9."
+      },
+      "codenameRecognition": [
+        {
+          "codename": "Phoenix",
+          "mode": "BroadPlatformLabel",
+          "statement": "Broad platform value 0 renders NPU Phoenix."
+        },
+        {
+          "codename": "Hawk Point",
+          "mode": "Shared1502BroadFamilyOnly",
+          "statement": "Hawk Point shares the reviewed DEV_1502 broad identity; the exact driver display label remains NPU Phoenix and does not separately distinguish Hawk Point."
+        },
+        {
+          "codename": "Strix Point",
+          "mode": "FirmwareDeviceRevision",
+          "statement": "Firmware revision values 1/2 render NPU Strix."
+        },
+        {
+          "codename": "Krackan Point",
+          "mode": "FirmwareDeviceRevision",
+          "statement": "Firmware revision values 3/4 render NPU Krackan / NPU Krackan2."
+        },
+        {
+          "codename": "Strix Halo",
+          "mode": "FirmwareDeviceRevision",
+          "statement": "Firmware revision value 5 renders NPU Strix Halo."
+        },
+        {
+          "codename": "Gorgon Point",
+          "mode": "FirmwareDeviceRevision",
+          "statement": "Firmware revision values 6/7/8 render NPU GorgonPoint1/2/3."
+        }
+      ]
+    }
+  ]
+}

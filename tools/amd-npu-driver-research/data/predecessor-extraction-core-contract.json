@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "amd-npu-predecessor-extraction-core-contract/1.0",
+  "reviewedAtUtc": "2026-08-13T06:15:00Z",
+  "selectedSource": {
+    "tool": "graphics",
+    "url": "https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/blob/main/tools/amd-graphics-driver-research/Invoke-AmdGraphicsDriverResearch.ps1",
+    "sourceSha256": "a08b741b33378922f57c51a2bebadca04d3ccd55744684197a853491387ea33b"
+  },
+  "functions": [
+    {
+      "name": "Get-AmdSevenZipInfo",
+      "sha256": "ae96819802515d70e639c5c3f77c38e5377de59cc7cd0eb717cd556dcc2dbe54"
+    },
+    {
+      "name": "Get-AmdSevenZipArchiveProbe",
+      "sha256": "3147d52db2f9519d63103de5e81431344f404cfc1375ec85cb71b2d53f40d86f"
+    }
+  ],
+  "semanticContract": {
+    "externalExtractor": "7-Zip",
+    "listProbeArgs": [
+      "l",
+      "-slt"
+    ],
+    "extractArgs": [
+      "x",
+      "-y"
+    ],
+    "supportedTopLevelFormats": [
+      "zip",
+      "exe",
+      "msi",
+      "cab",
+      "7z"
+    ],
+    "boundedRecursion": true,
+    "defaultMaxDepth": 5,
+    "maximumMaxDepth": 10,
+    "vendorExecutablesExecuted": false,
+    "ordinaryPeWithoutContainerPayloadIsNotExecuted": true
+  }
+}

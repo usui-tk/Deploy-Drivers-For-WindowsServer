@@ -1,0 +1,82 @@
+{
+  "schemaVersion": "1.0",
+  "reviewedAt": "2026-08-13",
+  "publicationBoundary": "GeneralizedReviewedFactsOnly; raw collector archives/transcripts/INF snapshots remain private runtime evidence and are not committed.",
+  "sources": [
+    {
+      "id": "observed-z2-runtime-20260813",
+      "type": "ObservedRuntimeReviewed",
+      "collectorVersion": "1.2.0",
+      "evidenceArchiveSha256": "f10c70ef8a6d1621f36bd1e0ce1e91b915af3a684e7754cff26fb99308d4258e",
+      "statement": "ROG Xbox Ally X with AMD Ryzen AI Z2 Extreme exposed NPU PCI 1022:17F0 REV_10, XRT device name NPU Strix, firmware 1.1.2.64, and AMD 376 runtime components whose INF/ipustack/xrt-smi hashes exactly match the reviewed public 376 artifact."
+    },
+    {
+      "id": "reviewed-quicktest-20260813",
+      "type": "PrivateReviewedSource",
+      "quicktestArchiveSha256": "a479e458bd3ae5bc671be89c80d2d250e8a8c7c1268b18ed70498985fc4b0ea5",
+      "quicktestPySha256": "185abe30aad44c3ca59df2c07249a550a1d0a1de6aecc7a52c9324362d910c09",
+      "statement": "Reviewed AMD quicktest.py classifies PCI DEV_17F0 REV_00/10/11 as STX and REV_20 as KRK. The file is evidence only and is not executed by the research toolkit."
+    }
+  ],
+  "records": [
+    {
+      "evidenceId": "ryzen-ai-z2-extreme-rog-xbox-ally-x-376",
+      "processorId": "ryzen-ai-z2-extreme",
+      "processorName": "AMD Ryzen AI Z2 Extreme",
+      "evidenceClass": "ObservedClientRuntime",
+      "serverRuntimeProof": false,
+      "cpuIdentity": {
+        "family": 26,
+        "model": 36,
+        "stepping": 0
+      },
+      "npuIdentity": {
+        "vendorId": "1022",
+        "deviceId": "17F0",
+        "subsystemId": "20CF1043",
+        "pciRevision": "10",
+        "architectureFamily": "XDNA2/AIE2P-NPU4",
+        "quicktestStyleClassification": "STX",
+        "xrtDeviceName": "NPU Strix",
+        "xrtFirmwareVersion": "1.1.2.64",
+        "xrtBdf": "0065:00:01.1",
+        "xrtReady": true,
+        "firmwareDeviceRevisionStatus": "Unresolved"
+      },
+      "runtimeDriver": {
+        "driverVersion": "32.0.20101.3760",
+        "service": "IpuMcdmDriver",
+        "deviceStatus": "OK",
+        "reviewedArtifactFileName": "NPU_RAI_376_WHQL.zip",
+        "reviewedArtifactSha256": "aa836cbfcad5d0782c79b58f197aa50624af37e7cb8311c5f94d85b0dc3ccaad",
+        "infSha256": "c2a448340a9e802faa81b7c03fda0009d52cbfe86be5e915134dac39ab9c8008",
+        "ipustackSha256": "24f8c7220b86ccb8246845c3dd25f55be4e64b2fac1aab1fbac1e1f8226d4a42",
+        "xrtSmiSha256": "1f7e88c6a4acc7c743809f7ae34dd09b0a6380b1002f97b3d57d3578ddd2e87a",
+        "infExactMatch": true,
+        "ipustackExactMatch": true,
+        "xrtSmiExactMatch": true,
+        "fullObservedStackExactMatch": true
+      },
+      "gpuCorrelation": {
+        "name": "AMD Radeon(TM) 890M Graphics",
+        "vendorId": "1002",
+        "deviceId": "150E",
+        "subsystemId": "33591043",
+        "pciRevision": "C7",
+        "driverVersion": "32.0.31019.2002",
+        "infSha256": "4cfd559864b198db631f5845b773d9ad73ad9807d28ba5c7817cd39e35ea58e5",
+        "infInstallSectionHint": "ati2mtag_Strix"
+      },
+      "conclusion": {
+        "resolvedCodename": "Strix Point",
+        "resolvedNpuIdentityId": "amd-npu-aie2p-17f0",
+        "confidence": "ObservedRuntimeCorroborated",
+        "reason": "Exact SKU, PCI REV_10 quicktest classification STX, XRT runtime name NPU Strix, GPU INF Strix hint, and exact-match AMD 376 NPU stack agree on the Strix platform family. STXA vs STXB remains unresolved because firmware device revision 0x117 was not directly observed."
+      },
+      "sourceIds": [
+        "observed-z2-runtime-20260813",
+        "reviewed-quicktest-20260813"
+      ]
+    }
+  ]
+}

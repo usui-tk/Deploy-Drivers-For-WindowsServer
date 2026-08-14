@@ -1,0 +1,241 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/amd-npu-driver-research/release.schema.json",
+  "title": "AMD NPU driver research release artifact",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolVersion",
+    "Artifact",
+    "Summary",
+    "Infs",
+    "Installers",
+    "DriverBinaries",
+    "PublishedCompatibility",
+    "ServerAssessment",
+    "Files",
+    "Safety"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "1.1"
+    },
+    "ToolVersion": {
+      "type": "string"
+    },
+    "Artifact": {
+      "type": "object",
+      "required": [
+        "FileName",
+        "Sha256",
+        "Length",
+        "Format",
+        "EvidenceLevel"
+      ],
+      "properties": {
+        "FileName": {
+          "type": "string"
+        },
+        "Sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "Length": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "Format": {
+          "enum": [
+            "zip",
+            "exe",
+            "msi",
+            "cab",
+            "7z"
+          ]
+        },
+        "EvidenceLevel": {
+          "type": "string"
+        }
+      }
+    },
+    "Summary": {
+      "type": "object",
+      "required": [
+        "FileCount",
+        "InfCount",
+        "InstallerCount",
+        "DriverBinaryCount",
+        "DriverVersions",
+        "HardwareIds"
+      ]
+    },
+    "Infs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "Path",
+          "Sha256",
+          "Version",
+          "TargetOSVersions",
+          "Models",
+          "UniqueHardwareIds",
+          "ServerProjection",
+          "EvidenceLevel"
+        ]
+      }
+    },
+    "Installers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "Path",
+          "Sha256",
+          "ContractStatus",
+          "InterestingStrings",
+          "EvidenceLevel",
+          "Executed",
+          "SafetyStatement"
+        ]
+      }
+    },
+    "ServerAssessment": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "Server",
+          "Build",
+          "InfSelectorStatus",
+          "InstallerRoute",
+          "InstallerRoutePayloadPresent",
+          "StaticAssessment",
+          "Reason",
+          "RuntimeProof",
+          "EvidenceLevel"
+        ]
+      }
+    },
+    "Files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "Path",
+          "Length",
+          "Sha256"
+        ],
+        "properties": {
+          "Sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "Safety": {
+      "type": "object",
+      "required": [
+        "VendorExecutablesExecuted",
+        "VendorPayloadModified",
+        "AnalysisMode"
+      ]
+    },
+    "PublishedCompatibility": {
+      "type": "object",
+      "required": [
+        "RuleStatus",
+        "PublishedDriverLabel",
+        "PublishedSupportedCodenames",
+        "SupportEvidence",
+        "SourceIds",
+        "Notes"
+      ],
+      "properties": {
+        "RuleStatus": {
+          "enum": [
+            "ExactArtifactMatched",
+            "NoReviewedRule"
+          ]
+        },
+        "PublishedDriverLabel": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "PublishedSupportedCodenames": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "SupportEvidence": {
+          "type": "string"
+        },
+        "SourceIds": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "Notes": {
+          "type": "string"
+        }
+      }
+    },
+    "DriverBinaries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "Path",
+          "Sha256",
+          "ContractStatus",
+          "InterestingStrings",
+          "EvidenceLevel",
+          "Executed",
+          "SafetyStatement"
+        ],
+        "properties": {
+          "Path": {
+            "type": "string"
+          },
+          "Sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "ContractStatus": {
+            "enum": [
+              "ExactHashMatched",
+              "ExactHashMatchedButStringEvidenceIncomplete",
+              "UnknownBinary"
+            ]
+          },
+          "ExactHashContract": {
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "InterestingStrings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "EvidenceLevel": {
+            "type": "string"
+          },
+          "Executed": {
+            "const": false
+          },
+          "SafetyStatement": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/tools/amd-npu-driver-research/schemas/source-data/known-installer-contracts.source.schema.json",
+  "title": "AMD NPU reviewed source data: known-installer-contracts.json",
+  "description": "Schema for Git-tracked reviewed source data. This is distinct from the PascalCase generated public schema.",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "contracts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "sha256": {
+            "type": "string"
+          },
+          "artifactName": {
+            "type": "string"
+          },
+          "evidenceLevel": {
+            "type": "string"
+          },
+          "analysisStatus": {
+            "type": "string"
+          },
+          "deviceMatcher": {
+            "type": "object",
+            "properties": {
+              "regex": {
+                "type": "string"
+              },
+              "deviceIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "revisionDiscriminatorObserved": {
+                "type": "boolean"
+              },
+              "revisionStatement": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "regex",
+              "deviceIds",
+              "revisionDiscriminatorObserved",
+              "revisionStatement"
+            ]
+          },
+          "platformFamilies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "deviceId": {
+                  "type": "string"
+                },
+                "installerLabel": {
+                  "type": "string"
+                },
+                "researchInterpretation": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "deviceId",
+                "installerLabel",
+                "researchInterpretation"
+              ]
+            }
+          },
+          "osGates": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "condition": {
+                  "type": "string"
+                },
+                "action": {
+                  "type": "string"
+                },
+                "confidence": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "condition",
+                "action",
+                "confidence"
+              ]
+            }
+          },
+          "driverPaths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "observedApiFamilies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requiredStringEvidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "contractId": {
+            "type": "string"
+          },
+          "routingSemanticId": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "sha256",
+          "artifactName",
+          "evidenceLevel",
+          "analysisStatus",
+          "deviceMatcher",
+          "platformFamilies",
+          "osGates",
+          "driverPaths",
+          "observedApiFamilies",
+          "requiredStringEvidence",
+          "contractId",
+          "routingSemanticId"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "contracts"
+  ]
+}

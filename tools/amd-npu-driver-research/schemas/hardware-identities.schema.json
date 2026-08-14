@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/amd-npu-driver-research/hardware-identities.schema.json",
+  "title": "AMD NPU hardware identity catalog",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolVersion",
+    "HandEdited",
+    "ReviewedAt",
+    "CatalogCompleteness",
+    "UnknownHardwarePolicy",
+    "IdentityOrder",
+    "Sources",
+    "Identities"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "1.1"
+    },
+    "ToolVersion": {
+      "type": "string"
+    },
+    "HandEdited": {
+      "const": false
+    },
+    "ReviewedAt": {
+      "type": "string"
+    },
+    "CatalogCompleteness": {
+      "type": "string"
+    },
+    "UnknownHardwarePolicy": {
+      "const": "ReviewRequired"
+    },
+    "IdentityOrder": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "Sources": {
+      "type": "array"
+    },
+    "Identities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "identityId",
+          "vendorId",
+          "deviceId",
+          "amdNpuCheckLabel",
+          "architectureFamily",
+          "broadCodenames",
+          "hardwareIdPattern",
+          "pciRevisionHints",
+          "firmwareRevisionMap",
+          "preinstallDiscriminator",
+          "evidenceSourceIds"
+        ],
+        "properties": {
+          "observedRuntimeBindings": {
+            "type": "array"
+          }
+        }
+      }
+    }
+  }
+}

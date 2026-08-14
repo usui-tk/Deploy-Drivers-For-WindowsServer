@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "1.0",
+  "reviewedAt": "2026-08-14",
+  "scope": "Reviewed exact-SKU AMD client processor to NPU driver applicability knowledge. Public recommendations are derived from analyzed reviewed public artifacts; restricted artifacts are qualification-only.",
+  "unknownProcessorPolicy": "ReviewRequired",
+  "unknownHardwarePolicy": "ReviewRequired",
+  "recommendationPolicy": {
+    "publiclyObtainableArtifactsOnly": true,
+    "privateQualificationArtifactsNeverRecommended": true,
+    "highestReviewedPublishedStaticCandidate": true,
+    "windowsServerRuntimeProofRequiredForRuntimeClaim": true,
+    "seriesNameOnlyInferenceProhibited": true
+  },
+  "sources": [
+    {
+      "id": "private-314-artifact-static-review",
+      "type": "PrivateQualificationStaticArtifact",
+      "artifactFileName": "NPU_RAI1.6.1_314_WHQL.zip",
+      "artifactSha256": "023caa295d3b2fe4befccdba84db5867abb6428a5e057ac1acdbda03853cf0ac",
+      "statement": "Manually supplied authenticated/restricted AMD NPU driver package. Static review only; not an automatic-acquisition or recommendation source."
+    },
+    {
+      "id": "amd-rai18-production-driver",
+      "type": "Published",
+      "url": "https://ryzenai.docs.amd.com/en/latest/inst.html",
+      "statement": "AMD Ryzen AI Software 1.8 publishes NPU driver 32.0.203.376 as production for Phoenix, Hawk Point, Strix, Strix Halo and Krackan Point."
+    }
+  ],
+  "privateQualificationArtifacts": [
+    {
+      "artifactId": "rai-1.6.1-314-private",
+      "fileName": "NPU_RAI1.6.1_314_WHQL.zip",
+      "sha256": "023caa295d3b2fe4befccdba84db5867abb6428a5e057ac1acdbda03853cf0ac",
+      "acquisitionPolicy": "ManualPrivateOnly",
+      "recommendationEligible": false,
+      "evidenceClass": "PrivateQualificationStaticArtifact",
+      "embeddedInfDriverVersion": "32.00.0203.314",
+      "infModelsSection": "NTamd64.10.0...22000",
+      "broadInfDeviceIds": [
+        "1502",
+        "17F0"
+      ],
+      "publishedSupportedCodenames": [],
+      "sourceIds": [
+        "private-314-artifact-static-review"
+      ],
+      "notes": "The package is useful for driver-evolution and generic artifact qualification. Broad INF matching is not evidence of AMD published exact-SKU support. It must never be selected by automatic deployment policy."
+    }
+  ]
+}

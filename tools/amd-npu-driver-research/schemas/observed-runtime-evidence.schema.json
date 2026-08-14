@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/amd-npu-driver-research/observed-runtime-evidence.schema.json",
+  "title": "AMD NPU reviewed observed runtime evidence",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolVersion",
+    "HandEdited",
+    "ReviewedAt",
+    "PublicationBoundary",
+    "Sources",
+    "Records"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "1.0"
+    },
+    "ToolVersion": {
+      "type": "string"
+    },
+    "HandEdited": {
+      "const": false
+    },
+    "ReviewedAt": {
+      "type": "string"
+    },
+    "PublicationBoundary": {
+      "type": "string"
+    },
+    "Sources": {
+      "type": "array"
+    },
+    "Records": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "evidenceId",
+          "processorId",
+          "processorName",
+          "evidenceClass",
+          "serverRuntimeProof",
+          "cpuIdentity",
+          "npuIdentity",
+          "runtimeDriver",
+          "conclusion",
+          "sourceIds"
+        ],
+        "properties": {
+          "serverRuntimeProof": {
+            "const": false
+          },
+          "evidenceClass": {
+            "const": "ObservedClientRuntime"
+          }
+        }
+      }
+    }
+  }
+}

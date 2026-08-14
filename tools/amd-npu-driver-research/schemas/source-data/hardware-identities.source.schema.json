@@ -1,0 +1,239 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/tools/amd-npu-driver-research/schemas/source-data/hardware-identities.source.schema.json",
+  "title": "AMD NPU reviewed source data: hardware-identities.json",
+  "description": "Schema for Git-tracked reviewed source data. This is distinct from the PascalCase generated public schema.",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "1.1"
+    },
+    "reviewedAt": {
+      "type": "string"
+    },
+    "catalogCompleteness": {
+      "type": "string"
+    },
+    "unknownHardwarePolicy": {
+      "type": "string"
+    },
+    "identityOrder": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "artifactSha256": {
+            "type": "string"
+          },
+          "evidenceArchiveSha256": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "statement"
+        ]
+      }
+    },
+    "identities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "identityId": {
+            "type": "string"
+          },
+          "vendorId": {
+            "type": "string"
+          },
+          "deviceId": {
+            "type": "string"
+          },
+          "amdNpuCheckLabel": {
+            "type": "string"
+          },
+          "architectureFamily": {
+            "type": "string"
+          },
+          "broadCodenames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "hardwareIdPattern": {
+            "type": "string"
+          },
+          "pciRevisionHints": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "revision": {
+                  "type": "string"
+                },
+                "codenames": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "confidence": {
+                  "type": "string"
+                },
+                "sourceId": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "revision",
+                "codenames",
+                "confidence",
+                "sourceId"
+              ]
+            }
+          },
+          "firmwareRevisionMap": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "integer"
+                },
+                "symbol": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "codename": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "value",
+                "symbol",
+                "label",
+                "codename"
+              ]
+            }
+          },
+          "preinstallDiscriminator": {
+            "type": "string"
+          },
+          "evidenceSourceIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "firmwareRevisionSemantics": {
+            "type": "string"
+          },
+          "observedRuntimeBindings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "processorId": {
+                  "type": "string"
+                },
+                "processorName": {
+                  "type": "string"
+                },
+                "pciRevision": {
+                  "type": "string"
+                },
+                "subsystemId": {
+                  "type": "string"
+                },
+                "quicktestStyleClassification": {
+                  "type": "string"
+                },
+                "xrtDeviceName": {
+                  "type": "string"
+                },
+                "xrtFirmwareVersion": {
+                  "type": "string"
+                },
+                "firmwareDeviceRevisionStatus": {
+                  "type": "string"
+                },
+                "reviewedArtifactSha256": {
+                  "type": "string"
+                },
+                "fullObservedStackExactMatch": {
+                  "type": "boolean"
+                },
+                "sourceId": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "processorId",
+                "processorName",
+                "pciRevision",
+                "subsystemId",
+                "quicktestStyleClassification",
+                "xrtDeviceName",
+                "xrtFirmwareVersion",
+                "firmwareDeviceRevisionStatus",
+                "reviewedArtifactSha256",
+                "fullObservedStackExactMatch",
+                "sourceId"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "identityId",
+          "vendorId",
+          "deviceId",
+          "amdNpuCheckLabel",
+          "architectureFamily",
+          "broadCodenames",
+          "hardwareIdPattern",
+          "pciRevisionHints",
+          "firmwareRevisionMap",
+          "preinstallDiscriminator",
+          "evidenceSourceIds"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "reviewedAt",
+    "catalogCompleteness",
+    "unknownHardwarePolicy",
+    "identityOrder",
+    "sources",
+    "identities"
+  ]
+}

@@ -1,0 +1,267 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/amd-npu-driver-research/processor-driver-applicability.schema.json",
+  "title": "AMD NPU processor-to-driver applicability",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolVersion",
+    "HandEdited",
+    "ReviewedAt",
+    "Scope",
+    "Policies",
+    "Sources",
+    "Releases",
+    "ProcessorCount",
+    "Rows"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "1.0"
+    },
+    "ToolVersion": {
+      "type": "string"
+    },
+    "HandEdited": {
+      "const": false
+    },
+    "ReviewedAt": {
+      "type": "string"
+    },
+    "Scope": {
+      "type": "string"
+    },
+    "Policies": {
+      "type": "object",
+      "required": [
+        "UnknownProcessorPolicy",
+        "UnknownHardwarePolicy",
+        "PubliclyObtainableArtifactsOnly",
+        "PrivateQualificationArtifactsNeverRecommended",
+        "HighestReviewedPublishedStaticCandidate",
+        "WindowsServerRuntimeProofRequiredForRuntimeClaim",
+        "SeriesNameOnlyInferenceProhibited"
+      ],
+      "properties": {
+        "UnknownProcessorPolicy": {
+          "const": "ReviewRequired"
+        },
+        "UnknownHardwarePolicy": {
+          "const": "ReviewRequired"
+        },
+        "PubliclyObtainableArtifactsOnly": {
+          "const": true
+        },
+        "PrivateQualificationArtifactsNeverRecommended": {
+          "const": true
+        },
+        "HighestReviewedPublishedStaticCandidate": {
+          "const": true
+        },
+        "WindowsServerRuntimeProofRequiredForRuntimeClaim": {
+          "const": true
+        },
+        "SeriesNameOnlyInferenceProhibited": {
+          "const": true
+        }
+      }
+    },
+    "Sources": {
+      "type": "array"
+    },
+    "Releases": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "object",
+        "required": [
+          "ReleaseId",
+          "DisplayLabel",
+          "ArtifactFileName",
+          "ArtifactSha256",
+          "DriverLabel",
+          "Visibility",
+          "AcquisitionPolicy",
+          "RecommendationEligible",
+          "EvidenceClass",
+          "ReleaseOrder"
+        ],
+        "properties": {
+          "ArtifactSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "Visibility": {
+            "enum": [
+              "PublicReviewed",
+              "PrivateQualification"
+            ]
+          },
+          "RecommendationEligible": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
+    "ProcessorCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "Rows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "ProcessorId",
+          "ProcessorName",
+          "ProductFamily",
+          "Codename",
+          "NpuAvailability",
+          "NpuLabel",
+          "NpuIdentityId",
+          "HardwareId",
+          "PciRevision",
+          "NpuTops",
+          "DriverApplicability",
+          "RecommendationDecision",
+          "RecommendedReleaseId",
+          "RecommendedArtifact",
+          "PublishedDriverLabel",
+          "RecommendationReason",
+          "Evidence"
+        ],
+        "properties": {
+          "NpuAvailability": {
+            "enum": [
+              "AvailablePublished",
+              "NotAvailablePublished",
+              "NoPublishedNpuCapability",
+              "Unknown"
+            ]
+          },
+          "NpuIdentityId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "HardwareId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "PciRevision": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "NpuTops": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "DriverApplicability": {
+            "type": "array",
+            "minItems": 4,
+            "items": {
+              "type": "object",
+              "required": [
+                "ReleaseId",
+                "Visibility",
+                "RecommendationEligible",
+                "Applicability",
+                "ServerStaticAssessment",
+                "PublishedCodenameStatus",
+                "InfHardwareCandidate",
+                "InstallerBroadFamilyCandidate",
+                "EvidenceClass",
+                "Reason"
+              ],
+              "properties": {
+                "Visibility": {
+                  "enum": [
+                    "PublicReviewed",
+                    "PrivateQualification"
+                  ]
+                },
+                "RecommendationEligible": {
+                  "type": "boolean"
+                },
+                "Applicability": {
+                  "enum": [
+                    "StaticCandidateWithPublishedFamilyEvidence",
+                    "ReviewRequired",
+                    "NotApplicable",
+                    "NotApplicableAsPublished",
+                    "NotApplicableNoPublishedNpu",
+                    "ReviewRequiredIdentityUnresolved",
+                    "PrivateQualificationOnlyBroadInfCandidate"
+                  ]
+                }
+              }
+            }
+          },
+          "RecommendationDecision": {
+            "enum": [
+              "SelectLatestPublishedStaticCandidate",
+              "ReviewRequired",
+              "NoNpuDriverRequired"
+            ]
+          },
+          "RecommendedReleaseId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "RecommendedArtifact": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "PublishedDriverLabel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "Evidence": {
+            "type": "object",
+            "required": [
+              "ProcessorEvidence",
+              "ProcessorSourceIds",
+              "ObservedEvidenceIds",
+              "ClientRuntimeEvidenceIncluded",
+              "ServerRuntimeProof"
+            ],
+            "properties": {
+              "ProcessorSourceIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "ObservedEvidenceIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "ClientRuntimeEvidenceIncluded": {
+                "type": "boolean"
+              },
+              "ServerRuntimeProof": {
+                "const": false
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

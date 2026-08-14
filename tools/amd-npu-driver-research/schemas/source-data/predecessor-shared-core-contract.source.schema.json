@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/tools/amd-npu-driver-research/schemas/source-data/predecessor-shared-core-contract.source.schema.json",
+  "title": "AMD NPU reviewed source data: predecessor-shared-core-contract.json",
+  "description": "Schema for Git-tracked reviewed source data. This is distinct from the PascalCase generated public schema.",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "amd-research-predecessor-shared-core-contract/1.0"
+    },
+    "reviewedAtUtc": {
+      "type": "string"
+    },
+    "normalization": {
+      "type": "string"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "tool": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "sourceSha256": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "tool",
+          "url",
+          "sourceSha256"
+        ]
+      }
+    },
+    "functionCount": {
+      "type": "integer"
+    },
+    "functions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "sha256"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "reviewedAtUtc",
+    "normalization",
+    "sources",
+    "functionCount",
+    "functions"
+  ]
+}

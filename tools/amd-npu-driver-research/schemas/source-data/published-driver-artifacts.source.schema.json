@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/tools/amd-npu-driver-research/schemas/source-data/published-driver-artifacts.source.schema.json",
+  "title": "AMD NPU reviewed source data: published-driver-artifacts.json",
+  "description": "Schema for Git-tracked reviewed source data. This is distinct from the PascalCase generated public schema.",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "amd-npu-published-driver-artifacts/1.1"
+    },
+    "reviewedAtUtc": {
+      "type": "string"
+    },
+    "discovery": {
+      "type": "object",
+      "properties": {
+        "documentationUrl": {
+          "type": "string"
+        },
+        "policy": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "documentationUrl",
+        "policy"
+      ]
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "artifactId": {
+            "type": "string"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "downloadUrl": {
+            "type": "string"
+          },
+          "expectedSha256": {
+            "type": "string"
+          },
+          "expectedSizeBytes": {
+            "type": "integer"
+          },
+          "publishedDriverLabel": {
+            "type": "string"
+          },
+          "sourceStatus": {
+            "type": "string"
+          },
+          "defaultAcquire": {
+            "type": "boolean"
+          },
+          "artifactFormat": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "artifactId",
+          "fileName",
+          "downloadUrl",
+          "expectedSha256",
+          "expectedSizeBytes",
+          "publishedDriverLabel",
+          "sourceStatus",
+          "defaultAcquire",
+          "artifactFormat"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "reviewedAtUtc",
+    "discovery",
+    "artifacts"
+  ]
+}

@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/amd-npu-driver-research/comparison.schema.json",
+  "title": "AMD NPU driver research comparison",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolVersion",
+    "Left",
+    "Right",
+    "Counts",
+    "IdenticalFiles",
+    "ChangedFiles",
+    "OnlyLeft",
+    "OnlyRight",
+    "InstallerBinaryRelationship",
+    "InstallerRoutingRelationship",
+    "DriverBinaryRelationship",
+    "DriverIdentityLogicRelationship"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "1.1"
+    },
+    "ToolVersion": {
+      "type": "string"
+    },
+    "Left": {
+      "$ref": "#/$defs/artifact"
+    },
+    "Right": {
+      "$ref": "#/$defs/artifact"
+    },
+    "Counts": {
+      "type": "object",
+      "required": [
+        "CommonIdentical",
+        "CommonChanged",
+        "OnlyLeft",
+        "OnlyRight"
+      ]
+    },
+    "IdenticalFiles": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "ChangedFiles": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "Path",
+          "LeftSha256",
+          "RightSha256",
+          "LeftLength",
+          "RightLength"
+        ]
+      }
+    },
+    "OnlyLeft": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "OnlyRight": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "InstallerBinaryRelationship": {
+      "enum": [
+        "ByteIdentical",
+        "DifferentOrMissing"
+      ]
+    },
+    "InstallerRoutingRelationship": {
+      "enum": [
+        "ExactHashIdentical",
+        "SameRecoveredRoutingSemantics",
+        "DifferentOrUnknown"
+      ]
+    },
+    "DriverBinaryRelationship": {
+      "enum": [
+        "ByteIdentical",
+        "DifferentOrMissing"
+      ]
+    },
+    "DriverIdentityLogicRelationship": {
+      "enum": [
+        "ExactHashIdentical",
+        "SameRecoveredIdentitySemantics",
+        "FirmwareRevisionRefinementDiffers",
+        "DifferentRecoveredIdentitySemantics",
+        "DifferentOrUnknown"
+      ]
+    }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "required": [
+        "FileName",
+        "Sha256"
+      ],
+      "properties": {
+        "FileName": {
+          "type": "string"
+        },
+        "Sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    }
+  }
+}

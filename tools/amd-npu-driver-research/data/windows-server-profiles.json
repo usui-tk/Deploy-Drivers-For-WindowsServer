@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0",
+  "profiles": [
+    {"name":"Windows Server 2016","major":10,"minor":0,"build":14393,"productType":3,"architecture":"amd64"},
+    {"name":"Windows Server 2019","major":10,"minor":0,"build":17763,"productType":3,"architecture":"amd64"},
+    {"name":"Windows Server 2022","major":10,"minor":0,"build":20348,"productType":3,"architecture":"amd64"},
+    {"name":"Windows Server 2025","major":10,"minor":0,"build":26100,"productType":3,"architecture":"amd64"}
+  ]
+}

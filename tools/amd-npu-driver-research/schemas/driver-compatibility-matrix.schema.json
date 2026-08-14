@@ -1,0 +1,197 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/amd-npu-driver-research/driver-compatibility-matrix.schema.json",
+  "title": "AMD NPU driver compatibility matrix",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolVersion",
+    "HandEdited",
+    "Scope",
+    "Sources",
+    "PackageCount",
+    "ProcessorCount",
+    "Rows",
+    "Selections"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "1.2"
+    },
+    "ToolVersion": {
+      "type": "string"
+    },
+    "HandEdited": {
+      "const": false
+    },
+    "Scope": {
+      "type": "object",
+      "required": [
+        "TargetServer",
+        "ProcessorCatalogCompleteness",
+        "UnknownSkuPolicy",
+        "UnknownHardwarePolicy",
+        "RuntimeProof",
+        "ClientRuntimeEvidenceIncluded"
+      ],
+      "properties": {
+        "RuntimeProof": {
+          "const": false
+        },
+        "ClientRuntimeEvidenceIncluded": {
+          "const": true
+        }
+      }
+    },
+    "PackageCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "ProcessorCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "Rows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "ProcessorId",
+          "ProcessorName",
+          "Codename",
+          "NpuIdentityId",
+          "ExpectedDeviceIds",
+          "ArtifactFileName",
+          "ArtifactSha256",
+          "PublishedDriverLabel",
+          "EmbeddedInfDriverVersions",
+          "InfHardwareCandidate",
+          "InstallerBroadFamilyCandidate",
+          "DriverBinaryCodenameStatus",
+          "PublishedCodenameStatus",
+          "TargetServer",
+          "ServerStaticAssessment",
+          "Decision",
+          "Reason",
+          "RyzenAiSoftwareCompatibility",
+          "RuntimeProof",
+          "NpuAvailability",
+          "ObservedClientRuntimeEvidenceStatus",
+          "ObservedClientRuntimeEvidenceIds"
+        ],
+        "properties": {
+          "ArtifactSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "RuntimeProof": {
+            "const": false
+          },
+          "Decision": {
+            "enum": [
+              "StaticCandidateWithPublishedFamilyEvidence",
+              "ReviewRequired",
+              "NotApplicable",
+              "NotApplicableAsPublished",
+              "NotApplicableNoPublishedNpu"
+            ]
+          },
+          "NpuAvailability": {
+            "enum": [
+              "AvailablePublished",
+              "NotAvailablePublished",
+              "NoPublishedNpuCapability",
+              "Unknown"
+            ]
+          },
+          "DriverBinaryCodenameStatus": {
+            "enum": [
+              "NoReviewedDriverBinaryContract",
+              "NoPublishedNpuCapability",
+              "ProcessorNpuIdentityUnresolved",
+              "BroadPlatformLabel",
+              "Shared1502BroadFamilyOnly",
+              "FirmwareDeviceRevision",
+              "CodenameNotObservedInReviewedBinaryLogic"
+            ]
+          },
+          "ObservedClientRuntimeEvidenceStatus": {
+            "enum": [
+              "NoObservedClientRuntimeEvidence",
+              "ProcessorRuntimeObservedDifferentArtifact",
+              "ExactArtifactRuntimeObserved"
+            ]
+          },
+          "ObservedClientRuntimeEvidenceIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "Selections": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "ProcessorId",
+          "ProcessorName",
+          "Codename",
+          "Decision",
+          "RecommendedArtifact",
+          "PublishedDriverLabel",
+          "Reason",
+          "NpuAvailability",
+          "ObservedClientRuntimeEvidenceStatus",
+          "ObservedClientRuntimeEvidenceIds"
+        ],
+        "properties": {
+          "Decision": {
+            "enum": [
+              "SelectLatestPublishedStaticCandidate",
+              "ReviewRequired",
+              "NoNpuDriverRequired"
+            ]
+          },
+          "RecommendedArtifact": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "PublishedDriverLabel": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "NpuAvailability": {
+            "enum": [
+              "AvailablePublished",
+              "NotAvailablePublished",
+              "NoPublishedNpuCapability",
+              "Unknown"
+            ]
+          },
+          "ObservedClientRuntimeEvidenceStatus": {
+            "enum": [
+              "NoObservedClientRuntimeEvidence",
+              "ProcessorRuntimeObservedDifferentArtifact",
+              "ExactArtifactRuntimeObserved"
+            ]
+          },
+          "ObservedClientRuntimeEvidenceIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

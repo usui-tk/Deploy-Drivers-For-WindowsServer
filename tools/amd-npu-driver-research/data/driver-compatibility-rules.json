@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "1.0",
+  "reviewedAt": "2026-08-13",
+  "unknownPolicy": "ReviewRequired",
+  "sources": [
+    {
+      "id": "amd-latest-inst",
+      "type": "Published",
+      "url": "https://ryzenai.docs.amd.com/en/latest/inst.html",
+      "statement": "Ryzen AI 1.8 installation instructions publish NPU driver 32.0.203.376 as production for Phoenix, Hawk Point, Strix, Strix Halo, and Krackan Point."
+    },
+    {
+      "id": "amd-rai15-relnotes",
+      "type": "Published",
+      "url": "https://ryzenai.docs.amd.com/en/1.5/relnotes.html",
+      "statement": "Ryzen AI 1.5 supports Phoenix, Hawk Point, Strix, Strix Halo, and Krackan Point."
+    },
+    {
+      "id": "amd-npu-check",
+      "type": "Published",
+      "url": "https://github.com/amd/RyzenAI-SW/blob/main/utilities/npu_check/npu_util.cpp",
+      "statement": "AMD npu_check encodes Ryzen AI software minimum driver versions through 1.8."
+    }
+  ],
+  "ryzenAiSoftwareMinimumDrivers": [
+    {
+      "softwareVersion": "1.2",
+      "minimumDriver": "32.0.201.204"
+    },
+    {
+      "softwareVersion": "1.3",
+      "minimumDriver": "32.0.203.237"
+    },
+    {
+      "softwareVersion": "1.3.1",
+      "minimumDriver": "32.0.203.242"
+    },
+    {
+      "softwareVersion": "1.4",
+      "minimumDriver": "32.0.203.257"
+    },
+    {
+      "softwareVersion": "1.4.1",
+      "minimumDriver": "32.0.203.259"
+    },
+    {
+      "softwareVersion": "1.5",
+      "minimumDriver": "32.0.203.280"
+    },
+    {
+      "softwareVersion": "1.6",
+      "minimumDriver": "32.0.203.280"
+    },
+    {
+      "softwareVersion": "1.7",
+      "minimumDriver": "32.0.203.280"
+    },
+    {
+      "softwareVersion": "1.8",
+      "minimumDriver": "32.0.203.280"
+    }
+  ],
+  "artifactRules": [
+    {
+      "artifactSha256": "a278a2c92cdc47e0da4cab2cbdb5347a127eee67311927578f4e151618446ce4",
+      "artifactFileName": "NPU_RAI1.5_280_WHQL.zip",
+      "publishedDriverLabel": "32.0.203.280",
+      "publishedSupportedCodenames": [
+        "Phoenix",
+        "Hawk Point",
+        "Strix Point",
+        "Strix Halo",
+        "Krackan Point"
+      ],
+      "supportEvidence": "RyzenAi15FamilySupportPlusObserved280Payload",
+      "sourceIds": [
+        "amd-rai15-relnotes",
+        "amd-npu-check"
+      ],
+      "notes": "Historical Ryzen AI 1.5 280 artifact. The exact package URL is separately recorded in SOURCES.md; support family is bound conservatively from Ryzen AI 1.5 published configuration plus observed 280 payload."
+    },
+    {
+      "artifactSha256": "803afe1e2d75b717f60a368453306ccbd4877cdd936b6531b946b95109a22144",
+      "artifactFileName": "NPU_RAI_280_WHQL.zip",
+      "publishedDriverLabel": "32.0.203.280",
+      "publishedSupportedCodenames": [
+        "Phoenix",
+        "Hawk Point",
+        "Strix Point",
+        "Strix Halo",
+        "Krackan Point"
+      ],
+      "supportEvidence": "AmdProductionDriverPublished",
+      "sourceIds": [
+        "amd-latest-inst",
+        "amd-npu-check"
+      ],
+      "notes": "AMD documentation publishes 280 as production driver for the listed codename families."
+    },
+    {
+      "artifactSha256": "aa836cbfcad5d0782c79b58f197aa50624af37e7cb8311c5f94d85b0dc3ccaad",
+      "artifactFileName": "NPU_RAI_376_WHQL.zip",
+      "publishedDriverLabel": "32.0.203.376",
+      "publishedSupportedCodenames": [
+        "Phoenix",
+        "Hawk Point",
+        "Strix Point",
+        "Strix Halo",
+        "Krackan Point"
+      ],
+      "supportEvidence": "AmdProductionDriverPublished",
+      "sourceIds": [
+        "amd-latest-inst",
+        "amd-npu-check"
+      ],
+      "notes": "AMD Ryzen AI 1.8 documentation publishes 376 as production driver for the listed codename families. The payload INF DriverVer is a separate embedded version and must not be conflated with this published label."
+    }
+  ]
+}

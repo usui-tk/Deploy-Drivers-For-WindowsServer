@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/tools/amd-npu-driver-research/schemas/source-data/processor-catalog.source.schema.json",
+  "title": "AMD NPU reviewed source data: processor-catalog.json",
+  "description": "Schema for Git-tracked reviewed source data. This is distinct from the PascalCase generated public schema.",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "1.3"
+    },
+    "reviewedAt": {
+      "type": "string"
+    },
+    "catalogCompleteness": {
+      "type": "string"
+    },
+    "unknownSkuPolicy": {
+      "type": "string"
+    },
+    "normalization": {
+      "type": "string"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "evidenceArchiveSha256": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ]
+      }
+    },
+    "processors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "processorId": {
+            "type": "string"
+          },
+          "canonicalName": {
+            "type": "string"
+          },
+          "matchRegex": {
+            "type": "string"
+          },
+          "series": {
+            "type": "string"
+          },
+          "codename": {
+            "type": "string"
+          },
+          "npuIdentityId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expectedDeviceIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "npuTops": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "sourceIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "npuAvailability": {
+            "type": "string"
+          },
+          "npuEvidence": {
+            "type": "string"
+          },
+          "productIdTray": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "observedEvidenceIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "observedCpuIdentity": {
+            "type": "object",
+            "properties": {
+              "family": {
+                "type": "integer"
+              },
+              "model": {
+                "type": "integer"
+              },
+              "stepping": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "family",
+              "model",
+              "stepping"
+            ]
+          },
+          "observedNpuIdentity": {
+            "type": "object",
+            "properties": {
+              "vendorId": {
+                "type": "string"
+              },
+              "deviceId": {
+                "type": "string"
+              },
+              "pciRevision": {
+                "type": "string"
+              },
+              "architectureFamily": {
+                "type": "string"
+              },
+              "xrtDeviceName": {
+                "type": "string"
+              },
+              "xrtFirmwareVersion": {
+                "type": "string"
+              },
+              "firmwareDeviceRevisionStatus": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "vendorId",
+              "deviceId",
+              "pciRevision",
+              "architectureFamily",
+              "xrtDeviceName",
+              "xrtFirmwareVersion",
+              "firmwareDeviceRevisionStatus"
+            ]
+          },
+          "observedClientRuntime": {
+            "type": "object",
+            "properties": {
+              "artifactFileName": {
+                "type": "string"
+              },
+              "artifactSha256": {
+                "type": "string"
+              },
+              "driverVersion": {
+                "type": "string"
+              },
+              "fullObservedStackExactMatch": {
+                "type": "boolean"
+              },
+              "serverRuntimeProof": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "artifactFileName",
+              "artifactSha256",
+              "driverVersion",
+              "fullObservedStackExactMatch",
+              "serverRuntimeProof"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "processorId",
+          "canonicalName",
+          "matchRegex",
+          "series",
+          "codename",
+          "npuIdentityId",
+          "expectedDeviceIds",
+          "npuTops",
+          "sourceIds",
+          "npuAvailability",
+          "npuEvidence",
+          "productIdTray"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "reviewedAt",
+    "catalogCompleteness",
+    "unknownSkuPolicy",
+    "normalization",
+    "sources",
+    "processors"
+  ]
+}

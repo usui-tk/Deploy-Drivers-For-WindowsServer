@@ -1,0 +1,126 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "amd-npu-predecessor-extraction-core-contract.schema.json",
+  "title": "AMD NPU Predecessor Extraction Core Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "reviewedAtUtc",
+    "selectedSource",
+    "functions",
+    "semanticContract"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "amd-npu-predecessor-extraction-core-contract/1.0"
+    },
+    "reviewedAtUtc": {
+      "type": "string",
+      "minLength": 1
+    },
+    "selectedSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool",
+        "url",
+        "sourceSha256"
+      ],
+      "properties": {
+        "tool": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "sourceSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "functions": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "sha256"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        }
+      }
+    },
+    "semanticContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "externalExtractor",
+        "listProbeArgs",
+        "extractArgs",
+        "supportedTopLevelFormats",
+        "boundedRecursion",
+        "defaultMaxDepth",
+        "maximumMaxDepth",
+        "vendorExecutablesExecuted",
+        "ordinaryPeWithoutContainerPayloadIsNotExecuted"
+      ],
+      "properties": {
+        "externalExtractor": {
+          "const": "7-Zip"
+        },
+        "listProbeArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "extractArgs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "supportedTopLevelFormats": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "zip",
+              "exe",
+              "msi",
+              "cab",
+              "7z"
+            ]
+          }
+        },
+        "boundedRecursion": {
+          "const": true
+        },
+        "defaultMaxDepth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "maximumMaxDepth": {
+          "const": 10
+        },
+        "vendorExecutablesExecuted": {
+          "const": false
+        },
+        "ordinaryPeWithoutContainerPayloadIsNotExecuted": {
+          "const": true
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "amd-research-predecessor-shared-core-contract.schema.json",
+  "title": "AMD Research Predecessor Shared Core Contract",
+  "type": "object",
+  "required": ["schemaVersion", "reviewedAtUtc", "normalization", "sources", "functionCount", "functions"],
+  "properties": {
+    "schemaVersion": {"const": "amd-research-predecessor-shared-core-contract/1.0"},
+    "reviewedAtUtc": {"type": "string"},
+    "normalization": {"type": "string", "minLength": 1},
+    "sources": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["tool", "url", "sourceSha256"],
+        "properties": {
+          "tool": {"type": "string"},
+          "url": {"type": "string"},
+          "sourceSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "functionCount": {"type": "integer", "minimum": 1},
+    "functions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "sha256"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

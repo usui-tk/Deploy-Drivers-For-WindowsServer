@@ -1,0 +1,296 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/tools/amd-npu-driver-research/schemas/source-data/observed-runtime-evidence.source.schema.json",
+  "title": "AMD NPU reviewed source data: observed-runtime-evidence.json",
+  "description": "Schema for Git-tracked reviewed source data. This is distinct from the PascalCase generated public schema.",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "reviewedAt": {
+      "type": "string"
+    },
+    "publicationBoundary": {
+      "type": "string"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "collectorVersion": {
+            "type": "string"
+          },
+          "evidenceArchiveSha256": {
+            "type": "string"
+          },
+          "statement": {
+            "type": "string"
+          },
+          "quicktestArchiveSha256": {
+            "type": "string"
+          },
+          "quicktestPySha256": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "statement"
+        ]
+      }
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "evidenceId": {
+            "type": "string"
+          },
+          "processorId": {
+            "type": "string"
+          },
+          "processorName": {
+            "type": "string"
+          },
+          "evidenceClass": {
+            "type": "string"
+          },
+          "serverRuntimeProof": {
+            "type": "boolean"
+          },
+          "cpuIdentity": {
+            "type": "object",
+            "properties": {
+              "family": {
+                "type": "integer"
+              },
+              "model": {
+                "type": "integer"
+              },
+              "stepping": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "family",
+              "model",
+              "stepping"
+            ]
+          },
+          "npuIdentity": {
+            "type": "object",
+            "properties": {
+              "vendorId": {
+                "type": "string"
+              },
+              "deviceId": {
+                "type": "string"
+              },
+              "subsystemId": {
+                "type": "string"
+              },
+              "pciRevision": {
+                "type": "string"
+              },
+              "architectureFamily": {
+                "type": "string"
+              },
+              "quicktestStyleClassification": {
+                "type": "string"
+              },
+              "xrtDeviceName": {
+                "type": "string"
+              },
+              "xrtFirmwareVersion": {
+                "type": "string"
+              },
+              "xrtBdf": {
+                "type": "string"
+              },
+              "xrtReady": {
+                "type": "boolean"
+              },
+              "firmwareDeviceRevisionStatus": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "vendorId",
+              "deviceId",
+              "subsystemId",
+              "pciRevision",
+              "architectureFamily",
+              "quicktestStyleClassification",
+              "xrtDeviceName",
+              "xrtFirmwareVersion",
+              "xrtBdf",
+              "xrtReady",
+              "firmwareDeviceRevisionStatus"
+            ]
+          },
+          "runtimeDriver": {
+            "type": "object",
+            "properties": {
+              "driverVersion": {
+                "type": "string"
+              },
+              "service": {
+                "type": "string"
+              },
+              "deviceStatus": {
+                "type": "string"
+              },
+              "reviewedArtifactFileName": {
+                "type": "string"
+              },
+              "reviewedArtifactSha256": {
+                "type": "string"
+              },
+              "infSha256": {
+                "type": "string"
+              },
+              "ipustackSha256": {
+                "type": "string"
+              },
+              "xrtSmiSha256": {
+                "type": "string"
+              },
+              "infExactMatch": {
+                "type": "boolean"
+              },
+              "ipustackExactMatch": {
+                "type": "boolean"
+              },
+              "xrtSmiExactMatch": {
+                "type": "boolean"
+              },
+              "fullObservedStackExactMatch": {
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "driverVersion",
+              "service",
+              "deviceStatus",
+              "reviewedArtifactFileName",
+              "reviewedArtifactSha256",
+              "infSha256",
+              "ipustackSha256",
+              "xrtSmiSha256",
+              "infExactMatch",
+              "ipustackExactMatch",
+              "xrtSmiExactMatch",
+              "fullObservedStackExactMatch"
+            ]
+          },
+          "gpuCorrelation": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "vendorId": {
+                "type": "string"
+              },
+              "deviceId": {
+                "type": "string"
+              },
+              "subsystemId": {
+                "type": "string"
+              },
+              "pciRevision": {
+                "type": "string"
+              },
+              "driverVersion": {
+                "type": "string"
+              },
+              "infSha256": {
+                "type": "string"
+              },
+              "infInstallSectionHint": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "vendorId",
+              "deviceId",
+              "subsystemId",
+              "pciRevision",
+              "driverVersion",
+              "infSha256",
+              "infInstallSectionHint"
+            ]
+          },
+          "conclusion": {
+            "type": "object",
+            "properties": {
+              "resolvedCodename": {
+                "type": "string"
+              },
+              "resolvedNpuIdentityId": {
+                "type": "string"
+              },
+              "confidence": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "resolvedCodename",
+              "resolvedNpuIdentityId",
+              "confidence",
+              "reason"
+            ]
+          },
+          "sourceIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "evidenceId",
+          "processorId",
+          "processorName",
+          "evidenceClass",
+          "serverRuntimeProof",
+          "cpuIdentity",
+          "npuIdentity",
+          "runtimeDriver",
+          "gpuCorrelation",
+          "conclusion",
+          "sourceIds"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "reviewedAt",
+    "publicationBoundary",
+    "sources",
+    "records"
+  ]
+}

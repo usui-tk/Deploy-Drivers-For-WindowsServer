@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/tools/amd-npu-driver-research/schemas/source-data/driver-compatibility-rules.source.schema.json",
+  "title": "AMD NPU reviewed source data: driver-compatibility-rules.json",
+  "description": "Schema for Git-tracked reviewed source data. This is distinct from the PascalCase generated public schema.",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "reviewedAt": {
+      "type": "string"
+    },
+    "unknownPolicy": {
+      "type": "string"
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "statement": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "url",
+          "statement"
+        ]
+      }
+    },
+    "ryzenAiSoftwareMinimumDrivers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "softwareVersion": {
+            "type": "string"
+          },
+          "minimumDriver": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "softwareVersion",
+          "minimumDriver"
+        ]
+      }
+    },
+    "artifactRules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "artifactSha256": {
+            "type": "string"
+          },
+          "artifactFileName": {
+            "type": "string"
+          },
+          "publishedDriverLabel": {
+            "type": "string"
+          },
+          "publishedSupportedCodenames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "supportEvidence": {
+            "type": "string"
+          },
+          "sourceIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "artifactSha256",
+          "artifactFileName",
+          "publishedDriverLabel",
+          "publishedSupportedCodenames",
+          "supportEvidence",
+          "sourceIds",
+          "notes"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "reviewedAt",
+    "unknownPolicy",
+    "sources",
+    "ryzenAiSoftwareMinimumDrivers",
+    "artifactRules"
+  ]
+}

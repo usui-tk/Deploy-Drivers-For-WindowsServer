@@ -1,0 +1,307 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/tools/amd-npu-driver-research/schemas/source-data/known-driver-binary-contracts.source.schema.json",
+  "title": "AMD NPU reviewed source data: known-driver-binary-contracts.json",
+  "description": "Schema for Git-tracked reviewed source data. This is distinct from the PascalCase generated public schema.",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "contracts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "contractId": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "artifactName": {
+            "type": "string"
+          },
+          "fileVersionObserved": {
+            "type": "string"
+          },
+          "evidenceLevel": {
+            "type": "string"
+          },
+          "identitySemanticId": {
+            "type": "string"
+          },
+          "analysisStatus": {
+            "type": "string"
+          },
+          "broadPlatformMap": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "value": {
+                  "type": "integer"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "refinement": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "value",
+                "label"
+              ]
+            }
+          },
+          "broadPlatformDefaultLabel": {
+            "type": "string"
+          },
+          "firmwareDeviceRevision": {
+            "type": "object",
+            "properties": {
+              "refinementObserved": {
+                "type": "boolean"
+              },
+              "messageOpcode": {
+                "type": [
+                  "null",
+                  "string"
+                ]
+              },
+              "messageOpcodePrimitiveObserved": {
+                "type": "boolean"
+              },
+              "defaultUnknownValue": {
+                "type": [
+                  "null",
+                  "integer"
+                ]
+              },
+              "map": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "integer"
+                    },
+                    "symbol": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "codename": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "value",
+                    "symbol",
+                    "label",
+                    "codename"
+                  ]
+                }
+              },
+              "statement": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "refinementObserved",
+              "messageOpcode",
+              "messageOpcodePrimitiveObserved",
+              "defaultUnknownValue",
+              "map",
+              "statement"
+            ]
+          },
+          "requiredStringEvidence": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "staticEvidence": {
+            "type": "object",
+            "properties": {
+              "displaySelectionVa": {
+                "type": "string"
+              },
+              "stringAddresses": {
+                "type": "object",
+                "properties": {
+                  "NPU Phoenix": {
+                    "type": "string"
+                  },
+                  "NPU Strix": {
+                    "type": "string"
+                  },
+                  "NPU Strix Halo": {
+                    "type": "string"
+                  },
+                  "NPU Krackan": {
+                    "type": "string"
+                  },
+                  "NPU": {
+                    "type": "string"
+                  },
+                  "NPU Krackan2": {
+                    "type": "string"
+                  },
+                  "NPU GorgonPoint1": {
+                    "type": "string"
+                  },
+                  "NPU GorgonPoint2": {
+                    "type": "string"
+                  },
+                  "NPU GorgonPoint3": {
+                    "type": "string"
+                  },
+                  "STX Chipset NPU": {
+                    "type": "string"
+                  },
+                  "NPU Medusa": {
+                    "type": "string"
+                  },
+                  "NPU Soundwave": {
+                    "type": "string"
+                  },
+                  "NPU Medusa PF": {
+                    "type": "string"
+                  },
+                  "NPU Medusa VF": {
+                    "type": "string"
+                  },
+                  "NPU Soundwave PF": {
+                    "type": "string"
+                  },
+                  "NPU Soundwave VF": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false,
+                "required": [
+                  "NPU Phoenix",
+                  "NPU Strix",
+                  "NPU Strix Halo",
+                  "NPU Krackan",
+                  "NPU"
+                ]
+              },
+              "broadPlatformGetterCallVa": {
+                "type": "string"
+              },
+              "firmwareRevisionWrapperCallVa": {
+                "type": "string"
+              },
+              "firmwareRevisionWrapperVa": {
+                "type": "string"
+              },
+              "firmwareRevisionDefaultUnknownVa": {
+                "type": "string"
+              },
+              "secondaryRevisionSelectionVa": {
+                "type": "string"
+              },
+              "messageOpcodePrimitiveVa": {
+                "type": "string"
+              },
+              "messageOpcodePrimitiveFileOffset": {
+                "type": "string"
+              },
+              "responseHandlerOpcodeCompareVa": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "stringAddresses"
+            ]
+          },
+          "codenameRecognition": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "codename": {
+                  "type": "string"
+                },
+                "mode": {
+                  "type": "string"
+                },
+                "statement": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "codename",
+                "mode",
+                "statement"
+              ]
+            }
+          },
+          "upstreamCorrelation": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string"
+              },
+              "opcodeSymbol": {
+                "type": "string"
+              },
+              "opcode": {
+                "type": "string"
+              },
+              "unknownEnumValue": {
+                "type": "integer"
+              },
+              "featureAvailability": {
+                "type": "string"
+              },
+              "statement": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "source",
+              "opcodeSymbol",
+              "opcode",
+              "unknownEnumValue",
+              "featureAvailability",
+              "statement"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "contractId",
+          "sha256",
+          "artifactName",
+          "fileVersionObserved",
+          "evidenceLevel",
+          "identitySemanticId",
+          "analysisStatus",
+          "broadPlatformMap",
+          "broadPlatformDefaultLabel",
+          "firmwareDeviceRevision",
+          "requiredStringEvidence",
+          "staticEvidence",
+          "codenameRecognition"
+        ]
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "contracts"
+  ]
+}
