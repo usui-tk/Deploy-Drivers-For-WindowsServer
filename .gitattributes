@@ -65,6 +65,7 @@
 # they were audited. Same reasoning as the *.cmd rule above.
 tools/amd-chipset-driver-research/public/**  -text
 tools/amd-graphics-driver-research/public/**  -text
+tools/amd-npu-driver-research/public/**  -text
 
 # GitHub language detection: count .ps1 lines toward "PowerShell"
 *.ps1 linguist-language=PowerShell
