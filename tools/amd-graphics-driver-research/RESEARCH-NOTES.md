@@ -2,7 +2,7 @@
 
 This document consolidates the durable reverse-engineering and engineering knowledge produced during development of the AMD Graphics Driver Research Toolkit. It replaces the need to read multiple top-level qualification/design notes to understand the project.
 
-Historical qualification records remain under `reports/**` and provide the detailed evidence trail for individual development milestones. This file focuses on knowledge that should remain useful for future driver deployment, INF transformation and project-owned self-signed package work.
+Historical qualification records remain under `authored/**` and provide the detailed evidence trail for individual development milestones. This file focuses on knowledge that should remain useful for future driver deployment, INF transformation and project-owned self-signed package work.
 
 ## 1. Research boundary
 
@@ -429,7 +429,7 @@ Established multi-artifact PRO release behavior and reinforced the need to separ
 
 Provides the strongest qualified native Server control. It demonstrates AMD-published Server-targeted INF topology and permits direct comparison between project-side projection and vendor-native Server selection.
 
-Historical detailed reports are indexed in `reports/README.md`.
+Historical detailed records are indexed in `authored/README.md`.
 
 ## 23. Shared lessons from the AMD Chipset research toolkit
 
@@ -462,7 +462,7 @@ These are future research/deployment questions and should remain explicit rather
 
 ## 25. Where to look for historical proof
 
-Use `reports/README.md` as the index.
+Use `authored/README.md` as the index.
 
 The most important historical categories are:
 

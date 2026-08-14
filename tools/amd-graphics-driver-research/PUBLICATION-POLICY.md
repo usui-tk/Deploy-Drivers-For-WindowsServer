@@ -15,7 +15,8 @@ The tool SHALL NOT publish runtime/debug data simply because it happens to be JS
 | `public/**` | repository-safe generated artifacts | **Allowed** |
 | `private/evidence/**` | private/debug/audit evidence | No |
 | `inventory/**` | runtime publication source / analysis staging | No |
-| `reports/**` | runtime report staging + historical reports | No automatic generated commit |
+| `reports/**` | script-generated runtime report staging | No |
+| `authored/**` | authored qualification/hardening records | Yes, reviewed |
 | `work/**` | download/extraction workspace | No |
 | source / `data/**` / `schemas/**` / docs | static repository content | explicit source review only |
 

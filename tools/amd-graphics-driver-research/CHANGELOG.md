@@ -1,5 +1,26 @@
 # Changelog
 
+## Authored/generated separation — 2026-08-14 (documentation and repository layout only)
+
+`reports/` held both the authored hardening and qualification records and the
+locations the toolkit writes generated reports to, separated only by a list of
+file names in `.gitignore`.
+
+- Separates authored records from script-generated output by directory. The
+  authored design/qualification narratives move from `reports/` to a new
+  `authored/` directory as a pure rename; no file content changes.
+- Replaces the hand-maintained generated-file name list in `.gitignore` with a
+  whole-directory rule. `reports/**` is now ignored in its entirety apart from
+  its `.gitkeep`, so a newly generated report can no longer become committable
+  by being absent from a list.
+- Adopts the repository-wide `tools/` layer convention: `authored/**` and
+  `public/**` are committed; `inventory/**`, `private/**`, `work/**` and
+  `reports/**` are runtime staging carrying one tracked `.gitkeep` each.
+- Updates the internal documentation references and the normative statements
+  that previously directed new one-off narratives into `reports/**`.
+- No PowerShell change, no toolkit version change, and no generated `public/**`
+  byte changes.
+
 ## 1.0.0 release-candidate publication hardening — 2026-08-12
 
 - Reorganizes release documentation without changing PowerShell runtime logic or generated research data: the top-level contract is reduced to `README.md`, `SPEC.md`, `TESTING.md`, `PUBLICATION-POLICY.md`, `RESEARCH-NOTES.md`, `CHANGELOG.md`, and `THIRD-PARTY-NOTICES.md`; historical design/qualification notes move under `reports/**`, and the byte-identical curated/rerun qualification duplicate is retained once.

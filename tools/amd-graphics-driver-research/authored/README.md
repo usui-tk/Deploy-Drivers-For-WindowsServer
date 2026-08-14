@@ -1,6 +1,22 @@
-# AMD Graphics Driver Research — Historical Reports Index
+# AMD Graphics Driver Research — Authored Records Index
 
-The top-level documentation describes the stable v1.0.0 contract. This directory retains development and qualification records that explain **how** specific behaviors were discovered and validated.
+The top-level documentation describes the stable v1.0.0 contract. This directory
+retains the authored development and qualification records that explain **how**
+specific behaviors were discovered and validated.
+
+This directory holds **authored** records: design and qualification narratives
+written by a person or a model, reviewed, and committed. It exists so that the
+authored/generated boundary is visible in the directory tree rather than
+maintained as a list of file names in `.gitignore`.
+
+The counterpart directories are:
+
+| Directory | Written by | Committed |
+| --- | --- | --- |
+| `authored/**` | a person or a model | yes, after review |
+| `public/**` | the toolkit | yes, per `PUBLICATION-POLICY.md` |
+| `reports/**`, `inventory/**`, `work/**`, `private/**` | the toolkit at run time | no |
+
 
 These reports are evidence/history, not the normative specification. Use:
 
@@ -70,4 +86,4 @@ Historical reports MAY retain development-version terminology, superseded file l
 
 They SHOULD NOT be used as the current operational contract when they conflict with top-level v1.0.0 documentation.
 
-New one-off qualification reports SHOULD normally be placed under `reports/**` rather than added to the tool top directory.
+New one-off qualification reports SHOULD normally be placed under `authored/**` rather than added to the tool top directory.

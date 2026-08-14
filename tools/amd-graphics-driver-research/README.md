@@ -185,7 +185,8 @@ amd-graphics-driver-research/
   inventory/                # runtime staging; not a generated commit surface
   private/                  # private/debug evidence
   work/                     # extraction/download workspace
-  reports/                  # generated reports + historical qualification records
+  authored/                 # authored qualification/hardening records (reviewed, committed)
+  reports/                  # script-generated runtime reports (never committed)
 ```
 
 ### Documentation map
@@ -198,9 +199,9 @@ amd-graphics-driver-research/
 | `RESEARCH-NOTES.md` | Consolidated reverse-engineering knowledge and qualified real-artifact observations |
 | `CHANGELOG.md` | Version-by-version implementation history |
 | `THIRD-PARTY-NOTICES.md` | Third-party attribution |
-| `reports/README.md` | Index of historical qualification/hardening reports |
+| `authored/README.md` | Index of authored qualification/hardening records |
 
-Historical development reports are intentionally kept out of the top-level documentation surface. They remain available under `reports/**` as evidence of how specific behaviors were qualified.
+Historical development reports are intentionally kept out of the top-level documentation surface. They remain available under `authored/**` as evidence of how specific behaviors were qualified.
 
 ## Public repository outputs and private evidence
 

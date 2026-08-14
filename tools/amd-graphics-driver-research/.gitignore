@@ -1,17 +1,26 @@
-# Generated-output trust boundary:
-#   public/** is intentionally tracked and is the ONLY generated surface intended for unattended commits.
-#   Static script/schema/data/docs are normal reviewed source content and are not governed by this generated-output rule.
+# Commit-surface boundary for this research toolkit.
+#
+# Two kinds of content live here and they are separated by directory, not by a
+# list of file names. A name list has to be maintained in step with the
+# generator and silently fails open when it drifts.
+#
+#   authored/**   Written by a person or a model, reviewed, and committed.
+#   public/**     Written by the toolkit and committed. The only generated
+#                 commit surface, defined by PUBLICATION-POLICY.md.
+#   everything    Runtime staging. Never committed beyond a .gitkeep
+#   below         placeholder that records the directory's existence.
+#
+# public/** and authored/** are deliberately absent from this file: they are
+# tracked, so no rule is needed.
 
-# Private/debug evidence and vendor artifacts are never generated-output commit targets.
-private/
-evidence/
-work/
-
-# Runtime staging is never committed. The generated commit-safe surface is public/.
-inventory/**
+inventory/*
 !inventory/.gitkeep
-reports/amd-graphics-driver-history.md
-reports/windows-server-compatibility-analysis.md
-reports/releases/
 
-# public/** is intentionally NOT ignored; GitHub Actions may stage this directory explicitly after validation.
+private/*
+!private/.gitkeep
+
+work/*
+!work/.gitkeep
+
+reports/*
+!reports/.gitkeep

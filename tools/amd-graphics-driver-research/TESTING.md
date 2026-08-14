@@ -23,7 +23,8 @@ A research-stage PASS does not override a publication failure.
 | `public/**` | Validated repository-safe generated output | **Yes** |
 | `private/evidence/**` | Private execution/audit evidence | No |
 | `inventory/**` | Runtime staging and canonical analysis | No |
-| `reports/**` | Runtime report staging + retained historical reports | No automatic generated commit |
+| `reports/**` | Script-generated runtime report staging | No |
+| `authored/**` | Authored qualification/hardening records | Yes, reviewed |
 | `work/**` | Downloads/extraction/temp workspace | No |
 | `data/**`, `schemas/**`, source/docs | Static repository content | Explicit source changes only |
 
