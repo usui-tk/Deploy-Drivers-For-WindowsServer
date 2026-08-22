@@ -20,6 +20,62 @@ independently.
 
 ---
 
+## [2026-08-22] `research-toolkits-v3.0.0` — coordinated v3.0.0 sync of the three AMD driver research toolkits (no product script changes, no version bumps)
+
+The three research toolkits under `tools/` move together to **3.0.0**,
+concluding a two-cycle Claude–ChatGPT release-review governance: Cycle A
+(independent initial review, six findings, corrections verified and closed at
+review revision 68) and Cycle B (v3.0.0 promotion, real-machine gates, two
+metadata findings corrected and closed at revision 80). All acceptance records
+are hash-chained inside the review bundle; the bundle itself
+(`project-management/**`, `preview/**`) is audit material and is deliberately
+not repository content.
+
+**What the gates proved.** Windows Client regeneration was accepted for all
+three publication surfaces: Chipset Gate 2C (full run, public incorporated),
+NPU Gate 2N (short gate 2/2, full run **15/15** at exit 0 with automatic
+hardware selection `DEV_17F0` → package `376`, publication manifest 22/22,
+independent schema replay 12/12), Graphics bounded Gate 2G (**10/10**, exit 0,
+manifest 68/68). Windows Server 2025 bounded `PathSafety,Test` smokes passed
+2/2 for all three roots, the NPU one on the corrected 37-function
+architecture-convergence contract (regenerated from the exact frozen source,
+0 mismatches). The three roots now pin `#requires -Version 5.1` and share a
+regenerated **166-function** source-identical common core whose contract file
+is byte-identical in each toolkit's `data/`.
+
+**How it landed in the repository.** The application is an **explicit patch
+set, not a `tools/` mirror**: 177 overwrites + 45 adds + 0 deletes, verified
+blob-by-blob against a reviewed machine-readable operation manifest before
+staging, growing tracked `tools/**` from 330 to **375** files. Preserved
+untouched by construction: the 15 repository-owned `.gitignore`/`.gitkeep`
+dotfiles (byte-identical in the candidate), the 33-file Chipset runtime
+`inventory/**` staging, `tools/inventory-reconciliation/**`, and
+`tools/source-fragments/**`; candidate absence converts to zero deletions.
+`tools/README.md` now states the directory contract, the repository-owned
+dotfile rule, and the explicit-patch-set semantics.
+
+**Dataset highlights.** The chipset baseline grows to **26 releases / 674
+hardware-matched INF rows** (adding `8.08.12.551`); the suite's parity gate
+(G-20) reads the refreshed CSV and the full suite passes unchanged. Graphics
+adds release `26.8.1` and a published signature-analysis surface. The NPU
+catalog is regenerated at 3.0.0 with the reviewed `280`-minimum / historical
+`RAI1.5-280` (regression-only, never selectable) / production `376` artifact
+set; retained-tree schema drift from the 1.0.0 era is gone — every published
+catalog document validates against the schemas shipped beside it.
+
+**Analyzer baseline.** `SPEC.md` **A.11.4b** records the new tools-layer
+counts and **A.11.4c** becomes the register of the eight error-level findings:
+five PSA2011 false positives (the known line-bundling mode, AST-disproven
+against the 3.0.0 sources: zero real `-LiteralPath`+`-Parent` combinations),
+two PSA2010 `Write-AmdWarn` calls (Chipset/NPU, real but confined to a
+Windows-only catalog-init error branch that no accepted gate ever reached;
+reported upstream for the next toolkit revision), and one PSA2001 scope false
+positive. The Required gate for the four root scripts stays at exit 0.
+
+The four deployment scripts and the Collector are untouched — Chipset r122 /
+Graphics r87 / NPU r60 / BthPan r68 / Collector c11 — and the suite is
+unchanged at **28 cases / 1225 assertions**, measured on the applied tree.
+
 ## [2026-08-14] `tools-authored-generated-separation` — separate authored records from generated output across the research toolkits (no product script changes, no version bumps)
 
 The three research toolkits under `tools/` now share one directory contract, and

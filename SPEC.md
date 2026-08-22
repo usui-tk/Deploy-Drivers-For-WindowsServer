@@ -909,10 +909,10 @@ repository-shipped `.psa.config.json`:
 
 | File | Errors | Warnings | Info |
 | --- | ---: | ---: | ---: |
-| `tools/amd-chipset-driver-research/Invoke-AmdChipsetDriverResearch.ps1` | 0 | 100 | 126 |
-| `tools/amd-graphics-driver-research/Invoke-AmdGraphicsDriverResearch.ps1` | 0 | 87 | 118 |
-| `tools/amd-npu-driver-research/Invoke-AmdNpuDriverResearch.ps1` | **2** | 78 | 89 |
-| `tools/amd-npu-driver-research/tools/Collect-AmdNpuHardwareIdentityEvidence.ps1` | 0 | 14 | 0 |
+| `tools/amd-chipset-driver-research/Invoke-AmdChipsetDriverResearch.ps1` | **2** | 156 | 255 |
+| `tools/amd-graphics-driver-research/Invoke-AmdGraphicsDriverResearch.ps1` | **1** | 137 | 243 |
+| `tools/amd-npu-driver-research/Invoke-AmdNpuDriverResearch.ps1` | **5** | 130 | 225 |
+| `tools/amd-npu-driver-research/tools/Collect-AmdNpuHardwareIdentityEvidence.ps1` | 0 | 16 | 0 |
 | `tools/source-fragments/AmdStaticExtraction.fragment.ps1` | 0 | 0 | 0 |
 
 A repository-wide `psa.py -r --config .psa.config.json .` therefore exits **2**,
@@ -920,11 +920,13 @@ because the exit code reflects the highest severity found anywhere in the scan.
 That is the expected result, not a regression. The gate that must stay at exit
 0 is the root-script invocation shown under **Required gate**.
 
-### A.11.4c Known analyzer false positives in the `tools/` layer
+### A.11.4c Registered analyzer findings in the `tools/` layer
 
-The two errors in the table above are **PSA2011 false positives**. They are
-recorded here rather than suppressed, and the reason they cannot be suppressed
-is itself part of the contract.
+The eight errors in the table above fall into three registered classes: five
+**PSA2011 false positives**, two **PSA2010 findings that are real but
+unreachable in every qualified run**, and one **PSA2001 false positive**. They
+are recorded here rather than suppressed, and the reason they cannot be
+suppressed is itself part of the contract.
 
 **The finding.** PSA2011 warns that `Split-Path -LiteralPath ... -Parent`
 triggers `AmbiguousParameterSet` on Windows PowerShell 5.1 under a ja-JP
@@ -932,10 +934,15 @@ locale. The rule matches on a physical line. In
 `Invoke-AmdNpuDriverResearch.ps1` two lines each contain a `Test-Path
 -LiteralPath ...` (or `Copy-Item -LiteralPath ...`) call followed on the same
 line by a separate `Split-Path -Parent ...` call. The `-LiteralPath` belongs to
-the neighbouring command; the `Split-Path` calls use positional `-Path`.
+the neighbouring command; the `Split-Path` calls use positional `-Path`. As of
+toolkit `3.0.0` this construct appears on five lines across the three toolkit
+scripts (one in the Chipset script, one in the Graphics script, three in the
+NPU script).
 
-**Evidence.** An AST walk over every `Split-Path` command in the file finds
-**zero** occurrences that actually carry both `-LiteralPath` and `-Parent`:
+**Evidence.** An AST walk over every `Split-Path` command in each of the three
+toolkit scripts and the collector finds **zero** occurrences that actually
+carry both `-LiteralPath` and `-Parent` (re-verified against the `3.0.0`
+sources):
 
 ```powershell
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
@@ -952,11 +959,30 @@ Line numbers are deliberately omitted: they move whenever the toolkit is
 regenerated, and the construct rather than the location is what identifies the
 finding.
 
+**PSA2010 — `Write-AmdWarn` (real, unreachable in qualified runs).** The
+Chipset and NPU scripts each contain one call to `Write-AmdWarn` inside the
+`catch` branch of the Windows catalog native-type initialization, and no file
+in the repository defines that function (the Graphics script uses a defined
+helper at the equivalent site). If that branch ever executed on Windows, the
+`catch` would itself fail with `CommandNotFoundException` — the run would still
+fail closed, but with a masked diagnostic instead of the intended warning. The
+branch is an error path that did not execute in any accepted Windows Client or
+Windows Server gate, so no qualified behavior is affected. The fix belongs
+upstream in the toolkit sources at their next revision and has been reported to
+the toolkit-development lane; it is registered here, not patched, for the
+provenance reasons below.
+
+**PSA2001 — `$SkipPublicExport` (false positive).** The analyzer reports an
+undefined variable inside `Invoke-NpuEvidenceSnapshot`, but the variable is the
+NPU script's top-level `[switch]$SkipPublicExport` parameter read through
+normal parent-scope resolution. Function-local analysis does not model script
+scope; the reference is legitimate.
+
 **Why no inline suppression.** The obvious remedy — adding
-`# psa-disable-file PSA2011` to the script — is unavailable. The toolkit's
-`public/publication-manifest.json` binds the generated dataset to the SHA-256
-of `Invoke-AmdNpuDriverResearch.ps1`, and both the Windows PowerShell 5.1 and
-the Linux PowerShell 7 qualification runs record that same hash. Editing the
+`# psa-disable-file PSA2011` to the script — is unavailable. Each toolkit's
+`public/publication-manifest.json` binds its generated dataset to the SHA-256
+of its research script, and the accepted Windows Client and Windows Server
+qualification records pin those same hashes. Editing the
 script by one byte would invalidate the manifest's source binding and detach
 the shipped artifact from the evidence that qualified it. Silencing an analyzer
 false positive is not worth breaking a provenance chain.
@@ -965,7 +991,7 @@ false positive is not worth breaking a provenance chain.
 `.psa.config.json`, and must stay that way. It guards a real ja-JP Windows
 PowerShell 5.1 failure mode in the four deployment scripts, which are the
 scripts that actually run on Japanese Windows Server hosts. Turning the rule
-off repository-wide to quiet two false positives in research tooling would
+off repository-wide to quiet five false positives in research tooling would
 trade a genuine guard for cosmetics.
 
 **Steady state.** The correct long-term fix belongs upstream, in `psa.py`:
@@ -973,6 +999,9 @@ PSA2011 should bind `-LiteralPath` to the command it belongs to instead of
 matching across statement separators on a shared line. Until that lands, this
 register is the repository's record. If the count in the table above changes,
 re-run the AST check before assuming the new finding is another false positive.
+The registered PSA2010 defect is likewise expected to disappear at the next
+toolkit source revision; if it survives one, raise it again rather than
+re-registering it silently.
 
 ### A.11.4d Directory contract for the `tools/` research layer
 
