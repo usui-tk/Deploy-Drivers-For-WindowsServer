@@ -1,6 +1,266 @@
 # AMD Graphics Driver Research Toolkit Testing Guide
 
-This document defines how to verify the v1.0.0 contract in `SPEC.md`. It separates source/static gates, research-stage correctness, Windows full-run behavior, publication safety, Evidence provenance and final release acceptance.
+## REV81 release-state and no-rerun decision
+
+Claude closed Cycle B at REV80. The bounded Windows Client Gate 2G is accepted
+at 10/10 PASS with its complete 69-file public snapshot, and the exact REV77
+Graphics source has an accepted Windows Server / Windows PowerShell 5.1
+`PathSafety,Test` result at 2/2 PASS, exit `0`, manifest 19/19 exact. REV81 is
+documentation-only and requires neither a Windows rerun nor the multi-hour
+all-track survey. Lower revision commands remain historical reproducibility
+records, not current operator actions.
+
+## REV78 no-repeat decision
+
+The exact REV77 Graphics Server smoke is accepted and the source is
+byte-identical in REV78. Do not repeat the short smoke or bounded/full E2E for
+this NPU-only contract-data correction.
+
+## REV77 exact-source retest
+
+Use Windows PowerShell 5.1 explicitly and keep the canonical path unchanged:
+
+```powershell
+& "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
+  -NoProfile -ExecutionPolicy Bypass `
+  -File 'D:\Temp_AMD-Tool\Deploy-Drivers-For-WindowsServer\tools\amd-graphics-driver-research\Invoke-AmdGraphicsDriverResearch.ps1' `
+  -Stages PathSafety,Test `
+  -SkipPublicExport `
+  -EvidenceLabel 'REV77-CycleB-WindowsServer-Graphics-ExecutionContext' `
+  -EvidenceRetention ZipOnly
+```
+
+PASS additionally requires `run-context.json` to report `PSEdition=Desktop`,
+Windows PowerShell 5.1, `ExecutionContext.ExecutionClass=WindowsServer`,
+`ProductType` 2 or 3, `CollectionStatus=Collected`, and
+`CollectionSource=Win32_OperatingSystem`. This is the decisive fix for the
+REV76 Graphics REVIEW. No bounded/full Graphics E2E repetition is required.
+
+## REV76 previous release gate
+
+The exact bounded Windows Client Gate 2G is accepted/no-repeat: 10/10 stages,
+exit code `0`, one selected Ryzen AI 400 artifact, complete native signature
+coverage, and a self-contained validated public snapshot. Do not repeat the
+bounded run or start the multi-hour all-track survey.
+
+The remaining minimum-sufficient Windows Server command is:
+
+```powershell
+Set-Location 'D:\Temp_AMD-Tool\Deploy-Drivers-For-WindowsServer\tools\amd-graphics-driver-research'
+.\Invoke-AmdGraphicsDriverResearch.ps1 `
+  -Stages PathSafety,Test `
+  -SkipPublicExport `
+  -EvidenceLabel 'REV76-CycleB-WindowsServer-Graphics-Smoke' `
+  -EvidenceRetention ZipOnly
+```
+
+PASS requires 2/2 stages, exit code `0`, Windows PowerShell 5.1 on Windows
+Server, an exact Evidence manifest, and zero Warning/Error diagnostic events.
+An AMD GPU may be present or absent because these two stages do not exercise
+it. This smoke does not prove compatibility, installation/load or rendering /
+compute behavior. No launcher is included.
+
+## REV75 authorized bounded Graphics Gate 2G
+
+The REV75 gate combines the required `PathSafety` and `Test` checks with the
+one-artifact processing/publication route, so a separate smoke run is not
+required. Use the existing canonical path:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+Set-Location 'C:\Temp\Deploy-Drivers-For-WindowsServer\tools\amd-graphics-driver-research'
+
+.\Invoke-AmdGraphicsDriverResearch.ps1 `
+  -ProductGroupKey 'processors|ryzen|ryzen-ai-400-series' `
+  -MajorGenerationCount 1 `
+  -MaximumSelectedArtifactCount 1 `
+  -MaximumEstimatedDownloadGiB 2 `
+  -DownloadRetryCount 4 `
+  -DownloadTimeoutSeconds 900 `
+  -EvidenceLabel 'REV75-CycleB-Graphics-BoundedE2E' `
+  -EvidenceRetention ZipOnly
+```
+
+Do not add `-Stages` or `-SkipPublicExport`. PASS requires the complete bounded
+stage chain, final `Pass`, exit code `0`, one selected artifact and one Evidence
+ZIP with a complete validated `snapshot/public/**`. Return the Evidence ZIP and
+stop for review. At REV75 the all-track survey and Windows Server remained
+held; the later exact REV77 bounded Server gate is now accepted/no-repeat.
+
+## REV74 PowerShell 5.1 cardinality gate (historical prerequisite)
+
+REV74 applies the NPU-discovered conditional collection correction to the
+byte-identical Graphics self-contained-public validator. This separate command
+is retained as a diagnostic option; REV75 Gate 2G includes both stages and does
+not require an additional run:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+Set-Location 'C:\Temp\Deploy-Drivers-For-WindowsServer\tools\amd-graphics-driver-research'
+.\Invoke-AmdGraphicsDriverResearch.ps1 `
+  -Stages PathSafety,Test `
+  -SkipPublicExport `
+  -EvidenceLabel 'REV74-CycleB-Graphics-Cardinality' `
+  -EvidenceRetention ZipOnly
+```
+
+PASS requires 2/2 stages PASS, exit code `0`, no collection-cardinality issue,
+and an integrity-valid Evidence ZIP. A multi-hour full Graphics rerun is not
+authorized by this correction.
+
+## REV72 self-contained public Evidence gate
+
+The executable version remains `3.0.0`. REV72 changes Evidence packaging and
+verification only; it does not change product selection, download scope,
+extraction, signature targets or generated-public semantics.
+
+The next authorized bounded Graphics Windows Client E2E SHALL also qualify this
+contract. A PASS Evidence ZIP must contain the complete validated public tree
+at `snapshot/public/**` plus
+`snapshot/public-publication-reference.json` with
+`PublicDatasetIncludedInEvidence=true` and
+`SnapshotValidationStatus=Pass`. Independent review SHALL verify public schema,
+privacy, canonical-byte, dataset, path, size and SHA-256 contracts directly
+from that single Evidence ZIP.
+
+Do not create or return a separate public ZIP. A missing or incomplete public
+snapshot is `REVIEW`, even when the research stages themselves completed.
+This packaging-only correction does not authorize a multi-hour full rerun.
+
+## REV70 hardware-aware scope and transcript-hygiene gate
+
+The tool version remains `3.0.0`. REV70 changes only the shared negative
+extraction-completeness self-test path: the ordinary runtime assertion still
+throws and blocks incomplete extraction, while the deliberate negative fixture
+returns a structured `Blocked` result so Windows PowerShell 5.1 does not record
+an expected caught terminating error.
+
+Hardware presence has the following meaning for this tool:
+
+- `PathSafety,Test` and static/publication research are valid whether an AMD
+  graphics adapter is present or absent.
+- the root Graphics research script does not enumerate the installed display
+  adapter and does not test display output, device start, driver load or a GPU
+  workload. An `All` PASS is therefore not runtime qualification of the local
+  GPU.
+- `-RequireWindowsClientSignatureQualification` qualifies Windows-native
+  signature evidence for the selected package corpus; it does not require or
+  prove an installed AMD GPU.
+- AMD GPU presence/absence is declared in the test-host profile and may be
+  corroborated with `Win32_VideoController`; it is not inferred from the
+  research result.
+
+The minimum direct regression remains:
+
+```powershell
+.\Invoke-AmdGraphicsDriverResearch.ps1 `
+  -Stages PathSafety,Test `
+  -SkipPublicExport `
+  -EvidenceLabel REV70-Graphics-Common-Transcript `
+  -EvidenceRetention ZipOnly
+```
+
+PASS requires 2/2 stages, exit code `0`, a valid Evidence ZIP/manifest, and no
+transcript terminating-error record for the deliberate `ExtractedWithErrors`
+path-safety fixture. A separate short run is not required before the Cycle B
+full run when that exact full run will exercise `Test`. See
+`project-management/CYCLE-B-HARDWARE-AWARE-TEST-MATRIX-REV70.md`.
+
+## Current accepted gate and retest rule
+
+The prior exact `1.1.2-dev` source has an accepted Windows Server 2025 / Windows
+PowerShell `5.1.26100.33296` smoke result: `PathSafety,Test`, 2/2 PASS, final
+`Pass`, exit code `0`, with an independently verified Evidence ZIP and manifest.
+The separately accepted bounded short-E2E evidence remains the applicable
+processing-path qualification; it is not replaced by this smoke.
+Both are regression references and do not qualify the changed `3.0.0` source.
+
+The Server smoke does not qualify live product discovery, a complete multi-hour
+survey, all product tracks, installation, kernel load or device operation.
+Documentation-only changes do not invalidate accepted executable evidence and
+SHALL NOT trigger a ceremonial rerun. Historical revision gates below are
+retained regression fixtures and are not automatically pending user actions.
+
+For the historical REV69 `3.0.0` Cycle B candidate, the minimum direct smoke
+command was:
+
+```powershell
+.\Invoke-AmdGraphicsDriverResearch.ps1 `
+  -Stages PathSafety,Test `
+  -SkipPublicExport
+```
+
+There is no release-included cross-tool test launcher. A future orchestrator
+would require named scenarios and explicit scope/side-effect declarations.
+
+## REV69 Cycle B qualification and regeneration gate
+
+The exact `3.0.0` source SHALL parse without error, declare
+`#requires -Version 5.1`, pass UTF-8 BOM + CRLF checks, and pass
+`PathSafety,Test` with the repinned common-core contract. On a short-path
+Windows Client workspace, the full regeneration command is:
+
+```powershell
+.\Invoke-AmdGraphicsDriverResearch.ps1 `
+  -EvidenceLabel REV69-CycleB-Graphics-WindowsClient `
+  -EvidenceRetention ZipOnly
+```
+
+Omitting `-Stages` deliberately selects `All`; the run may take more than ten
+hours. Do not add `-SkipPublicExport`. Acceptance requires final `Pass`, exit
+code `0`, a verified self-contained Evidence ZIP and manifest, and a complete
+newly generated `snapshot/public/**` tree that passes schema, canonical-byte, privacy and provenance
+validation. Do not substitute the bounded short-E2E gate for public
+regeneration, and do not run Windows Server before Client evidence review.
+
+## Rev60 public-null structure regression gate
+
+`PathSafety,Test` SHALL pass a public-converter fixture that preserves an explicit null property and null array element while removing nested `ArchivePath`. This is a short preventive regression gate; it does not justify repeating the accepted multi-hour Graphics survey.
+
+## Rev59 publication-path regression gate
+
+`PathSafety,Test` SHALL pass the nested `PathSafety.ArchivePath` privacy fixture, vendor-token preservation, decoded-scalar audit and 165-function common contract. This is a publication adapter regression gate and does not require repeating the accepted multi-hour Graphics survey.
+
+## Rev58 path-safety correction gate
+
+At the historical REV58 gate, `PathSafety,Test` SHALL pass with the
+162-function common contract. Source inspection SHALL confirm that both
+release and recursive container destinations call the common short-path
+constructor and that Extract/Signature call the shared completeness gate. No
+12-hour survey was required for that adapter-only local gate; its then-pending
+Windows PowerShell 5.1 requirement has since been satisfied by the accepted
+later gates.
+
+
+
+## Rev52 lifecycle-only regression gate
+
+The exact candidate SHALL pass `PathSafety,Test`, produce a verified ZIP whose
+manifest paths contain no backslashes, and pass an isolated interrupt probe
+that persists `INTERRUPTED`. This gate does not reacquire packages, rerun static
+certificate analysis, or replace the prior 12-hour research evidence.
+An invalid-stage probe on a safe root SHALL return FatalError while producing a
+verified normal Evidence ZIP; the same recovery SHALL NOT bypass a PathSafety
+unsafe-root block.
+
+## Rev51 regression gate
+
+The PS7.6.5 clean-copy `PathSafety,Test` run completed both stages; the Test
+stage took approximately 2.98 seconds. The final assessment remained REVIEW
+only because the development container lacked 7-Zip. Forced normal-finalizer
+failure produced a verified emergency ZIP/SHA-256 and retained raw evidence.
+No 12-hour acquisition/full-research rerun is required for this correction;
+At REV51, Windows PowerShell 5.1 was the next real-host gate after package
+review; that historical prerequisite is now satisfied by later accepted gates.
+
+## Rev50 Canonical JSON short gate
+
+Run `-Stages Test -SkipPublicExport -EvidenceRetention ZipOnly`. PASS requires
+both `CanonicalJsonPublicationSelfTest=Pass` and
+`CanonicalJsonCrossRuntimeSelfTest=Pass`. Do not repeat the 12-hour full
+Graphics run solely for this serialization change.
+
+This document defines how to verify the `3.0.0` candidate contract in `SPEC.md`. It separates source/static gates, path-safety correctness, research-stage correctness, signature correctness, Windows full-run behavior, publication safety, Evidence provenance and final release acceptance.
 
 ## 1. Test principles
 
@@ -13,19 +273,57 @@ A valid release requires all of the following independent properties:
 5. **Publication byte correctness** — Markdown, JSON and CSV obey their distinct byte contracts.
 6. **Provenance** — a third party can verify source -> Evidence -> runtime source -> published artifact identities.
 7. **Automation safety** — a repository workflow can commit generated `public/**` without committing private/runtime state.
+8. **Certificate-scope correctness** — three-generation ordinary research remains intact while deep certificate work is newest-generation-only per stable track.
+9. **Signature evidence correctness** — identical installer/file bytes are analyzed once without losing provenance, and native checks remain artifact-contextual.
+10. **Path safety** — an unsafe Windows root is blocked before Evidence output
+    or AMD network access, and every SignTool input uses a byte-identical short alias.
 
 A research-stage PASS does not override a publication failure.
+
+## 1.1 Required local candidate gates
+
+Before requesting a user-machine run, the exact candidate SHALL pass:
+
+- PowerShell parser with zero errors;
+- `Test` stage including diagnostic redaction, sequential-download source
+  audit, HTTP retry/partial-content decisions, PowerShell 5.1
+  zero/one/many-cardinality checks and signature primitive tests;
+- retained selection regression: 38 stable tracks, 95 track-generation
+  selections and 23 ordinary unique URLs;
+- certificate narrowing regression: 38 newest-track references, 9 planned
+  unique URLs and 57 explicit historical exclusions;
+- offline signed-PE Signature integration with zero unexpected parse failures
+  and zero signed-digest mismatches;
+- schema and public privacy/manifest validation.
+- path-safety, 7-Zip listing and native-alias self-tests.
+
+These counts are pinned regression-fixture expectations, not future live-web
+constants.
+
+## 1.2 Platform qualification hold
+
+Windows Client qualification is not satisfied by local/Linux PASS. The reviewed
+`1.1.1-dev` run is retained as failure evidence: it completed static analysis but
+failed native catalog-bound coverage because SignTool could not open 260–357
+character paths. The bounded `1.1.2-dev` Client correction and short-E2E
+follow-up were reviewed separately. The later Windows Server
+`PathSafety,Test` smoke was authorized only after the Client hold point.
+
+These accepted gates remain distinct: the Client result does not become Server
+evidence, and the Server smoke does not become a full research or deployment
+qualification. Every future real-machine request SHALL state its hypothesis,
+exact source identity, minimum PASS evidence, and what the PASS authorizes.
 
 ## 2. Output classifications
 
 | Surface | Purpose | Generated commit target |
 |---|---|---:|
 | `public/**` | Validated repository-safe generated output | **Yes** |
-| `private/evidence/**` | Private execution/audit evidence | No |
+| `private/a/**`, `private/l/**`, `private/evidence/**` | Short-path installers, logs, Evidence work runs and verified final archives | No |
 | `inventory/**` | Runtime staging and canonical analysis | No |
 | `reports/**` | Script-generated runtime report staging | No |
 | `authored/**` | Authored qualification/hardening records | Yes, reviewed |
-| `work/**` | Downloads/extraction/temp workspace | No |
+| `work/x/**`, `work/n/**`, `work/p/**` | Short extraction, native aliases and transient path probes | No |
 | `data/**`, `schemas/**`, source/docs | Static repository content | Explicit source changes only |
 
 ## 3. Source preflight
@@ -284,7 +582,8 @@ For every manifested public payload:
 - generation/transformation mode matches observed bytes;
 - source-backed entries have verifiable `SourceRelativePath` / `SourceSha256`.
 
-The manifest itself SHALL be externally hashed/reference-bound by private Evidence for release audit.
+The manifest itself and every manifested payload SHALL be present and
+byte-identical beneath private Evidence `snapshot/public/**` for release audit.
 
 ## 14. Evidence provenance verification
 
@@ -295,6 +594,7 @@ run-summary.json
 evidence-manifest.json
 snapshot/tool/Invoke-AmdGraphicsDriverResearch.ps1
 snapshot/public-publication-reference.json
+snapshot/public/**
 snapshot/inventory/**
 snapshot/reports/**
 ```
@@ -393,3 +693,40 @@ A v1.0.0 release candidate is ready for external final audit only when all requi
 - [ ] generated artifacts were not manually edited
 
 If a generated artifact fails any gate, fix the toolkit and regenerate the complete affected dataset. Do not post-process release output.
+
+## Appendix A. Signature enhancement qualification history
+
+Graphics v1.0.0 had no Signature acceptance gate. The plan in
+`authored/GRAPHICS-SIGNATURE-AND-COMMON-HARDENING-PLAN-2026-08-17.md` is a
+historical design record; the current `3.0.0` source includes the planned
+bounded selection, Signature and `SignatureNative` contracts. Accepted Client,
+short-E2E and Server-smoke evidence remains scope-specific rather than one
+blanket qualification.
+
+Before a future implementation requests another user-machine run, local and
+synthetic qualification must prove preservation of the newest-three-generation
+research surface, newest-generation-per-track certificate planning,
+many-to-one provenance, URL/SHA-256 de-duplication, common signature-engine
+known answers, atomic transfer integrity, sequential AMD HTTP concurrency and
+PowerShell 5.1 zero/one/many collection behavior.
+
+A future platform gate must state a concrete hypothesis, exact PASS evidence
+and what the PASS enables. It ends at an Evidence review hold. No Windows
+Server execution follows automatically from a Client result, and no signature
+gate proves driver installation, kernel load or device functionality.
+## Evidence-storage qualification (rev48)
+
+A release candidate must pass the following short tests for all three tools; a full artifact research run is not required for this contract.
+
+1. Parse the script with Windows PowerShell 5.1-compatible syntax.
+2. Run the smallest local stage with default evidence settings.
+3. Confirm the final ZIP, `.zip.sha256`, and `LATEST-EVIDENCE.txt` exist directly under `private\evidence`.
+4. Confirm the hash companion matches the ZIP and every ZIP entry can be read.
+5. Confirm the raw `runs\r...` directory is removed for `ZipOnly` and retained for `ZipAndDirectory`.
+6. Supply an output root outside `private\evidence` and confirm the run blocks before creating that directory or starting a network request.
+7. On Windows, qualify UNC, SUBST, and reparse-point rejection under PowerShell 5.1.
+## rev57 common-core validation gate
+
+The accepted earlier Graphics `PathSafety,Test` result remains historical evidence for the path correction, but it does not attest the changed rev57 bytes. The minimum future gate is `PathSafety,Test` only; a 12-hour full Graphics rerun is not justified by this common-core change.
+
+PASS requires the common-core, ordinal-ordering, diagnostic, HTTP, collection-cardinality, and path-safety self-tests to pass. Stop for review after the Windows 11 evidence; do not proceed automatically to Windows Server.

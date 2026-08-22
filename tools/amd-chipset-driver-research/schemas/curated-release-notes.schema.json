@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-chipset-driver-research:curated-release-notes:1.0",
+  "title": "AMD Chipset Curated Release Notes",
+  "type": "object",
+  "required": ["SchemaVersion", "Records"],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-chipset-curated-release-notes/1.0"
+    },
+    "Records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "ReleaseVersion",
+          "ArticleNumber",
+          "Source",
+          "ReleaseHighlights",
+          "KnownIssues",
+          "ChipsetSupport",
+          "ProcessorSupport",
+          "PackageContents",
+          "InterpretationBoundaries"
+        ],
+        "properties": {
+          "ReleaseVersion": { "type": "string" },
+          "ArticleNumber": { "type": "string" },
+          "Source": {
+            "type": "object",
+            "required": ["ReleaseNotesUrl", "SourceArtifactFileName", "SourceArtifactSha256", "Authority"],
+            "properties": {
+              "ReleaseNotesUrl": { "type": "string", "format": "uri" },
+              "SourceArtifactFileName": { "type": "string" },
+              "SourceArtifactSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+              "CapturedAt": { "type": "string" },
+              "Authority": { "type": "string" }
+            },
+            "additionalProperties": false
+          },
+          "ReleaseHighlights": { "type": "array", "items": { "type": "string" } },
+          "KnownIssues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["Id", "Summary", "ToolkitImpact"],
+              "properties": {
+                "Id": { "type": "string" },
+                "Summary": { "type": "string" },
+                "ToolkitImpact": { "type": "string" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "ChipsetSupport": { "$ref": "#/$defs/supportRows" },
+          "ProcessorSupport": { "$ref": "#/$defs/supportRows" },
+          "PackageContents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["Name", "InfoProductNames", "Windows10", "Windows11", "ChangeDetails"],
+              "properties": {
+                "Name": { "type": "string" },
+                "InfoProductNames": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+                "Windows10": { "type": "string" },
+                "Windows11": { "type": "string" },
+                "ChangeDetails": { "type": "string" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "InterpretationBoundaries": { "type": "array", "items": { "type": "string" } }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "supportRows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["Name", "Windows10", "Windows11"],
+        "properties": {
+          "Name": { "type": "string" },
+          "Windows10": { "type": "boolean" },
+          "Windows11": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

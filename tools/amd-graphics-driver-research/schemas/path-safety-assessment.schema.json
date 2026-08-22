@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/schemas/amd-graphics-path-safety-assessment.schema.json",
+  "title": "AMD Graphics Path Safety Assessment",
+  "type": "object",
+  "required": ["SchemaVersion", "ToolkitVersion", "Status", "Policy", "ToolRoot", "ToolRootLength", "PredictedPaths", "Issues"],
+  "properties": {
+    "SchemaVersion": { "const": "amd-graphics-path-safety-assessment/1.0" },
+    "ToolkitVersion": { "type": "string" },
+    "Status": { "enum": ["Pass", "Blocked"] },
+    "Policy": {
+      "type": "object",
+      "required": ["SafeFullPathLimit", "MaximumToolRootLength", "VendorRelativePathReserve", "QualificationBypassAllowed", "ExternalDataRootsAllowed"],
+      "properties": {
+        "SafeFullPathLimit": { "const": 240 },
+        "MaximumToolRootLength": { "const": 100 },
+        "VendorRelativePathReserve": { "const": 120 },
+        "QualificationBypassAllowed": { "const": false },
+        "ExternalDataRootsAllowed": { "const": false }
+      }
+    },
+    "ToolRoot": { "type": "string" },
+    "ToolRootLength": { "type": "integer", "minimum": 1 },
+    "PredictedPaths": { "type": "object" },
+    "FileSystemProbes": { "type": "array" },
+    "SevenZipProbe": { "type": "object" },
+    "SignToolProbe": { "type": "object" },
+    "Issues": { "type": "array", "items": { "type": "string" } },
+    "OperatorInstruction": { "type": ["string", "null"] }
+  },
+  "additionalProperties": true
+}

@@ -448,7 +448,10 @@ Independent 7.x disassembly proves:
 
 The 7.x exact binary therefore receives its **own** hash-scoped compiled contract. The structural similarity to 8.x is a comparison result, not the basis for the 7.x evidence level.
 
-7.x has 62 Product records and 38 DevID mappings; 8.x has 64 and 41. Both are Client-only Windows 10/11 x64 manifests. See `reports/amd-chipset-selector-major-version-comparison.md` for the complete 8.x-vs-7.x diff.
+7.x has 62 Product records and 38 DevID mappings; 8.x has 64 and 41. Both are
+Client-only Windows 10/11 x64 manifests. See
+`../amd-chipset-selector-major-version-comparison.md` for the complete
+8.x-vs-7.x diff.
 
 No 7.x live-host Device_ID/MSI fixture was supplied. Accordingly, 7.x is `AmdCompiledStaticProven` for the modeled predicates, while the three-host dynamic corroboration remains scoped to 8.07.16.1035.
 

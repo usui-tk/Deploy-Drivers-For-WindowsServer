@@ -1,1 +1,205 @@
-{"SchemaVersion":"inf-topology-collection/2.0","ToolkitVersion":"1.0.0","SharedContractVersion":"amd-inf-semantic-contract/1.0","IdentifierTaxonomyVersion":"amd-inf-identifier-taxonomy/1.0","GeneratedAtUtc":"2026-08-12T17:53:34.9783027Z","SourceOfTruth":"inventory/releases/** canonical per-artifact JSON","EmbeddedDrivers":false,"ArtifactCount":23,"DriverCount":482,"Artifacts":[{"ReleaseVersion":"26.5.2","ReleaseKey":"Adrenalin|PolarisVega|26.5.2","ArtifactKey":"Adrenalin|PolarisVega|26.5.2|whql-amd-software-adrenalin-edition-26.5.2-win11-may-vega-polaris.exe","ArtifactRole":"PolarisVega","CanonicalJson":"inventory\\releases\\26.5.2\\whql-amd-software-adrenalin-edition-26.5.2-win11-may-vega-polaris.json","DriverCount":19},{"ReleaseVersion":"25.8.1","ReleaseKey":"Adrenalin|PolarisVega|25.8.1","ArtifactKey":"Adrenalin|PolarisVega|25.8.1|whql-amd-software-adrenalin-edition-25.8.1-win10-win11-aug-vega-polaris.exe","ArtifactRole":"PolarisVega","CanonicalJson":"inventory\\releases\\25.8.1\\whql-amd-software-adrenalin-edition-25.8.1-win10-win11-aug-vega-polaris.json","DriverCount":19},{"ReleaseVersion":"24.9.1","ReleaseKey":"Adrenalin|PolarisVega|24.9.1","ArtifactKey":"Adrenalin|PolarisVega|24.9.1|whql-amd-software-adrenalin-edition-24.9.1-win10-win11-vega-polaris.exe","ArtifactRole":"PolarisVega","CanonicalJson":"inventory\\releases\\24.9.1\\whql-amd-software-adrenalin-edition-24.9.1-win10-win11-vega-polaris.json","DriverCount":19},{"ReleaseVersion":"22.Q4","ReleaseKey":"ProEdition|MultiArtifact|22.Q4","ArtifactKey":"ProEdition|MultiArtifact|22.Q4|amd-software-pro-edition-22.q4-win10-win11-nov15.exe","ArtifactRole":"Unspecified","CanonicalJson":"inventory\\releases\\22.q4\\amd-software-pro-edition-22.q4-win10-win11-nov15.json","DriverCount":12},{"ReleaseVersion":"22.Q4","ReleaseKey":"ProEdition|MultiArtifact|22.Q4","ArtifactKey":"ProEdition|MultiArtifact|22.Q4|amd-software-pro-edition-22.q4-winsvr2016-nov15.exe","ArtifactRole":"WindowsServer","CanonicalJson":"inventory\\releases\\22.q4\\amd-software-pro-edition-22.q4-winsvr2016-nov15.json","DriverCount":4},{"ReleaseVersion":"21.Q4","ReleaseKey":"ProEdition|MultiArtifact|21.Q4","ArtifactKey":"ProEdition|MultiArtifact|21.Q4|win10-win11-radeon-pro-software-21.q4-dec3.exe","ArtifactRole":"Unspecified","CanonicalJson":"inventory\\releases\\21.q4\\win10-win11-radeon-pro-software-21.q4-dec3.json","DriverCount":9},{"ReleaseVersion":"21.Q4","ReleaseKey":"ProEdition|MultiArtifact|21.Q4","ArtifactKey":"ProEdition|MultiArtifact|21.Q4|winsvr2016-radeon-pro-software-21.q4-for-amd-radeon-pro-w6400.exe","ArtifactRole":"WindowsServer","CanonicalJson":"inventory\\releases\\21.q4\\winsvr2016-radeon-pro-software-21.q4-for-amd-radeon-pro-w6400.json","DriverCount":5},{"ReleaseVersion":"26.7.1","ReleaseKey":"Adrenalin|Main|26.7.1","ArtifactKey":"Adrenalin|Main|26.7.1|whql-amd-software-adrenalin-edition-26.7.1-win11-b.exe","ArtifactRole":"Main","CanonicalJson":"inventory\\releases\\26.7.1\\whql-amd-software-adrenalin-edition-26.7.1-win11-b.json","DriverCount":40},{"ReleaseVersion":"26.7.1","ReleaseKey":"Adrenalin|Main|26.7.1","ArtifactKey":"Adrenalin|Main|26.7.1|whql-amd-software-adrenalin-edition-26.7.1-win11-a.exe","ArtifactRole":"Main","CanonicalJson":"inventory\\releases\\26.7.1\\whql-amd-software-adrenalin-edition-26.7.1-win11-a.json","DriverCount":41},{"ReleaseVersion":"25.12.1","ReleaseKey":"Adrenalin|Main|25.12.1","ArtifactKey":"Adrenalin|Main|25.12.1|whql-amd-software-adrenalin-edition-25.12.1-win11-b.exe","ArtifactRole":"Main","CanonicalJson":"inventory\\releases\\25.12.1\\whql-amd-software-adrenalin-edition-25.12.1-win11-b.json","DriverCount":38},{"ReleaseVersion":"25.12.1","ReleaseKey":"Adrenalin|Main|25.12.1","ArtifactKey":"Adrenalin|Main|25.12.1|whql-amd-software-adrenalin-edition-25.12.1-win11-a.exe","ArtifactRole":"Main","CanonicalJson":"inventory\\releases\\25.12.1\\whql-amd-software-adrenalin-edition-25.12.1-win11-a.json","DriverCount":38},{"ReleaseVersion":"24.12.1","ReleaseKey":"Adrenalin|Main|24.12.1","ArtifactKey":"Adrenalin|Main|24.12.1|whql-amd-software-adrenalin-edition-24.12.1-win10-win11-dec-rdna.exe","ArtifactRole":"RDNA","CanonicalJson":"inventory\\releases\\24.12.1\\whql-amd-software-adrenalin-edition-24.12.1-win10-win11-dec-rdna.json","DriverCount":32},{"ReleaseVersion":"26.Q1","ReleaseKey":"ProEdition|MultiArtifact|26.Q1","ArtifactKey":"ProEdition|MultiArtifact|26.Q1|amd-software-pro-edition-26.q1-win11-rdna.exe","ArtifactRole":"RDNA","CanonicalJson":"inventory\\releases\\26.q1\\amd-software-pro-edition-26.q1-win11-rdna.json","DriverCount":39},{"ReleaseVersion":"25.Q4","ReleaseKey":"ProEdition|MultiArtifact|25.Q4","ArtifactKey":"ProEdition|MultiArtifact|25.Q4|amd-software-pro-edition-25.q4-win11-c.exe","ArtifactRole":"Unspecified","CanonicalJson":"inventory\\releases\\25.q4\\amd-software-pro-edition-25.q4-win11-c.json","DriverCount":44},{"ReleaseVersion":"24.Q4","ReleaseKey":"ProEdition|MultiArtifact|24.Q4","ArtifactKey":"ProEdition|MultiArtifact|24.Q4|amd-software-pro-edition-24.q4-win10-win11-nov-rdna-combined.exe","ArtifactRole":"RDNACombined","CanonicalJson":"inventory\\releases\\24.q4\\amd-software-pro-edition-24.q4-win10-win11-nov-rdna-combined.json","DriverCount":38},{"ReleaseVersion":"24.Q4","ReleaseKey":"ProEdition|MultiArtifact|24.Q4","ArtifactKey":"ProEdition|MultiArtifact|24.Q4|amd-software-pro-edition-24.q4-winsvr2019-nov-rdna-combined.exe","ArtifactRole":"RDNACombined","CanonicalJson":"inventory\\releases\\24.q4\\amd-software-pro-edition-24.q4-winsvr2019-nov-rdna-combined.json","DriverCount":9},{"ReleaseVersion":"24.Q4","ReleaseKey":"ProEdition|MultiArtifact|24.Q4","ArtifactKey":"ProEdition|MultiArtifact|24.Q4|amd-software-pro-edition-24.q4-winsvr2022-nov-rdna-combined.exe","ArtifactRole":"RDNACombined","CanonicalJson":"inventory\\releases\\24.q4\\amd-software-pro-edition-24.q4-winsvr2022-nov-rdna-combined.json","DriverCount":9},{"ReleaseVersion":"25.Q2","ReleaseKey":"ProEdition|MultiArtifact|25.Q2","ArtifactKey":"ProEdition|MultiArtifact|25.Q2|amd-software-pro-edition-25.q2-winsvr2019-vega-polaris.exe","ArtifactRole":"WindowsServer-PolarisVega","CanonicalJson":"inventory\\releases\\25.q2\\amd-software-pro-edition-25.q2-winsvr2019-vega-polaris.json","DriverCount":5},{"ReleaseVersion":"23.Q4","ReleaseKey":"ProEdition|MultiArtifact|23.Q4","ArtifactKey":"ProEdition|MultiArtifact|23.Q4|amd-software-pro-edition-23.q4-winsvr2019-dec-2023.exe","ArtifactRole":"WindowsServer","CanonicalJson":"inventory\\releases\\23.q4\\amd-software-pro-edition-23.q4-winsvr2019-dec-2023.json","DriverCount":5},{"ReleaseVersion":"23.Q4","ReleaseKey":"ProEdition|MultiArtifact|23.Q4","ArtifactKey":"ProEdition|MultiArtifact|23.Q4|amd-software-pro-edition-23.q4-winsvr2022-dec-2023.exe","ArtifactRole":"WindowsServer","CanonicalJson":"inventory\\releases\\23.q4\\amd-software-pro-edition-23.q4-winsvr2022-dec-2023.json","DriverCount":5},{"ReleaseVersion":"25.Q3.1","ReleaseKey":"ProEdition|MultiArtifact|25.Q3.1","ArtifactKey":"ProEdition|MultiArtifact|25.Q3.1|amd-software-pro-edition-25.q3.1-winsvr2022-rdna-combined.exe","ArtifactRole":"RDNACombined","CanonicalJson":"inventory\\releases\\25.q3.1\\amd-software-pro-edition-25.q3.1-winsvr2022-rdna-combined.json","DriverCount":9},{"ReleaseVersion":"25.Q3.1","ReleaseKey":"ProEdition|MultiArtifact|25.Q3.1","ArtifactKey":"ProEdition|MultiArtifact|25.Q3.1|amd-software-pro-edition-25.q3.1-winsvr2025-rdna.exe","ArtifactRole":"RDNA","CanonicalJson":"inventory\\releases\\25.q3.1\\amd-software-pro-edition-25.q3.1-winsvr2025-rdna.json","DriverCount":4},{"ReleaseVersion":"25.11.1","ReleaseKey":"Adrenalin|Main|25.11.1","ArtifactKey":"Adrenalin|Main|25.11.1|whql-amd-software-adrenalin-edition-25.11.1-win11-s.exe","ArtifactRole":"Main","CanonicalJson":"inventory\\releases\\25.11.1\\whql-amd-software-adrenalin-edition-25.11.1-win11-s.json","DriverCount":39}]}
+{
+  "SchemaVersion": "inf-topology-collection/2.0",
+  "ToolkitVersion": "3.0.0",
+  "SharedContractVersion": "amd-inf-semantic-contract/1.0",
+  "IdentifierTaxonomyVersion": "amd-inf-identifier-taxonomy/1.0",
+  "GeneratedAtUtc": "2026-08-21T22:01:37.9994542Z",
+  "SourceOfTruth": "inventory/releases/** canonical per-artifact JSON",
+  "EmbeddedDrivers": false,
+  "ArtifactCount": 24,
+  "DriverCount": 523,
+  "Artifacts": [
+    {
+      "ReleaseVersion": "26.5.2",
+      "ReleaseKey": "Adrenalin|PolarisVega|26.5.2",
+      "ArtifactKey": "Adrenalin|PolarisVega|26.5.2|whql-amd-software-adrenalin-edition-26.5.2-win11-may-vega-polaris.exe",
+      "ArtifactRole": "PolarisVega",
+      "CanonicalJson": "inventory\\releases\\26.5.2\\whql-amd-software-adrenalin-edition-26.5.2-win11-may-vega-polaris.json",
+      "DriverCount": 19
+    },
+    {
+      "ReleaseVersion": "25.8.1",
+      "ReleaseKey": "Adrenalin|PolarisVega|25.8.1",
+      "ArtifactKey": "Adrenalin|PolarisVega|25.8.1|whql-amd-software-adrenalin-edition-25.8.1-win10-win11-aug-vega-polaris.exe",
+      "ArtifactRole": "PolarisVega",
+      "CanonicalJson": "inventory\\releases\\25.8.1\\whql-amd-software-adrenalin-edition-25.8.1-win10-win11-aug-vega-polaris.json",
+      "DriverCount": 19
+    },
+    {
+      "ReleaseVersion": "24.9.1",
+      "ReleaseKey": "Adrenalin|PolarisVega|24.9.1",
+      "ArtifactKey": "Adrenalin|PolarisVega|24.9.1|whql-amd-software-adrenalin-edition-24.9.1-win10-win11-vega-polaris.exe",
+      "ArtifactRole": "PolarisVega",
+      "CanonicalJson": "inventory\\releases\\24.9.1\\whql-amd-software-adrenalin-edition-24.9.1-win10-win11-vega-polaris.json",
+      "DriverCount": 19
+    },
+    {
+      "ReleaseVersion": "22.Q4",
+      "ReleaseKey": "ProEdition|MultiArtifact|22.Q4",
+      "ArtifactKey": "ProEdition|MultiArtifact|22.Q4|amd-software-pro-edition-22.q4-win10-win11-nov15.exe",
+      "ArtifactRole": "Unspecified",
+      "CanonicalJson": "inventory\\releases\\22.q4\\amd-software-pro-edition-22.q4-win10-win11-nov15.json",
+      "DriverCount": 12
+    },
+    {
+      "ReleaseVersion": "22.Q4",
+      "ReleaseKey": "ProEdition|MultiArtifact|22.Q4",
+      "ArtifactKey": "ProEdition|MultiArtifact|22.Q4|amd-software-pro-edition-22.q4-winsvr2016-nov15.exe",
+      "ArtifactRole": "WindowsServer",
+      "CanonicalJson": "inventory\\releases\\22.q4\\amd-software-pro-edition-22.q4-winsvr2016-nov15.json",
+      "DriverCount": 4
+    },
+    {
+      "ReleaseVersion": "21.Q4",
+      "ReleaseKey": "ProEdition|MultiArtifact|21.Q4",
+      "ArtifactKey": "ProEdition|MultiArtifact|21.Q4|win10-win11-radeon-pro-software-21.q4-dec3.exe",
+      "ArtifactRole": "Unspecified",
+      "CanonicalJson": "inventory\\releases\\21.q4\\win10-win11-radeon-pro-software-21.q4-dec3.json",
+      "DriverCount": 9
+    },
+    {
+      "ReleaseVersion": "21.Q4",
+      "ReleaseKey": "ProEdition|MultiArtifact|21.Q4",
+      "ArtifactKey": "ProEdition|MultiArtifact|21.Q4|winsvr2016-radeon-pro-software-21.q4-for-amd-radeon-pro-w6400.exe",
+      "ArtifactRole": "WindowsServer",
+      "CanonicalJson": "inventory\\releases\\21.q4\\winsvr2016-radeon-pro-software-21.q4-for-amd-radeon-pro-w6400.json",
+      "DriverCount": 5
+    },
+    {
+      "ReleaseVersion": "26.7.1",
+      "ReleaseKey": "Adrenalin|Main|26.7.1",
+      "ArtifactKey": "Adrenalin|Main|26.7.1|whql-amd-software-adrenalin-edition-26.7.1-win11-a.exe",
+      "ArtifactRole": "Main",
+      "CanonicalJson": "inventory\\releases\\26.7.1\\whql-amd-software-adrenalin-edition-26.7.1-win11-a.json",
+      "DriverCount": 41
+    },
+    {
+      "ReleaseVersion": "25.12.1",
+      "ReleaseKey": "Adrenalin|Main|25.12.1",
+      "ArtifactKey": "Adrenalin|Main|25.12.1|whql-amd-software-adrenalin-edition-25.12.1-win11-b.exe",
+      "ArtifactRole": "Main",
+      "CanonicalJson": "inventory\\releases\\25.12.1\\whql-amd-software-adrenalin-edition-25.12.1-win11-b.json",
+      "DriverCount": 38
+    },
+    {
+      "ReleaseVersion": "25.12.1",
+      "ReleaseKey": "Adrenalin|Main|25.12.1",
+      "ArtifactKey": "Adrenalin|Main|25.12.1|whql-amd-software-adrenalin-edition-25.12.1-win11-a.exe",
+      "ArtifactRole": "Main",
+      "CanonicalJson": "inventory\\releases\\25.12.1\\whql-amd-software-adrenalin-edition-25.12.1-win11-a.json",
+      "DriverCount": 38
+    },
+    {
+      "ReleaseVersion": "24.12.1",
+      "ReleaseKey": "Adrenalin|Main|24.12.1",
+      "ArtifactKey": "Adrenalin|Main|24.12.1|whql-amd-software-adrenalin-edition-24.12.1-win10-win11-dec-rdna.exe",
+      "ArtifactRole": "RDNA",
+      "CanonicalJson": "inventory\\releases\\24.12.1\\whql-amd-software-adrenalin-edition-24.12.1-win10-win11-dec-rdna.json",
+      "DriverCount": 32
+    },
+    {
+      "ReleaseVersion": "26.Q1",
+      "ReleaseKey": "ProEdition|MultiArtifact|26.Q1",
+      "ArtifactKey": "ProEdition|MultiArtifact|26.Q1|amd-software-pro-edition-26.q1-win11-rdna.exe",
+      "ArtifactRole": "RDNA",
+      "CanonicalJson": "inventory\\releases\\26.q1\\amd-software-pro-edition-26.q1-win11-rdna.json",
+      "DriverCount": 39
+    },
+    {
+      "ReleaseVersion": "25.Q4",
+      "ReleaseKey": "ProEdition|MultiArtifact|25.Q4",
+      "ArtifactKey": "ProEdition|MultiArtifact|25.Q4|amd-software-pro-edition-25.q4-win11-c.exe",
+      "ArtifactRole": "Unspecified",
+      "CanonicalJson": "inventory\\releases\\25.q4\\amd-software-pro-edition-25.q4-win11-c.json",
+      "DriverCount": 44
+    },
+    {
+      "ReleaseVersion": "24.Q4",
+      "ReleaseKey": "ProEdition|MultiArtifact|24.Q4",
+      "ArtifactKey": "ProEdition|MultiArtifact|24.Q4|amd-software-pro-edition-24.q4-win10-win11-nov-rdna-combined.exe",
+      "ArtifactRole": "RDNACombined",
+      "CanonicalJson": "inventory\\releases\\24.q4\\amd-software-pro-edition-24.q4-win10-win11-nov-rdna-combined.json",
+      "DriverCount": 38
+    },
+    {
+      "ReleaseVersion": "24.Q4",
+      "ReleaseKey": "ProEdition|MultiArtifact|24.Q4",
+      "ArtifactKey": "ProEdition|MultiArtifact|24.Q4|amd-software-pro-edition-24.q4-winsvr2019-nov-rdna-combined.exe",
+      "ArtifactRole": "RDNACombined",
+      "CanonicalJson": "inventory\\releases\\24.q4\\amd-software-pro-edition-24.q4-winsvr2019-nov-rdna-combined.json",
+      "DriverCount": 9
+    },
+    {
+      "ReleaseVersion": "24.Q4",
+      "ReleaseKey": "ProEdition|MultiArtifact|24.Q4",
+      "ArtifactKey": "ProEdition|MultiArtifact|24.Q4|amd-software-pro-edition-24.q4-winsvr2022-nov-rdna-combined.exe",
+      "ArtifactRole": "RDNACombined",
+      "CanonicalJson": "inventory\\releases\\24.q4\\amd-software-pro-edition-24.q4-winsvr2022-nov-rdna-combined.json",
+      "DriverCount": 9
+    },
+    {
+      "ReleaseVersion": "25.Q2",
+      "ReleaseKey": "ProEdition|MultiArtifact|25.Q2",
+      "ArtifactKey": "ProEdition|MultiArtifact|25.Q2|amd-software-pro-edition-25.q2-winsvr2019-vega-polaris.exe",
+      "ArtifactRole": "WindowsServer-PolarisVega",
+      "CanonicalJson": "inventory\\releases\\25.q2\\amd-software-pro-edition-25.q2-winsvr2019-vega-polaris.json",
+      "DriverCount": 5
+    },
+    {
+      "ReleaseVersion": "23.Q4",
+      "ReleaseKey": "ProEdition|MultiArtifact|23.Q4",
+      "ArtifactKey": "ProEdition|MultiArtifact|23.Q4|amd-software-pro-edition-23.q4-winsvr2019-dec-2023.exe",
+      "ArtifactRole": "WindowsServer",
+      "CanonicalJson": "inventory\\releases\\23.q4\\amd-software-pro-edition-23.q4-winsvr2019-dec-2023.json",
+      "DriverCount": 5
+    },
+    {
+      "ReleaseVersion": "23.Q4",
+      "ReleaseKey": "ProEdition|MultiArtifact|23.Q4",
+      "ArtifactKey": "ProEdition|MultiArtifact|23.Q4|amd-software-pro-edition-23.q4-winsvr2022-dec-2023.exe",
+      "ArtifactRole": "WindowsServer",
+      "CanonicalJson": "inventory\\releases\\23.q4\\amd-software-pro-edition-23.q4-winsvr2022-dec-2023.json",
+      "DriverCount": 5
+    },
+    {
+      "ReleaseVersion": "25.Q3.1",
+      "ReleaseKey": "ProEdition|MultiArtifact|25.Q3.1",
+      "ArtifactKey": "ProEdition|MultiArtifact|25.Q3.1|amd-software-pro-edition-25.q3.1-winsvr2022-rdna-combined.exe",
+      "ArtifactRole": "RDNACombined",
+      "CanonicalJson": "inventory\\releases\\25.q3.1\\amd-software-pro-edition-25.q3.1-winsvr2022-rdna-combined.json",
+      "DriverCount": 9
+    },
+    {
+      "ReleaseVersion": "25.Q3.1",
+      "ReleaseKey": "ProEdition|MultiArtifact|25.Q3.1",
+      "ArtifactKey": "ProEdition|MultiArtifact|25.Q3.1|amd-software-pro-edition-25.q3.1-winsvr2025-rdna.exe",
+      "ArtifactRole": "RDNA",
+      "CanonicalJson": "inventory\\releases\\25.q3.1\\amd-software-pro-edition-25.q3.1-winsvr2025-rdna.json",
+      "DriverCount": 4
+    },
+    {
+      "ReleaseVersion": "25.11.1",
+      "ReleaseKey": "Adrenalin|Main|25.11.1",
+      "ArtifactKey": "Adrenalin|Main|25.11.1|whql-amd-software-adrenalin-edition-25.11.1-win11-s.exe",
+      "ArtifactRole": "Main",
+      "CanonicalJson": "inventory\\releases\\25.11.1\\whql-amd-software-adrenalin-edition-25.11.1-win11-s.json",
+      "DriverCount": 39
+    },
+    {
+      "ReleaseVersion": "26.7.1",
+      "ReleaseKey": "Adrenalin|Main|26.7.1",
+      "ArtifactKey": "Adrenalin|Main|26.7.1|whql-amd-software-adrenalin-edition-26.7.1-win11-b.exe",
+      "ArtifactRole": "Main",
+      "CanonicalJson": "inventory\\releases\\26.7.1\\whql-amd-software-adrenalin-edition-26.7.1-win11-b.json",
+      "DriverCount": 40
+    },
+    {
+      "ReleaseVersion": "26.8.1",
+      "ReleaseKey": "Adrenalin|Main|26.8.1",
+      "ArtifactKey": "Adrenalin|Main|26.8.1|whql-amd-software-adrenalin-edition-26.8.1-win11-b.exe",
+      "ArtifactRole": "Main",
+      "CanonicalJson": "inventory\\releases\\26.8.1\\whql-amd-software-adrenalin-edition-26.8.1-win11-b.json",
+      "DriverCount": 41
+    }
+  ]
+}

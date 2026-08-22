@@ -1,5 +1,245 @@
 # Changelog
 
+## 3.0.0 REV81 coordinated documentation closeout — 2026-08-22
+
+- Records Claude's REV80 Cycle B closure and removes stale current-facing
+  REV69-REV77 candidate/pending language from README, SPEC and TESTING.
+- Declares bounded Gate 2G, the 69-file v3.0.0 public surface and exact REV77
+  Server smoke as accepted/no-repeat while retaining earlier gates as
+  historical evidence.
+- Changes documentation only. The root script, contracts, schemas, reviewed
+  data, generated public bytes, canonical path and accepted Evidence are
+  unchanged; no Windows rerun or multi-hour survey is required.
+
+## 3.0.0 REV78 coordinated qualification update — 2026-08-22
+
+- Accepts the exact REV77 Windows Server / Windows PowerShell 5.1 Graphics
+  smoke as 2/2 PASS with self-contained actual Server identity, closing the
+  prior host-proof REVIEW.
+- Keeps the Graphics source, schemas, data, and generated public tree
+  unchanged; no Graphics rerun is required for the NPU-only REV78 correction.
+
+## 3.0.0 REV77 execution-context Evidence correction — 2026-08-22
+
+- Keeps the executable version at `3.0.0` and the canonical path unchanged.
+- Corrects the REV76 self-contained Evidence gap by persisting actual host
+  execution class, ProductType/role, OS identity, scopes, and collection state
+  in every `run-context.json`.
+- Adds the shared six-case classification/fallback self-test and advances the
+  private Graphics Evidence schema from `1.0` to `1.1`.
+- Leaves the accepted bounded-E2E generated `public/**` tree unchanged.
+
+## 3.0.0 REV75 bounded Cycle B Gate 2G authorization — 2026-08-22
+
+- Keeps the executable version and PowerShell source at `3.0.0` / REV74 bytes.
+- Authorizes one Windows Client bounded E2E using one reviewed product group,
+  one major generation, one selected artifact and a 2 GiB ceiling.
+- Combines `PathSafety,Test` with acquisition-through-publication so no separate
+  smoke or multi-hour all-track rerun is required.
+- Requires a single Evidence ZIP containing the complete validated Graphics
+  `snapshot/public/**`; Windows Server remains held.
+
+## 3.0.0 REV74 PowerShell 5.1 cardinality correction — 2026-08-22
+
+- Keeps the executable version at `3.0.0` and preserves product selection,
+  bounded research, acquisition, extraction, signature and publication scope.
+- Applies the same `@(...)` protection as NPU to the REV72
+  self-contained-public manifest-row conditional assignment, preventing
+  zero/one-item unrolling before `.Count` on Windows PowerShell 5.1.
+- Repins the three-tool common-core contract to the corrected Graphics/NPU
+  source identities; all 165 shared function bodies remain unchanged.
+- Requires only `PathSafety,Test` before the later authorized bounded E2E; a
+  multi-hour full rerun is not justified by this correction alone.
+
+## 3.0.0 REV72 self-contained public Evidence correction — 2026-08-22
+
+- Keeps the executable version at `3.0.0`.
+- Includes the complete validated `public/**` tree beneath
+  `snapshot/public/**` after successful current-run publication.
+- Verifies live/snapshot path sets, byte identity and every publication
+  manifest size/SHA-256 declaration before normal Evidence archive creation.
+- Makes incomplete public snapshots fail closed through the existing emergency
+  evidence path.
+- Removes the operator-created public ZIP requirement without changing the
+  bounded Graphics research or certificate scope.
+
+## 3.0.0 REV70 transcript-hygiene correction — 2026-08-21
+
+- Keeps the released tool identity at `3.0.0`; no version increment is made.
+- Applies the three-tool-identical non-throwing negative-test path to the shared
+  extraction-completeness assertion while preserving fail-closed production
+  behavior.
+- Prevents the expected `ExtractedWithErrors` fixture from appearing as a
+  terminating error in Windows PowerShell 5.1 transcripts.
+- Clarifies that the Graphics research runner does not enumerate or qualify the
+  installed display adapter; AMD GPU presence is recorded as a host profile,
+  not inferred from a successful static/publication run.
+
+## 3.0.0 REV69 Cycle B candidate — 2026-08-21
+
+- Synchronizes the three research-tool executable identities at `3.0.0`.
+- Adds the explicit Windows PowerShell `#requires -Version 5.1` contract.
+- Retains research and certificate-scope behavior while requiring fresh
+  exact-source Cycle B qualification and generated-public replacement.
+- The retained REV68 `public/**` tree is not hand-edited and is not a current
+  `3.0.0` publication result.
+
+## 1.1.2-dev REV65 documentation-authority refresh — 2026-08-21
+
+- Updates README/SPEC/TESTING current status after the accepted bounded
+  short-E2E, REV63 Windows Server `PathSafety,Test` smoke and REV64 launcher
+  exclusion.
+- Corrects obsolete future/pending language for the completed Client path
+  correction, Signature/SignatureNative implementation and Server smoke while
+  retaining their distinct qualification scopes.
+- Adds an explicit downstream device-to-artifact build-script feedback contract
+  without changing PowerShell source, data, schemas or generated `public/**`.
+
+## 1.1.2-dev rev62 cumulative public-baseline correction — 2026-08-20
+
+- Migrates imported historical release JSON to the current Canonical JSON byte contract before cumulative Build/publication.
+- Replaces the staged release subtree from the authoritative runtime cumulative set instead of overlaying same-key files.
+- Adds a normal Test regression for legacy CRLF/BOM baseline migration.
+- Reports public validation category counts accurately; privacy-valid Canonical JSON failures are no longer mislabeled as privacy failures.
+- Leaves Chipset, NPU, the 165-function common core, product selection, acquisition, extraction and signature scope unchanged.
+
+## 1.1.2-dev rev60 public-null structure hardening — 2026-08-20
+
+- Aligns the Graphics recursive public converter with the safe structural contract proven necessary by the REV59 NPU Windows failure.
+- Preserves explicit null-valued properties and null array items while continuing to remove private path fields and rejected host-path strings.
+- Extends the normal canonical-publication self-test with null-property/null-array preservation plus nested `ArchivePath` removal.
+- Does not change product selection, acquisition, extraction, signature scope or accepted long-run research results.
+
+## 1.1.2-dev rev59 public-path audit hardening — 2026-08-20
+
+- Adds `ArchivePath` and the complete shared path-property classification to both canonical and public-object privacy conversion.
+- Converges forbidden-pattern detection and decoded JSON scalar traversal with Chipset and NPU.
+- Extends the normal canonical-publication self-test with a nested `PathSafety.ArchivePath` negative fixture while preserving vendor selector tokens.
+
+## 1.1.2-dev rev58 cross-tool path-safety correction — 2026-08-20
+
+- Routes the existing short artifact/container aliases through the shared `Get-AmdShortExtractionPath` constructor so startup prediction and runtime layout have one authority.
+- Makes incomplete extraction a terminating Extract failure and adds an explicit signature-stage completeness assertion.
+- Keeps product selection, graphics analysis-surface detection and certificate-target semantics unchanged.
+
+
+
+## 1.1.2-dev rev57 common-core convergence preview — 2026-08-20
+
+- Generalizes the accepted path-safety kernel so the same implementation can be embedded in Chipset and NPU while retaining Graphics-specific policy values.
+- Adds bootstrap-fatal emergency evidence parity with NPU, a current three-tool common-core hash contract, and shared ordinal ordering helpers.
+- Uses ordinal file ordering for publication-manifest generation without changing product/category selection or certificate-target semantics.
+
+## rev53 Windows PowerShell 5.1 empty native-output hotfix — 2026-08-20
+
+- Fixes the `PathSafety` SUBST diagnostic failure when `subst.exe` succeeds
+  with zero output on Windows PowerShell 5.1.
+- Normalizes PS5.1's `$null` representation of an empty emitted byte array to
+  a real zero-byte payload before SHA-256 calculation; the SUBST check remains
+  fail-closed and is not bypassed.
+- Adds a normal `Test`-stage regression assertion for the canonical SHA-256 of
+  an empty payload.
+
+## rev52 interruption and Evidence portability hardening — 2026-08-19
+
+- Ports the Chipset fail-closed `RUNNING` to `INTERRUPTED` tracked-stage behavior.
+- Reports interrupted runs as `Interrupted` with exit code `130`; empty bootstrap stage state is non-PASS.
+- Advances the private assessment schema to 1.3 for `Interrupted`, `INTERRUPTED` and `NOT_ASSESSED` values.
+- Creates a normal Fatal Evidence ZIP for safe-root bootstrap/argument failures that occur before the ordinary evidence session; an unsafe PathSafety root remains a strict no-write block.
+- Adds complete stage lifecycle diagnostic events and normalizes private Evidence manifest paths to `/`.
+- Does not authorize or require another 12-hour full Graphics run for this lifecycle-only correction.
+
+## rev51 Canonical JSON performance and evidence recovery — 2026-08-19
+
+- Uses the byte-compatible accelerated Canonical JSON runtime shared by all three tools.
+- Skips the 121 MiB public-baseline copy for `PathSafety`/`Test`-only execution.
+- Adds immediate bootstrap and per-Test-operation elapsed output.
+- Adds verified emergency ZIP/SHA-256 fallback with raw evidence retention.
+
+## rev50 three-tool Canonical JSON convergence — 2026-08-19
+
+- Adds the shared cross-runtime Canonical JSON writer/parser/file/hash helpers.
+- Replaces compact-whitespace publication validation with canonical byte
+  equality and preserves date-looking strings across PS 5.1/7.
+- Adds a fixed-vector cross-runtime self-test without requiring a full run.
+
+## 1.1.2-dev — 2026-08-18
+
+- Adds an automatic, non-bypassable Windows `PathSafety` stage before Evidence
+  output and AMD network access: tool root maximum 100, safe full-path maximum
+  240, AMD relative-path reserve 120, tool-folder-only storage, UNC/reparse
+  qualification block, and real 200/220/240 filesystem probes.
+- Records `LongPathsEnabled` as diagnostic only and adds 7-Zip and required
+  SignTool short-path probes.
+- Replaces future runtime names with short acquisition (`private/a`), extraction
+  (`work/x/aNNNN/cNNNN`), native alias (`work/n/fNNNNNN.ext`) and Evidence
+  (`private/evidence/runs`) layouts while preserving original names/URLs/SHA/provenance in
+  mapping evidence.
+- Adds structured 7-Zip listing preflight before outer and nested extraction;
+  unsafe, traversal or over-240 predicted paths fail closed before extraction.
+- Routes every Windows-native Authenticode/catalog/SignTool input through a
+  SHA-256-verified byte-identical short alias, removing the 260–357 character
+  SignTool failure mode observed in the first Windows Client run.
+- Adds `SignatureNative`, which validates and reuses the existing static
+  signature analysis and reruns only native evidence. It does not repeat the
+  approximately 11.5-hour static CMS analysis.
+- Adds path-safety, artifact-path, extraction-path and native-alias schemas and
+  expands built-in common/signature self-tests from 16 to 19.
+
+## 1.1.1-dev — 2026-08-17
+
+- Closed the Windows Client false-qualification boundary found by the independent
+  rev45 audit: qualification now requires the complete unfiltered three-generation
+  product-driven research selection and a non-publishing AMD-only acquisition.
+- Persisted the requested generation count and product-group filter in the
+  certificate verification plan and revalidates both during Signature assessment.
+- Added a negative boundary self-test and removed the duplicate INF integer helper.
+
+## 1.1.0-dev — 2026-08-17
+
+Graphics certificate targeting, shared signature engine and common hardening
+implementation candidate.
+
+- Preserves newest-three-major-generation ordinary research per stable
+  `SelectionTrackKey`.
+- Adds a deterministic certificate plan owned by `Select`: newest selected
+  major generation per product-group + OS + package-family track.
+- Resolves URL targets after `Acquire` by immutable outer-installer SHA-256
+  and retains all many-to-one provenance.
+- Adds `Signature` between `Inspect` and `Build`, including PE
+  `WIN_CERTIFICATE`, CMS/PKCS#7, nested signatures, timestamp tokens, X.509,
+  Authenticode digest comparison, Windows catalog APIs, SDK/WDK identity and
+  locale-neutral SignTool profiles.
+- De-duplicates static candidate parsing globally by file SHA-256 while
+  retaining artifact-contextual catalog/kernel association.
+- Ports sequential HTTP, bounded retry/backoff, `Retry-After`, partial
+  response rejection, `.partial` atomic completion, byte conservation and
+  structured per-attempt evidence.
+- Adds redacted JSONL diagnostics/failure snapshots and PowerShell 5.1
+  cardinality/source-contract tests.
+- Adds certificate-plan, static-signature and native-signature schemas and
+  publishes only host-neutral signature/toolchain summaries.
+- Local gates passed on PowerShell 7.6.5: parser, Test stage, retained
+  38/95/23 selection fixture, narrowed 38/9/57 certificate fixture, offline
+  signed-PE Signature integration, schema validation, privacy validation and
+  publication-manifest integrity.
+- Windows Client Gate A and Windows Server qualification remain unperformed.
+
+## rev44 enhancement planning record — 2026-08-17 (documentation only)
+
+- Adds a non-normative cross-tool assessment and future Graphics
+  signature/common-hardening plan under `authored/**`.
+- Preserves the current newest-three-major-generation research contract and
+  defines the future deep-certificate target as only the newest selected
+  generation per stable product-group + OS + package-family track.
+- Records layered URL, outer-installer SHA-256 and extracted-file SHA-256
+  de-duplication with complete product/track provenance retention.
+- Identifies common Chipset/NPU signature, toolchain, transport, diagnostic and
+  PowerShell 5.1 hardening to complete before a user rerun.
+- Adds only documentation notices to README, SPEC and TESTING. Graphics remains
+  version `1.0.0`; no PowerShell, schema, reviewed data or generated `public/**`
+  bytes change, and Signature remains unimplemented pending separate approval.
+
 ## Authored/generated separation — 2026-08-14 (documentation and repository layout only)
 
 `reports/` held both the authored hardening and qualification records and the
@@ -336,3 +576,18 @@ Initial AMD Graphics research-tool development milestone.
 - Synthetic payload: HWID + KMDF 1.33 + UMDF 2.33.0 captured; Extract/Inspect/Build PASS / exit 0.
 
 This is not a GA or accepted AMD historical baseline. Real AMD installer and Windows PowerShell 5.1 qualification remains pending.
+## Rev48 common evidence-storage correction — 2026-08-19
+
+- Unified Chipset, NPU, and Graphics final evidence under `private\evidence`.
+- Added clear `EVIDENCE ZIP TO SHARE` output, SHA-256 companion files, and `LATEST-EVIDENCE.txt`.
+- Added short raw run directories and `ZipOnly` / `ZipAndDirectory` retention.
+- Blocked evidence destinations outside the canonical tool-local tree, including UNC, SUBST, and reparse-point routes.
+- Removed the NPU TEMP emergency-evidence fallback.
+- Corrected the Graphics empty-argument SUBST probe and made diagnostic failure fail-closed.
+## 3.0.0 REV76 Gate 2G acceptance — 2026-08-22
+
+- Accepts the exact REV75 bounded Windows Client Gate 2G and incorporates its
+  complete 69-file generated public snapshot byte-for-byte.
+- Keeps the root script, schemas and executable version unchanged.
+- Defines only the remaining direct Windows Server `PathSafety,Test` smoke; no
+  launcher or all-track rerun is added.

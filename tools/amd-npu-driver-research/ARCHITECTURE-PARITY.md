@@ -1,6 +1,13 @@
 # AMD NPU Research — Architecture Convergence and Predecessor Parity
 
-This document records the implementation-level convergence used by AMD NPU Driver Research Toolkit `1.0.0`.
+> Current-use note (REV65): the 80/41-function predecessor snapshot below is a
+> historical convergence baseline, not the current three-tool parity authority.
+> Current executable parity is governed by
+> `data/current-three-tool-common-core-contract.json` and its 165
+> source-identical functions. Product-specific NPU selection semantics remain
+> outside that common core.
+
+This document records the implementation-level convergence retained by AMD NPU Driver Research Toolkit `3.0.0`, including the qualified `1.0.0` shared-kernel history.
 
 The reviewed predecessor baselines are the current chipset and graphics research scripts captured on 2026-08-13:
 
@@ -129,6 +136,8 @@ Their responsibilities are now handled by the generic kernel.
 The following are device-specific adapters rather than duplicated infrastructure:
 
 - `Get-NpuRunAssessmentExtensions`
+- `Get-NpuEvidenceInventorySnapshotFileNames`
+- `Test-NpuEvidenceSnapshotContract`
 - `Invoke-NpuEvidenceSnapshot`
 - `Test-NpuPublicDatasetConsistency`
 - `Resolve-NpuRequestedStages`
@@ -137,10 +146,17 @@ The following are device-specific adapters rather than duplicated infrastructure
 - `Invoke-NpuAcquireStage`
 - `Invoke-NpuExtractStage`
 - `Invoke-NpuInspectStage`
+- `Get-NpuEffectiveCertificateVerificationPlan`
+- `Invoke-NpuSignatureStage`
 - `Invoke-NpuBuildStage`
 - `Invoke-NpuValidateStage`
 
-`Discover`, `Metadata`, and `Inspect` remain NPU-specific because their data model and reverse-engineering semantics differ from chipset and graphics. `Acquire`, `Extract`, `Build`, and `Validate` are now thin adapters over shared mechanics.
+`Discover`, `Metadata`, `Inspect`, and `Signature` remain NPU-specific because
+their data model, package-case selection and reverse-engineering semantics differ
+from chipset and graphics. `Acquire`, `Extract`, `Build`, and `Validate` are thin
+adapters over shared mechanics. The Signature implementation reuses common
+cryptographic/native primitives but consumes the NPU-owned certificate execution
+plan; it does not import chipset release ranking.
 
 ## Hardened behavior retained from NPU development
 
@@ -193,3 +209,85 @@ The documentation/audit checkpoint after the successful Windows PowerShell 5.1 0
 ## 0.9.1 audit-remediation delta
 
 0.9.1 changes only NPU-specific orchestration/data-contract surfaces: partial-stage dependency enforcement and reviewed source-data schema/version coverage. The predecessor-shared infrastructure and architecture-convergence hash contracts are unchanged. `Get-NpuStageDependencyBlockReason` now blocks when a declared prerequisite was not selected or has no result. Source-data schema validation is represented by NPU adapter functions and external JSON Schema qualification, not by modifying shared predecessor functions.
+
+## 1.2.0 signature-engine delta
+
+1.2.0-dev ports the common CMS, Authenticode, catalog and SignTool primitives
+into the NPU tool while preserving NPU-owned package selection. `Signature`
+depends on `Inspect`; `Build` depends on both `Inspect` and `Signature`. Default
+deep verification consumes the two current package-case targets emitted by
+Metadata, while full research retains all three reviewed artifacts and explicit
+single-artifact replay may target the historical fixture.
+
+Static cryptographic evidence is host-neutral. Windows-native trust-policy,
+catalog association, tool output and host posture are private evidence and have
+a separate Windows Client qualification gate. No GPU source, schema, test or
+documentation surface is changed by this NPU delta.
+
+## 1.2.1 Windows Client gate delta
+
+1.2.1-dev adds only NPU qualification orchestration around the 1.2.0 signature
+engine. The acceptance evaluator is a pure NPU adapter: it binds the expected
+three-artifact research corpus, two current package-case targets, Windows Client
+execution, SignTool availability and complete catalog-bound per-kernel coverage.
+It does not change the shared cryptographic primitives or import Chipset/GPU
+selection semantics.
+
+## 1.2.2 Windows PowerShell 5.1 cardinality correction
+
+1.2.2-dev preserves the 1.2.1 Gate A contract and corrects only NPU orchestration.
+`Get-NpuCertificateVerificationTargetPlan` now protects the complete conditional
+selection expression with `@(...)`, so zero, one and many selected artifacts
+retain collection shape before `.Count` access under Windows PowerShell 5.1.
+
+The previously migrated shared cardinality self-test and source-contract audit
+are now invoked by the NPU Test stage. This closes the migration-wiring gap that
+allowed the unsafe NPU-specific target-plan assignment to pass PowerShell 7
+qualification. Chipset and Graphics implementation surfaces remain unchanged.
+
+## 1.2.3 NPU operator-presentation correction
+
+1.2.3-dev preserves all shared/generic kernel hashes and all 1.2.2 signature and
+package-selection decisions. The NPU adapter now translates internal shared
+acquisition/extraction implementation state into NPU-specific operator wording,
+names the full research and deep-certificate scopes separately, and records the
+final report before transcript close. These changes do not alter Chipset or
+Graphics implementation surfaces.
+
+## 1.3.0 NPU hardware-only selection delta
+
+1.3.1-dev adds NPU-owned automatic Windows PnP/build collection, reviewed data,
+resolver and self-test adapters without
+changing the predecessor/shared runner, evidence, acquisition, extraction,
+signature or publication kernels. The resolver consumes one device instance's
+PnP HardwareID/CompatibleID set and target build. It does not consume CPU,
+firmware or Linux topology data, never enables 280 fallback, and never authorizes
+installation or Server runtime claims. Chipset and Graphics surfaces are unchanged.
+
+## 1.3.2 NPU Evidence-snapshot correction
+
+1.3.2-dev changes only the NPU-owned Evidence adapter and Test-stage evidence
+surface. `Get-NpuEvidenceInventorySnapshotFileNames` centralizes the inventory
+allowlist, and `Test-NpuEvidenceSnapshotContract` requires the local PnP,
+hardware-selection and structured Test-stage artifacts without modifying the
+generic Evidence finalizer. The files are copied before the generic manifest and
+ZIP operations, so the existing generic hash/length contract protects them.
+Hardware selection, package lanes, shared cryptographic primitives, Chipset,
+Graphics and generated NPU `public/**` remain unchanged.
+
+## 1.3.3 canonical JSON enum correction
+
+The v1.3.2-dev NPU positive-control archive exposed a NPU-local use of a Windows
+CIM enum. The canonical serializer previously emitted enum names without JSON
+quoting. v1.3.3-dev corrects the existing serializer contract, adds a
+runtime-independent enum round-trip self-test, stabilizes the NPU PnP evidence
+field as a string, and validates the generated runtime JSON before stage PASS.
+Static inspection found no matching defective enum branch in the rev37 Chipset
+or Graphics sources, so those frozen trees are not modified.
+## rev57 current three-tool authority
+
+The earlier 2026-08-13 predecessor comparison is retained below as historical migration evidence. It is no longer the current parity authority.
+
+The current authority is `data/current-three-tool-common-core-contract.json`, generated from the exact Chipset, Graphics, and NPU scripts in the same umbrella revision. Each Test stage verifies its own embedded common function bodies against that contract. NPU additionally retains `architecture-convergence-contract.json` for NPU kernel/adapter boundaries.
+
+rev57 converges the HTTP/diagnostic infrastructure, path-safety primitives, archive-entry preflight, emergency bootstrap evidence, repository path normalization, 7-Zip executable validation, collection-cardinality source audit, read-only process argument contract, and ordinal ordering helpers. NPU-specific discovery, 280/376 selection, hardware identity, CPU/NPU reference data, and certificate orchestration remain adapters.

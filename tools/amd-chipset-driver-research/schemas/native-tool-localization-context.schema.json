@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-driver-research:native-tool-localization-context:1.0",
+  "title": "AMD Driver Research Native Tool Localization Context",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ClassificationPolicy",
+    "NaturalLanguageOutputRequiredForCorrectness",
+    "NativeToolOutputLanguageForced",
+    "ExecutionClass",
+    "PowerShell",
+    "Windows",
+    "Console",
+    "PosixLocaleEnvironmentHints"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-native-tool-localization-context/1.0"
+    },
+    "ClassificationPolicy": {
+      "const": "LocaleNeutral"
+    },
+    "NaturalLanguageOutputRequiredForCorrectness": {
+      "const": false
+    },
+    "NativeToolOutputLanguageForced": {
+      "const": false
+    },
+    "ExecutionClass": {
+      "type": "string"
+    },
+    "PowerShell": {
+      "type": "object"
+    },
+    "Windows": {
+      "type": "object"
+    },
+    "Console": {
+      "type": "object"
+    },
+    "PosixLocaleEnvironmentHints": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}

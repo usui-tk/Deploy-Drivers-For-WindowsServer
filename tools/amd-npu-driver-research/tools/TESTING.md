@@ -6,6 +6,18 @@ This document defines the companion collector qualification contract. It is sepa
 
 The exact collector source SHALL parse with PowerShell without AST errors.
 
+Collector 1.3.0 also exposes a hardware-independent self-test:
+
+```powershell
+.\Collect-AmdNpuHardwareIdentityEvidence.ps1 -SelfTest
+```
+
+It SHALL pass before any user real-machine run is requested. The self-test
+covers stable `ConfigManagerErrorCode` strings, normalized/deduplicated identity
+sets, complete versus failed zero-candidate semantics, Windows Server host
+classification, a synthetic Server/custom-driver positive case, JSON
+round-trip validation, manifest verification and ZIP reopen/hash/path checks.
+
 Windows runtime qualification is required because the collector depends on Windows CIM/PnP/SetupAPI/registry/Authenticode behavior that Linux parser tests cannot reproduce.
 
 ## 2. Negative-control host
@@ -55,11 +67,53 @@ A Ryzen AI positive-control run SHOULD verify:
 - `NpuCandidates` retains the exact NPU HWID/revision;
 - GPU evidence identifies the installed AMD Radeon adapter and installed graphics INF relation where available;
 - device roles are descriptive/correlative only, not applicability decisions;
+- CPU, CPUID, CPU/NPU combination, firmware revision and XRT labels are not inputs to the main hardware-only driver-track resolver;
+- the resolver consumes PnP HardwareID/CompatibleID values per NPU device instance and keeps `SUBSYS`/`REV` as evidence;
 - firmware-class devices are collected without intentionally storing serial-number properties;
 - installed INF snapshots are unique, hash-manifested, and referenced to relevant devices;
 - service-backed devices retain service-binary hash/version/signature evidence where resolvable;
 - SetupAPI / `pnputil` slices remain focused and read-only;
 - no install/update/remove action occurs.
+
+The compact `npu-hardware-selection-input.json` SHALL additionally verify:
+
+- `InputSource = LocalWindowsPnP`;
+- `LocalEnumerationPerformed = true` and `ManualOverrideUsed = false`;
+- complete Hardware ID and Compatible ID arrays remain scoped to each device instance;
+- `IdentitySet` is ordinally normalized and deduplicated;
+- `ConfigManagerErrorCode` is serialized as a stable string such as `CM_PROB_NONE`;
+- CPU, firmware and XRT observations are not copied into the downstream selection input;
+- the collector reports an observation but does not select 280 or 376;
+- automatic 280 fallback remains false.
+
+## 4.1 Enumeration completeness / no-NPU fail-closed regression
+
+The following cases are distinct:
+
+| Enumeration | Candidate count | Required observation |
+| --- | ---: | --- |
+| `Complete` | 0 | `NoNpuObserved` |
+| `Complete` | 1 or more | `NpuCandidateObserved` |
+| `Partial` or `Failed` | any | `IncompleteEvidence` |
+
+An incomplete enumeration SHALL NOT become a no-NPU result. The collector does
+not emit the downstream policy decision `NoNpuDriverRequired`; that decision
+belongs to the reviewed machine authority.
+
+## 4.2 Windows Server positive-control contract
+
+After a built NPU driver is applied to Windows Server, one collector run MAY be
+used as the v1.3.0 real-device positive gate. Acceptance requires:
+
+- `Host.ExecutionClass = WindowsServer` and `ProductType` is 2 or 3;
+- PnP enumeration is complete;
+- at least one NPU candidate retains its exact instance/HWID/compatible-ID set;
+- Service, status and stable `ConfigManagerErrorCode` are present;
+- installed INF, driver record and service-binary hash/signature evidence are retained where resolvable;
+- a custom-built or self-signed signer is accepted as observed runtime evidence;
+- public-376 exact hash correlation is not required;
+- XRT is not required;
+- the result does not approve deployment and does not claim application workload success.
 
 ## 5. Privacy regression
 
@@ -138,9 +192,9 @@ DEV_17F0 / REV_10 -> quicktest-style STX
 
 This SHALL NOT be used to claim STXA or STXB.
 
-## 9. v1.2.1 structured-XRT regression
+## 9. v1.3.0 structured-XRT and selection-input regression
 
-A v1.2.1 Ryzen AI positive-control rerun SHALL verify:
+A v1.3.0 NPU-positive run SHALL verify:
 
 - `XrtEvidence.StructuredJson` separates host/build, driver, and device records;
 - XRT version/build metadata remains separate from NPU device identity;
@@ -150,7 +204,9 @@ A v1.2.1 Ryzen AI positive-control rerun SHALL verify:
 - NPU installed-INF correlation resolves the exact matching model/install section for `DEV_17F0`;
 - relevant Radeon INF model-section hints may be retained as platform-correlation evidence without becoming the NPU identity authority;
 - `ReviewedPublishedPayloadCorrelation` reports exact public-376 INF / `ipustack.sys` / `xrt-smi.exe` component matches when hashes match;
-- exact client-stack correlation leaves Windows Server runtime proof false.
+- exact client-stack correlation leaves Windows Server runtime proof false;
+- `npu-hardware-selection-input.json` records the host, enumeration and independent candidate identities without performing a track decision;
+- Server positive evidence, when applicable, preserves a built/self-signed installed stack without requiring reviewed public-376 equality.
 
 A synthetic structured-XRT helper regression is useful but does not replace the real Windows positive-control rerun.
 
@@ -162,7 +218,11 @@ Verify:
 - nested files are present where expected;
 - manifest covers all intended evidence files;
 - all manifest hashes/lengths recompute correctly;
-- vendor binaries themselves are not copied merely because their metadata/hash was collected, unless the collector contract explicitly says otherwise.
+- vendor binaries themselves are not copied merely because their metadata/hash was collected, unless the collector contract explicitly says otherwise;
+- every generated JSON reparses successfully before manifest creation;
+- the manifest is recomputed and verified for exact file set, length and SHA-256;
+- the completed ZIP is reopened and checked for portable paths, duplicates, entry count, length and SHA-256;
+- a created ZIP that fails any integrity gate is not reported as accepted evidence and the working directory is retained.
 
 ## 11. Current qualification state
 
@@ -172,31 +232,74 @@ Verify:
 - real Ryzen AI Z2 Extreme positive-control evidence for CPU/NPU/PCI revision and client 376 stack;
 - later successful XRT evidence establishes `NPU Strix` and firmware version `1.1.2.64`;
 - main research toolkit has reviewed/promoted only generalized facts from the private evidence.
+- collector v1.3.0 PowerShell parser/static gate passed;
+- collector v1.3.0 hardware-independent self-test passed (15/15), including JSON array shape, independent multiple candidates, driver-query failure fail-closed behavior, the synthetic Windows Server/custom-driver positive case and all integrity gates.
 
-### Still required for collector v1.2.1 final qualification
+### Still required for collector v1.3.0 real-device qualification
 
-Run the **current v1.2.1 source** again on the Ryzen AI Z2 Extreme positive-control system and verify all Section 9 outputs.
+This gate is `DeferredDependencyBlocked`, not an immediate test request. First
+complete production NPU driver build-script redevelopment and review, then
+separately authorize and complete Server driver build/application. Only when an
+NPU-positive Server state exists, run the **current v1.3.0 source** once and
+verify Sections 4, 4.2, 9 and 10.
 
-Expected purpose of that rerun:
+Expected purpose of that single run:
 
-- qualify the final structured-XRT schema;
+- qualify complete Windows PnP enumeration and the compact selection-input schema;
+- qualify Windows Server positive runtime-driver observation when that host is used;
+- qualify stable `ConfigManagerErrorCode`, identity-set and host-class fields;
 - qualify improved INF/model correlation;
-- qualify exact reviewed-376 correlation output;
-- qualify current privacy metadata and Evidence finalization as one coherent v1.2.1 run.
+- qualify exact reviewed-376 correlation only if the observed components happen to match;
+- qualify current privacy metadata and all three Evidence integrity gates as one coherent v1.3.0 run.
 
-This rerun is a release-quality check for the companion utility; it is not required to re-prove the already reviewed main-tool CPU/NPU applicability model.
+Do not request a ceremonial Client rerun in addition to a successful Server
+positive run. This gate qualifies the companion utility; it does not re-prove
+the already accepted main-runner Client positive or Server no-NPU results.
 
 ## 12. Release acceptance for bundled collector
 
-If the main toolkit v1.0.0 describes collector v1.2.1 as fully real-device-qualified, require:
+If the main toolkit describes collector v1.3.0 as fully real-device-qualified, require:
 
 - [ ] collector AST/source preflight PASS;
+- [ ] collector `-SelfTest` PASS;
 - [ ] negative-control behavior retained;
-- [ ] current v1.2.1 Z2 Extreme positive-control run completed;
+- [ ] one current v1.3.0 NPU-positive run completed;
+- [ ] Windows Server/custom/self-signed positive contract PASS when Server is the selected host;
 - [ ] structured XRT separation PASS;
 - [ ] INF/model correlation PASS;
-- [ ] reviewed-376 exact component correlation PASS where components match;
+- [ ] reviewed-376 exact component correlation is reported accurately where components match, without being required for a custom Server build;
 - [ ] privacy metadata reviewed;
-- [ ] recursive manifest/hash verification PASS;
+- [ ] JSON round-trip, recursive manifest/hash and ZIP reopen/hash/path verification PASS;
 - [ ] no prohibited XRT/quicktest/installer execution;
 - [ ] Evidence ZIP retained privately for audit.
+
+## 13. Deferred single real-device gate
+
+This is the only remaining collector 1.3.0 qualification run. It is not a
+main-runner regression and does not require a second Client run. It is blocked
+by production build-script redevelopment and is not currently schedulable.
+
+Retain this command for later. Execute it only after the production build script
+is redeveloped/reviewed and a built/self-signed NPU driver is separately
+authorized and already applied to Windows Server:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\Collect-AmdNpuHardwareIdentityEvidence.ps1 `
+  -SkipXrtSmiProbe `
+  -SkipQuicktestSnapshot
+```
+
+Windows PowerShell 5.1 is preferred when available; the collector contract
+itself remains runtime-neutral within its supported Windows PowerShell range.
+Review the exact-source hash, Server host classification, complete candidate
+identity, healthy device/service/driver observations, JSON round trips,
+manifest and reopened ZIP. Exact public-376 component correlation and XRT may be
+recorded when present but are not PASS prerequisites for a custom Server build.
+
+Stop after evidence collection. Do not run an installer, alter device state,
+perform an inference workload or infer production support from this gate.
+
+Until those prerequisites exist, keep the gate deferred and preserve the
+static/synthetic qualification disclaimer. Do not ask the user to manufacture a
+temporary Server-positive state solely for collector qualification.

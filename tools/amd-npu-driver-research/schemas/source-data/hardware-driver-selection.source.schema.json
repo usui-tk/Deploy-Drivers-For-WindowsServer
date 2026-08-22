@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/tools/amd-npu-driver-research/schemas/source-data/hardware-driver-selection.source.schema.json",
+  "title": "AMD NPU reviewed hardware-only driver selection contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "reviewedAt",
+    "status",
+    "purpose",
+    "decisionValues",
+    "authority",
+    "policy",
+    "sources",
+    "tracks"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "amd-npu-hardware-driver-selection/1.0"
+    },
+    "reviewedAt": {
+      "type": "string"
+    },
+    "status": {
+      "const": "ReviewedHardwareOnlySelectionContract"
+    },
+    "purpose": {
+      "type": "string"
+    },
+    "decisionValues": {
+      "type": "array",
+      "prefixItems": [
+        { "const": "280" },
+        { "const": "376" },
+        { "const": "NoNpuDriverRequired" },
+        { "const": "ReviewRequired" }
+      ],
+      "items": false
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "selectionKey",
+        "requiredInputs",
+        "retainedIdentityFields",
+        "cpuSkuUsed",
+        "cpuIdUsed",
+        "cpuNpuCombinationUsed",
+        "npuMarketingNameUsed",
+        "firmwareDeviceRevisionRequired",
+        "linuxAieTopologyRequired",
+        "statement"
+      ],
+      "properties": {
+        "selectionKey": { "const": "WindowsPnpHardwareIdsMatchedAgainstReviewedInfModels" },
+        "requiredInputs": { "type": "array", "items": { "type": "string" }, "minItems": 2 },
+        "retainedIdentityFields": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "cpuSkuUsed": { "const": false },
+        "cpuIdUsed": { "const": false },
+        "cpuNpuCombinationUsed": { "const": false },
+        "npuMarketingNameUsed": { "const": false },
+        "firmwareDeviceRevisionRequired": { "const": false },
+        "linuxAieTopologyRequired": { "const": false },
+        "statement": { "type": "string" }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "researchTracksRetained",
+        "preferredProductionTrack",
+        "preferredProductionTrackMeaning",
+        "automatic280SelectionEnabled",
+        "automatic280FallbackEnabled",
+        "unknownOrIncompleteInputDecision",
+        "explicitEmptyCompletedEnumerationDecision",
+        "multipleDeviceInstances"
+      ],
+      "properties": {
+        "researchTracksRetained": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "allOf": [
+            { "contains": { "const": "280" }, "minContains": 1, "maxContains": 1 },
+            { "contains": { "const": "376" }, "minContains": 1, "maxContains": 1 }
+          ]
+        },
+        "preferredProductionTrack": { "const": "376" },
+        "preferredProductionTrackMeaning": { "type": "string" },
+        "automatic280SelectionEnabled": { "const": false },
+        "automatic280FallbackEnabled": { "const": false },
+        "unknownOrIncompleteInputDecision": { "const": "ReviewRequired" },
+        "explicitEmptyCompletedEnumerationDecision": { "const": "NoNpuDriverRequired" },
+        "multipleDeviceInstances": { "type": "string" }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "type", "statement"],
+        "properties": {
+          "id": { "type": "string" },
+          "type": { "type": "string" },
+          "artifactSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "componentSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "evidenceArchiveSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "statement": { "type": "string" }
+        }
+      }
+    },
+    "tracks": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "track",
+          "role",
+          "artifactFileName",
+          "artifactSha256",
+          "infPath",
+          "infSha256",
+          "minimumWindowsBuild",
+          "hardwareIdPatterns",
+          "automaticSelectionEnabled",
+          "runtimeProof",
+          "sourceIds"
+        ],
+        "properties": {
+          "track": { "enum": ["280", "376"] },
+          "role": { "enum": ["PreferredProductionTrack", "RetainedResearchTrack"] },
+          "artifactFileName": { "type": "string" },
+          "artifactSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "infPath": { "type": "string" },
+          "infSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "minimumWindowsBuild": { "type": "integer", "minimum": 1 },
+          "hardwareIdPatterns": { "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^PCI\\\\VEN_[0-9A-F]{4}&DEV_[0-9A-F]{4}$" } },
+          "automaticSelectionEnabled": { "type": "boolean" },
+          "runtimeProof": { "const": false },
+          "sourceIds": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

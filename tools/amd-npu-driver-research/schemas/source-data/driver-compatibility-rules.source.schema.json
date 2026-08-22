@@ -6,13 +6,33 @@
   "type": "object",
   "properties": {
     "schemaVersion": {
-      "const": "1.0"
+      "const": "1.1"
     },
     "reviewedAt": {
       "type": "string"
     },
     "unknownPolicy": {
       "type": "string"
+    },
+    "packageSelectionModel": {
+      "type": "object",
+      "properties": {
+        "currentPackageCaseCount": { "const": 2 },
+        "selectionKey": { "const": "npuIdentityId" },
+        "globalVersionRankingProhibited": { "const": true },
+        "historicalArtifactsExcludedFromRecommendation": { "const": true },
+        "unresolvedBoundaryPolicy": { "const": "ReviewRequired" },
+        "statement": { "type": "string" }
+      },
+      "additionalProperties": false,
+      "required": [
+        "currentPackageCaseCount",
+        "selectionKey",
+        "globalVersionRankingProhibited",
+        "historicalArtifactsExcludedFromRecommendation",
+        "unresolvedBoundaryPolicy",
+        "statement"
+      ]
     },
     "sources": {
       "type": "array",
@@ -74,6 +94,23 @@
           "publishedDriverLabel": {
             "type": "string"
           },
+          "packageRole": {
+            "enum": ["HistoricalRegressionFixture", "CurrentNpuTypeCandidate"]
+          },
+          "selectionLaneId": {
+            "type": "string"
+          },
+          "selectionBoundaryStatus": {
+            "enum": ["HistoricalOnly", "ReviewRequired", "Resolved"]
+          },
+          "reviewedStaticNpuIdentityIds": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "recommendationEligibleNpuIdentityIds": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
           "publishedSupportedCodenames": {
             "type": "array",
             "items": {
@@ -98,6 +135,11 @@
           "artifactSha256",
           "artifactFileName",
           "publishedDriverLabel",
+          "packageRole",
+          "selectionLaneId",
+          "selectionBoundaryStatus",
+          "reviewedStaticNpuIdentityIds",
+          "recommendationEligibleNpuIdentityIds",
           "publishedSupportedCodenames",
           "supportEvidence",
           "sourceIds",
@@ -111,6 +153,7 @@
     "schemaVersion",
     "reviewedAt",
     "unknownPolicy",
+    "packageSelectionModel",
     "sources",
     "ryzenAiSoftwareMinimumDrivers",
     "artifactRules"

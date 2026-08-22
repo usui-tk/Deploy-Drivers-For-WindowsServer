@@ -13,7 +13,8 @@
     "SelectionTrackCount",
     "UniqueSelectedArtifactCount",
     "Selections",
-    "SelectedArtifacts"
+    "SelectedArtifacts",
+    "CertificateVerificationPlan"
   ],
   "properties": {
     "SchemaVersion": {
@@ -183,6 +184,9 @@
     },
     "ProductMetadataCompleteness": {
       "type": "string"
+    },
+    "CertificateVerificationPlan": {
+      "$ref": "certificate-verification-plan.schema.json"
     }
   },
   "additionalProperties": true

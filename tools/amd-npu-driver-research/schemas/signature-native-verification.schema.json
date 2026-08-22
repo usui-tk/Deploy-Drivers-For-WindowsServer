@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-npu-driver-research:signature-native-verification:1.0",
+  "title": "AMD NPU Driver Windows Native Signature Verification Evidence",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "CollectedAtUtc",
+    "EvidenceScope",
+    "ArtifactSelectionPolicy",
+    "CandidateArtifactCount",
+    "AnalyzedArtifactIds",
+    "ExecutionContext",
+    "Tool",
+    "Artifacts",
+    "WindowsClientQualification",
+    "MutationPerformed"
+  ],
+  "properties": {
+    "SchemaVersion": { "const": "amd-npu-driver-signature-native-verification/1.0" },
+    "ToolkitVersion": { "type": "string" },
+    "CollectedAtUtc": { "type": "string" },
+    "EvidenceScope": { "const": "WindowsNative" },
+    "ArtifactSelectionPolicy": {
+      "enum": [
+        "NewestWithinEachCurrentNpuTypeCase",
+        "OnlySelectedArtifact",
+        "ExplicitLocalArtifactSet"
+      ]
+    },
+    "CandidateArtifactCount": { "type": "integer", "minimum": 1 },
+    "AnalyzedArtifactIds": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "ExecutionContext": { "type": "object" },
+    "Tool": { "type": "object" },
+    "ToolchainCapabilityReference": { "type": "string" },
+    "ToolchainCapabilitySummaryReference": { "type": "string" },
+    "Artifacts": { "type": "array", "items": { "type": "object" } },
+    "WindowsClientQualification": {
+      "type": "object",
+      "required": ["SchemaVersion", "Requested", "Status"],
+      "properties": {
+        "SchemaVersion": { "const": "amd-npu-windows-client-signature-qualification/1.0" },
+        "Requested": { "type": "boolean" },
+        "Status": { "enum": ["NotRequested", "Pass", "Fail"] }
+      },
+      "additionalProperties": true
+    },
+    "MutationPerformed": { "const": false }
+  },
+  "additionalProperties": true
+}

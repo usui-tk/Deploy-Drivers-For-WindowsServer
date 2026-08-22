@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/schemas/amd-graphics-artifact-path-map.schema.json",
+  "title": "AMD Graphics Artifact Path Map",
+  "type": "object",
+  "required": ["SchemaVersion", "ToolkitVersion", "ArtifactCount", "Artifacts"],
+  "properties": {
+    "SchemaVersion": { "const": "amd-graphics-artifact-path-map/1.0" },
+    "ToolkitVersion": { "type": "string" },
+    "ArtifactCount": { "type": "integer", "minimum": 0 },
+    "Artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ArtifactKey", "OriginalFileName", "Sha256", "Status"],
+        "properties": {
+          "ArtifactPathId": { "type": ["string", "null"] },
+          "ArtifactKey": { "type": "string" },
+          "OriginalFileName": { "type": "string" },
+          "ToolRelativePath": { "type": ["string", "null"] },
+          "Sha256": { "type": "string" },
+          "Status": { "type": "string" }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

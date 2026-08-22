@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/schemas/amd-graphics-native-verification-path-map.schema.json",
+  "title": "AMD Graphics Native Verification Path Map",
+  "type": "object",
+  "required": ["SchemaVersion", "ToolkitVersion", "AliasCount", "SafeFullPathLimit", "Aliases"],
+  "properties": {
+    "SchemaVersion": { "const": "amd-graphics-native-verification-path-map/1.0" },
+    "ToolkitVersion": { "type": "string" },
+    "AliasCount": { "type": "integer", "minimum": 0 },
+    "SafeFullPathLimit": { "const": 240 },
+    "Aliases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["AliasId", "FileId", "AliasPathLength", "SourcePathLength", "Sha256", "ByteIdentical"],
+        "properties": {
+          "AliasId": { "type": "string" },
+          "FileId": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "AliasPathLength": { "type": "integer", "maximum": 240 },
+          "SourcePathLength": { "type": "integer", "minimum": 1 },
+          "Sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "ByteIdentical": { "const": true }
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,25 +1,57 @@
 {
   "schemaVersion": "amd-npu-architecture-convergence-contract/1.0",
-  "reviewedAtUtc": "2026-08-13T15:02:22Z",
+  "reviewedAtUtc": "2026-08-22T14:00:00Z",
   "normalization": "FunctionDefinitionAst.Extent.Text with CRLF/CR normalized to LF, then UTF-8 SHA-256",
   "architecture": "shared infrastructure kernel + NPU adapters + NPU research semantics",
-  "genericKernelFunctionCount": 27,
+  "genericKernelFunctionCount": 37,
   "genericKernelFunctions": [
     {
       "name": "Get-AmdResearchToolkitRoot",
       "sha256": "4fa1ca21d82e4e5d6b48954a34166b90eff9341bbb9a143a8c7d811673518128"
     },
     {
+      "name": "Get-AmdEvidenceStoragePolicy",
+      "sha256": "f6a07aed737f22fb853c79ff10b56554e7b8dc4ef32ee9de524f17dbe5ab8557"
+    },
+    {
+      "name": "Get-AmdEvidenceSafeLabel",
+      "sha256": "33c959f44b821ce2b3f3a8bb89d451ae48b4e0789ecc61b1993acd70cfbae9d1"
+    },
+    {
+      "name": "Test-AmdEvidenceOutputPolicy",
+      "sha256": "eff2aa86aee24517bba1bc30cd4a0b586c5a0b9f0c2a2e1745210cfa8df01ab6"
+    },
+    {
+      "name": "Resolve-AmdEvidenceOutputRoot",
+      "sha256": "b1d13b2d20eaf44d04c34ab1cd72be325dbea2e3682a9dce8a88d798a240872a"
+    },
+    {
+      "name": "Test-AmdEvidenceZipIntegrity",
+      "sha256": "720d67937bd3606975456728a8c44d6290e2585cb38a89d454d9bac3bdec8621"
+    },
+    {
+      "name": "Write-AmdEvidenceSha256File",
+      "sha256": "bbf4c47921e4a57ed10edd78f173c855bf7c48347adda4b0681b753e5a1c336f"
+    },
+    {
+      "name": "Write-AmdLatestEvidencePointer",
+      "sha256": "541ac73fa8d162cebcad9e72902a0457a8044ab7239d6f6137086caea3ac574b"
+    },
+    {
+      "name": "Write-AmdEvidenceCompletionBanner",
+      "sha256": "90e37fcbc70b804e4d9e2187b3bfc1a6d9f464dc812e0fa676639a9169abab48"
+    },
+    {
       "name": "Write-AmdJsonFile",
-      "sha256": "745426a5c6463f6b0aac4d025164e49457ab40d48f7398fb9f458d18fcc1c5a2"
+      "sha256": "e37fb57dda4c99f3a50bea978a2a5c05cbd4289e99dd1d47da6ca3971db895bb"
     },
     {
       "name": "ConvertTo-AmdCanonicalJsonString",
-      "sha256": "e70b686a174f1b2006b9620e34bb805ee80a15203c40beba087aac5d9a780777"
+      "sha256": "c9a77033eecaf2ed7195c0015c21a5a09c83c461d81f8e6962eb48e5b8dc73b9"
     },
     {
       "name": "ConvertTo-AmdCanonicalJsonText",
-      "sha256": "4802695060b013c24c202ad541b1f7946b29bb94f4cf95495e123f325b11f170"
+      "sha256": "0f0642e810694aef41a632ddb185966c988150387f793033b1db71d581e224d6"
     },
     {
       "name": "Get-AmdOrdinalSortedUniqueStrings",
@@ -27,11 +59,11 @@
     },
     {
       "name": "Get-AmdOrdinalSortedObjectsByStringProperty",
-      "sha256": "d172035d60845347fc6f7ee2b81e2ce58a29ca5efa6944b8d9921ea16e5d7264"
+      "sha256": "0da5c5ab841a99135097ff5d34d908b2c5187e6808d7725173f5cd212a543327"
     },
     {
       "name": "ConvertTo-AmdRepositoryRelativePath",
-      "sha256": "1ab69ce77f3b078c1ee8e6bd127be7bc19b305b067d37dc5b9e881b977f96440"
+      "sha256": "bd6a3d11a2ec90a83a762c8b67b1f289b9cf61d26d1ece98bbd43fdfaa145639"
     },
     {
       "name": "Write-AmdPublicMarkdownText",
@@ -43,11 +75,15 @@
     },
     {
       "name": "Get-AmdPublicForbiddenPatterns",
-      "sha256": "b6cedc268616bffd2ec468f07c5fc4c929508b6fabd8369bff7ce89ec5947a0a"
+      "sha256": "7de6fb75efc909d62289a430aa8f6c7313d779eaa93c0e29bdb2aef74310c1c5"
     },
     {
       "name": "Get-AmdPublicScalarStrings",
-      "sha256": "965c4538e7e31a55cd29d4d60213fd94ff1abb0c0ed3b0294e4e7ed04426b0c7"
+      "sha256": "20e8ea3c5c771f43d9dcfceeea8e7bacf3e5b644526324d3492c7325729c3b97"
+    },
+    {
+      "name": "Test-AmdPublicPathPropertyName",
+      "sha256": "d6167fe7d6e5661974f5f17c4c5f26de1cb74cb66a14f34d27cfce67e7d46438"
     },
     {
       "name": "Test-AmdCompactJsonWhitespaceFile",
@@ -55,7 +91,7 @@
     },
     {
       "name": "Test-AmdPublicRepositorySurface",
-      "sha256": "b71c3c5178c01f1dbca3fdf8d333963fa54cf4938383ed61c627be3ca951bd40"
+      "sha256": "ed3f884317e0ac0b3c73dabaf0bb698015545734fe359012f235de27f755c614"
     },
     {
       "name": "Publish-AmdRepositorySurface",
@@ -71,7 +107,7 @@
     },
     {
       "name": "Invoke-AmdArtifactExtractionKernel",
-      "sha256": "7a99c2cbefac6bf99b99a33fec3a1ba692b135505233b939488baeffbf90c615"
+      "sha256": "0439c4bfb79d0ad47b263f20fefe44bc407baea9ef2699cc1a34aefa1ec60c26"
     },
     {
       "name": "Write-AmdStageHeader",
@@ -79,19 +115,19 @@
     },
     {
       "name": "Write-AmdStageFooter",
-      "sha256": "c91cd8bf6ebaddf03226f6c1822492f3654c1cb9b9685505d7de738866c9fd8f"
+      "sha256": "0e252d9f9c2f5c68f114abfffe5c5a6e141ccab92cf910fe90a55e3f43474571"
     },
     {
       "name": "Write-AmdRunTimingSummary",
-      "sha256": "eb52117dc28d8ffb417e39f0729ded89ac57052d1aea9b33f00c394fbaa1716c"
+      "sha256": "f4366cd54b76f4e4a369cc4edd1c24bfcb2c42b01e32fc5105cae85341c8635f"
     },
     {
       "name": "Start-AmdResearchEvidenceSession",
-      "sha256": "67bc6f79d4e9e3db60f3d2062cbd7b425f72656d90346c11b5fce86e0bce952d"
+      "sha256": "0c2d0c82746e4d1311237397e44f85f88a194f44e0a1d709f775475f91f4e827"
     },
     {
       "name": "Start-AmdEmergencyEvidenceSession",
-      "sha256": "f6e50e8a2f1ec4bd6c20817bcaf1c9f89db526250e2458079e12fc569d2dd871"
+      "sha256": "b380afb72a791e19b456defd50823ff3dadf9f8cff41a526ac4edf5c3d077741"
     },
     {
       "name": "Write-AmdStageResultsEvidence",
@@ -99,19 +135,23 @@
     },
     {
       "name": "Invoke-AmdTrackedStage",
-      "sha256": "85db85b684b0581dbf214f3433bb93e36bb91ef056051a37fc5f45f245ea2c7c"
+      "sha256": "e54432388ac89037e3d8668169aeae713a6bc03920f1ad4ecec757585cd6b0b6"
     },
     {
       "name": "Get-AmdRunAssessment",
-      "sha256": "39504e75469ed3b567ce771297599e9f8c0d528fe25131bab20861034ca64805"
+      "sha256": "7bfc2df753ed8e51f458db154fd757949665f3d4ffb7dee367c9f96fcad54a4c"
     },
     {
       "name": "Write-AmdAssessmentConsoleReport",
-      "sha256": "777d7e4ea8e09d7f7fcdd44a39ea5acfd37afe2090e13e513603f51310740401"
+      "sha256": "2830cb530db3bd57e3098d60a0f5481e45c6b74012d9b80c66a567ea5aacbf13"
     },
     {
       "name": "Finalize-AmdResearchEvidenceSession",
-      "sha256": "9f76cf8a926f3a9a53b1dff049257a91f56e1fef8a98d6f8cf797d7c29062c8f"
+      "sha256": "d336a5f0ad1b0f307b06585709eda90660a230efc2be95d4df3649d20f257d1f"
+    },
+    {
+      "name": "Invoke-AmdEmergencyEvidenceFinalization",
+      "sha256": "fe4cf4ac3fb399b841f4c5defa86decaee0ccbc257d6a91d583f6e06430e0c50"
     }
   ],
   "forbiddenLegacyInfrastructureFunctions": [
@@ -125,7 +165,11 @@
   ],
   "requiredNpuAdapterFunctions": [
     "Get-NpuRunAssessmentExtensions",
+    "Get-NpuEvidenceInventorySnapshotFileNames",
+    "Test-NpuEvidenceSnapshotContract",
     "Invoke-NpuEvidenceSnapshot",
+    "Get-NpuPublicSchemaVersionConst",
+    "Test-NpuPublicSchemaVersionContracts",
     "Test-NpuPublicDatasetConsistency",
     "Resolve-NpuRequestedStages",
     "Invoke-NpuDiscoveryStage",
@@ -133,13 +177,15 @@
     "Invoke-NpuAcquireStage",
     "Invoke-NpuExtractStage",
     "Invoke-NpuInspectStage",
+    "ConvertTo-NpuPublicRepositoryObject",
+    "Test-NpuPublicRepositorySanitizationLogic",
     "Invoke-NpuBuildStage",
     "Invoke-NpuValidateStage"
   ],
   "convergenceRules": {
-    "stageRunner": "generic",
+    "stageRunner": "generic; fail-closed RUNNING to INTERRUPTED transition with stage lifecycle diagnostics",
     "evidenceLifecycle": "generic-with-NPU-snapshot-adapter",
-    "publicationMechanics": "generic-with-NPU-dataset-validator",
+    "publicationMechanics": "generic privacy patterns/scalar traversal/path-field classification with NPU recursive publication sanitizer, schema-authoritative public versions and dataset validator",
     "acquisition": "generic-kernel-with-NPU-catalog-adapter",
     "extraction": "generic-kernel-with-NPU-analysis-surface-predicate",
     "discoverMetadataInspect": "NPU-specific",

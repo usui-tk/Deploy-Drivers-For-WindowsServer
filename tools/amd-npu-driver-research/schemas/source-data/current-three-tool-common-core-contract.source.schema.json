@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/tools/amd-npu-driver-research/schemas/source-data/current-three-tool-common-core-contract.source.schema.json",
+  "title": "AMD Driver Research current three-tool common-core contract",
+  "type": "object",
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-three-tool-common-core-contract/1.0"
+    },
+    "ReviewedAtUtc": {
+      "type": "string"
+    },
+    "Normalization": {
+      "type": "string"
+    },
+    "Scope": {
+      "type": "string"
+    },
+    "Tools": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "object",
+        "properties": {
+          "Tool": { "enum": ["Chipset", "Graphics", "NPU"] },
+          "RelativePath": { "type": "string" },
+          "ScriptSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "FunctionCount": { "type": "integer", "minimum": 1 }
+        },
+        "additionalProperties": false,
+        "required": ["Tool", "RelativePath", "ScriptSha256", "FunctionCount"]
+      }
+    },
+    "FunctionCount": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "Functions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "properties": {
+          "Name": { "type": "string" },
+          "Sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+        },
+        "additionalProperties": false,
+        "required": ["Name", "Sha256"]
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": ["SchemaVersion", "ReviewedAtUtc", "Normalization", "Scope", "Tools", "FunctionCount", "Functions"]
+}

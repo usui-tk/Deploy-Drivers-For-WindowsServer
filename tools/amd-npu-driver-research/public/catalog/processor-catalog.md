@@ -2,8 +2,8 @@
 
 - Completeness: **ExpandedReviewedExactSkuClientCatalogThroughRyzenAi400AndRyzenAiMaxPro400WithNegativeControls**
 - Unknown SKU policy: **ReviewRequired**
-- The catalog includes exact-SKU NPU-positive entries plus reviewed negative controls where AMD does not publish an NPU capability.
-- Similar CPU architecture or product naming must not be used to infer an NPU identity.
+- The catalog is retained only for research, coverage and human audit. It is not a driver-selection authority.
+- CPU SKU, CPU ID and CPU/NPU combination inference are not used by the hardware-only driver-track resolver.
 
 | Processor | Series | NPU availability | Codename | NPU identity | Expected DEV | Observed runtime | NPU TOPS | Tray product ID |
 |---|---|---|---|---|---|---|---:|---|

@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "certificate-verification-plan.schema.json",
+  "title": "AMD Graphics Certificate Verification Plan",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "PolicyId",
+    "Status",
+    "SelectionUnit",
+    "RequestedMajorGenerationCount",
+    "ProductGroupFilter",
+    "FullResearchTrackCount",
+    "FullResearchSelectionCount",
+    "CertificateTrackReferenceCount",
+    "PlannedUniqueUrlTargetCount",
+    "HistoricalExclusionCount",
+    "PlannedUrlTargets",
+    "HistoricalExclusions",
+    "Resolution"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-graphics-certificate-verification-plan/1.0"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "PolicyId": {
+      "enum": [
+        "NewestSelectedMajorGenerationPerSelectionTrack/1",
+        "OperatorProvidedLocalArtifacts/1",
+        "SyntheticOfflineSignatureIntegration/1"
+      ]
+    },
+    "Status": {
+      "enum": [
+        "Planned",
+        "Ready",
+        "Blocked"
+      ]
+    },
+    "SelectionUnit": {
+      "type": "string"
+    },
+    "FullResearchSelectionCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "CertificateTrackReferenceCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "PlannedUniqueUrlTargetCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "HistoricalExclusionCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "TargetReferences": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "PlannedUrlTargets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "PlannedTargetId",
+          "SelectionTrackReferences",
+          "ProductGroupReferences"
+        ],
+        "additionalProperties": true
+      }
+    },
+    "HistoricalExclusions": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "Resolution": {
+      "type": "object",
+      "required": [
+        "Status",
+        "MissingUrlTargetCount",
+        "AmbiguousUrlTargetCount",
+        "UniqueInstallerSha256Count",
+        "ExecutionArtifacts",
+        "UrlResolution"
+      ],
+      "properties": {
+        "Status": {
+          "enum": [
+            "NotResolvedBeforeAcquire",
+            "Ready",
+            "Blocked"
+          ]
+        },
+        "MissingUrlTargetCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "AmbiguousUrlTargetCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "UniqueInstallerSha256Count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "ExecutionArtifacts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "ExecutionArtifactId",
+              "InstallerSha256",
+              "SelectionTrackReferences",
+              "ProductGroupReferences"
+            ],
+            "properties": {
+              "ExecutionArtifactId": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "InstallerSha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "UrlResolution": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "RequestedMajorGenerationCount": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "ProductGroupFilter": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "FullResearchTrackCount": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": true
+}

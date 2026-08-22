@@ -1,13 +1,15 @@
 {
   "schemaVersion": "1.0",
-  "reviewedAt": "2026-08-14",
-  "scope": "Reviewed exact-SKU AMD client processor to NPU driver applicability knowledge. Public recommendations are derived from analyzed reviewed public artifacts; restricted artifacts are qualification-only.",
+  "reviewedAt": "2026-08-15",
+  "scope": "Reviewed exact-SKU AMD client processor to NPU identity and device-type-specific package applicability knowledge. Static package compatibility is not itself a package recommendation; restricted artifacts are qualification-only.",
   "unknownProcessorPolicy": "ReviewRequired",
   "unknownHardwarePolicy": "ReviewRequired",
   "recommendationPolicy": {
     "publiclyObtainableArtifactsOnly": true,
     "privateQualificationArtifactsNeverRecommended": true,
-    "highestReviewedPublishedStaticCandidate": true,
+    "highestReviewedPublishedStaticCandidate": false,
+    "resolvedNpuTypePackageLaneRequired": true,
+    "globalVersionRankingProhibited": true,
     "windowsServerRuntimeProofRequiredForRuntimeClaim": true,
     "seriesNameOnlyInferenceProhibited": true
   },

@@ -142,6 +142,28 @@
         "AnalysisMode"
       ]
     },
+    "SignatureAnalysis": {
+      "type": "object",
+      "required": [
+        "SchemaVersion",
+        "EvidenceScope",
+        "ArtifactId",
+        "FileName",
+        "Status",
+        "FileCount",
+        "Files",
+        "Certificates"
+      ],
+      "properties": {
+        "SchemaVersion": { "const": "amd-npu-driver-signature-analysis/1.0" },
+        "EvidenceScope": { "const": "Static" },
+        "Status": { "const": "Analyzed" },
+        "FileCount": { "type": "integer", "minimum": 0 },
+        "Files": { "type": "array" },
+        "Certificates": { "type": "array" }
+      },
+      "additionalProperties": true
+    },
     "PublishedCompatibility": {
       "type": "object",
       "required": [

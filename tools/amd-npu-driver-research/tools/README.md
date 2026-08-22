@@ -1,9 +1,15 @@
 # AMD Platform Hardware Identity Evidence Collector
 
 **Collector source: `Collect-AmdNpuHardwareIdentityEvidence.ps1`**  
-**Current collector version: 1.2.1**
+**Current collector version: 1.3.0**
 
 This companion utility collects **private, read-only Windows platform evidence** when static NPU package analysis cannot resolve an actual CPU/NPU/GPU/firmware relation.
+
+Driver-track selection no longer requires a CPU/NPU relation. The collector may
+continue to retain CPU, firmware and XRT fields for diagnostics and research, but
+the main resolver consumes only the complete PnP HardwareID/CompatibleID set for
+one NPU device instance plus the target Windows build. See
+`../data/hardware-driver-selection.json`.
 
 It is intentionally stored under:
 
@@ -30,6 +36,32 @@ The collector can gather evidence needed to answer questions such as:
 - Can multiple evidence planes narrow the NPU generation without confusing revision namespaces?
 
 The collector does not make deployment decisions. It produces evidence for later review.
+
+Collector 1.3.0 additionally emits a compact machine-readable observation file:
+
+```text
+npu-hardware-selection-input.json
+```
+
+Its authored review schema is
+`schemas/npu-hardware-selection-input.schema.json` under this companion-tool
+directory.
+
+This file is intended as downstream input to the reviewed machine authority in
+`../data/hardware-driver-selection.json`. The collector itself does not select
+280 or 376 and never enables an automatic 280 fallback.
+
+The compact artifact records:
+
+- complete local PnP enumeration status;
+- Windows Client/Server execution class and OS `ProductType`;
+- PowerShell version/edition and administrator state;
+- each candidate device instance independently;
+- Hardware IDs, Compatible IDs and a normalized `IdentitySet`;
+- stable string `ConfigManagerErrorCode` values;
+- installed INF, service and driver-binary evidence;
+- per-device PnP property collection status;
+- `NoNpuObserved`, `NpuCandidateObserved` or `IncompleteEvidence` as an observation, not a deployment decision.
 
 ## Collected evidence planes
 
@@ -110,7 +142,7 @@ XRT evidence can include:
 - NPU firmware version;
 - raw vendor output retained privately.
 
-Collector 1.2.1 separates XRT host/build, driver, and device records so a `NPU Driver` entry cannot be flattened into a device identity such as `NPU Strix`.
+The collector separates XRT host/build, driver, and device records so a `NPU Driver` entry cannot be flattened into a device identity such as `NPU Strix`.
 
 ## Quicktest source policy
 
@@ -123,9 +155,23 @@ If an AMD-authored `quicktest.py` is present in an installed Ryzen AI environmen
 
 The collector does not execute quicktest inference.
 
+## Windows Server positive observation
+
+Collector 1.3.0 explicitly supports a future positive run after a built NPU
+driver has been applied to Windows Server. A positive Server observation means:
+
+- local PnP enumeration completed;
+- an NPU candidate identity was observed;
+- installed Service/INF/driver-binary/signature evidence was collected where available.
+
+The installed driver may be custom-built or self-signed. Its signer and an
+exact public-376 hash match are evidence fields, not prerequisites for observing
+the NPU. This does not approve deployment and does not by itself prove an NPU
+application workload succeeded.
+
 ## Reviewed public-376 correlation
 
-Collector 1.2.1 can correlate an observed Windows client stack against reviewed public 376 component hashes for:
+The collector can correlate an observed Windows client stack against reviewed public 376 component hashes for:
 
 - NPU INF;
 - `ipustack.sys`;
@@ -170,6 +216,18 @@ Use a longer XRT probe timeout where needed:
 .\Collect-AmdNpuHardwareIdentityEvidence.ps1 -XrtSmiTimeoutSeconds 60
 ```
 
+Run the hardware-independent contract and archive self-test:
+
+```powershell
+.\Collect-AmdNpuHardwareIdentityEvidence.ps1 -SelfTest
+```
+
+The self-test does not enumerate the host and does not require an NPU. It covers
+Client/Server classification, complete/failed zero-candidate semantics, stable
+identity and enum serialization, a synthetic Server positive case, JSON
+round-trip validation, exact manifest verification and ZIP reopen/hash/path
+verification.
+
 The exact supported parameter set is authoritative in the script's `param()` block.
 
 ## Failure preservation
@@ -186,6 +244,15 @@ It attempts to retain:
 - the working evidence directory for debugging.
 
 ZIP entries use forward-slash names for cross-platform review.
+
+Collector 1.3.0 reports three separate finalization gates:
+
+- JSON round-trip integrity;
+- manifest length/SHA-256 completeness;
+- ZIP reopen, entry path/count/length/SHA-256 integrity.
+
+An archive that was physically created but fails one of these gates is retained
+for diagnosis and must not be treated as accepted evidence.
 
 ## Relationship to the main research toolkit
 
@@ -215,8 +282,51 @@ Qualified older positive-control evidence establishes:
 - XRT `NPU Strix` / firmware `1.1.2.64` from the later successful evidence path;
 - firmware device revision still unresolved by the collected standard interfaces.
 
-Collector **v1.2.1 itself still requires a final real-device rerun** to qualify the structured XRT split, exact INF model correlation, reviewed-376 correlation output, and final privacy metadata as a complete v1.2.1 positive-control run.
+Collector **v1.3.0** has passed its hardware-independent self-test and static
+parser gate. Its new compact selection-input and integrity contract still needs
+one real NPU-positive run before v1.3.0 is described as real-device-qualified.
 
-This pending collector qualification does not invalidate the main v1.0.0 applicability dataset, but the disclaimer SHALL remain unless collector v1.2.1 is actually rerun on a positive-control Ryzen AI system before release claims it is real-device-qualified.
+To minimize user test cost, a ceremonial Windows Client rerun is not required.
+The positive gate is dependency-blocked and deferred: production NPU driver
+build-script redevelopment, review, and separately authorized Server driver
+application must complete first. No collector execution is currently requested.
+When that Server state eventually exists, a single run can validate PnP identity,
+custom/self-signed runtime-driver observation and the v1.3.0 evidence package
+together.
+
+Until that run is reviewed, the Server-positive support is implemented and
+synthetically qualified but not yet real-device-qualified. This does not alter
+the already accepted main-runner Client positive and Server no-NPU evidence.
+
+No additional collector implementation defect is presently known. The only
+remaining collector qualification item is one current-v1.3.0 NPU-positive run.
+It SHALL remain `DeferredDependencyBlocked` until production build-script
+redevelopment and separately authorized Server application are complete. Do not
+repeat the accepted Client or Server no-NPU main-runner gates.
+
+The following bounded command is retained for that future dependency-satisfied
+Server state; it is not a current execution request:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass `
+  -File .\Collect-AmdNpuHardwareIdentityEvidence.ps1 `
+  -SkipXrtSmiProbe `
+  -SkipQuicktestSnapshot
+```
+
+Use Windows PowerShell 5.1 when practical at that future time so the same single run adds Server
+runtime coverage not supplied by the earlier PowerShell 7.6.5 no-NPU result.
+The collector does not install or repair the driver. If the intended installed
+state is absent or unhealthy, preserve the evidence and stop; do not turn the
+collector run into an installation/retry loop.
+
+PASS qualifies only the collector's observation and evidence-integrity
+contracts. Application/inference workload proof, driver deployment, signing,
+INF transformation, public-376 equality and XRT are separate or optional
+planes, as documented in the parent `SPEC.md` and `TESTING.md`.
+
+Independent review or promotion of the main runner may proceed while the
+collector remains explicitly static/synthetic-qualified. Do not label collector
+1.3.0 real-device-qualified until the deferred Evidence is reviewed.
 
 See `TESTING.md` in this directory.

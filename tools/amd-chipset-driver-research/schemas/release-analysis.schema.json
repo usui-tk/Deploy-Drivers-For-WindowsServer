@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:amd-chipset-driver-research:release-analysis:2.4",
+  "$id": "urn:amd-chipset-driver-research:release-analysis:2.6",
   "title": "AMD Chipset Per-Release Semantic Analysis",
   "type": "object",
   "required": [
@@ -13,7 +13,7 @@
   ],
   "properties": {
     "SchemaVersion": {
-      "const": "amd-chipset-driver-release-analysis/2.5"
+      "const": "amd-chipset-driver-release-analysis/2.6"
     },
     "ToolkitVersion": {
       "type": "string"
@@ -25,7 +25,19 @@
       "type": "object"
     },
     "Release": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "SignatureAnalysis": {
+          "anyOf": [
+            {
+              "$ref": "signature-analysis.schema.json#/$defs/releaseSignatureAnalysis"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
     },
     "WindowsServerProfiles": {
       "type": "array"

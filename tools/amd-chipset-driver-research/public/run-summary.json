@@ -1,1 +1,34 @@
-{"SchemaVersion":"amd-chipset-public-run-summary/1.0","ToolkitVersion":"2.0.0","GeneratedAtUtc":"2026-08-12T06:11:56.6910003Z","OverallStatus":"Pass","ExitCode":0,"SelectedStages":["Test","Discover","Metadata","Acquire","Extract","Inspect","Selector","HostSurvey","HostMatch","Build"],"ScriptSha256":"8dac3970591c6e56f998b6cba599452427494364cdf31a57dde684e5005d4119","PublicationContract":{"Classification":"PublicRepositoryArtifact","AutoCommitAllowList":"public/**","CanonicalRawData":"public/inventory/releases/**/amd-chipset-analysis-*.json","HandEditingAllowed":false,"PrivateEvidenceLocation":"private/evidence/**","RuntimeStaging":["inventory/**","reports/**","work/**"]}}
+{
+  "SchemaVersion": "amd-chipset-public-run-summary/1.0",
+  "ToolkitVersion": "3.0.0",
+  "GeneratedAtUtc": "2026-08-21T13:02:37.4982852Z",
+  "OverallStatus": "Pass",
+  "ExitCode": 0,
+  "SelectedStages": [
+    "PathSafety",
+    "Test",
+    "Discover",
+    "Metadata",
+    "Acquire",
+    "Extract",
+    "Inspect",
+    "Signature",
+    "Selector",
+    "HostSurvey",
+    "HostMatch",
+    "Build"
+  ],
+  "ScriptSha256": "48074e510df00b90241ed4497c17df939ced79610552ddd7b70aafac140fa077",
+  "PublicationContract": {
+    "Classification": "PublicRepositoryArtifact",
+    "AutoCommitAllowList": "public/**",
+    "CanonicalRawData": "public/inventory/releases/**/amd-chipset-analysis-*.json",
+    "HandEditingAllowed": false,
+    "PrivateEvidenceLocation": "private/evidence/**",
+    "RuntimeStaging": [
+      "inventory/**",
+      "reports/**",
+      "work/**"
+    ]
+  }
+}

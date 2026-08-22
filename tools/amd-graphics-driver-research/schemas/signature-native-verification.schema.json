@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "signature-native-verification.schema.json",
+  "title": "AMD Graphics Windows-Native Signature Verification",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "EvidenceScope",
+    "ExecutionContext",
+    "Tool",
+    "Artifacts",
+    "MutationPerformed",
+    "WindowsClientQualification"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-driver-signature-native-verification/1.0"
+    },
+    "EvidenceScope": {
+      "const": "WindowsNative"
+    },
+    "Artifacts": {
+      "type": "array"
+    },
+    "MutationPerformed": {
+      "const": false
+    },
+    "WindowsClientQualification": {
+      "type": "object",
+      "required": [
+        "Requested",
+        "Status"
+      ]
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,107 @@
+{
+  "schemaVersion": "amd-npu-hardware-driver-selection/1.0",
+  "reviewedAt": "2026-08-16",
+  "status": "ReviewedHardwareOnlySelectionContract",
+  "purpose": "Resolve the research-tool driver track from one completely enumerated Windows NPU device instance without using CPU SKU or CPU/NPU combination inference.",
+  "decisionValues": [
+    "280",
+    "376",
+    "NoNpuDriverRequired",
+    "ReviewRequired"
+  ],
+  "authority": {
+    "selectionKey": "WindowsPnpHardwareIdsMatchedAgainstReviewedInfModels",
+    "requiredInputs": [
+      "Complete HardwareID and CompatibleID set for one Windows-enumerated NPU device instance",
+      "Target Windows build"
+    ],
+    "retainedIdentityFields": [
+      "VEN",
+      "DEV",
+      "SUBSYS",
+      "REV",
+      "HardwareID",
+      "CompatibleID"
+    ],
+    "cpuSkuUsed": false,
+    "cpuIdUsed": false,
+    "cpuNpuCombinationUsed": false,
+    "npuMarketingNameUsed": false,
+    "firmwareDeviceRevisionRequired": false,
+    "linuxAieTopologyRequired": false,
+    "statement": "CPU catalog, CPUID, processor marketing name, firmware device revision and Linux AIE topology may remain research or diagnostic evidence, but none is an input to the Windows driver-track decision."
+  },
+  "policy": {
+    "researchTracksRetained": [
+      "280",
+      "376"
+    ],
+    "preferredProductionTrack": "376",
+    "preferredProductionTrackMeaning": "Research-tool recommendation for a reviewed INF match; not installation, deployment, INF conversion or signing authorization.",
+    "automatic280SelectionEnabled": false,
+    "automatic280FallbackEnabled": false,
+    "unknownOrIncompleteInputDecision": "ReviewRequired",
+    "explicitEmptyCompletedEnumerationDecision": "NoNpuDriverRequired",
+    "multipleDeviceInstances": "Resolve each NPU device instance independently. Do not flatten several device instances into one HardwareID set."
+  },
+  "sources": [
+    {
+      "id": "reviewed-376-inf",
+      "type": "PayloadObserved",
+      "artifactSha256": "aa836cbfcad5d0782c79b58f197aa50624af37e7cb8311c5f94d85b0dc3ccaad",
+      "componentSha256": "c2a448340a9e802faa81b7c03fda0009d52cbfe86be5e915134dac39ab9c8008",
+      "statement": "The reviewed 376 kipudrv.inf contains PCI\\VEN_1022&DEV_1502 and PCI\\VEN_1022&DEV_17F0 models with NTamd64.10.0...22000 decoration."
+    },
+    {
+      "id": "reviewed-280-inf",
+      "type": "PayloadObserved",
+      "artifactSha256": "803afe1e2d75b717f60a368453306ccbd4877cdd936b6531b946b95109a22144",
+      "statement": "The reviewed current 280 package is retained in the research corpus, but shared broad INF applicability does not make it an automatic selection or fallback."
+    },
+    {
+      "id": "observed-z2-runtime-20260813",
+      "type": "ObservedClientRuntime",
+      "evidenceArchiveSha256": "f10c70ef8a6d1621f36bd1e0ce1e91b915af3a684e7754cff26fb99308d4258e",
+      "statement": "One reviewed Windows Client host with PCI\\VEN_1022&DEV_17F0&SUBSYS_20CF1043&REV_10 used an exact reviewed 376 INF/ipustack/xrt-smi stack successfully. This is a positive control, not Windows Server runtime proof."
+    }
+  ],
+  "tracks": [
+    {
+      "track": "376",
+      "role": "PreferredProductionTrack",
+      "artifactFileName": "NPU_RAI_376_WHQL.zip",
+      "artifactSha256": "aa836cbfcad5d0782c79b58f197aa50624af37e7cb8311c5f94d85b0dc3ccaad",
+      "infPath": "npu_mcdm_stack_prod/kipudrv.inf",
+      "infSha256": "c2a448340a9e802faa81b7c03fda0009d52cbfe86be5e915134dac39ab9c8008",
+      "minimumWindowsBuild": 22000,
+      "hardwareIdPatterns": [
+        "PCI\\VEN_1022&DEV_1502",
+        "PCI\\VEN_1022&DEV_17F0"
+      ],
+      "automaticSelectionEnabled": true,
+      "runtimeProof": false,
+      "sourceIds": [
+        "reviewed-376-inf",
+        "observed-z2-runtime-20260813"
+      ]
+    },
+    {
+      "track": "280",
+      "role": "RetainedResearchTrack",
+      "artifactFileName": "NPU_RAI_280_WHQL.zip",
+      "artifactSha256": "803afe1e2d75b717f60a368453306ccbd4877cdd936b6531b946b95109a22144",
+      "infPath": "npu_mcdm_stack_prod/kipudrv.inf",
+      "infSha256": "36f5b8c4274add4d886943ad2036c206132c85b3d2fbfb576c629439e2002b81",
+      "minimumWindowsBuild": 22000,
+      "hardwareIdPatterns": [
+        "PCI\\VEN_1022&DEV_1502",
+        "PCI\\VEN_1022&DEV_17F0"
+      ],
+      "automaticSelectionEnabled": false,
+      "runtimeProof": false,
+      "sourceIds": [
+        "reviewed-280-inf"
+      ]
+    }
+  ]
+}

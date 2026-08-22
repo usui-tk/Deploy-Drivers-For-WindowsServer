@@ -1,1 +1,1597 @@
-{"SchemaVersion":"1.0","ToolkitVersion":"2.0.0","GeneratedAtUtc":"2026-08-12T06:11:40.1485752Z","Releases":[{"ReleaseVersion":"2.04.04.111","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/amd-ryzen--chipset-driver-release-notes--2-04-04-111-.html","ArticleNumber":"RN-RYZEN-CHIPSET-2-04-04-111","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes (2.04.04.111)","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:16.5963538Z","HtmlEvidencePath":"external-path/2.04.04.111.html","HtmlSha256":"46d08379e5701bcd45f5322161c97f3116f3bf8df355f1c8943672bb4c6e09c0","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_chipset_software_2.04.04.111.zip","https://drivers.amd.com/drivers/amd_chipset_software_win10_2.04.04.111.zip","https://drivers.amd.com/drivers/amd_software_2.04.04.111.zip","https://drivers.amd.com/drivers/amd_chipset_software_2.04.04.111.exe","https://drivers.amd.com/drivers/amd_software_2.04.04.111.exe"]},{"ReleaseVersion":"3.08.17.735","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-08-17-735.html","ArticleNumber":"RN-RYZEN-CHIPSET-3-08-17-735","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes (3.08.17.735)","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:16.7239747Z","HtmlEvidencePath":"external-path/3.08.17.735.html","HtmlSha256":"46f4715b3ae0d2b015cba0d724f13cfabda0f5179160c9a42aeb86feed531ddb","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_chipset_software_3.08.17.735.zip","https://drivers.amd.com/drivers/amd_chipset_software_win10_3.08.17.735.zip","https://drivers.amd.com/drivers/amd_software_3.08.17.735.zip","https://drivers.amd.com/drivers/amd_chipset_software_3.08.17.735.exe","https://drivers.amd.com/drivers/amd_software_3.08.17.735.exe"]},{"ReleaseVersion":"3.09.01.140","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-09-01-140.html","ArticleNumber":"RN-RYZEN-CHIPSET-3-09-01-140","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes (3.09.01.140)","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:16.8715426Z","HtmlEvidencePath":"external-path/3.09.01.140.html","HtmlSha256":"768f077b8e146440b1e01318e4f2b885439e83dd4b4ba9b8b0c669d16ee7df17","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_chipset_software_3.09.01.140.zip","https://drivers.amd.com/drivers/amd_chipset_software_win10_3.09.01.140.zip","https://drivers.amd.com/drivers/amd_software_3.09.01.140.zip","https://drivers.amd.com/drivers/amd_chipset_software_3.09.01.140.exe","https://drivers.amd.com/drivers/amd_software_3.09.01.140.exe"]},{"ReleaseVersion":"3.10.08.506","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-10-08-506.html","ArticleNumber":"RN-RYZEN-CHIPSET-3-10-08-506","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes (3.10.08.506)","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:16.9988146Z","HtmlEvidencePath":"external-path/3.10.08.506.html","HtmlSha256":"4c447b9967ef418aef127a13dae0859d45ccd63bb629b4395ce78250729411fb","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_chipset_software_3.10.08.506.exe","https://drivers.amd.com/drivers/amd_chipset_software_3.10.08.506.zip","https://drivers.amd.com/drivers/amd_chipset_software_win10_3.10.08.506.zip","https://drivers.amd.com/drivers/amd_software_3.10.08.506.zip","https://drivers.amd.com/drivers/amd_software_3.10.08.506.exe"]},{"ReleaseVersion":"4.03.03.431","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-03-03-431.html","ArticleNumber":"RN-RYZEN-CHIPSET-4-03-03-431","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes 4.03.03.431","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:17.2672440Z","HtmlEvidencePath":"external-path/4.03.03.431.html","HtmlSha256":"40cb352fc495f0cea202370b31a212b610a81bdc132c4402aedc4d717f6526e2","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_chipset_software_4.03.03.431.exe","https://drivers.amd.com/drivers/amd_software_4.03.03.431.exe","https://drivers.amd.com/drivers/amd_chipset_software_4.03.03.431.zip"]},{"ReleaseVersion":"4.06.10.651","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-06-10-651.html","ArticleNumber":"RN-RYZEN-CHIPSET-4-06-10-651","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes 4.06.10.651","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:17.3963682Z","HtmlEvidencePath":"external-path/4.06.10.651.html","HtmlSha256":"b256905e03b66f603da8d51182fc2eaf4c5517af6b033128f60142e467ba1022","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_chipset_software_4.06.10.651.exe","https://drivers.amd.com/drivers/amd_software_4.06.10.651.exe","https://drivers.amd.com/drivers/amd_chipset_software_4.06.10.651.zip"]},{"ReleaseVersion":"4.08.09.2337","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-08-09-2337.html","ArticleNumber":"RN-RYZEN-CHIPSET-4-08-09-2337","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes 4.08.09.2337","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:17.5402813Z","HtmlEvidencePath":"external-path/4.08.09.2337.html","HtmlSha256":"bf1802d2001aae3ddd8a7511350808df148f9a2d0429690bc651ae536c54820f","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_chipset_software_4.08.09.2337.exe","https://drivers.amd.com/drivers/amd_software_4.08.09.2337.exe","https://drivers.amd.com/drivers/amd_chipset_software_4.08.09.2337.zip"]},{"ReleaseVersion":"4.09.23.507","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-09-23-507.html","ArticleNumber":"RN-RYZEN-CHIPSET-4-09-23-507","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes 4.09.23.507","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:17.6759641Z","HtmlEvidencePath":"external-path/4.09.23.507.html","HtmlSha256":"66c62546867c63285ccc7b1e0f5abe5d19f7a86ee9fd803c6716e7fa48934c5f","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_chipset_software_4.09.23.507.exe","https://drivers.amd.com/drivers/amd_software_4.09.23.507.exe","https://drivers.amd.com/drivers/amd_chipset_software_4.09.23.507.zip"]},{"ReleaseVersion":"4.11.15.342","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-11-15-342.html","ArticleNumber":"RN-RYZEN-CHIPSET-4-11-15-342","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes 4.11.15.342","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:17.8133434Z","HtmlEvidencePath":"external-path/4.11.15.342.html","HtmlSha256":"1c2144a8b2451c20bc18f39b05cd6ab45034080cb904b52ed4a3a36944f60b10","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_chipset_software_4.11.15.342.exe","https://drivers.amd.com/drivers/amd_software_4.11.15.342.exe","https://drivers.amd.com/drivers/amd_chipset_software_4.11.15.342.zip"]},{"ReleaseVersion":"5.02.19.2221","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-02-19-2221.html","ArticleNumber":"RN-RYZEN-CHIPSET-5-02-19-2221","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes 5.02.19.2221","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:17.9385972Z","HtmlEvidencePath":"external-path/5.02.19.2221.html","HtmlSha256":"b88cfccf908b74e65d6c7a01969562f1976b86a5fe987524b5fae886647e49e8","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_chipset_software_5.02.19.2221.exe","https://drivers.amd.com/drivers/amd_software_5.02.19.2221.exe","https://drivers.amd.com/drivers/amd_chipset_software_5.02.19.2221.zip"]},{"ReleaseVersion":"5.05.16.529","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-05-16-529.html","ArticleNumber":"RN-RYZEN-CHIPSET-5-05-16-529","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes 5.05.16.529","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:18.0718851Z","HtmlEvidencePath":"external-path/5.05.16.529.html","HtmlSha256":"e013e40e109725573f0f36217268ece33bd9e4e9db07733b5f32802516913009","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_chipset_software_5.05.16.529.exe","https://drivers.amd.com/drivers/amd_software_5.05.16.529.exe","https://drivers.amd.com/drivers/amd_chipset_software_5.05.16.529.zip"]},{"ReleaseVersion":"5.08.02.027","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-08-02-027.html","ArticleNumber":"RN-RYZEN-CHIPSET-5-08-02-027","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes 5.08.02.027","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:18.1948337Z","HtmlEvidencePath":"external-path/5.08.02.027.html","HtmlSha256":"f97482e3bec16e8f594e73c26d68f793182aa2615fbb765073dad99997c8fd0c","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_chipset_software_5.08.02.027.exe","https://drivers.amd.com/drivers/amd_software_5.08.02.027.exe","https://drivers.amd.com/drivers/amd_chipset_software_5.08.02.027.zip"]},{"ReleaseVersion":"6.01.25.342","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-01-25-342.html","ArticleNumber":"RN-RYZEN-CHIPSET-6-01-25-342","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes 6.01.25.342","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:18.3160189Z","HtmlEvidencePath":"external-path/6.01.25.342.html","HtmlSha256":"f604b2b25ad3e2a70c6e972dd86402e696a3eb9a059849540a6825f45c53fdfc","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_chipset_software_6.01.25.342.exe","https://drivers.amd.com/drivers/amd_software_6.01.25.342.exe","https://drivers.amd.com/drivers/amd_chipset_software_6.01.25.342.zip"]},{"ReleaseVersion":"6.02.07.2300","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/amd-ryzen--chipset-driver-release-notes-6-02-07-2300.html","ArticleNumber":"RN-RYZEN-CHIPSET-6-02-07-2300","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes 6.02.07.2300","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:18.4399067Z","HtmlEvidencePath":"external-path/6.02.07.2300.html","HtmlSha256":"6aef2a8a651ae23758c1df51ab616a14632b659c019f47dc3c8a622c8c76b340","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_chipset_software_6.02.07.2300.exe","https://drivers.amd.com/drivers/amd_software_6.02.07.2300.exe","https://drivers.amd.com/drivers/amd_chipset_software_6.02.07.2300.zip"]},{"ReleaseVersion":"6.05.28.016","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-05-28-016.html","ArticleNumber":"RN-RYZEN-CHIPSET-6-05-28-016","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes 6.05.28.016","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:18.5601719Z","HtmlEvidencePath":"external-path/6.05.28.016.html","HtmlSha256":"08740936bb5a66641fe97383df2ca1975bada26c1c603864a0cb52476d30d110","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_chipset_software_6.05.28.016.exe","https://drivers.amd.com/drivers/amd_software_6.05.28.016.exe","https://drivers.amd.com/drivers/amd_chipset_software_6.05.28.016.zip"]},{"ReleaseVersion":"6.07.22.037","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/rn-ryzen-chipset-6-07-22-037-.html","ArticleNumber":"RN-RYZEN-CHIPSET-6-07-22-037","PageTitle":"RN-RYZEN-CHIPSET-6-07-22-037","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:18.6806407Z","HtmlEvidencePath":"external-path/6.07.22.037.html","HtmlSha256":"3bf21b9bf19f5ea48affebcd794cac7ee243055ee8cb51f94ea0be1e62a342bb","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_chipset_software_6.07.22.037.exe","https://drivers.amd.com/drivers/amd_software_6.07.22.037.exe","https://drivers.amd.com/drivers/amd_chipset_software_6.07.22.037.zip"]},{"ReleaseVersion":"6.10.17.152","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-10-17-152.html","ArticleNumber":"RN-RYZEN-CHIPSET-6-10-17-152","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes 6.10.17.152","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:18.8027432Z","HtmlEvidencePath":"external-path/6.10.17.152.html","HtmlSha256":"5fd255a1fd6d01ee0970650fd0ec861929c0ee9301d2d11a27533d8a0feb066a","CandidateDownloadUrls":["https://drivers.amd.com/drivers/AMD_Chipset_Software_6.10.17.152.exe","https://drivers.amd.com/drivers/amd_chipset_software_6.10.17.152.exe","https://drivers.amd.com/drivers/amd_software_6.10.17.152.exe","https://drivers.amd.com/drivers/amd_chipset_software_6.10.17.152.zip"]},{"ReleaseVersion":"7.02.13.148","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-10-17-152/RN-RYZEN-CHIPSET-7-02-13-148.html","ArticleNumber":"RN-RYZEN-CHIPSET-7-02-13-148","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes 7.02.13.148","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:18.9237747Z","HtmlEvidencePath":"external-path/7.02.13.148.html","HtmlSha256":"f7cd67db258f75cff037355394178a256e7eb5e2905e9c5c878a9bf7c35336b3","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_chipset_software_7.02.13.148.exe","https://drivers.amd.com/drivers/amd_software_7.02.13.148.exe","https://drivers.amd.com/drivers/amd_chipset_software_7.02.13.148.zip"]},{"ReleaseVersion":"7.04.09.545","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-04-09-545.html","ArticleNumber":"RN-RYZEN-CHIPSET-7-04-09-545","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes 7.04.09.545","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:19.0487450Z","HtmlEvidencePath":"external-path/7.04.09.545.html","HtmlSha256":"88152c1d89d79e6b639dc41bc6f32078f5744dad4f70a0eb811e3bc3a03ad06a","CandidateDownloadUrls":["https://drivers.amd.com/drivers/AMD_Chipset_Software_7.04.09.545.exe","https://drivers.amd.com/drivers/amd_chipset_software_7.04.09.545.exe","https://drivers.amd.com/drivers/amd_software_7.04.09.545.exe","https://drivers.amd.com/drivers/amd_chipset_software_7.04.09.545.zip"]},{"ReleaseVersion":"7.06.02.123","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-06-02-123.html","ArticleNumber":"RN-RYZEN-CHIPSET-7-06-02-123","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes 7.06.02.123","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:19.1778946Z","HtmlEvidencePath":"external-path/7.06.02.123.html","HtmlSha256":"a916482388cb35ed7ee2af5c14f57233bd0ef4b568cb3f27c0853761cca382b7","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_chipset_software_7.06.02.123.exe","https://drivers.amd.com/drivers/amd_software_7.06.02.123.exe","https://drivers.amd.com/drivers/amd_chipset_software_7.06.02.123.zip"]},{"ReleaseVersion":"7.11.26.2142","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-11-26-2142.html","ArticleNumber":"RN-RYZEN-CHIPSET-7-11-26-2142","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes 7.11.26.2142","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:19.3035042Z","HtmlEvidencePath":"external-path/7.11.26.2142.html","HtmlSha256":"3fc719e916b1c1f5d4384a1172d141e1be7506942f56186cb73e0e725359c1dd","CandidateDownloadUrls":["https://drivers.amd.com/drivers/AMD_Chipset_Software_7.11.26.2142.exe","https://drivers.amd.com/drivers/amd_chipset_software_7.11.26.2142.exe","https://drivers.amd.com/drivers/amd_software_7.11.26.2142.exe","https://drivers.amd.com/drivers/amd_chipset_software_7.11.26.2142.zip"]},{"ReleaseVersion":"8.01.20.513","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-01-20-513.html","ArticleNumber":"RN-RYZEN-CHIPSET-8-01-20-513","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes 8.01.20.513","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:19.4297849Z","HtmlEvidencePath":"external-path/8.01.20.513.html","HtmlSha256":"2c52e5a6276b6cb76042b0c48a274976238e61208e60d8077e46300e62a55e6c","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_chipset_software_8.01.20.513.exe","https://drivers.amd.com/drivers/amd_software_8.01.20.513.exe","https://drivers.amd.com/drivers/amd_chipset_software_8.01.20.513.zip"]},{"ReleaseVersion":"8.02.18.557","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-02-18-557.html","ArticleNumber":"RN-RYZEN-CHIPSET-8-02-18-557","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes 8.02.18.557","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:19.5553283Z","HtmlEvidencePath":"external-path/8.02.18.557.html","HtmlSha256":"fd544e6a072ccdfa58bd69ec89aecfd010d205e7db9e9d6261af383f1156c1ad","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_chipset_software_8.02.18.557.exe","https://drivers.amd.com/drivers/amd_software_8.02.18.557.exe","https://drivers.amd.com/drivers/amd_chipset_software_8.02.18.557.zip"]},{"ReleaseVersion":"8.05.04.516","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-05-04-516.html","ArticleNumber":"RN-RYZEN-CHIPSET-8-05-04-516","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes 8.05.04.516","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:19.6796958Z","HtmlEvidencePath":"external-path/8.05.04.516.html","HtmlSha256":"4f0c3c7e89bb6c95d5f34536766395e6fe5fa26fd32ef45b046280f8c10d810d","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_chipset_software_8.05.04.516.exe","https://drivers.amd.com/drivers/amd_software_8.05.04.516.exe","https://drivers.amd.com/drivers/amd_chipset_software_8.05.04.516.zip"]},{"ReleaseVersion":"8.07.16.1035","ReleaseNotesUrl":"https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-07-16-1035.html","ArticleNumber":"RN-RYZEN-CHIPSET-8-07-16-1035","PageTitle":"AMD Ryzen™ Chipset Driver Release Notes 8.07.16.1035","FetchStatus":"Fetched","FetchError":null,"RetrievedAtUtc":"2026-08-12T05:50:19.8030052Z","HtmlEvidencePath":"external-path/8.07.16.1035.html","HtmlSha256":"a26e6f76119e50b68025b57a17b42be252d8612bc4d270b9d9e5562482a412fd","CandidateDownloadUrls":["https://drivers.amd.com/drivers/amd_software_8.07.16.1035.exe","https://drivers.amd.com/drivers/amd_chipset_software_8.07.16.1035.exe","https://drivers.amd.com/drivers/amd_chipset_software_8.07.16.1035.zip"]}]}
+{
+  "SchemaVersion": "1.0",
+  "ToolkitVersion": "3.0.0",
+  "GeneratedAtUtc": "2026-08-21T13:02:21.6384284Z",
+  "Releases": [
+    {
+      "ReleaseVersion": "2.04.04.111",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/amd-ryzen--chipset-driver-release-notes--2-04-04-111-.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/amd-ryzen--chipset-driver-release-notes--2-04-04-111-.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/amd-ryzen--chipset-driver-release-notes--2-04-04-111-.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-2-04-04-111",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes (2.04.04.111)",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/amd-ryzen--chipset-driver-release-notes--2-04-04-111-.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/amd-ryzen--chipset-driver-release-notes--2-04-04-111-.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 22563 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=333,origin; dur=0,ak_p; desc=\"1787315786827_399782056_1761726091_33243_11904_19_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:27 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:27 GMT",
+              "Last-Modified": "Fri, 21 Aug 2026 07:23:02 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:24.5603080Z",
+      "HtmlEvidencePath": "external-path/2.04.04.111.html",
+      "HtmlSha256": "4d255ff55d39a6790dd8cdac622ef8b0a9c5a5a6005c416707ab6843fb6d7e79",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_2.04.04.111.zip",
+        "https://drivers.amd.com/drivers/amd_chipset_software_win10_2.04.04.111.zip",
+        "https://drivers.amd.com/drivers/amd_software_2.04.04.111.zip",
+        "https://drivers.amd.com/drivers/amd_chipset_software_2.04.04.111.exe",
+        "https://drivers.amd.com/drivers/amd_software_2.04.04.111.exe"
+      ]
+    },
+    {
+      "ReleaseVersion": "3.08.17.735",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-08-17-735.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-08-17-735.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-08-17-735.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-3-08-17-735",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes (3.08.17.735)",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-08-17-735.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-08-17-735.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 21428 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=181,origin; dur=0,ak_p; desc=\"1787315787312_399782056_1761727701_18149_13561_15_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:27 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:27 GMT",
+              "Last-Modified": "Thu, 20 Aug 2026 16:46:59 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:24.8748655Z",
+      "HtmlEvidencePath": "external-path/3.08.17.735.html",
+      "HtmlSha256": "c557074d19a3847c8c2748e5ec17e7423ffe072ba09e61010765d3c38051765c",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_3.08.17.735.zip",
+        "https://drivers.amd.com/drivers/amd_chipset_software_win10_3.08.17.735.zip",
+        "https://drivers.amd.com/drivers/amd_software_3.08.17.735.zip",
+        "https://drivers.amd.com/drivers/amd_chipset_software_3.08.17.735.exe",
+        "https://drivers.amd.com/drivers/amd_software_3.08.17.735.exe"
+      ]
+    },
+    {
+      "ReleaseVersion": "3.09.01.140",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-09-01-140.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-09-01-140.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-09-01-140.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-3-09-01-140",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes (3.09.01.140)",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-09-01-140.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-09-01-140.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 21522 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=191,origin; dur=0,ak_p; desc=\"1787315787631_399782056_1761728738_19426_13699_15_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:27 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:27 GMT",
+              "Last-Modified": "Fri, 21 Aug 2026 02:35:04 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:25.1946663Z",
+      "HtmlEvidencePath": "external-path/3.09.01.140.html",
+      "HtmlSha256": "d47a07e7a639bab69d4eec98396cb32791c96dacbb8a864980d8f6ada922db95",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_3.09.01.140.zip",
+        "https://drivers.amd.com/drivers/amd_chipset_software_win10_3.09.01.140.zip",
+        "https://drivers.amd.com/drivers/amd_software_3.09.01.140.zip",
+        "https://drivers.amd.com/drivers/amd_chipset_software_3.09.01.140.exe",
+        "https://drivers.amd.com/drivers/amd_software_3.09.01.140.exe"
+      ]
+    },
+    {
+      "ReleaseVersion": "3.10.08.506",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-10-08-506.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-10-08-506.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-10-08-506.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-3-10-08-506",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes (3.10.08.506)",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-10-08-506.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-3-10-08-506.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 21964 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=159,origin; dur=0,ak_p; desc=\"1787315787976_399782056_1761729688_16984_14345_15_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:28 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:28 GMT",
+              "Last-Modified": "Thu, 20 Aug 2026 17:53:24 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:25.5622802Z",
+      "HtmlEvidencePath": "external-path/3.10.08.506.html",
+      "HtmlSha256": "874e646a9b5d10e6c9a4deb37762014452eca8f26d1a417fbeeb384f6a63ca3f",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_3.10.08.506.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_3.10.08.506.zip",
+        "https://drivers.amd.com/drivers/amd_chipset_software_win10_3.10.08.506.zip",
+        "https://drivers.amd.com/drivers/amd_software_3.10.08.506.zip",
+        "https://drivers.amd.com/drivers/amd_software_3.10.08.506.exe"
+      ]
+    },
+    {
+      "ReleaseVersion": "4.03.03.431",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-03-03-431.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-03-03-431.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-03-03-431.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-4-03-03-431",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 4.03.03.431",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-03-03-431.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-03-03-431.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 21905 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=190,origin; dur=0,ak_p; desc=\"1787315788312_399782056_1761730688_18972_12313_16_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:28 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:28 GMT",
+              "Last-Modified": "Fri, 21 Aug 2026 08:30:31 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:25.8809905Z",
+      "HtmlEvidencePath": "external-path/4.03.03.431.html",
+      "HtmlSha256": "4b0bd967f800db550954dd1222d6b51470c9a3e4405f86bd244cd3b7b6f7bc04",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_4.03.03.431.exe",
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_4.03.03.431.exe",
+        "https://drivers.amd.com/drivers/amd_software_4.03.03.431.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_4.03.03.431.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "4.06.10.651",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-06-10-651.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-06-10-651.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-06-10-651.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-4-06-10-651",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 4.06.10.651",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-06-10-651.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-06-10-651.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 22004 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=153,origin; dur=0,ak_p; desc=\"1787315788633_399782056_1761731755_15280_11746_15_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:28 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:28 GMT",
+              "Last-Modified": "Thu, 20 Aug 2026 21:44:16 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:26.1643165Z",
+      "HtmlEvidencePath": "external-path/4.06.10.651.html",
+      "HtmlSha256": "83170bdcef49dc4d570d771a8575cfbefed29a5c5761d63566f6d4850237f7c8",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_4.06.10.651.exe",
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_4.06.10.651.exe",
+        "https://drivers.amd.com/drivers/amd_software_4.06.10.651.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_4.06.10.651.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "4.08.09.2337",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-08-09-2337.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-08-09-2337.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-08-09-2337.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-4-08-09-2337",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 4.08.09.2337",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-08-09-2337.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-08-09-2337.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 21968 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=151,origin; dur=0,ak_p; desc=\"1787315788924_399782056_1761732526_15710_11360_15_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:29 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:29 GMT",
+              "Last-Modified": "Fri, 21 Aug 2026 02:09:03 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:26.4440730Z",
+      "HtmlEvidencePath": "external-path/4.08.09.2337.html",
+      "HtmlSha256": "aef2ec540a378d12ff8f8bce1229e6d77d063d33ee4cb92062a13b678636bba6",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_4.08.09.2337.exe",
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_4.08.09.2337.exe",
+        "https://drivers.amd.com/drivers/amd_software_4.08.09.2337.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_4.08.09.2337.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "4.09.23.507",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-09-23-507.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-09-23-507.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-09-23-507.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-4-09-23-507",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 4.09.23.507",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-09-23-507.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-09-23-507.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 21919 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=201,origin; dur=0,ak_p; desc=\"1787315789194_399782056_1761733374_19999_13949_16_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:29 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:29 GMT",
+              "Last-Modified": "Thu, 20 Aug 2026 17:49:13 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:26.7830890Z",
+      "HtmlEvidencePath": "external-path/4.09.23.507.html",
+      "HtmlSha256": "97c12712a7b24a761c44605f691f7fb5091c324c7f26039f152091bbdc8d74e3",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_4.09.23.507.exe",
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_4.09.23.507.exe",
+        "https://drivers.amd.com/drivers/amd_software_4.09.23.507.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_4.09.23.507.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "4.11.15.342",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-11-15-342.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-11-15-342.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-11-15-342.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-4-11-15-342",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 4.11.15.342",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-11-15-342.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-4-11-15-342.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 22059 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=382,origin; dur=0,ak_p; desc=\"1787315789540_399782056_1761734267_39162_14507_15_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:29 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:29 GMT",
+              "Last-Modified": "Fri, 21 Aug 2026 01:38:42 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:27.2955756Z",
+      "HtmlEvidencePath": "external-path/4.11.15.342.html",
+      "HtmlSha256": "c970e3cdae3fa03d814a16dd7befbea8fa754bf2ee446105a379c8f4c79aa535",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_4.11.15.342.exe",
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_4.11.15.342.exe",
+        "https://drivers.amd.com/drivers/amd_software_4.11.15.342.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_4.11.15.342.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "5.02.19.2221",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-02-19-2221.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-02-19-2221.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-02-19-2221.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-5-02-19-2221",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 5.02.19.2221",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-02-19-2221.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-02-19-2221.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 22063 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=148,origin; dur=0,ak_p; desc=\"1787315790046_399782056_1761735810_14712_13307_22_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:30 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:30 GMT",
+              "Last-Modified": "Fri, 21 Aug 2026 11:35:26 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:27.5642642Z",
+      "HtmlEvidencePath": "external-path/5.02.19.2221.html",
+      "HtmlSha256": "4baa8e5004e1f5f21a1495ba5d77f9d519a8ca96bc75214d6d6289849913810c",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_5.02.19.2221.exe",
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_5.02.19.2221.exe",
+        "https://drivers.amd.com/drivers/amd_software_5.02.19.2221.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_5.02.19.2221.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "5.05.16.529",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-05-16-529.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-05-16-529.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-05-16-529.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-5-05-16-529",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 5.05.16.529",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-05-16-529.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-05-16-529.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 20114 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=192,ak_p; desc=\"1787315790394_399782056_1761736542_26257_11704_22_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:30 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:30 GMT",
+              "Last-Modified": "Fri, 21 Aug 2026 11:58:14 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:27.9609059Z",
+      "HtmlEvidencePath": "external-path/5.05.16.529.html",
+      "HtmlSha256": "fbab4f5ab8311e63ac587499b25923e0f4fbf81b5e6db348240bfd0bef1b0422",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_5.05.16.529.exe",
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_5.05.16.529.exe",
+        "https://drivers.amd.com/drivers/amd_software_5.05.16.529.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_5.05.16.529.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "5.08.02.027",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-08-02-027.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-08-02-027.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-08-02-027.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-5-08-02-027",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 5.08.02.027",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-08-02-027.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-5-08-02-027.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 20235 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=149,origin; dur=0,ak_p; desc=\"1787315790711_399782056_1761737757_14909_12155_15_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:30 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:30 GMT",
+              "Last-Modified": "Thu, 20 Aug 2026 16:04:31 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:28.2338340Z",
+      "HtmlEvidencePath": "external-path/5.08.02.027.html",
+      "HtmlSha256": "05eb8e277d7dfb3d659661e18f60ed49559ff34c3a1241817bba5964cb07d50d",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_5.08.02.027.exe",
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_5.08.02.027.exe",
+        "https://drivers.amd.com/drivers/amd_software_5.08.02.027.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_5.08.02.027.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "6.01.25.342",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-01-25-342.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-01-25-342.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-01-25-342.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-6-01-25-342",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 6.01.25.342",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-01-25-342.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-01-25-342.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 22380 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=148,origin; dur=0,ak_p; desc=\"1787315790986_399782056_1761738576_14791_12089_21_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:31 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:31 GMT",
+              "Last-Modified": "Thu, 20 Aug 2026 21:32:22 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:28.5045316Z",
+      "HtmlEvidencePath": "external-path/6.01.25.342.html",
+      "HtmlSha256": "fc0dec4e7dd5797d71a07a969bb98e29293a32df13647aea31aa3fecf56ad99b",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_6.01.25.342.exe",
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_6.01.25.342.exe",
+        "https://drivers.amd.com/drivers/amd_software_6.01.25.342.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_6.01.25.342.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "6.02.07.2300",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/amd-ryzen--chipset-driver-release-notes-6-02-07-2300.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/amd-ryzen--chipset-driver-release-notes-6-02-07-2300.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/amd-ryzen--chipset-driver-release-notes-6-02-07-2300.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-6-02-07-2300",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 6.02.07.2300",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/amd-ryzen--chipset-driver-release-notes-6-02-07-2300.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/amd-ryzen--chipset-driver-release-notes-6-02-07-2300.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 21911 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=170,origin; dur=0,ak_p; desc=\"1787315791256_399782056_1761739373_16959_11976_20_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:31 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:31 GMT",
+              "Last-Modified": "Fri, 21 Aug 2026 02:34:05 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:28.7958531Z",
+      "HtmlEvidencePath": "external-path/6.02.07.2300.html",
+      "HtmlSha256": "5e8aad2ddac1c1d9f5bbd82f5febb9f5dabdef90ce3f2111307ca719c701db07",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_6.02.07.2300.exe",
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_6.02.07.2300.exe",
+        "https://drivers.amd.com/drivers/amd_software_6.02.07.2300.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_6.02.07.2300.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "6.05.28.016",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-05-28-016.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-05-28-016.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-05-28-016.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-6-05-28-016",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 6.05.28.016",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-05-28-016.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-05-28-016.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 22091 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=159,origin; dur=0,ak_p; desc=\"1787315791546_399782056_1761740213_15937_15569_22_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:31 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:31 GMT",
+              "Last-Modified": "Thu, 20 Aug 2026 21:44:16 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:29.0791132Z",
+      "HtmlEvidencePath": "external-path/6.05.28.016.html",
+      "HtmlSha256": "d8645264d815152f103c76fee2d4f658bace3f557831a8b37a7caa862be23749",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_6.05.28.016.exe",
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_6.05.28.016.exe",
+        "https://drivers.amd.com/drivers/amd_software_6.05.28.016.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_6.05.28.016.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "6.07.22.037",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/rn-ryzen-chipset-6-07-22-037-.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/rn-ryzen-chipset-6-07-22-037-.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/rn-ryzen-chipset-6-07-22-037-.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-6-07-22-037",
+      "PageTitle": "RN-RYZEN-CHIPSET-6-07-22-037",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/rn-ryzen-chipset-6-07-22-037-.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/rn-ryzen-chipset-6-07-22-037-.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 22217 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=168,origin; dur=0,ak_p; desc=\"1787315791832_399782056_1761741059_16773_12899_15_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:32 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:32 GMT",
+              "Last-Modified": "Fri, 21 Aug 2026 06:27:58 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:29.3794780Z",
+      "HtmlEvidencePath": "external-path/6.07.22.037.html",
+      "HtmlSha256": "13fa00a163df2a73164f953e2de0aa58052013aa27b9acef01a447875ac98279",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_6.07.22.037.exe",
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_6.07.22.037.exe",
+        "https://drivers.amd.com/drivers/amd_software_6.07.22.037.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_6.07.22.037.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "6.10.17.152",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-10-17-152.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-10-17-152.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-10-17-152.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-6-10-17-152",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 6.10.17.152",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-10-17-152.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-10-17-152.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 22340 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=139,origin; dur=0,ak_p; desc=\"1787315792131_399782056_1761741889_13853_15900_25_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:32 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:32 GMT",
+              "Last-Modified": "Fri, 21 Aug 2026 08:05:16 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:29.6437264Z",
+      "HtmlEvidencePath": "external-path/6.10.17.152.html",
+      "HtmlSha256": "67e8f6952d91a61a1d5cb61e23773ae974fd8d5903248c20862ab4e0f96577ac",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_6.10.17.152.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_6.10.17.152.exe",
+        "https://drivers.amd.com/drivers/amd_software_6.10.17.152.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_6.10.17.152.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "7.02.13.148",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-10-17-152/RN-RYZEN-CHIPSET-7-02-13-148.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-10-17-152/RN-RYZEN-CHIPSET-7-02-13-148.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-10-17-152/RN-RYZEN-CHIPSET-7-02-13-148.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-7-02-13-148",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 7.02.13.148",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-10-17-152/RN-RYZEN-CHIPSET-7-02-13-148.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-6-10-17-152/RN-RYZEN-CHIPSET-7-02-13-148.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 22624 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=155,origin; dur=0,ak_p; desc=\"1787315792394_399782056_1761742670_15522_11152_15_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:32 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:32 GMT",
+              "Last-Modified": "Fri, 21 Aug 2026 08:56:03 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:29.9233039Z",
+      "HtmlEvidencePath": "external-path/7.02.13.148.html",
+      "HtmlSha256": "88fcf65d365f47d6d2805a145fb864313c7db0ca35cbdab2f938ecd721b93263",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_7.02.13.148.exe",
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_7.02.13.148.exe",
+        "https://drivers.amd.com/drivers/amd_software_7.02.13.148.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_7.02.13.148.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "7.04.09.545",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-04-09-545.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-04-09-545.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-04-09-545.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-7-04-09-545",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 7.04.09.545",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-04-09-545.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-04-09-545.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 22554 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=155,origin; dur=0,ak_p; desc=\"1787315792682_399782056_1761743511_16315_11632_16_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:32 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:32 GMT",
+              "Last-Modified": "Fri, 21 Aug 2026 02:01:43 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:30.2065283Z",
+      "HtmlEvidencePath": "external-path/7.04.09.545.html",
+      "HtmlSha256": "4de9e52b40e41c72e9aab3ebaf6fd2253017b578b5b554ccc4b42fa809174e99",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_7.04.09.545.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_7.04.09.545.exe",
+        "https://drivers.amd.com/drivers/amd_software_7.04.09.545.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_7.04.09.545.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "7.06.02.123",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-06-02-123.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-06-02-123.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-06-02-123.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-7-06-02-123",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 7.06.02.123",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-06-02-123.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-06-02-123.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 22586 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=168,origin; dur=0,ak_p; desc=\"1787315792960_399782056_1761744365_17082_12915_22_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:33 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:33 GMT",
+              "Last-Modified": "Fri, 21 Aug 2026 00:59:42 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:30.4959756Z",
+      "HtmlEvidencePath": "external-path/7.06.02.123.html",
+      "HtmlSha256": "ffe131d6bd6a3558d6d318e8cf999e10bf6adf36488e85c1e85f21cb4a0e4f52",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_7.06.02.123.exe",
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_7.06.02.123.exe",
+        "https://drivers.amd.com/drivers/amd_software_7.06.02.123.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_7.06.02.123.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "7.11.26.2142",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-11-26-2142.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-11-26-2142.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-11-26-2142.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-7-11-26-2142",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 7.11.26.2142",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-11-26-2142.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-7-11-26-2142.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 22658 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=137,origin; dur=0,ak_p; desc=\"1787315793254_399782056_1761745250_14849_14987_22_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:33 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:33 GMT",
+              "Last-Modified": "Thu, 20 Aug 2026 23:01:58 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:30.7645603Z",
+      "HtmlEvidencePath": "external-path/7.11.26.2142.html",
+      "HtmlSha256": "29a52d21115b649b8842b9f8629d552745cc8ac7a40dd5aaf07afc81524e6d31",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_7.11.26.2142.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_7.11.26.2142.exe",
+        "https://drivers.amd.com/drivers/amd_software_7.11.26.2142.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_7.11.26.2142.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "8.01.20.513",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-01-20-513.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-01-20-513.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-01-20-513.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-8-01-20-513",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 8.01.20.513",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-01-20-513.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-01-20-513.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 22753 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=155,origin; dur=0,ak_p; desc=\"1787315793516_399782056_1761746047_15495_12304_16_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:33 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:33 GMT",
+              "Last-Modified": "Fri, 21 Aug 2026 07:29:47 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:31.0432795Z",
+      "HtmlEvidencePath": "external-path/8.01.20.513.html",
+      "HtmlSha256": "063c32af534040237a76f99bb14d15fbdbc9ccc4f89de4d0c134475b8e5f427b",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_8.01.20.513.exe",
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_8.01.20.513.exe",
+        "https://drivers.amd.com/drivers/amd_software_8.01.20.513.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_8.01.20.513.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "8.02.18.557",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-02-18-557.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-02-18-557.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-02-18-557.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-8-02-18-557",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 8.02.18.557",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-02-18-557.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-02-18-557.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 22657 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=167,origin; dur=0,ak_p; desc=\"1787315793799_399782056_1761746860_17413_11575_16_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:33 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:33 GMT",
+              "Last-Modified": "Thu, 20 Aug 2026 22:11:45 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:31.3398385Z",
+      "HtmlEvidencePath": "external-path/8.02.18.557.html",
+      "HtmlSha256": "875ca3380dd4eb2d25c39d311606246395053ddcd03d4166923622eeb4ba37be",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_8.02.18.557.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_8.02.18.557.exe",
+        "https://drivers.amd.com/drivers/amd_software_8.02.18.557.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_8.02.18.557.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "8.05.04.516",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-05-04-516.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-05-04-516.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-05-04-516.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-8-05-04-516",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 8.05.04.516",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-05-04-516.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-05-04-516.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 22640 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=163,origin; dur=0,ak_p; desc=\"1787315794091_399782056_1761747741_16257_12950_21_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:34 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:34 GMT",
+              "Last-Modified": "Thu, 20 Aug 2026 18:06:03 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:31.6312916Z",
+      "HtmlEvidencePath": "external-path/8.05.04.516.html",
+      "HtmlSha256": "ec4b596ce53efa194b549fcea438b0673b616da922765a8ccf5aa2cf95d999c0",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_chipset_software_8.05.04.516.exe",
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_8.05.04.516.exe",
+        "https://drivers.amd.com/drivers/amd_software_8.05.04.516.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_8.05.04.516.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "8.07.16.1035",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-07-16-1035.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-07-16-1035.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-07-16-1035.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-8-07-16-1035",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 8.07.16.1035",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-07-16-1035.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-07-16-1035.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 22647 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=147,origin; dur=0,ak_p; desc=\"1787315794381_399782056_1761748673_14693_13684_16_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:34 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:34 GMT",
+              "Last-Modified": "Fri, 21 Aug 2026 09:18:18 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:31.9731106Z",
+      "HtmlEvidencePath": "external-path/8.07.16.1035.html",
+      "HtmlSha256": "445a25df0fffcc725d9dba4038da641cc82830afe4052271a232dcc5cadf8e7b",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/amd_software_8.07.16.1035.exe",
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_8.07.16.1035.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_8.07.16.1035.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_8.07.16.1035.zip"
+      ]
+    },
+    {
+      "ReleaseVersion": "8.08.12.551",
+      "RequestedReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-08-12-551.html",
+      "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-08-12-551.html",
+      "ReleaseNotesUrlCandidates": [
+        "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-08-12-551.html"
+      ],
+      "ArticleNumber": "RN-RYZEN-CHIPSET-8-08-12-551",
+      "PageTitle": "AMD Ryzen™ Chipset Driver Release Notes 8.08.12.551",
+      "FetchStatus": "Fetched",
+      "FetchError": null,
+      "FetchAttempts": [
+        {
+          "CandidateIndex": 1,
+          "CandidateUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-08-12-551.html",
+          "Attempt": {
+            "Attempt": 1,
+            "NoCache": false,
+            "DisableKeepAlive": false,
+            "StatusCode": 200,
+            "ResponseUri": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-08-12-551.html",
+            "ContentType": "text/html",
+            "RetryAfter": "",
+            "WebExceptionStatus": null,
+            "Classification": "Success",
+            "Retryable": false,
+            "RetryReason": null,
+            "DelayBeforeNextAttemptMilliseconds": 0,
+            "ResponseHeaders": {
+              "X-XSS-Protection": "1; mode=block",
+              "X-Content-Type-Options": "nosniff",
+              "X-Frame-Options": "deny",
+              "X-Akamai-Transformed": "9 22639 0 pmb=mRUM,2",
+              "Transfer-Encoding": "chunked",
+              "Connection": "keep-alive,Transfer-Encoding",
+              "Server-Timing": "cdn-cache; desc=HIT,edge; dur=1,ak_p; desc=\"1787315794726_399782056_1761749507_43_12338_17_0_-\";dur=1",
+              "Strict-Transport-Security": "max-age=31536000",
+              "Content-Security-Policy": "frame-ancestors 'self' https://amd.pathfactory.com *.reachcm.com reachcm.com",
+              "Cache-Control": "public, max-age=900",
+              "Content-Type": "text/html",
+              "Date": "Fri, 21 Aug 2026 12:36:34 GMT",
+              "Expires": "Fri, 21 Aug 2026 12:51:34 GMT",
+              "Last-Modified": "Thu, 20 Aug 2026 14:22:43 GMT",
+              "Set-Cookie": "<redacted>"
+            },
+            "ResponseBodyPreview": null,
+            "Error": null
+          }
+        }
+      ],
+      "RetrievedAtUtc": "2026-08-21T12:36:32.0999555Z",
+      "HtmlEvidencePath": "external-path/8.08.12.551.html",
+      "HtmlSha256": "fafaaa063ccc7aec7d16e659649da54b76a98d0de62de81ed23bcde5bc6bb27c",
+      "CandidateDerivation": "HtmlPlusVersionDerivedFallback",
+      "CandidateDownloadUrls": [
+        "https://drivers.amd.com/drivers/AMD_Chipset_Software_8.08.12.551.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_8.08.12.551.exe",
+        "https://drivers.amd.com/drivers/amd_software_8.08.12.551.exe",
+        "https://drivers.amd.com/drivers/amd_chipset_software_8.08.12.551.zip"
+      ]
+    }
+  ]
+}
