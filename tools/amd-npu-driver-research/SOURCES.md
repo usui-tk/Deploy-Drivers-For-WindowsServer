@@ -4,21 +4,38 @@ This file records upstream/public references and reviewed evidence inputs used b
 
 Source classes are intentionally separated so later deployment work can distinguish vendor publication, Microsoft selector semantics, upstream architecture context, exact package evidence, and observed runtime evidence.
 
-## 1. AMD Ryzen AI — current Windows support and driver publication
+## 1. AMD Ryzen AI — live and frozen Windows publication evidence
 
-- Installation instructions: https://ryzenai.docs.amd.com/en/latest/inst.html
+- Version-pinned Ryzen AI 1.8 installation instructions: https://ryzenai.docs.amd.com/en/1.8/inst.html
+- Moving latest installation alias: https://ryzenai.docs.amd.com/en/latest/inst.html
 - Release notes / supported configurations: https://ryzenai.docs.amd.com/en/latest/relnotes.html
 - Linux installation material: https://ryzenai.docs.amd.com/en/latest/linux.html
 - RyzenAI-SW repository: https://github.com/amd/RyzenAI-SW
 - AMD `npu_check` utility source: https://github.com/amd/RyzenAI-SW/blob/main/utilities/npu_check/npu_util.cpp
 
-Current reviewed Ryzen AI 1.8 documentation states:
+The AMD Ryzen AI 1.8 version-pinned installation page and its `latest` alias
+were rechecked on 2026-08-21. The version-pinned URL is the frozen citation;
+`latest` is retained only for live-drift checks because caches may serve older
+content under the same alias.
+It identifies Ryzen AI Software `1.8.0` and states:
 
-- Windows 11 build `>= 22621.3527` prerequisite for Ryzen AI Software;
-- NPU driver 32.0.203.280 or newer;
-- NPU driver `32.0.203.376` is production for Phoenix, Hawk Point, Strix, Strix Halo, and Krackan Point.
+- Windows 11 build `>= 22621.3527`;
+- NPU driver `32.0.203.280` or newer as the minimum driver requirement;
+- `32.0.203.376` as the production driver for Phoenix, Hawk Point, Strix,
+  Strix Halo and Krackan Point.
 
-These vendor publication facts are kept separate from the embedded INF `DriverVer` namespace.
+REV65 incorrectly inferred `1.7.1`/`280` from stale search-index material instead
+of the supplied authoritative page. The correction is recorded in
+`authored/NPU-LIVE-PUBLICATION-DRIFT-2026-08-21.md`. The reviewed `376`
+production-family statement agrees with current live AMD authority; it remains
+research guidance and does not by itself authorize deployment.
+
+Vendor publication facts remain separate from the
+embedded INF `DriverVer` namespace.
+
+For driver-track selection, the reviewed artifact INF is the machine applicability
+authority. AMD product/CPU pages and Linux architecture sources remain research and
+diagnostic provenance; they are not CPU/NPU mapping inputs to the Windows resolver.
 
 ## 2. Reviewed public NPU artifacts
 
@@ -66,6 +83,10 @@ NTamd64.10.0...22000
 ```
 
 Empty ProductType/SuiteMask values remain empty. They are not normalized into a workstation-only selector.
+
+The resolver consumes the complete Windows HardwareID/CompatibleID set for one
+enumerated NPU instance. PCI `SUBSYS` and `REV` are retained when present, but no
+more-specific selector is invented when the reviewed INF model is only VEN/DEV.
 
 ## 5. AMD CPU/NPU exact-SKU evidence
 
@@ -177,6 +198,8 @@ exact reviewed public-376 client stack
 It does not establish Windows Server runtime proof or STXA/STXB.
 
 ## 11. Project references
+
+The authored English evaluation workbook consolidating the reviewed catalog and driver-line assessment is indexed at `authored/AMD-CPU-NPU-EVALUATION-MATRIX.md`. Its source URLs, evidence tiers, exact artifact hashes, and row-level provenance are retained inside the workbook.
 
 - Project root: https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer
 - NPU deployment script under research: https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/blob/main/Deploy-AMDNpuDriverOnWindowsServer.ps1

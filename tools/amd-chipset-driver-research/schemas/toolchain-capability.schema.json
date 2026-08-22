@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-driver-research:toolchain-capability-summary:1.1",
+  "title": "AMD Driver Research Toolchain Capability Summary",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "EvidenceScope",
+    "Status",
+    "Tools",
+    "MutationPerformed",
+    "LocalizationContext",
+    "ResultClassificationContract"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-driver-toolchain-capability-summary/1.1"
+    },
+    "ToolkitVersion": {
+      "type": "string"
+    },
+    "CollectedAtUtc": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "EvidenceScope": {
+      "const": "WindowsNativeToolchain"
+    },
+    "Status": {
+      "type": "string"
+    },
+    "ExecutionClass": {
+      "type": "string"
+    },
+    "Tools": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "VerificationProfileContract": {
+      "type": "object"
+    },
+    "MutationPerformed": {
+      "const": false
+    },
+    "LocalizationContext": {
+      "$ref": "urn:amd-driver-research:native-tool-localization-context:1.0"
+    },
+    "ResultClassificationContract": {
+      "type": "object"
+    }
+  },
+  "additionalProperties": true
+}

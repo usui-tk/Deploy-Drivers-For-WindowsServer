@@ -32,6 +32,12 @@
         "highestReviewedPublishedStaticCandidate": {
           "type": "boolean"
         },
+        "resolvedNpuTypePackageLaneRequired": {
+          "const": true
+        },
+        "globalVersionRankingProhibited": {
+          "const": true
+        },
         "windowsServerRuntimeProofRequiredForRuntimeClaim": {
           "type": "boolean"
         },
@@ -44,6 +50,8 @@
         "publiclyObtainableArtifactsOnly",
         "privateQualificationArtifactsNeverRecommended",
         "highestReviewedPublishedStaticCandidate",
+        "resolvedNpuTypePackageLaneRequired",
+        "globalVersionRankingProhibited",
         "windowsServerRuntimeProofRequiredForRuntimeClaim",
         "seriesNameOnlyInferenceProhibited"
       ]

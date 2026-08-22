@@ -56,6 +56,13 @@ snapshot/reports/**
 
 Those files exist so manifest `SourceSha256` values can be independently verified. Their presence in Evidence does not make them public repository output.
 
+After a successful current-run publication, private Evidence also contains a
+byte-identical review copy of the complete validated `public/**` tree beneath
+`snapshot/public/**`. The finalizer verifies the live/snapshot path sets and
+every publication-manifest size/SHA-256 declaration before creating a normal
+PASS Evidence ZIP. This snapshot is private audit evidence, not another Git
+commit surface, and removes any requirement for manual public ZIP collection.
+
 ## 5. Publication transaction
 
 Publication is fail-closed.
@@ -116,7 +123,9 @@ This differs intentionally from Markdown.
 - total public file count including the manifest;
 - no hand editing.
 
-The manifest itself is bound into private Evidence through `snapshot/public-publication-reference.json`.
+The manifest and every manifested payload are copied into private Evidence
+under `snapshot/public/**`. Their complete path/size/SHA-256 verification is
+recorded through `snapshot/public-publication-reference.json`.
 
 ## 9. Privacy validation
 

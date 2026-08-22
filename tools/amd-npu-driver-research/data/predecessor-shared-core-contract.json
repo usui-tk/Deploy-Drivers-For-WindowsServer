@@ -1,6 +1,7 @@
 {
   "schemaVersion": "amd-research-predecessor-shared-core-contract/1.0",
-  "reviewedAtUtc": "2026-08-13T06:15:00Z",
+  "reviewedAtUtc": "2026-08-19T10:55:00Z",
+  "revisionNote": "rev51 intentional Canonical JSON runtime convergence; Read-AmdJsonFile now uses the reviewed cross-runtime accelerated parser shared by all three research tools",
   "normalization": "FunctionDefinitionAst.Extent.Text with CRLF/CR normalized to LF, then UTF-8 SHA-256",
   "sources": [
     {
@@ -130,7 +131,7 @@
     },
     {
       "name": "Read-AmdJsonFile",
-      "sha256": "e87e91f30c7eaa33da32f551353d08d1fbda2d9b9c7f48fdd074ac013c4cbf5d"
+      "sha256": "aefe185188d81a8f15bc931fbe091078c28c3464467d933982eacd6ecb54f7d1"
     },
     {
       "name": "Read-AmdTextFile",

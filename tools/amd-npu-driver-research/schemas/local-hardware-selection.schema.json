@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/tools/amd-npu-driver-research/schemas/local-hardware-selection.schema.json",
+  "title": "AMD NPU local Windows hardware-selection result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "SchemaVersion",
+    "Decision",
+    "SelectedTrack",
+    "WindowsBuild",
+    "WindowsBuildSource",
+    "InputSource",
+    "LocalEnumerationPerformed",
+    "ManualOverrideUsed",
+    "EnumerationStatus",
+    "ScannedPnpEntityCount",
+    "ScannedAmdPciEntityCount",
+    "CandidateDeviceCount",
+    "Devices",
+    "CpuIdentityUsed",
+    "FirmwareDeviceRevisionUsed",
+    "Automatic280FallbackEnabled",
+    "InstallationAuthorized",
+    "WindowsServerRuntimeProof",
+    "Reason",
+    "EnumerationError"
+  ],
+  "properties": {
+    "SchemaVersion": { "const": "amd-npu-local-hardware-selection/1.0" },
+    "Decision": { "enum": ["376", "NoNpuDriverRequired", "ReviewRequired"] },
+    "SelectedTrack": { "type": ["string", "null"], "enum": ["376", null] },
+    "WindowsBuild": { "type": "integer", "minimum": 1 },
+    "WindowsBuildSource": { "type": "string" },
+    "InputSource": { "type": "string" },
+    "LocalEnumerationPerformed": { "type": "boolean" },
+    "ManualOverrideUsed": { "type": "boolean" },
+    "EnumerationStatus": { "enum": ["Complete", "Failed", "NotApplicable"] },
+    "ScannedPnpEntityCount": { "type": "integer", "minimum": 0 },
+    "ScannedAmdPciEntityCount": { "type": "integer", "minimum": 0 },
+    "CandidateDeviceCount": { "type": "integer", "minimum": 0 },
+    "Devices": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "InstanceId",
+          "Name",
+          "Service",
+          "CandidateReason",
+          "HardwareIds",
+          "CompatibleIds",
+          "IdentitySet",
+          "PropertyCollectionStatus",
+          "Resolution"
+        ],
+        "properties": {
+          "InstanceId": { "type": "string" },
+          "Name": { "type": "string" },
+          "Service": { "type": "string" },
+          "CandidateReason": { "type": "string" },
+          "HardwareIds": { "type": "array", "items": { "type": "string" } },
+          "CompatibleIds": { "type": "array", "items": { "type": "string" } },
+          "IdentitySet": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+          "PropertyCollectionStatus": { "enum": ["Complete", "Failed", "CommandUnavailable", "NotApplicable"] },
+          "Resolution": { "$ref": "hardware-selection-result.schema.json" }
+        }
+      }
+    },
+    "CpuIdentityUsed": { "const": false },
+    "FirmwareDeviceRevisionUsed": { "const": false },
+    "Automatic280FallbackEnabled": { "const": false },
+    "InstallationAuthorized": { "const": false },
+    "WindowsServerRuntimeProof": { "const": false },
+    "Reason": { "type": "string" },
+    "EnumerationError": { "type": ["string", "null"] }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "Decision": { "const": "376" } }, "required": ["Decision"] },
+      "then": { "properties": { "SelectedTrack": { "const": "376" } } }
+    },
+    {
+      "if": { "properties": { "Decision": { "enum": ["NoNpuDriverRequired", "ReviewRequired"] } }, "required": ["Decision"] },
+      "then": { "properties": { "SelectedTrack": { "const": null } } }
+    }
+  ]
+}

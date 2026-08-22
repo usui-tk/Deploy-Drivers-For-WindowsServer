@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "signature-analysis.schema.json",
+  "title": "AMD Graphics Static Signature Analysis",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "EvidenceScope",
+    "ArtifactSelectionPolicy",
+    "CertificateVerificationExecutionPlan",
+    "Artifacts",
+    "Files",
+    "Certificates",
+    "Summary"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-driver-signature-analysis/1.0"
+    },
+    "EvidenceScope": {
+      "const": "Static"
+    },
+    "CertificateVerificationExecutionPlan": {
+      "$ref": "certificate-verification-plan.schema.json"
+    },
+    "Artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "Files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "FileId",
+          "Sha256",
+          "FileType",
+          "Occurrences"
+        ],
+        "properties": {
+          "FileId": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "Sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "Certificates": {
+      "type": "array"
+    },
+    "Summary": {
+      "type": "object",
+      "required": [
+        "AnalyzedUniqueInstallerCount",
+        "UniqueCandidateFileContentCount",
+        "UnexpectedStaticParseFailureCount",
+        "SignedDigestMismatchCount"
+      ]
+    }
+  },
+  "additionalProperties": true
+}

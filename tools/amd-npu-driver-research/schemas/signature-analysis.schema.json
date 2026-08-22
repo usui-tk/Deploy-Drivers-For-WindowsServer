@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-npu-driver-research:signature-analysis:1.0",
+  "title": "AMD NPU Driver Static Signature Analysis",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "GeneratedAtUtc",
+    "EvidenceScope",
+    "ArtifactSelectionPolicy",
+    "CandidateArtifactCount",
+    "AnalyzedArtifactIds",
+    "CertificateVerificationExecutionPlan",
+    "Artifacts"
+  ],
+  "properties": {
+    "SchemaVersion": { "const": "amd-npu-driver-signature-analysis/1.0" },
+    "ToolkitVersion": { "type": "string" },
+    "GeneratedAtUtc": { "type": "string" },
+    "EvidenceScope": { "const": "Static" },
+    "ArtifactSelectionPolicy": {
+      "enum": [
+        "NewestWithinEachCurrentNpuTypeCase",
+        "OnlySelectedArtifact",
+        "ExplicitLocalArtifactSet"
+      ]
+    },
+    "CandidateArtifactCount": { "type": "integer", "minimum": 1 },
+    "AnalyzedArtifactIds": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "CertificateVerificationExecutionPlan": { "type": "object" },
+    "AnalysisBoundary": { "type": "string" },
+    "Artifacts": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/artifact" }
+    },
+    "Summary": { "type": "string" }
+  },
+  "$defs": {
+    "artifact": {
+      "type": "object",
+      "required": [
+        "SchemaVersion",
+        "EvidenceScope",
+        "ArtifactId",
+        "FileName",
+        "Status",
+        "FileCount",
+        "Files",
+        "Certificates"
+      ],
+      "properties": {
+        "SchemaVersion": { "const": "amd-npu-driver-signature-analysis/1.0" },
+        "EvidenceScope": { "const": "Static" },
+        "ArtifactId": { "type": "string" },
+        "FileName": { "type": "string" },
+        "PublishedDriverLabel": { "type": "string" },
+        "SelectionLaneId": { "type": "string" },
+        "SelectionReason": { "type": "string" },
+        "Status": { "const": "Analyzed" },
+        "FileCount": { "type": "integer", "minimum": 0 },
+        "UniqueCertificateCount": { "type": "integer", "minimum": 0 },
+        "Files": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/file" }
+        },
+        "Certificates": {
+          "type": "array",
+          "items": { "type": "object" }
+        }
+      },
+      "additionalProperties": true
+    },
+    "file": {
+      "type": "object",
+      "required": [
+        "FileId",
+        "FileName",
+        "FileType",
+        "Size",
+        "Sha256",
+        "Occurrences",
+        "EmbeddedSignatureState",
+        "Envelopes"
+      ],
+      "properties": {
+        "FileId": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "FileName": { "type": "string" },
+        "FileType": {
+          "enum": [
+            "KernelBinary",
+            "Catalog",
+            "Library",
+            "Executable",
+            "PortableExecutable",
+            "CmsSignedData",
+            "CertificateFile",
+            "Other"
+          ]
+        },
+        "Size": { "type": "integer", "minimum": 0 },
+        "Sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "Sha1": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+        "Occurrences": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string" }
+        },
+        "EmbeddedSignatureState": { "type": "string" },
+        "Envelopes": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

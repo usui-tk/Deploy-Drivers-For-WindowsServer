@@ -1,9 +1,13 @@
 {
-  "schemaVersion": "amd-npu-published-driver-artifacts/1.1",
-  "reviewedAtUtc": "2026-08-13T05:30:00Z",
+  "schemaVersion": "amd-npu-published-driver-artifacts/1.3",
+  "reviewedAtUtc": "2026-08-15T12:30:00Z",
   "discovery": {
     "documentationUrl": "https://ryzenai.docs.amd.com/en/latest/inst.html",
-    "policy": "Discover AMD documentation URLs for ZIP/EXE/MSI/CAB/7z driver artifacts, normalize reviewed and currently observed artifacts in Metadata, then acquire selected packages. Static extraction is 7-Zip based and bounded. Unknown discovered hashes remain unreviewed and never inherit a known installer, driver-binary, or compatibility contract."
+    "policy": "A normal full-scope run acquires every reviewed public artifact, including historical regression fixtures, so Extract/Inspect/DriverBinary/Compare/Matrix can evaluate the complete reviewed corpus. Recommendation and certificate-verification target selection are separate derived scopes. The two current packages are independent NPU device-type cases and must not be collapsed into one global latest stream. Unknown discovered hashes remain unreviewed and never inherit a known installer, driver-binary, compatibility, or package-selection contract.",
+    "globalVersionRankingProhibited": true,
+    "fullScopeAcquisitionPolicy": "AllReviewedPublicArtifacts",
+    "certificateVerificationPolicy": "NewestWithinEachCurrentNpuTypeCase",
+    "explicitArtifactSelectionCanOverrideCertificateScope": true
   },
   "artifacts": [
     {
@@ -14,6 +18,10 @@
       "expectedSizeBytes": 31239718,
       "publishedDriverLabel": "32.0.203.280",
       "sourceStatus": "HistoricalReviewedDirectUrl",
+      "packageRole": "HistoricalRegressionFixture",
+      "selectionLaneId": "historical-rai15-280",
+      "selectionBoundaryStatus": "HistoricalOnly",
+      "certificateVerificationRole": "HistoricalWhenExplicitOnly",
       "defaultAcquire": true,
       "artifactFormat": "zip"
     },
@@ -25,6 +33,10 @@
       "expectedSizeBytes": 31416645,
       "publishedDriverLabel": "32.0.203.280",
       "sourceStatus": "CurrentAmdDocumentation",
+      "packageRole": "CurrentNpuTypeCandidate",
+      "selectionLaneId": "current-npu-package-280",
+      "selectionBoundaryStatus": "ReviewRequired",
+      "certificateVerificationRole": "CurrentCaseCandidate",
       "defaultAcquire": true,
       "artifactFormat": "zip"
     },
@@ -36,6 +48,10 @@
       "expectedSizeBytes": 26936876,
       "publishedDriverLabel": "32.0.203.376",
       "sourceStatus": "CurrentAmdDocumentation",
+      "packageRole": "CurrentNpuTypeCandidate",
+      "selectionLaneId": "current-npu-package-376",
+      "selectionBoundaryStatus": "ReviewRequired",
+      "certificateVerificationRole": "CurrentCaseCandidate",
       "defaultAcquire": true,
       "artifactFormat": "zip"
     }

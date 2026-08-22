@@ -42,7 +42,7 @@
 .NOTES
     Project: Deploy-Drivers-For-WindowsServer
     Purpose: AMD platform CPU/NPU/GPU hardware identity survey
-    Tool version: 1.2.1
+    Tool version: 1.3.0
     Compatible with: Windows PowerShell 5.1 and PowerShell 7+
 #>
 
@@ -52,14 +52,15 @@ param(
     [switch]$KeepDirectory,
     [switch]$SkipXrtSmiProbe,
     [ValidateRange(5,300)][int]$XrtSmiTimeoutSeconds = 45,
-    [switch]$SkipQuicktestSnapshot
+    [switch]$SkipQuicktestSnapshot,
+    [switch]$SelfTest
 )
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
 $ToolName = 'AMD Platform Hardware Identity Evidence Collector'
-$ToolVersion = '1.2.1'
+$ToolVersion = '1.3.0'
 $script:ReviewedQuicktestSha256 = '185abe30aad44c3ca59df2c07249a550a1d0a1de6aecc7a52c9324362d910c09'
 $script:ReviewedQuicktestArchiveSha256 = 'a479e458bd3ae5bc671be89c80d2d250e8a8c7c1268b18ed70498985fc4b0ea5'
 $script:ReviewedNpu376ArtifactSha256 = 'aa836cbfcad5d0782c79b58f197aa50624af37e7cb8311c5f94d85b0dc3ccaad'
@@ -97,6 +98,16 @@ function Write-JsonFile {
     )
     $json = $Value | ConvertTo-Json -Depth 20
     Write-Utf8File -Path $Path -Text ($json + "`n")
+
+    # A successfully written file is not sufficient evidence that the JSON is
+    # valid. Reparse the exact bytes immediately so enum/string projection or
+    # serialization regressions fail closed before the evidence is packaged.
+    try {
+        $null = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+    }
+    catch {
+        throw ('Generated JSON failed round-trip validation: {0}: {1}' -f $Path, $_.Exception.Message)
+    }
 }
 
 function Get-Sha256 {
@@ -113,6 +124,349 @@ function Get-Sha256 {
     }
     finally {
         $stream.Dispose()
+    }
+}
+
+function Get-StreamSha256 {
+    param([Parameter(Mandatory=$true)][System.IO.Stream]$Stream)
+
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        ([BitConverter]::ToString($sha.ComputeHash($Stream))).Replace('-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha.Dispose()
+    }
+}
+
+function Get-NormalizedIdentitySet {
+    param(
+        [AllowNull()][string]$InstanceId,
+        [AllowNull()][string[]]$HardwareIds,
+        [AllowNull()][string[]]$CompatibleIds
+    )
+
+    $seen = @{}
+    $values = New-Object System.Collections.Generic.List[string]
+    foreach ($value in @($InstanceId) + @($HardwareIds) + @($CompatibleIds)) {
+        if ([string]::IsNullOrWhiteSpace([string]$value)) { continue }
+        $normalized = ([string]$value).Trim().ToUpperInvariant()
+        if (-not $seen.ContainsKey($normalized)) {
+            $seen[$normalized] = $true
+            $values.Add($normalized) | Out-Null
+        }
+    }
+    return @($values.ToArray())
+}
+
+function Convert-ConfigManagerErrorCodeToText {
+    param($Code)
+
+    if ($null -eq $Code -or [string]::IsNullOrWhiteSpace([string]$Code)) { return 'NotReported' }
+    $number = 0
+    if (-not [int]::TryParse([string]$Code, [ref]$number)) { return [string]$Code }
+
+    $known = @{
+        0 = 'CM_PROB_NONE'
+        10 = 'CM_PROB_FAILED_START'
+        12 = 'CM_PROB_NORMAL_CONFLICT'
+        14 = 'CM_PROB_NEED_RESTART'
+        18 = 'CM_PROB_REINSTALL'
+        22 = 'CM_PROB_DISABLED'
+        24 = 'CM_PROB_DEVICE_NOT_THERE'
+        28 = 'CM_PROB_FAILED_INSTALL'
+        31 = 'CM_PROB_FAILED_ADD'
+        32 = 'CM_PROB_DISABLED_SERVICE'
+        39 = 'CM_PROB_DRIVER_FAILED_LOAD'
+        43 = 'CM_PROB_FAILED_POST_START'
+        47 = 'CM_PROB_HELD_FOR_EJECT'
+        48 = 'CM_PROB_DRIVER_BLOCKED'
+        52 = 'CM_PROB_UNSIGNED_DRIVER'
+        57 = 'CM_PROB_GUEST_ASSIGNMENT_FAILED'
+    }
+    if ($known.ContainsKey($number)) { return [string]$known[$number] }
+    return ('CM_PROB_CODE_{0}' -f $number)
+}
+
+function Get-WindowsExecutionClass {
+    param($ProductType)
+
+    $number = 0
+    if (-not [int]::TryParse([string]$ProductType, [ref]$number)) { return 'UnknownWindows' }
+    if ($number -eq 1) { return 'WindowsClient' }
+    if ($number -eq 2 -or $number -eq 3) { return 'WindowsServer' }
+    return 'UnknownWindows'
+}
+
+function Get-WindowsServerRole {
+    param($ProductType)
+
+    $number = 0
+    if (-not [int]::TryParse([string]$ProductType, [ref]$number)) { return $null }
+    if ($number -eq 2) { return 'DomainController' }
+    if ($number -eq 3) { return 'MemberOrStandaloneServer' }
+    return $null
+}
+
+function Test-CurrentProcessAdministrator {
+    try {
+        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+        return [bool]$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Get-PnpPropertyCollectionState {
+    param([AllowNull()]$Properties)
+
+    $unavailableRecord = @($Properties | Where-Object { [string]$_.KeyName -eq '__COLLECTION_UNAVAILABLE__' } | Select-Object -First 1)
+    if ($unavailableRecord.Count -gt 0) {
+        return [pscustomobject][ordered]@{
+            Status = 'Unavailable'
+            Error = [string]$unavailableRecord[0].Data
+        }
+    }
+    $errorRecord = @($Properties | Where-Object { [string]$_.KeyName -eq '__COLLECTION_ERROR__' } | Select-Object -First 1)
+    if ($errorRecord.Count -gt 0) {
+        return [pscustomobject][ordered]@{
+            Status = 'Failed'
+            Error = [string]$errorRecord[0].Data
+        }
+    }
+    return [pscustomobject][ordered]@{
+        Status = 'Complete'
+        Error = $null
+    }
+}
+
+function Get-NpuObservationStatus {
+    param(
+        [Parameter(Mandatory=$true)][string]$EnumerationStatus,
+        [Parameter(Mandatory=$true)][int]$CandidateDeviceCount
+    )
+
+    if ($EnumerationStatus -ne 'Complete') { return 'IncompleteEvidence' }
+    if ($CandidateDeviceCount -eq 0) { return 'NoNpuObserved' }
+    return 'NpuCandidateObserved'
+}
+
+function New-HardwareSelectionInput {
+    param(
+        [Parameter(Mandatory=$true)]$HostEvidence,
+        [Parameter(Mandatory=$true)][string]$EnumerationStatus,
+        [AllowNull()][string]$EnumerationError,
+        [Parameter(Mandatory=$true)][int]$ScannedPnpEntityCount,
+        [Parameter(Mandatory=$true)][int]$ScannedAmdPciEntityCount,
+        [AllowNull()]$Candidates
+    )
+
+    $candidateInputs = @()
+    foreach ($candidate in @($Candidates)) {
+        $propertyState = Get-PnpPropertyCollectionState -Properties $candidate.PnpProperties
+        $driverObservationStatus = 'NotObserved'
+        if ($null -ne $candidate.InstalledDriver) {
+            if ($candidate.InstalledDriver.PSObject.Properties['CollectionError']) {
+                $driverObservationStatus = 'CollectionFailed'
+            }
+            else {
+                $driverObservationStatus = 'Observed'
+            }
+        }
+        $candidateInputs += [pscustomobject][ordered]@{
+            InstanceId = [string]$candidate.DeviceId
+            Name = [string]$candidate.Name
+            Description = [string]$candidate.Description
+            PnpClass = [string]$candidate.PNPClass
+            Service = [string]$candidate.Service
+            Status = [string]$candidate.Status
+            ConfigManagerErrorCode = [string]$candidate.ConfigManagerErrorCode
+            HardwareIds = @($candidate.HardwareIds | ForEach-Object { [string]$_ })
+            CompatibleIds = @($candidate.CompatibleIds | ForEach-Object { [string]$_ })
+            IdentitySet = @(Get-NormalizedIdentitySet -InstanceId ([string]$candidate.DeviceId) -HardwareIds @($candidate.HardwareIds) -CompatibleIds @($candidate.CompatibleIds))
+            PciIdentity = $candidate.PciIdentity
+            CandidateReasons = @($candidate.NpuCandidateReasons | ForEach-Object { [string]$_ })
+            PropertyCollection = $propertyState
+            RuntimeDriverObservation = [ordered]@{
+                Status = $driverObservationStatus
+                InstalledDriver = $candidate.InstalledDriver
+                DriverInfEvidence = $candidate.DriverInfEvidence
+                ServiceBinaryEvidence = $candidate.ServiceBinaryEvidence
+                SignatureOrSignerIsSelectionInput = $false
+                SupportsCustomBuiltOrSelfSignedServerDriverObservation = $true
+            }
+        }
+    }
+
+    $serverRuntimeObservationStatus = 'NotApplicable'
+    if ([string]$HostEvidence.ExecutionClass -eq 'WindowsServer') {
+        if ($EnumerationStatus -ne 'Complete') {
+            $serverRuntimeObservationStatus = 'IncompleteEvidence'
+        }
+        elseif ($candidateInputs.Count -eq 0) {
+            $serverRuntimeObservationStatus = 'NoNpuObserved'
+        }
+        elseif (@($candidateInputs | Where-Object {
+                    $_.ConfigManagerErrorCode -eq 'CM_PROB_NONE' -and
+                    $_.RuntimeDriverObservation.Status -eq 'Observed'
+                }).Count -gt 0) {
+            $serverRuntimeObservationStatus = 'NpuRuntimeObservedHealthy'
+        }
+        else {
+            $serverRuntimeObservationStatus = 'NpuCandidateObservedNeedsReview'
+        }
+    }
+
+    return [pscustomobject][ordered]@{
+        SchemaVersion = '1.0.0'
+        SchemaReference = 'tools/schemas/npu-hardware-selection-input.schema.json'
+        Tool = [ordered]@{ Name = $ToolName; Version = $ToolVersion }
+        CollectedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+        Host = $HostEvidence
+        Enumeration = [ordered]@{
+            Status = $EnumerationStatus
+            Error = $EnumerationError
+            InputSource = 'LocalWindowsPnP'
+            LocalEnumerationPerformed = $true
+            ManualOverrideUsed = $false
+            ScannedPnpEntityCount = $ScannedPnpEntityCount
+            ScannedAmdPciEntityCount = $ScannedAmdPciEntityCount
+        }
+        CandidateDeviceCount = $candidateInputs.Count
+        ObservationStatus = Get-NpuObservationStatus -EnumerationStatus $EnumerationStatus -CandidateDeviceCount $candidateInputs.Count
+        Candidates = $candidateInputs
+        SelectionBoundary = [ordered]@{
+            DriverTrackSelectionPerformed = $false
+            DriverTrackDecision = 'NotPerformedByCollector'
+            CpuSkuUsedForSelection = $false
+            CpuNpuCombinationUsedForSelection = $false
+            FirmwareRevisionUsedForSelection = $false
+            XrtIdentityUsedForSelection = $false
+            Automatic280FallbackAllowed = $false
+            MachineAuthorityExpectedDownstream = '../data/hardware-driver-selection.json'
+        }
+        ServerPositiveCase = [ordered]@{
+            Supported = $true
+            ObservationStatus = $serverRuntimeObservationStatus
+            Definition = 'Windows Server exposes an NPU candidate through complete local PnP enumeration after a built driver has been applied.'
+            RuntimeEvidenceMayContainCustomBuiltOrSelfSignedDriver = $true
+            AmdPublishedPayloadExactMatchRequired = $false
+            XrtRuntimeRequired = $false
+            ImportantNote = 'This artifact records the installed Server runtime state. It does not approve deployment or prove application-level NPU workload success.'
+        }
+        Privacy = [ordered]@{
+            Classification = 'RuntimePrivateNonCommit'
+            ComputerNameCollected = $false
+            UserNameCollected = $false
+        }
+    }
+}
+
+function Test-EvidenceJsonFiles {
+    param([Parameter(Mandatory=$true)][string]$Root)
+
+    $errors = New-Object System.Collections.Generic.List[string]
+    $files = @(Get-ChildItem -LiteralPath $Root -File -Recurse -Filter '*.json' -ErrorAction Stop | Sort-Object FullName)
+    foreach ($file in $files) {
+        try {
+            $null = Get-Content -LiteralPath $file.FullName -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        }
+        catch {
+            $errors.Add(('{0}: {1}' -f (Get-EvidenceRelativePath -Root $Root -FullName $file.FullName), $_.Exception.Message)) | Out-Null
+        }
+    }
+    return [pscustomobject][ordered]@{
+        Success = ($errors.Count -eq 0)
+        FileCount = $files.Count
+        Errors = @($errors.ToArray())
+    }
+}
+
+function Test-EvidenceManifest {
+    param([Parameter(Mandatory=$true)][string]$Root)
+
+    $manifestPath = Join-Path $Root 'manifest.json'
+    $errors = New-Object System.Collections.Generic.List[string]
+    if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+        return [pscustomobject][ordered]@{ Success = $false; EntryCount = 0; Errors = @('manifest.json is missing.') }
+    }
+
+    try {
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        $listed = @{}
+        foreach ($entry in @($manifest.Files)) {
+            $relative = ([string]$entry.File).Replace([char]0x5C, [char]0x2F)
+            if ($listed.ContainsKey($relative)) {
+                $errors.Add(('Duplicate manifest path: {0}' -f $relative)) | Out-Null
+                continue
+            }
+            $listed[$relative] = $true
+            $nativeRelative = $relative.Replace([char]0x2F, [System.IO.Path]::DirectorySeparatorChar)
+            $fullPath = Join-Path $Root $nativeRelative
+            if (-not (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
+                $errors.Add(('Missing file: {0}' -f $relative)) | Out-Null
+                continue
+            }
+            $item = Get-Item -LiteralPath $fullPath -ErrorAction Stop
+            if ([long]$item.Length -ne [long]$entry.Length) { $errors.Add(('Length mismatch: {0}' -f $relative)) | Out-Null }
+            if ((Get-Sha256 -Path $fullPath) -ne ([string]$entry.Sha256).ToLowerInvariant()) { $errors.Add(('SHA-256 mismatch: {0}' -f $relative)) | Out-Null }
+        }
+
+        foreach ($file in @(Get-ChildItem -LiteralPath $Root -File -Recurse -ErrorAction Stop | Where-Object { $_.FullName -ne $manifestPath })) {
+            $relative = Get-EvidenceRelativePath -Root $Root -FullName $file.FullName
+            if (-not $listed.ContainsKey($relative)) { $errors.Add(('Unlisted file: {0}' -f $relative)) | Out-Null }
+        }
+        return [pscustomobject][ordered]@{ Success = ($errors.Count -eq 0); EntryCount = @($manifest.Files).Count; Errors = @($errors.ToArray()) }
+    }
+    catch {
+        return [pscustomobject][ordered]@{ Success = $false; EntryCount = 0; Errors = @($_.Exception.Message) }
+    }
+}
+
+function Test-EvidenceZipArchive {
+    param(
+        [Parameter(Mandatory=$true)][string]$Root,
+        [Parameter(Mandatory=$true)][string]$Path
+    )
+
+    $errors = New-Object System.Collections.Generic.List[string]
+    $stream = $null
+    $archive = $null
+    try {
+        Add-Type -AssemblyName System.IO.Compression -ErrorAction Stop
+        Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction Stop
+        $stream = [System.IO.File]::OpenRead($Path)
+        $archive = New-Object System.IO.Compression.ZipArchive($stream, [System.IO.Compression.ZipArchiveMode]::Read, $false)
+        $entries = @($archive.Entries | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_.Name) })
+        $entryMap = @{}
+        foreach ($entry in $entries) {
+            $name = [string]$entry.FullName
+            if ($name.Contains([string][char]0x5C)) { $errors.Add(('Non-portable ZIP path: {0}' -f $name)) | Out-Null }
+            if ($entryMap.ContainsKey($name)) { $errors.Add(('Duplicate ZIP entry: {0}' -f $name)) | Out-Null; continue }
+            $entryMap[$name] = $entry
+        }
+
+        $sourceFiles = @(Get-ChildItem -LiteralPath $Root -File -Recurse -ErrorAction Stop | Sort-Object FullName)
+        foreach ($file in $sourceFiles) {
+            $relative = Get-EvidenceRelativePath -Root $Root -FullName $file.FullName
+            if (-not $entryMap.ContainsKey($relative)) { $errors.Add(('ZIP entry missing: {0}' -f $relative)) | Out-Null; continue }
+            $entry = $entryMap[$relative]
+            if ([long]$entry.Length -ne [long]$file.Length) { $errors.Add(('ZIP length mismatch: {0}' -f $relative)) | Out-Null }
+            $entryStream = $entry.Open()
+            try { $entryHash = Get-StreamSha256 -Stream $entryStream } finally { $entryStream.Dispose() }
+            if ($entryHash -ne (Get-Sha256 -Path $file.FullName)) { $errors.Add(('ZIP SHA-256 mismatch: {0}' -f $relative)) | Out-Null }
+        }
+        if ($entries.Count -ne $sourceFiles.Count) { $errors.Add(('ZIP entry count mismatch: source={0}; archive={1}' -f $sourceFiles.Count, $entries.Count)) | Out-Null }
+        return [pscustomobject][ordered]@{ Success = ($errors.Count -eq 0); EntryCount = $entries.Count; Errors = @($errors.ToArray()) }
+    }
+    catch {
+        return [pscustomobject][ordered]@{ Success = $false; EntryCount = 0; Errors = @($_.Exception.Message) }
+    }
+    finally {
+        if ($null -ne $archive) { $archive.Dispose() }
+        if ($null -ne $stream) { $stream.Dispose() }
     }
 }
 
@@ -176,14 +530,16 @@ function Write-CollectorStatusFile {
 
     try {
         $status = [ordered]@{
-            SchemaVersion = '1.0'
+            SchemaVersion = '1.1'
             Tool = [ordered]@{
                 Name = $ToolName
                 Version = $ToolVersion
             }
             CompletedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
             Outcome = if ($Succeeded) { 'Pass' } else { 'Failed' }
+            CollectionOutcome = if ($Succeeded) { 'Pass' } else { 'Failed' }
             EvidenceArchiveExpected = $true
+            ArchiveIntegrityEvaluatedAfterStatusSnapshot = $true
             Error = if ($null -eq $ErrorRecord) {
                 $null
             }
@@ -225,8 +581,10 @@ function Write-EvidenceManifestSafely {
             }
 
         $manifest = [ordered]@{
+            SchemaVersion = '1.1'
             ToolVersion = $ToolVersion
             CreatedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+            JsonRoundTripValidationRequired = $true
             Files = $manifestFiles
         }
         Write-JsonFile -Value $manifest -Path $manifestPath
@@ -364,9 +722,18 @@ function Complete-CollectorEvidencePackage {
         catch {
             return [pscustomobject][ordered]@{
                 Success = $false
+                CollectionSuccess = $false
+                PackageIntegritySuccess = $false
+                JsonIntegritySuccess = $false
+                JsonFileCount = 0
                 ManifestSuccess = $false
+                ManifestIntegritySuccess = $false
+                ManifestEntryCount = 0
                 ArchiveSuccess = $false
+                ArchiveIntegritySuccess = $false
+                ArchiveEntryCount = 0
                 ArchiveSha256 = $null
+                Errors = @('Unable to create evidence root: ' + $_.Exception.Message)
                 Error = 'Unable to create evidence root: ' + $_.Exception.Message
             }
         }
@@ -378,15 +745,42 @@ function Complete-CollectorEvidencePackage {
     }
 
     $manifestResult = Write-EvidenceManifestSafely -Root $Root
+    # Reparse again after manifest creation so the final JSON count includes
+    # manifest.json as well as every collection/status artifact.
+    $jsonResult = Test-EvidenceJsonFiles -Root $Root
+    $manifestVerification = if ($manifestResult.Success) {
+        Test-EvidenceManifest -Root $Root
+    }
+    else {
+        [pscustomobject][ordered]@{ Success = $false; EntryCount = 0; Errors = @([string]$manifestResult.Error) }
+    }
     $archiveResult = Compress-EvidenceArchiveSafely -Root $Root -Destination $Destination
+    $archiveIntegrity = if ($archiveResult.Success) {
+        Test-EvidenceZipArchive -Root $Root -Path $Destination
+    }
+    else {
+        [pscustomobject][ordered]@{ Success = $false; EntryCount = 0; Errors = @([string]$archiveResult.Error) }
+    }
 
+    $allErrors = @($jsonResult.Errors) + @($manifestVerification.Errors) + @($archiveIntegrity.Errors)
+    if (-not [string]::IsNullOrWhiteSpace([string]$archiveResult.Error)) { $allErrors += [string]$archiveResult.Error }
+
+    $packageIntegritySuccess = ([bool]$jsonResult.Success -and [bool]$manifestResult.Success -and [bool]$manifestVerification.Success -and [bool]$archiveResult.Success -and [bool]$archiveIntegrity.Success)
     return [pscustomobject][ordered]@{
-        Success = [bool]$archiveResult.Success
+        Success = ([bool]$Succeeded -and $packageIntegritySuccess)
+        CollectionSuccess = [bool]$Succeeded
+        PackageIntegritySuccess = $packageIntegritySuccess
+        JsonIntegritySuccess = [bool]$jsonResult.Success
+        JsonFileCount = $jsonResult.FileCount
         ManifestSuccess = [bool]$manifestResult.Success
+        ManifestIntegritySuccess = [bool]$manifestVerification.Success
         ManifestEntryCount = $manifestResult.EntryCount
         ArchiveSuccess = [bool]$archiveResult.Success
+        ArchiveIntegritySuccess = [bool]$archiveIntegrity.Success
+        ArchiveEntryCount = $archiveIntegrity.EntryCount
         ArchiveSha256 = $archiveResult.Sha256
-        Error = $archiveResult.Error
+        Errors = @($allErrors | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) })
+        Error = (@($allErrors | Where-Object { -not [string]::IsNullOrWhiteSpace([string]$_) }) -join '; ')
     }
 }
 
@@ -578,7 +972,11 @@ function Get-PnpPropertySnapshot {
     $items = @()
 
     if (-not (Get-Command Get-PnpDeviceProperty -ErrorAction SilentlyContinue)) {
-        return $items
+        return @([pscustomobject][ordered]@{
+            KeyName = '__COLLECTION_UNAVAILABLE__'
+            Type = 'Status'
+            Data = 'Get-PnpDeviceProperty is not available in this PowerShell environment.'
+        })
     }
 
     try {
@@ -1473,6 +1871,137 @@ function Invoke-PnpUtilForInstance {
     }
 }
 
+function Invoke-CollectorSelfTest {
+    $failures = New-Object System.Collections.Generic.List[string]
+    $passed = New-Object System.Collections.Generic.List[string]
+
+    function Assert-CollectorSelfTest {
+        param([Parameter(Mandatory=$true)][string]$Name, [Parameter(Mandatory=$true)][bool]$Condition)
+        if ($Condition) { $passed.Add($Name) | Out-Null } else { $failures.Add($Name) | Out-Null }
+    }
+
+    Assert-CollectorSelfTest -Name 'ConfigManagerErrorCode-zero-is-stable-string' -Condition ((Convert-ConfigManagerErrorCodeToText -Code 0) -eq 'CM_PROB_NONE')
+    Assert-CollectorSelfTest -Name 'Complete-zero-is-NoNpuObserved' -Condition ((Get-NpuObservationStatus -EnumerationStatus 'Complete' -CandidateDeviceCount 0) -eq 'NoNpuObserved')
+    Assert-CollectorSelfTest -Name 'Failed-zero-is-IncompleteEvidence' -Condition ((Get-NpuObservationStatus -EnumerationStatus 'Failed' -CandidateDeviceCount 0) -eq 'IncompleteEvidence')
+    Assert-CollectorSelfTest -Name 'ProductType-three-is-WindowsServer' -Condition ((Get-WindowsExecutionClass -ProductType 3) -eq 'WindowsServer')
+
+    $identitySet = @(Get-NormalizedIdentitySet `
+        -InstanceId 'PCI\VEN_1022&DEV_17F0&SUBSYS_20CF1043&REV_10\A' `
+        -HardwareIds @('pci\ven_1022&dev_17f0&subsys_20cf1043&rev_10', 'PCI\VEN_1022&DEV_17F0') `
+        -CompatibleIds @('PCI\VEN_1022&DEV_17F0', 'PCI\VEN_1022'))
+    Assert-CollectorSelfTest -Name 'IdentitySet-is-normalized-and-deduplicated' -Condition ($identitySet.Count -eq 4 -and $identitySet[0] -ceq 'PCI\VEN_1022&DEV_17F0&SUBSYS_20CF1043&REV_10\A')
+
+    $syntheticCandidate = [pscustomobject][ordered]@{
+        DeviceId = 'PCI\VEN_1022&DEV_17F0&SUBSYS_20CF1043&REV_10\A'
+        Name = 'NPU Compute Accelerator'
+        Description = 'Synthetic Server positive control'
+        PNPClass = 'ComputeAccelerator'
+        Service = 'IpuMcdmDriver'
+        Status = 'OK'
+        ConfigManagerErrorCode = 'CM_PROB_NONE'
+        HardwareIds = @('PCI\VEN_1022&DEV_17F0&SUBSYS_20CF1043&REV_10')
+        CompatibleIds = @('PCI\VEN_1022&DEV_17F0')
+        PciIdentity = [pscustomobject][ordered]@{ VendorId = '1022'; DeviceId = '17F0'; SubsystemId = '20CF1043'; Revision = '10' }
+        NpuCandidateReasons = @('KnownAmdNpuDeviceId17F0')
+        PnpProperties = @()
+        InstalledDriver = [pscustomobject][ordered]@{ DriverVersion = '1.0.0-test'; InfName = 'oem-test.inf'; IsSigned = $true; Signer = 'Private test signer' }
+        DriverInfEvidence = [pscustomobject][ordered]@{ InfName = 'oem-test.inf'; Sha256 = ('a' * 64) }
+        ServiceBinaryEvidence = [pscustomobject][ordered]@{ ServiceName = 'IpuMcdmDriver'; Binary = [pscustomobject][ordered]@{ Sha256 = ('b' * 64) } }
+    }
+    $serverInput = New-HardwareSelectionInput `
+        -HostEvidence ([ordered]@{ ExecutionClass = 'WindowsServer'; ProductType = 3; Caption = 'Windows Server synthetic'; BuildNumber = '26100' }) `
+        -EnumerationStatus 'Complete' `
+        -ScannedPnpEntityCount 100 `
+        -ScannedAmdPciEntityCount 20 `
+        -Candidates @($syntheticCandidate)
+    Assert-CollectorSelfTest -Name 'Server-positive-candidate-is-preserved' -Condition ($serverInput.ObservationStatus -eq 'NpuCandidateObserved' -and $serverInput.CandidateDeviceCount -eq 1 -and $serverInput.ServerPositiveCase.ObservationStatus -eq 'NpuRuntimeObservedHealthy')
+    Assert-CollectorSelfTest -Name 'Server-positive-custom-driver-is-observation-not-selection-input' -Condition ($serverInput.Candidates[0].RuntimeDriverObservation.SupportsCustomBuiltOrSelfSignedServerDriverObservation -and -not $serverInput.Candidates[0].RuntimeDriverObservation.SignatureOrSignerIsSelectionInput)
+    Assert-CollectorSelfTest -Name 'Collector-does-not-select-driver-track' -Condition (-not $serverInput.SelectionBoundary.DriverTrackSelectionPerformed -and $serverInput.SelectionBoundary.DriverTrackDecision -eq 'NotPerformedByCollector')
+
+    $secondCandidate = [pscustomobject][ordered]@{
+        DeviceId = 'PCI\VEN_1022&DEV_1502&SUBSYS_00000000&REV_00\B'
+        Name = 'Second NPU candidate'
+        Description = 'Synthetic independent-device control'
+        PNPClass = 'ComputeAccelerator'
+        Service = 'KipuDriver'
+        Status = 'OK'
+        ConfigManagerErrorCode = 'CM_PROB_NONE'
+        HardwareIds = @('PCI\VEN_1022&DEV_1502&SUBSYS_00000000&REV_00')
+        CompatibleIds = @('PCI\VEN_1022&DEV_1502')
+        PciIdentity = [pscustomobject][ordered]@{ VendorId = '1022'; DeviceId = '1502'; SubsystemId = '00000000'; Revision = '00' }
+        NpuCandidateReasons = @('KnownAmdNpuDeviceId1502')
+        PnpProperties = @()
+        InstalledDriver = $null
+        DriverInfEvidence = $null
+        ServiceBinaryEvidence = $null
+    }
+    $multiInput = New-HardwareSelectionInput `
+        -HostEvidence ([ordered]@{ ExecutionClass = 'WindowsClient'; ProductType = 1 }) `
+        -EnumerationStatus 'Complete' `
+        -ScannedPnpEntityCount 101 `
+        -ScannedAmdPciEntityCount 21 `
+        -Candidates @($syntheticCandidate, $secondCandidate)
+    Assert-CollectorSelfTest -Name 'Multiple-candidates-remain-independent' -Condition ($multiInput.CandidateDeviceCount -eq 2 -and $multiInput.Candidates[0].InstanceId -ne $multiInput.Candidates[1].InstanceId)
+
+    $failedDriverCandidate = $syntheticCandidate.PSObject.Copy()
+    $failedDriverCandidate.InstalledDriver = [pscustomobject][ordered]@{ CollectionError = 'Synthetic driver query failure' }
+    $failedDriverInput = New-HardwareSelectionInput `
+        -HostEvidence ([ordered]@{ ExecutionClass = 'WindowsServer'; ProductType = 3 }) `
+        -EnumerationStatus 'Complete' `
+        -ScannedPnpEntityCount 100 `
+        -ScannedAmdPciEntityCount 20 `
+        -Candidates @($failedDriverCandidate)
+    Assert-CollectorSelfTest -Name 'Server-driver-collection-failure-is-not-healthy-positive' -Condition ($failedDriverInput.Candidates[0].RuntimeDriverObservation.Status -eq 'CollectionFailed' -and $failedDriverInput.ServerPositiveCase.ObservationStatus -eq 'NpuCandidateObservedNeedsReview')
+
+    $selfTestRoot = Join-Path ([System.IO.Path]::GetTempPath()) ('amd-npu-collector-selftest-{0}' -f [Guid]::NewGuid().ToString('N'))
+    $selfTestZip = $selfTestRoot + '.zip'
+    try {
+        New-Item -ItemType Directory -Path (Join-Path $selfTestRoot 'nested') -Force | Out-Null
+        Write-JsonFile -Value $serverInput -Path (Join-Path $selfTestRoot 'selection-input.json')
+        Write-Utf8File -Path (Join-Path (Join-Path $selfTestRoot 'nested') 'evidence.txt') -Text 'synthetic evidence'
+
+        $jsonResult = Test-EvidenceJsonFiles -Root $selfTestRoot
+        Assert-CollectorSelfTest -Name 'Generated-JSON-round-trip' -Condition ($jsonResult.Success -and $jsonResult.FileCount -eq 1)
+        $selectionJsonText = Get-Content -LiteralPath (Join-Path $selfTestRoot 'selection-input.json') -Raw -Encoding UTF8
+        Assert-CollectorSelfTest -Name 'Single-candidate-JSON-array-contract' -Condition ($selectionJsonText -match '"Candidates"\s*:\s*\[' -and $selectionJsonText -match '"HardwareIds"\s*:\s*\[' -and $selectionJsonText -match '"CompatibleIds"\s*:\s*\[')
+
+        $invalidPath = Join-Path $selfTestRoot 'invalid.json'
+        Write-Utf8File -Path $invalidPath -Text '{ invalid json'
+        $invalidResult = Test-EvidenceJsonFiles -Root $selfTestRoot
+        Assert-CollectorSelfTest -Name 'Invalid-JSON-fails-closed' -Condition (-not $invalidResult.Success)
+        Remove-Item -LiteralPath $invalidPath -Force
+
+        $manifestResult = Write-EvidenceManifestSafely -Root $selfTestRoot
+        $manifestVerification = Test-EvidenceManifest -Root $selfTestRoot
+        Assert-CollectorSelfTest -Name 'Manifest-exact-verification' -Condition ($manifestResult.Success -and $manifestVerification.Success)
+
+        $archiveResult = Compress-EvidenceArchiveSafely -Root $selfTestRoot -Destination $selfTestZip
+        $archiveVerification = Test-EvidenceZipArchive -Root $selfTestRoot -Path $selfTestZip
+        Assert-CollectorSelfTest -Name 'ZIP-reopen-length-hash-path-verification' -Condition ($archiveResult.Success -and $archiveVerification.Success)
+    }
+    finally {
+        if (Test-Path -LiteralPath $selfTestRoot) { Remove-Item -LiteralPath $selfTestRoot -Recurse -Force }
+        if (Test-Path -LiteralPath $selfTestZip) { Remove-Item -LiteralPath $selfTestZip -Force }
+    }
+
+    $result = [pscustomobject][ordered]@{
+        ToolVersion = $ToolVersion
+        Result = if ($failures.Count -eq 0) { 'Pass' } else { 'Fail' }
+        PassedCount = $passed.Count
+        FailedCount = $failures.Count
+        Passed = @($passed.ToArray())
+        Failed = @($failures.ToArray())
+    }
+    Write-Host ($result | ConvertTo-Json -Depth 10)
+    if ($failures.Count -gt 0) { throw ('Collector self-test failed: {0}' -f (@($failures.ToArray()) -join ', ')) }
+    return $result
+}
+
+if ($SelfTest) {
+    $null = Invoke-CollectorSelfTest
+    return
+}
+
 $script:CollectorSucceeded = $false
 $script:CollectorErrorRecord = $null
 $script:TranscriptStarted = $false
@@ -1499,7 +2028,16 @@ $computer = Get-CimInstance Win32_ComputerSystem
 $computerProduct = Get-CimInstance Win32_ComputerSystemProduct
 $bios = Get-CimInstance Win32_BIOS
 $processors = @(Get-CimInstance Win32_Processor)
-$allPnpEntities = @(Get-CimInstance Win32_PnPEntity)
+try {
+    $allPnpEntities = @(Get-CimInstance Win32_PnPEntity -ErrorAction Stop)
+    $pnpEnumerationStatus = 'Complete'
+    $pnpEnumerationError = $null
+}
+catch {
+    $allPnpEntities = @()
+    $pnpEnumerationStatus = 'Failed'
+    $pnpEnumerationError = $_.Exception.Message
+}
 $signedDriverRecords = @(Get-CimInstance Win32_PnPSignedDriver)
 $videoControllers = @(Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue)
 
@@ -1517,6 +2055,22 @@ $osInfo = [ordered]@{
     Version = [string]$os.Version
     BuildNumber = [string]$os.BuildNumber
     OSArchitecture = [string]$os.OSArchitecture
+    ProductType = [int]$os.ProductType
+    ExecutionClass = Get-WindowsExecutionClass -ProductType $os.ProductType
+    ServerRole = Get-WindowsServerRole -ProductType $os.ProductType
+}
+
+$hostExecutionEvidence = [ordered]@{
+    ExecutionClass = $osInfo.ExecutionClass
+    ProductType = $osInfo.ProductType
+    ServerRole = $osInfo.ServerRole
+    Caption = $osInfo.Caption
+    Version = $osInfo.Version
+    BuildNumber = $osInfo.BuildNumber
+    OSArchitecture = $osInfo.OSArchitecture
+    PowerShellVersion = [string]$PSVersionTable.PSVersion
+    PowerShellEdition = if ($PSVersionTable.PSObject.Properties['PSEdition']) { [string]$PSVersionTable.PSEdition } else { 'Desktop' }
+    IsAdministrator = Test-CurrentProcessAdministrator
 }
 
 $biosInfo = [ordered]@{
@@ -1562,6 +2116,7 @@ foreach ($group in $processorGroups) {
         Name = [string]$device.Name
         Manufacturer = [string]$device.Manufacturer
         Status = [string]$device.Status
+        ConfigManagerErrorCode = Convert-ConfigManagerErrorCodeToText -Code $device.ConfigManagerErrorCode
         PNPClass = [string]$device.PNPClass
         Service = [string]$device.Service
         ObservedInstanceCount = $group.Count
@@ -1657,6 +2212,7 @@ foreach ($device in $amdPlatformPnpDevices) {
         Name = [string]$device.Name
         Description = [string]$device.Description
         Status = [string]$device.Status
+        ConfigManagerErrorCode = Convert-ConfigManagerErrorCodeToText -Code $device.ConfigManagerErrorCode
         PNPClass = [string]$device.PNPClass
         ClassGuid = [string]$device.ClassGuid
         Service = $serviceName
@@ -1858,13 +2414,29 @@ if (Test-Path -LiteralPath $setupApiPath) {
     }
 }
 
+$hardwareSelectionInput = New-HardwareSelectionInput `
+    -HostEvidence $hostExecutionEvidence `
+    -EnumerationStatus $pnpEnumerationStatus `
+    -EnumerationError $pnpEnumerationError `
+    -ScannedPnpEntityCount $allPnpEntities.Count `
+    -ScannedAmdPciEntityCount $amdPciDevices.Count `
+    -Candidates $npuCandidates
+
 $summary = [ordered]@{
-    SchemaVersion = '2.2'
+    SchemaVersion = '2.3'
     Tool = [ordered]@{
         Name = $ToolName
         Version = $ToolVersion
     }
     CollectedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+    HostExecution = $hostExecutionEvidence
+    HardwareSelectionInput = [ordered]@{
+        File = 'npu-hardware-selection-input.json'
+        EnumerationStatus = $hardwareSelectionInput.Enumeration.Status
+        ObservationStatus = $hardwareSelectionInput.ObservationStatus
+        CandidateDeviceCount = $hardwareSelectionInput.CandidateDeviceCount
+        DriverTrackSelectionPerformed = $false
+    }
     Privacy = [ordered]@{
         StructuredCollectorComputerNameCollected = $false
         StructuredCollectorUserNameCollected = $false
@@ -2031,6 +2603,7 @@ foreach ($fw in $firmwareDevices) {
 }
 
 Write-JsonFile -Value $summary -Path (Join-Path $EvidenceRoot 'amd-npu-hardware-summary.json')
+Write-JsonFile -Value $hardwareSelectionInput -Path (Join-Path $EvidenceRoot 'npu-hardware-selection-input.json')
 Write-Utf8File -Path (Join-Path $EvidenceRoot 'processor-identity-summary.txt') -Text (($processorText.ToArray()) -join "`n")
 Write-Utf8File -Path (Join-Path $EvidenceRoot 'npu-revision-evidence-summary.txt') -Text (($revisionText.ToArray()) -join "`n")
 Write-Utf8File -Path (Join-Path $EvidenceRoot 'amd-platform-device-summary.txt') -Text (($platformText.ToArray()) -join "`n")
@@ -2052,6 +2625,8 @@ $summaryText.Add(('Collected UTC   : {0}' -f $summary.CollectedAtUtc)) | Out-Nul
 $summaryText.Add(('System          : {0} {1}' -f $systemInfo.Manufacturer, $systemInfo.Model)) | Out-Null
 $summaryText.Add(('System product  : {0}' -f $systemInfo.SystemProductName)) | Out-Null
 $summaryText.Add(('OS              : {0} / {1} / build {2}' -f $osInfo.Caption, $osInfo.Version, $osInfo.BuildNumber)) | Out-Null
+$summaryText.Add(('Execution class : {0}; ProductType={1}; ServerRole={2}' -f $hostExecutionEvidence.ExecutionClass, $hostExecutionEvidence.ProductType, $hostExecutionEvidence.ServerRole)) | Out-Null
+$summaryText.Add(('PowerShell      : {0} / {1}; Administrator={2}' -f $hostExecutionEvidence.PowerShellVersion, $hostExecutionEvidence.PowerShellEdition, $hostExecutionEvidence.IsAdministrator)) | Out-Null
 $summaryText.Add(('BIOS            : {0}' -f $biosInfo.SMBIOSBIOSVersion)) | Out-Null
 foreach ($cpu in $cpuInfo) {
     $summaryText.Add(('CPU             : {0}' -f $cpu.Name)) | Out-Null
@@ -2070,6 +2645,7 @@ $summaryText.Add(('AMD platform dev: {0}' -f $allDevices.Count)) | Out-Null
 $summaryText.Add(('AMD PCI devices : {0}' -f $amdPciDevices.Count)) | Out-Null
 $summaryText.Add(('GPU candidates  : {0}' -f $gpuCandidates.Count)) | Out-Null
 $summaryText.Add(('NPU candidates  : {0}' -f $npuCandidates.Count)) | Out-Null
+$summaryText.Add(('NPU observation : {0}; PnP enumeration={1}' -f $hardwareSelectionInput.ObservationStatus, $hardwareSelectionInput.Enumeration.Status)) | Out-Null
 $summaryText.Add(('Firmware devices: {0}' -f $firmwareDevices.Count)) | Out-Null
 $xrtSmiSummaryStatus = if ($xrtSmiEvidence.Present) { 'present' } else { 'not found' }
 $summaryText.Add(('xrt-smi         : {0}' -f $xrtSmiSummaryStatus)) | Out-Null
@@ -2099,7 +2675,11 @@ $quicktestSummaryStatus = if ($quicktestEvidence.Present) { 'private source evid
 $summaryText.Add(('quicktest.py    : {0}' -f $quicktestSummaryStatus)) | Out-Null
 $summaryText.Add('') | Out-Null
 
-if ($npuCandidates.Count -eq 0) {
+if ($hardwareSelectionInput.ObservationStatus -eq 'IncompleteEvidence') {
+    $summaryText.Add('NPU presence could not be determined because local PnP enumeration was incomplete.') | Out-Null
+    $summaryText.Add('This run must be reviewed and must not be interpreted as a no-NPU result.') | Out-Null
+}
+elseif ($npuCandidates.Count -eq 0) {
     $summaryText.Add('No NPU candidate was found by the current rules.') | Out-Null
     $summaryText.Add('Please still share the ZIP: all AMD PCI devices are retained in the JSON for unknown/new device-ID analysis.') | Out-Null
 }
@@ -2133,9 +2713,21 @@ else {
     }
 }
 
+if ($hardwareSelectionInput.ServerPositiveCase.ObservationStatus -eq 'NpuRuntimeObservedHealthy') {
+    $summaryText.Add('Windows Server positive observation: NPU PnP identity and installed runtime-driver evidence were collected.') | Out-Null
+    $summaryText.Add('A custom-built or self-signed driver is allowed as observed evidence; this does not approve deployment or prove workload execution.') | Out-Null
+}
+elseif ($hostExecutionEvidence.ExecutionClass -eq 'WindowsServer' -and $npuCandidates.Count -gt 0) {
+    $summaryText.Add(('Windows Server NPU candidate observation requires review: {0}' -f $hardwareSelectionInput.ServerPositiveCase.ObservationStatus)) | Out-Null
+}
+
 $summaryText.Add('Important: PCI REV_XX, PCIe specification version, and firmware-reported NPU device revision are separate identity layers. PCIe ExpressSpecVersion must not be used as firmware device revision.') | Out-Null
 $summaryText.Add('XRT safety: collector invokes only read-only xrt-smi --version/examine. It never invokes validate/configure and never executes quicktest.py.') | Out-Null
 Write-Utf8File -Path (Join-Path $EvidenceRoot 'SUMMARY.txt') -Text (($summaryText.ToArray()) -join "`n")
+
+    if ($pnpEnumerationStatus -ne 'Complete') {
+        throw ('Required local Windows PnP enumeration was not complete: {0}' -f $pnpEnumerationError)
+    }
 
     $script:CollectorSucceeded = $true
 }
@@ -2171,24 +2763,35 @@ finally {
         Write-Host '[!] Collection completed with errors. Partial evidence was preserved.'
     }
 
-    if ($finalization.ArchiveSuccess) {
+    Write-Host ('[+] Collection outcome : {0}' -f $finalization.CollectionSuccess)
+    Write-Host ('[+] JSON integrity     : {0} ({1} files)' -f $finalization.JsonIntegritySuccess, $finalization.JsonFileCount)
+    Write-Host ('[+] Manifest integrity : {0} ({1} entries)' -f $finalization.ManifestIntegritySuccess, $finalization.ManifestEntryCount)
+    Write-Host ('[+] Archive integrity  : {0} ({1} entries)' -f $finalization.ArchiveIntegritySuccess, $finalization.ArchiveEntryCount)
+
+    if ($finalization.Success) {
         Write-Host ('[+] Evidence ZIP : {0}' -f $ZipPath)
         Write-Host ('[+] SHA-256      : {0}' -f $finalization.ArchiveSha256)
-        if (-not $finalization.ManifestSuccess) {
-            Write-Host '[!] Evidence manifest finalization reported an error; inspect errors/ inside the ZIP.'
-        }
         if (-not [string]::IsNullOrWhiteSpace([string]$finalization.Error)) {
             Write-Host ('[!] Archive note : {0}' -f $finalization.Error)
         }
         Write-Host ''
         Write-Host 'Please share the generated ZIP file for analysis.'
     }
-    else {
-        Write-Host ('[-] Evidence ZIP creation failed: {0}' -f $finalization.Error)
+    elseif ($finalization.PackageIntegritySuccess) {
+        Write-Host ('[!] Partial diagnostic Evidence ZIP : {0}' -f $ZipPath)
+        Write-Host ('[!] SHA-256                       : {0}' -f $finalization.ArchiveSha256)
+        Write-Host '[!] Package integrity passed, but collection failed. Share only for failure analysis; it is not accepted evidence.'
         Write-Host ('[!] Evidence directory was retained: {0}' -f $EvidenceRoot)
     }
+    else {
+        Write-Host ('[-] Evidence package integrity failed: {0}' -f $finalization.Error)
+        Write-Host ('[!] Evidence directory was retained: {0}' -f $EvidenceRoot)
+        if ($finalization.ArchiveSuccess) {
+            Write-Host ('[!] An archive file was created but did not pass all integrity gates; do not treat it as accepted evidence: {0}' -f $ZipPath)
+        }
+    }
 
-    if ($script:CollectorSucceeded -and $finalization.ArchiveSuccess -and -not $KeepDirectory) {
+    if ($script:CollectorSucceeded -and $finalization.Success -and -not $KeepDirectory) {
         try {
             Remove-Item -LiteralPath $EvidenceRoot -Recurse -Force -ErrorAction Stop
         }

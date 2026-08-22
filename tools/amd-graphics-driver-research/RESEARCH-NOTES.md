@@ -474,3 +474,33 @@ The most important historical categories are:
 - publication/portability hardening.
 
 The top-level documentation intentionally avoids replaying every development version so that the stable contract remains readable.
+
+## 26. Downstream build-script feedback contract
+
+The production graphics build/sign/deployment path should require an explicit
+device-to-artifact chain:
+
+```text
+local GPU identity
+  -> reviewed AMD product group/category
+     -> OS/package-family track
+        -> immutable outer installer
+           -> matching Display/Display2 INF and model
+              -> transformation/catalog/signing plan
+                 -> target Server runtime evidence
+```
+
+The decision record should preserve every category/track reference even when
+several references deduplicate to one installer SHA-256. It should also retain
+the outer installer, extracted package, INF, binary and catalog identities;
+as-published Server selection; AMD-native Server control comparisons; WDF
+declarations; transformation delta; generated catalog; signing identity; and
+install/load/device-function results as separate facts.
+
+Ordinary research coverage and deep certificate scope are different controls:
+bounded generation coverage prevents product-history blind spots, while
+newest-generation-per-stable-track certificate analysis limits expensive work.
+Neither is a host recommendation. A static `ServerProjection`, matching
+DriverVer, or shared installer is insufficient to select a deployable package.
+The accepted Windows Server smoke and bounded short-E2E do not replace
+hardware-specific deployment qualification.

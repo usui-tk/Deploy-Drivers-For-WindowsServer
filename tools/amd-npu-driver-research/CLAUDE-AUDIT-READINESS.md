@@ -1,5 +1,28 @@
 # Claude Audit Readiness — AMD NPU Driver Research v1.0.0
 
+> **Superseded readiness snapshot.** This file preserves the v1.0.0 audit
+> package and SHALL NOT be used to decide current `3.0.0` readiness. Current
+> operator/specification/testing authority is `README.md`, `SPEC.md` and
+> `TESTING.md`; coordinated qualification state is carried by the umbrella
+> package management records. The correction of REV65's live-source inference
+> is recorded under `authored/NPU-LIVE-PUBLICATION-DRIFT-2026-08-21.md`.
+
+> Historical audit record. The current coordinated candidate is `3.0.0` and
+> requires the Cycle B review defined by `TESTING.md`; the earlier bounded review covered
+> `data/hardware-driver-selection.json`, its schemas, the hardware-only resolver,
+> automatic local PnP enumeration, ten self-tests, the deterministic PS5.1
+> `SignedCms` load, structured Test evidence, Evidence-snapshot allowlist,
+> documentation boundaries, canonical JSON enum encoding, generated-runtime-JSON
+> parse guards, and the accepted exact-source NPU-equipped Windows Client archive.
+> Both the no-NPU negative-control archive and `1.3.3-dev` positive-control archive
+> remain regression references; CPU/processor datasets remain audit references, not selection
+> authority. Windows Server execution and deployment remain outside this acceptance.
+
+> The external review input now also includes an accepted Windows Server 2025
+> Datacenter no-NPU Gate B executed with PowerShell 7.6.5 Core. Treat it as
+> Server negative-control and host-path evidence only. It is not a claim for
+> Windows PowerShell 5.1 on Server or NPU-equipped Server runtime behavior.
+
 ## Review scope
 
 The next review is Audit #4 and should evaluate the final v1.0.0 release material after fresh v1.0.0 acquisition/qualification evidence is complete.
@@ -199,7 +222,7 @@ Collector source:
 
 ```text
 tools/Collect-AmdNpuHardwareIdentityEvidence.ps1
-version 1.2.1
+version 1.3.0
 ```
 
 The collector is read-only and private-evidence oriented. It may use read-only `xrt-smi --version`/`examine`; it must not automatically run `validate`, `configure`, AMD installer programs, or quicktest inference.
@@ -207,8 +230,18 @@ The collector is read-only and private-evidence oriented. It may use read-only `
 Important review boundary:
 
 - older Z2 Extreme runtime evidence is valid research input;
-- collector v1.2.1 final positive-control rerun is still pending;
-- therefore do not describe v1.2.1 itself as fully real-device-qualified until that rerun is completed.
+- collector v1.3.0 parser and fifteen-test hardware-independent self-test pass;
+- the NPU-positive gate is dependency-blocked until production build-script redevelopment and separately authorized Server driver application are complete;
+- custom/self-signed Server driver evidence does not require public-376 hash equality;
+- therefore do not describe v1.3.0 itself as fully real-device-qualified until that single positive run and all JSON/manifest/ZIP integrity gates are reviewed.
+
+No further collector source correction is currently identified. The minimum
+remaining evidence is one exact-v1.3.0 NPU-positive observation, but it is
+deferred and must not be requested before production build-script redevelopment,
+review and separately authorized Server driver application. Do not request
+duplicate Client or Server no-NPU runs. Review
+must keep collector observation, driver deployment, workload success and stable
+promotion as four distinct claims.
 
 ## What is intentionally unresolved
 
@@ -217,7 +250,7 @@ Do not treat the following as defects merely because they are unresolved:
 - STXA versus STXB on the Z2 Extreme;
 - Gorgon Point recommendation without stronger published support evidence;
 - Gorgon Halo exact Windows NPU identity/support relation;
-- Windows Server real NPU runtime proof.
+- Windows Server real NPU workload proof until the planned positive execution is reviewed.
 
 The intended safe result is `ReviewRequired` or explicit runtime-proof=false until evidence exists.
 

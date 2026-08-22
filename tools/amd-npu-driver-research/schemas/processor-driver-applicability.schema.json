@@ -17,7 +17,7 @@
   ],
   "properties": {
     "SchemaVersion": {
-      "const": "1.0"
+      "const": "1.1"
     },
     "ToolVersion": {
       "type": "string"
@@ -39,6 +39,8 @@
         "PubliclyObtainableArtifactsOnly",
         "PrivateQualificationArtifactsNeverRecommended",
         "HighestReviewedPublishedStaticCandidate",
+        "ResolvedNpuTypePackageLaneRequired",
+        "GlobalVersionRankingProhibited",
         "WindowsServerRuntimeProofRequiredForRuntimeClaim",
         "SeriesNameOnlyInferenceProhibited"
       ],
@@ -56,6 +58,12 @@
           "const": true
         },
         "HighestReviewedPublishedStaticCandidate": {
+          "const": false
+        },
+        "ResolvedNpuTypePackageLaneRequired": {
+          "const": true
+        },
+        "GlobalVersionRankingProhibited": {
           "const": true
         },
         "WindowsServerRuntimeProofRequiredForRuntimeClaim": {
@@ -207,7 +215,7 @@
           },
           "RecommendationDecision": {
             "enum": [
-              "SelectLatestPublishedStaticCandidate",
+              "SelectLatestWithinResolvedNpuTypeLane",
               "ReviewRequired",
               "NoNpuDriverRequired"
             ]

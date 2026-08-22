@@ -1,7 +1,15 @@
 {
-  "schemaVersion": "1.0",
-  "reviewedAt": "2026-08-13",
+  "schemaVersion": "1.1",
+  "reviewedAt": "2026-08-15",
   "unknownPolicy": "ReviewRequired",
+  "packageSelectionModel": {
+    "currentPackageCaseCount": 2,
+    "selectionKey": "npuIdentityId",
+    "globalVersionRankingProhibited": true,
+    "historicalArtifactsExcludedFromRecommendation": true,
+    "unresolvedBoundaryPolicy": "ReviewRequired",
+    "statement": "The two current AMD NPU packages are independent device-type selection cases. A package may be ranked by version only after the target NPU identity has resolved exactly one package lane."
+  },
   "sources": [
     {
       "id": "amd-latest-inst",
@@ -65,6 +73,14 @@
       "artifactSha256": "a278a2c92cdc47e0da4cab2cbdb5347a127eee67311927578f4e151618446ce4",
       "artifactFileName": "NPU_RAI1.5_280_WHQL.zip",
       "publishedDriverLabel": "32.0.203.280",
+      "packageRole": "HistoricalRegressionFixture",
+      "selectionLaneId": "historical-rai15-280",
+      "selectionBoundaryStatus": "HistoricalOnly",
+      "reviewedStaticNpuIdentityIds": [
+        "amd-npu-aie2-1502",
+        "amd-npu-aie2p-17f0"
+      ],
+      "recommendationEligibleNpuIdentityIds": [],
       "publishedSupportedCodenames": [
         "Phoenix",
         "Hawk Point",
@@ -77,12 +93,20 @@
         "amd-rai15-relnotes",
         "amd-npu-check"
       ],
-      "notes": "Historical Ryzen AI 1.5 280 artifact. The exact package URL is separately recorded in SOURCES.md; support family is bound conservatively from Ryzen AI 1.5 published configuration plus observed 280 payload."
+      "notes": "Historical Ryzen AI 1.5 280 artifact retained only for regression and packaging-evolution research. It is not one of the two current NPU device-type recommendation cases."
     },
     {
       "artifactSha256": "803afe1e2d75b717f60a368453306ccbd4877cdd936b6531b946b95109a22144",
       "artifactFileName": "NPU_RAI_280_WHQL.zip",
       "publishedDriverLabel": "32.0.203.280",
+      "packageRole": "CurrentNpuTypeCandidate",
+      "selectionLaneId": "current-npu-package-280",
+      "selectionBoundaryStatus": "ReviewRequired",
+      "reviewedStaticNpuIdentityIds": [
+        "amd-npu-aie2-1502",
+        "amd-npu-aie2p-17f0"
+      ],
+      "recommendationEligibleNpuIdentityIds": [],
       "publishedSupportedCodenames": [
         "Phoenix",
         "Hawk Point",
@@ -95,12 +119,20 @@
         "amd-latest-inst",
         "amd-npu-check"
       ],
-      "notes": "AMD documentation publishes 280 as production driver for the listed codename families."
+      "notes": "AMD currently publishes this package alongside 376. Its INF and reviewed installer use broad 1502/17F0 selectors, which is insufficient to establish the device-type package boundary. Recommendation remains fail-closed until the NPU-type relation is independently resolved."
     },
     {
       "artifactSha256": "aa836cbfcad5d0782c79b58f197aa50624af37e7cb8311c5f94d85b0dc3ccaad",
       "artifactFileName": "NPU_RAI_376_WHQL.zip",
       "publishedDriverLabel": "32.0.203.376",
+      "packageRole": "CurrentNpuTypeCandidate",
+      "selectionLaneId": "current-npu-package-376",
+      "selectionBoundaryStatus": "ReviewRequired",
+      "reviewedStaticNpuIdentityIds": [
+        "amd-npu-aie2-1502",
+        "amd-npu-aie2p-17f0"
+      ],
+      "recommendationEligibleNpuIdentityIds": [],
       "publishedSupportedCodenames": [
         "Phoenix",
         "Hawk Point",
@@ -113,7 +145,7 @@
         "amd-latest-inst",
         "amd-npu-check"
       ],
-      "notes": "AMD Ryzen AI 1.8 documentation publishes 376 as production driver for the listed codename families. The payload INF DriverVer is a separate embedded version and must not be conflated with this published label."
+      "notes": "AMD Ryzen AI 1.8 documentation publishes 376 and the reviewed Z2 Extreme client runtime exactly matches its payload. Those facts do not prove a universal package choice for every NPU identity. Recommendation remains fail-closed until the NPU-type boundary is independently resolved."
     }
   ]
 }

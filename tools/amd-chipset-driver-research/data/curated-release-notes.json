@@ -1,0 +1,572 @@
+{
+  "SchemaVersion": "amd-chipset-curated-release-notes/1.0",
+  "Records": [
+    {
+      "ReleaseVersion": "8.08.12.551",
+      "ArticleNumber": "RN-RYZEN-CHIPSET-8-08-12-551",
+      "Source": {
+        "ReleaseNotesUrl": "https://www.amd.com/en/resources/support-articles/release-notes/RN-RYZEN-CHIPSET-8-08-12-551.html",
+        "SourceArtifactFileName": "AMD Ryzen™ Chipset Driver Release Notes 8.08.12.551.mhtml",
+        "SourceArtifactSha256": "a6fad180e2295b9f30874cb21153e6d51197d950896820bbf10cc0f1a0eb65da",
+        "CapturedAt": "2026-08-20",
+        "Authority": "AMDOfficialReleaseNotesPageCapture"
+      },
+      "ReleaseHighlights": [
+        "Bug fixes included.",
+        "New Program (Ryzen AI Max) Support added."
+      ],
+      "KnownIssues": [
+        {
+          "Id": "Downgrade7To6Blocked",
+          "Summary": "After installing a 7.x-or-newer AMD Chipset Installer, a 6.x-or-older installer requires uninstalling the newer package and removing the Qt_Dependencies directory before the downgrade.",
+          "ToolkitImpact": "NoImpactReadOnlyResearchDoesNotInstallOrDowngrade"
+        },
+        {
+          "Id": "NonEnglishDriverNames",
+          "Summary": "Some driver names may appear in English on a non-English operating system.",
+          "ToolkitImpact": "LocaleNeutralIdentifiersAndStructuredFieldsRequired"
+        },
+        {
+          "Id": "RyzenPpkgInstallOrUpgrade",
+          "Summary": "Ryzen PPKG may occasionally fail to install or upgrade.",
+          "ToolkitImpact": "StaticResearchDoesNotTreatInstallationOutcomeAsProven"
+        }
+      ],
+      "ChipsetSupport": [
+        {
+          "Name": "AMD WRX90/TRX50",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD WRX80",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD TRX40",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD X870E / X870",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD B850",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD B840",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD X670E / X670",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD B650E / B650",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD X570",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD B550",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD A520",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD X399",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD X470",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD B450",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD X370",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD B350",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD A320",
+          "Windows10": true,
+          "Windows11": true
+        }
+      ],
+      "ProcessorSupport": [
+        {
+          "Name": "AMD Ryzen™ Threadripper™ PRO 3000/5000/7000/9000 Series Processors",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD Ryzen™ AI 300 Series processors",
+          "Windows10": false,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD Ryzen™ 7 9800X3D Processor",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD Ryzen™ 9000 Series processors",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD Ryzen™ 8000G Series processors",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD Ryzen™ 8X40 Series processors",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD Ryzen™ 7040 Series processors",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD Ryzen™ 7000 Series Desktop Processors",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD Ryzen™ 7000 Series Mobile Processors",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD Ryzen™ 5000 Series Desktop Processors",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD Ryzen™ Threadripper™ 3000/5000/7000/9000 Series Processors,",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD Ryzen™ Threadripper™ 1000/2000 Series Processors",
+          "Windows10": true,
+          "Windows11": false
+        },
+        {
+          "Name": "2nd/3rd Gen AMD Ryzen™ Desktop Processors",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "1st Gen AMD Ryzen™ Desktop Processors",
+          "Windows10": true,
+          "Windows11": false
+        },
+        {
+          "Name": "AMD Ryzen™ 3000G/4000G/5000G Series Desktop Processors with Radeon™ Graphics",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD Ryzen™ 2000G Series Desktop Processors with Radeon™ Graphics",
+          "Windows10": true,
+          "Windows11": false
+        },
+        {
+          "Name": "AMD Ryzen™ Mobile 3000U/C, 4000U/H, 5000U/H/HS, 6000U/H/HS/HX Series Processors with Radeon™ Graphics",
+          "Windows10": true,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD Ryzen™ Mobile 2000U Series Processors with Radeon™ Graphics",
+          "Windows10": true,
+          "Windows11": false
+        },
+        {
+          "Name": "7th Gen AMD A-Series Processors",
+          "Windows10": true,
+          "Windows11": false
+        },
+        {
+          "Name": "AMD Ryzen™ AI 400 Series processors",
+          "Windows10": false,
+          "Windows11": true
+        },
+        {
+          "Name": "AMD Ryzen AI Max Processors",
+          "Windows10": false,
+          "Windows11": true
+        }
+      ],
+      "PackageContents": [
+        {
+          "Name": "AMD Ryzen Power Plan / AMD Processor Power Management Support",
+          "InfoProductNames": [
+            "AMD Processor Power Management Support – AMD Ryzen Power Plan"
+          ],
+          "Windows10": "8.0.1.13",
+          "Windows11": "8.0.1.13",
+          "ChangeDetails": "Bug Fixes"
+        },
+        {
+          "Name": "AMD PCI Device Driver",
+          "InfoProductNames": [
+            "AMD PCI Device Driver"
+          ],
+          "Windows10": "1.0.0.90",
+          "Windows11": "1.0.0.90",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD I2C Driver",
+          "InfoProductNames": [
+            "AMD I2C Driver"
+          ],
+          "Windows10": "1.2.0.131",
+          "Windows11": "1.2.0.131",
+          "ChangeDetails": "Bug Fixes"
+        },
+        {
+          "Name": "AMD UART Driver",
+          "InfoProductNames": [
+            "AMD UART Driver"
+          ],
+          "Windows10": "1.2.0.121",
+          "Windows11": "1.2.0.121",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD GPIO2 Driver",
+          "InfoProductNames": [
+            "AMD GPIO2 Driver"
+          ],
+          "Windows10": "2.2.0.137",
+          "Windows11": "2.2.0.137",
+          "ChangeDetails": "Bug Fixes"
+        },
+        {
+          "Name": "PT GPIO Driver",
+          "InfoProductNames": [
+            "PT GPIO Driver"
+          ],
+          "Windows10": "3.0.3.0",
+          "Windows11": "3.0.5.0",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD PSP Driver",
+          "InfoProductNames": [
+            "AMD PSP Driver"
+          ],
+          "Windows10": "5.46.0.0",
+          "Windows11": "5.46.0.0",
+          "ChangeDetails": "Bug Fixes"
+        },
+        {
+          "Name": "AMD IOV Driver",
+          "InfoProductNames": [
+            "AMD IOV Driver"
+          ],
+          "Windows10": "1.2.0.52",
+          "Windows11": "Not Applicable",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD SMBUS Driver",
+          "InfoProductNames": [
+            "AMD SMBUS Driver"
+          ],
+          "Windows10": "5.12.0.44",
+          "Windows11": "5.12.0.44",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD AS4 ACPI Driver",
+          "InfoProductNames": [
+            "AMD AS4 ACPI Driver"
+          ],
+          "Windows10": "1.2.0.46",
+          "Windows11": "Not Applicable",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD SFH I2C Driver",
+          "InfoProductNames": [
+            "AMD SFH I2C Driver"
+          ],
+          "Windows10": "1.0.0.86",
+          "Windows11": "1.0.0.86",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD USB Filter Driver",
+          "InfoProductNames": [
+            "AMD USB Filter Driver"
+          ],
+          "Windows10": "2.1.11.304",
+          "Windows11": "Not Applicable",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD SFH Driver",
+          "InfoProductNames": [
+            "AMD SFH Driver"
+          ],
+          "Windows10": "1.0.0.341",
+          "Windows11": "1.0.0.341",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD CIR Driver",
+          "InfoProductNames": [
+            "AMD CIR Driver"
+          ],
+          "Windows10": "3.2.4.135",
+          "Windows11": "Not Applicable",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD MicroPEP Driver",
+          "InfoProductNames": [
+            "AMD MicroPEP Driver"
+          ],
+          "Windows10": "1.0.47.1",
+          "Windows11": "1.0.47.1",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD Wireless Button Driver",
+          "InfoProductNames": [
+            "AMD Wireless Button Driver"
+          ],
+          "Windows10": "1.0.0.6",
+          "Windows11": "1.0.0.6",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD PMF-6000 Series Driver",
+          "InfoProductNames": [
+            "AMD PMF-6000Series Driver"
+          ],
+          "Windows10": "25.0.6.0",
+          "Windows11": "25.0.7.0",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD PPM Provisioning File Driver",
+          "InfoProductNames": [
+            "AMD PPM Provisioning File Driver"
+          ],
+          "Windows10": "8.0.0.65",
+          "Windows11": "8.0.0.65",
+          "ChangeDetails": "Bug Fixes"
+        },
+        {
+          "Name": "AMD USB4 CM Driver",
+          "InfoProductNames": [
+            "AMD USB4 CM Driver"
+          ],
+          "Windows10": "1.0.0.43",
+          "Windows11": "Not Applicable",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD AMS Mailbox Driver",
+          "InfoProductNames": [
+            "AMD AMS Mailbox Driver"
+          ],
+          "Windows10": "5.0.0.1075",
+          "Windows11": "6.0.0.6",
+          "ChangeDetails": "Bug Fixes"
+        },
+        {
+          "Name": "AMD S0i3 Filter Driver",
+          "InfoProductNames": [
+            "AMD S0i3 Filter Driver"
+          ],
+          "Windows10": "1.0.0.12",
+          "Windows11": "1.0.0.12",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD 3D V-Cache Performance Optimizer Driver",
+          "InfoProductNames": [
+            "AMD 3D V-Cache Performance Optimizer Driver"
+          ],
+          "Windows10": "1.0.0.12",
+          "Windows11": "1.0.0.12",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD SFH1.1 Driver",
+          "InfoProductNames": [
+            "AMD SFH1.1 Driver"
+          ],
+          "Windows10": "1.1.0.26",
+          "Windows11": "1.1.0.37",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD PMF-7040 Series Driver",
+          "InfoProductNames": [
+            "AMD PMF-7040Series Driver"
+          ],
+          "Windows10": "25.2.6.0",
+          "Windows11": "26.2.8.0",
+          "ChangeDetails": "Bug Fixes"
+        },
+        {
+          "Name": "AMD Interface Driver (AMD PCI, AMD SMBuS, AMD Hetero, AMD RCEC)",
+          "InfoProductNames": [
+            "AMD Interface Driver"
+          ],
+          "Windows10": "2.0.0.29",
+          "Windows11": "2.0.0.29",
+          "ChangeDetails": "Bug Fixes"
+        },
+        {
+          "Name": "AMD PMF-7736 Series Driver",
+          "InfoProductNames": [
+            "AMD PMF-7736Series Driver"
+          ],
+          "Windows10": "Not Applicable",
+          "Windows11": "24.1.20.0",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD PMF-8000Series Driver",
+          "InfoProductNames": [
+            "AMD PMF-8000Series Driver"
+          ],
+          "Windows10": "25.5.25.0",
+          "Windows11": "26.10.15.0",
+          "ChangeDetails": "Bug Fixes"
+        },
+        {
+          "Name": "AMD Provisioning for OEM",
+          "InfoProductNames": [
+            "AMD Provisioning for OEM"
+          ],
+          "Windows10": "1.0.0.6",
+          "Windows11": "1.0.0.6",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD PMF Ryzen AI 300 Series Driver 1",
+          "InfoProductNames": [
+            "AMD PMF Ryzen AI 300 Series Driver"
+          ],
+          "Windows10": "Not Applicable",
+          "Windows11": "26.10.15.0",
+          "ChangeDetails": "Bug Fixes"
+        },
+        {
+          "Name": "AMD Application Compatibility Database Driver",
+          "InfoProductNames": [
+            "AMD Application Compatibility Database Driver"
+          ],
+          "Windows10": "1.0.0.3",
+          "Windows11": "1.0.0.3",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD NULL Driver for Microsoft Pluton Security Processor 1",
+          "InfoProductNames": [
+            "AMD NULL Driver for Microsoft Pluton Security Processor 1"
+          ],
+          "Windows10": "1.0.0.0",
+          "Windows11": "Not Applicable",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD NULL Driver for Microsoft Pluton Security Processor 2",
+          "InfoProductNames": [
+            "AMD NULL Driver for Microsoft Pluton Security Processor 2"
+          ],
+          "Windows10": "1.0.0.2",
+          "Windows11": "Not Applicable",
+          "ChangeDetails": "No change"
+        },
+        {
+          "Name": "AMD HSMP Driver",
+          "InfoProductNames": [
+            "AMD HSMP Driver"
+          ],
+          "Windows10": "1.0.0.9",
+          "Windows11": "1.0.0.9",
+          "ChangeDetails": "Bug Fixes"
+        },
+        {
+          "Name": "AMD PMF Ryzen AI MAX 300 Series Driver",
+          "InfoProductNames": [
+            "AMD PMF Ryzen AI MAX 300 Series Driver"
+          ],
+          "Windows10": "Not Applicable",
+          "Windows11": "26.10.15.0",
+          "ChangeDetails": "Bug Fixes"
+        },
+        {
+          "Name": "AMD PMF Ryzen AI 300 Series Driver 2",
+          "InfoProductNames": [
+            "AMD PMF Ryzen AI 300 Series-2 Driver"
+          ],
+          "Windows10": "Not Applicable",
+          "Windows11": "26.10.15.0",
+          "ChangeDetails": "Bug Fixes"
+        },
+        {
+          "Name": "AMD PMF Ryzen AI 400 Series Driver",
+          "InfoProductNames": [
+            "AMD PMF Ryzen AI 400 Series Driver"
+          ],
+          "Windows10": "Not Applicable",
+          "Windows11": "26.10.15.0",
+          "ChangeDetails": "Bug Fixes"
+        },
+        {
+          "Name": "AMD PMF Driver",
+          "InfoProductNames": [
+            "AMD PMF Driver"
+          ],
+          "Windows10": "Not Applicable",
+          "Windows11": "26.10.15.0",
+          "ChangeDetails": "New Driver Support Added"
+        }
+      ],
+      "InterpretationBoundaries": [
+        "Processor support in this release note is AMD Chipset package support and is not an NPU driver-package selection rule.",
+        "Ryzen AI Max support is a vendor support statement; it does not prove that every related internal product record first appeared in this release.",
+        "Not Applicable in the release note is higher-level support evidence even when an internal Info.xml product record is present.",
+        "Windows 10 and Windows 11 support statements do not establish Windows Server support."
+      ]
+    }
+  ]
+}

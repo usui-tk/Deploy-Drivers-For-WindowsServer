@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-npu-driver-research:windows-host-security-posture:1.0",
+  "title": "AMD NPU Driver Research Windows Host Security Posture",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "EvidenceScope",
+    "Status",
+    "MutationPerformed"
+  ],
+  "properties": {
+    "SchemaVersion": { "const": "amd-driver-windows-host-security-posture/1.0" },
+    "ToolkitVersion": { "type": "string" },
+    "EvidenceScope": { "const": "WindowsNative" },
+    "Status": { "type": "string" },
+    "CollectedAtUtc": { "type": "string" },
+    "ExecutionContext": { "type": "object" },
+    "SecureBoot": { "type": "object" },
+    "DeviceGuard": { "type": ["object", "null"] },
+    "TestSigning": { "type": "object" },
+    "MutationPerformed": { "const": false }
+  },
+  "additionalProperties": true
+}

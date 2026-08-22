@@ -16,7 +16,7 @@
   ],
   "properties": {
     "SchemaVersion": {
-      "const": "1.2"
+      "const": "1.3"
     },
     "ToolVersion": {
       "type": "string"
@@ -31,6 +31,9 @@
         "ProcessorCatalogCompleteness",
         "UnknownSkuPolicy",
         "UnknownHardwarePolicy",
+        "PackageSelectionKey",
+        "CurrentPackageCaseCount",
+        "GlobalVersionRankingProhibited",
         "RuntimeProof",
         "ClientRuntimeEvidenceIncluded"
       ],
@@ -39,6 +42,15 @@
           "const": false
         },
         "ClientRuntimeEvidenceIncluded": {
+          "const": true
+        },
+        "PackageSelectionKey": {
+          "const": "WindowsPnpHardwareIdsMatchedAgainstReviewedInfModels"
+        },
+        "CurrentPackageCaseCount": {
+          "const": 2
+        },
+        "GlobalVersionRankingProhibited": {
           "const": true
         }
       }
@@ -66,6 +78,10 @@
           "ArtifactSha256",
           "PublishedDriverLabel",
           "EmbeddedInfDriverVersions",
+          "PackageRole",
+          "SelectionLaneId",
+          "SelectionBoundaryStatus",
+          "NpuIdentityApplicability",
           "InfHardwareCandidate",
           "InstallerBroadFamilyCandidate",
           "DriverBinaryCodenameStatus",
@@ -84,6 +100,15 @@
           "ArtifactSha256": {
             "type": "string",
             "pattern": "^[0-9a-f]{64}$"
+          },
+          "PackageRole": {
+            "enum": ["HistoricalRegressionFixture", "CurrentNpuTypeCandidate", "UnreviewedArtifact"]
+          },
+          "SelectionLaneId": {
+            "type": ["string", "null"]
+          },
+          "SelectionBoundaryStatus": {
+            "enum": ["HistoricalOnly", "ReviewRequired", "Resolved", "NoReviewedRule"]
           },
           "RuntimeProof": {
             "const": false
@@ -142,6 +167,7 @@
           "ProcessorName",
           "Codename",
           "Decision",
+          "SelectionLaneId",
           "RecommendedArtifact",
           "PublishedDriverLabel",
           "Reason",
@@ -152,7 +178,7 @@
         "properties": {
           "Decision": {
             "enum": [
-              "SelectLatestPublishedStaticCandidate",
+              "SelectLatestWithinResolvedNpuTypeLane",
               "ReviewRequired",
               "NoNpuDriverRequired"
             ]
@@ -162,6 +188,9 @@
               "string",
               "null"
             ]
+          },
+          "SelectionLaneId": {
+            "type": ["string", "null"]
           },
           "PublishedDriverLabel": {
             "type": [

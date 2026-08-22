@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "urn:amd-chipset-driver-research:environment:1.0",
+  "$id": "urn:amd-chipset-driver-research:environment:1.3",
   "title": "AMD Chipset Driver Research Environment Evidence",
   "type": "object",
   "required": [
@@ -8,13 +8,14 @@
     "ToolkitVersion",
     "CollectedAtUtc",
     "Platform",
+    "LocalizationContext",
     "PowerShell",
     "Dependencies",
     "Readiness"
   ],
   "properties": {
     "SchemaVersion": {
-      "const": "1.0"
+      "const": "1.3"
     },
     "ToolkitVersion": {
       "type": "string"
@@ -25,6 +26,9 @@
     "Platform": {
       "type": "object"
     },
+    "ExecutionContext": {
+      "$ref": "#/$defs/executionContext"
+    },
     "PowerShell": {
       "type": "object"
     },
@@ -33,6 +37,72 @@
     },
     "Readiness": {
       "type": "object"
+    },
+    "SelfTests": {
+      "type": "object"
+    },
+    "LocalizationContext": {
+      "$ref": "urn:amd-driver-research:native-tool-localization-context:1.0"
+    }
+  },
+  "$defs": {
+    "executionContext": {
+      "type": "object",
+      "required": [
+        "ExecutionClass",
+        "ProductRole",
+        "EvidenceScopes"
+      ],
+      "properties": {
+        "ExecutionClass": {
+          "enum": [
+            "NonWindows",
+            "WindowsClient",
+            "WindowsServer",
+            "WindowsOther"
+          ]
+        },
+        "ProductType": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "ProductRole": {
+          "type": "string"
+        },
+        "Caption": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "Version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "BuildNumber": {
+          "type": [
+            "string",
+            "integer",
+            "null"
+          ]
+        },
+        "EvidenceScopes": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "Static",
+              "WindowsNative",
+              "TargetServerHost"
+            ]
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": true
     }
   }
 }

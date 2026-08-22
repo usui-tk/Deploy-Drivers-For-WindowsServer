@@ -39,13 +39,48 @@
             "type": "integer"
           },
           "DevIdRules": {
-            "type": "array"
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ProductCorrelationStatus": {
+                  "enum": [
+                    "MatchedInfoProduct",
+                    "InfoManifestUnavailable",
+                    "NoInfoProductCandidate"
+                  ]
+                },
+                "ProductCorrelationNote": {
+                  "type": "string"
+                },
+                "InfoProductCandidates": {
+                  "type": "array"
+                }
+              },
+              "additionalProperties": true
+            }
           },
           "MsiDeclarativeAnalysis": {
             "type": [
               "object",
               "null"
             ]
+          },
+          "ReleaseNoteCorrelation": {
+            "type": "object",
+            "required": ["Status", "ReleaseVersion", "PackageComparisons", "Summary", "InterpretationBoundaries"],
+            "properties": {
+              "Status": {
+                "enum": ["Correlated", "NotCurated", "InfoManifestUnavailable"]
+              },
+              "ReleaseVersion": { "type": "string" },
+              "PackageComparisons": { "type": "array" },
+              "Summary": { "type": "object" },
+              "InterpretationBoundaries": { "type": "array" },
+              "WindowsServerSupportProven": { "const": false },
+              "NpuDriverPackageSelectionAuthority": { "const": false }
+            },
+            "additionalProperties": true
           },
           "Notes": {
             "type": "array"

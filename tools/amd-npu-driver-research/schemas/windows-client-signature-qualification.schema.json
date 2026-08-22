@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-npu-driver-research:windows-client-signature-qualification:1.0",
+  "title": "AMD NPU Windows Client Signature Qualification",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "Requested",
+    "Status"
+  ],
+  "properties": {
+    "SchemaVersion": { "const": "amd-npu-windows-client-signature-qualification/1.0" },
+    "Requested": { "type": "boolean" },
+    "Status": { "enum": ["NotRequested", "Pass", "Fail"] },
+    "ExpectedExecutionClass": { "const": "WindowsClient" },
+    "ExpectedFullResearchArtifactCount": { "const": 3 },
+    "ExpectedCertificateTargetCount": { "const": 2 },
+    "StaticEnvelopeCount": { "type": "integer", "minimum": 0 },
+    "EnvelopeParseFailureCount": { "type": "integer", "minimum": 0 },
+    "PeDigestMismatchCount": { "type": "integer", "minimum": 0 },
+    "KernelCoverage": { "type": "object" },
+    "Issues": { "type": "array", "items": { "type": "string" } },
+    "EnablesOnPass": { "type": "string" }
+  },
+  "additionalProperties": true
+}

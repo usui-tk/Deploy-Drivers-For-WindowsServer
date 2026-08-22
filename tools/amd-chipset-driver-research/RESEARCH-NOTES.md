@@ -572,3 +572,66 @@ Use these layers:
 - `CHANGELOG.md` — implementation chronology.
 
 When a historical report conflicts with `SPEC.md`, the current normative specification wins. When report prose conflicts with public Raw JSON, investigate the generator/evidence chain rather than editing the generated data.
+## 2026-08-20 — AMD Chipset Software 8.08.12.551 static delta
+
+Input identity:
+
+- file: `AMD_Chipset_Software_8.08.12.551.exe`;
+- size: `81,537,472` bytes;
+- SHA-256: `04192323117317d212119d66476fe518d62eab17a6250f0cf5ab1b6c43ae138c`;
+- outer format: PE32 NSIS;
+- nested package: `AMD_Chipset_Drivers.exe`, ISSetupStream;
+- Qt selector SHA-256:
+  `87bd705e69d375b4fd5c46b2511bf35c188206604cb2f9fb63e5e42c70e14164`.
+
+The unchanged rev54/2.1.17 implementation completed Extract, Inspect,
+Signature and Selector successfully before source changes were made. It
+recovered 25 containers, 31 INF files, 209 unique signature artifacts, 35
+kernel binaries (all 35 with embedded signatures), 64 Info.xml product records
+and 44 DevID.xml mappings.
+
+Relative to 8.07.16.1035, the INF set remains 31 files with no added/removed INF
+name, no hardware-ID delta and no WDF-declaration delta. Four INF versions
+changed: `amdhsmpdriver.inf` 1.0.0.8 -> 1.0.0.9, `amdpmf.inf`
+26.10.14.0 -> 26.10.15.0, `amdppkg.inf` 8.0.0.64 -> 8.0.0.65, and
+`ams_mailboxdrv.inf` 5.1.0.1480 -> 6.0.0.6.
+
+DevID.xml adds `SETWIRELESSFILTER`, `SETVIRTUALSTORAGE`, and `SETSDXINULL` and
+adds `DEV_11B0` to `SETINTERFACE`. Static Qt strings state that an `AMDI0090`
+device sets `SETS0I3`, `SETMAIL`, `SETWIRELESSFILTER`, and
+`SETVIRTUALSTORAGE`. The manifest does not expose separate product records for
+the latter two tokens, and `SETSDXINULL` also has no Info.xml product match.
+These are selector tokens with unresolved product correlation; they must not
+be promoted to independent-driver claims without MSI/compiled/runtime proof.
+
+The new Qt selector hash is not covered by the exact-binary 8.07.16.1035
+contract. This is the correct fail-closed outcome. The existing extraction,
+INF, WDF and static signature analyzers need no format-specific rewrite;
+current-latest data/URL coverage and explicit unmatched selector correlation
+do require the rev55 limited hardening.
+
+## 34. Downstream build-script feedback contract
+
+The production build/sign/deployment path should consume this research through
+an explicit immutable decision record, not by copying the research script or
+replaying AMD Setup. At minimum, that record should contain:
+
+1. original AMD outer-installer filename, size and SHA-256;
+2. exact extracted container and INF/package identities;
+3. target hardware identifiers and the INF model/DDInstall that selected them;
+4. as-published Server selection and any separate analytical projection;
+5. package-scoped KMDF/UMDF declarations and the target Server framework fact;
+6. AMD selector/Info.xml/MSI evidence as an independent audit signal;
+7. the exact transformation delta, including why each changed INF directive is
+   necessary;
+8. regenerated catalog identity, signing certificate identity and timestamp
+   policy;
+9. target-host installation, Code Integrity, device-start and functional
+   results as distinct runtime gates.
+
+Build logic must fail closed when extraction is incomplete, a selector token
+has no reviewed product correlation, a required package is absent, or source
+identity changes. AMD Setup selecting no components on Server is not proof that
+the underlying INF is unusable; conversely, a static INF candidate is not proof
+that a transformed driver will load. The accepted Windows Server smoke verifies
+the research tool's common path only and supplies no deployment-runtime proof.

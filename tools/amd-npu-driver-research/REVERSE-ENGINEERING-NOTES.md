@@ -4,6 +4,31 @@ This document records the high-value technical findings behind the machine-reada
 
 It is intentionally evidence-oriented. Vendor publication, artifact bytes, static disassembly, upstream Linux semantics, toolkit analysis, and observed Windows runtime evidence are kept separate.
 
+The rev35 no-NPU Client failure added two implementation findings. First, a
+clean Windows PowerShell 5.1 process cannot be assumed to have loaded the .NET
+Framework `System.Security` assembly; `SignedCms` initialization must use a
+complete assembly identity rather than depend on load order. Second, a caller-
+supplied HardwareID is a fixture, not proof of the local host. Version 1.3.1-dev
+therefore derives normal selection input from local `Win32_PnPEntity` evidence
+and treats manual identity input as an explicit offline/test override.
+
+The subsequent 1.3.1-dev no-NPU run passed both stages and returned
+`NoNpuDriverRequired`, but review exposed an evidence-plane distinction: writing
+a runtime JSON under `inventory/**` does not by itself place that JSON in the
+Evidence ZIP. The NPU snapshot adapter must explicitly select every required
+private runtime artifact before the generic manifest/finalizer runs. 1.3.2-dev
+therefore treats the snapshot allowlist as an executable contract and persists
+the `SignedCms` result separately from the human-readable stage summary.
+
+The first detailed NPU-equipped snapshot exposed a Windows CIM serialization
+edge case rather than a selection error. `Win32_PnPEntity.ConfigManagerErrorCode`
+arrived as an enum whose name was written as the invalid unquoted token
+`CM_PROB_NONE`. The manifest correctly hashed those bytes, demonstrating that
+byte integrity and JSON validity are separate acceptance properties. 1.3.3-dev
+therefore JSON-quotes enums, records this field as a string, executes an enum
+round-trip self-test on every Test stage, and parses the two generated hardware
+runtime JSON files before HardwareIdentity may pass.
+
 ## 1. Scope and safety
 
 No AMD installer executable was run as part of package reverse engineering.
@@ -11,6 +36,29 @@ No AMD installer executable was run as part of package reverse engineering.
 Reviewed AMD ZIP/EXE/SYS/INF/CAT contents were treated as immutable artifacts. Static 7-Zip extraction, text/INF parsing, PE/static string/disassembly inspection, and hash comparison were used.
 
 Runtime evidence discussed here came from a separately collected Windows client positive-control system and is explicitly labeled as such.
+
+### 1.1 Final selection boundary
+
+The reverse-engineering evidence establishes more NPU detail than Windows driver
+selection requires. Firmware device revision, Linux AIE topology, XRT labels,
+CPUID and CPU/NPU combination data remain useful for diagnostics and research, but
+they are not selection inputs.
+
+The reviewed machine authority is `data/hardware-driver-selection.json`:
+
+```text
+complete PnP HardwareID/CompatibleID set for one NPU instance
+  + reviewed INF model
+  + target Windows build selector
+  -> 376 / NoNpuDriverRequired / ReviewRequired
+```
+
+376 is the reviewed current AMD production-family track. 280 remains a research line
+and is never selected or used as an automatic fallback by the current source.
+AMD's live `latest` Ryzen AI Software 1.8.0 page checked on 2026-08-21 labels
+376 as production for the reviewed five families. The two packages do not
+expose proven mutually exclusive hardware lanes. CPU/NPU mapping artifacts
+remain human-audit references only.
 
 ## 2. Reviewed artifact identities
 
@@ -98,6 +146,14 @@ npu_mcdm_stack_prod/xclbinutil.exe
 ```
 
 The reviewed INFs do not contain an explicit `KmdfLibraryVersion` or `UmdfLibraryVersion` directive.
+
+### 4.4 Selection consequence
+
+The current 280 and 376 INFs expose the same broad 1502/17F0 model set. Their INF
+content therefore cannot prove mutually exclusive device lanes. Under the
+user-adjudicated policy, a complete device-instance PnP identity matching the 376
+INF and a target build satisfying `NTamd64.10.0...22000` resolves to the preferred
+376 research track. No CPU, firmware or topology discriminator is added.
 
 ## 5. ProductType correction and Server build floor
 
@@ -295,9 +351,10 @@ These are binary observations only. They are intentionally not promoted to exact
 
 This is an important future-proofing lesson: a driver binary often knows about platforms beyond the set currently published as supported.
 
-## 15. AMD published 376 support boundary
+## 15. AMD 376 publication boundary and live-source verification correction
 
-Current reviewed AMD Ryzen AI 1.8 documentation states that NPU driver `32.0.203.376` is production for:
+The reviewed AMD Ryzen AI Software 1.8.0 publication used by the current dataset states
+that NPU driver `32.0.203.376` is production for:
 
 ```text
 Phoenix
@@ -307,7 +364,12 @@ Strix Halo
 Krackan Point
 ```
 
-This statement is a separate evidence plane from:
+AMD's live `latest` installation page checked on 2026-08-21 identifies Ryzen AI
+Software `1.8.0` and labels `32.0.203.376` as production for the same families.
+See `authored/NPU-LIVE-PUBLICATION-DRIFT-2026-08-21.md` for the correction of
+REV65's stale search-index inference.
+
+The 376 publication statement is a separate evidence plane from:
 
 - the broad INF's `DEV_1502/17F0` match;
 - the installer's broad 1502/17F0 matcher;
@@ -449,6 +511,15 @@ The later deployment implementation should treat these as design constraints:
 11. **Runtime proof is OS-specific.** Windows client success does not prove Windows Server success.
 12. **Fail closed on future platforms.** Binary labels, new CPU names, or broad HWID matches become review inputs, not automatic deployment policy.
 
+### Two-line research and possible one-product deployment
+
+The public 280 and 376 lines remain useful research inputs. The reviewed and
+live AMD Ryzen AI Software 1.8.0 evidence favors 376 for the recorded published
+production families. Keeping both lines exposes package evolution, regressions and compatibility
+boundaries; it does not mean both must remain production choices forever.
+
+A future deployment/build workflow may use one product if the exact-SKU, hardware-identity, published-support, OS/package, and runtime gates consistently select it. That downstream convergence does not justify collapsing the research corpus or converting current evidence into a hard-coded 376-only assumption.
+
 ## 23. Remaining research questions
 
 The major functional research model is complete, but these evidence questions remain intentionally open:
@@ -458,6 +529,35 @@ The major functional research model is complete, but these evidence questions re
 - exact reviewed NPU identity/support relation for Gorgon Halo;
 - Windows Server 2025 real NPU runtime behavior with the original AMD WHQL package;
 - older Server feasibility given the absent lower-build WDF payload in the reviewed modern package corpus;
-- collector v1.2.1 final real-device qualification for its newer structured XRT/INF-correlation features.
+- collector v1.3.0 final real-device qualification for its compact local-PnP
+  selection-input, structured runtime-driver observation and JSON/manifest/ZIP
+  integrity gates. The planned built-driver Windows Server positive run may
+  close this with one execution.
 
 An unresolved research question is not a reason to invent a deployment result. `ReviewRequired` is the correct state until evidence improves.
+
+## 24. Downstream build-script feedback contract
+
+The production NPU build/sign/deployment path should use one reviewable
+selection record per target host. That record should contain:
+
+1. complete local NPU PnP enumeration status and the exact HardwareID/
+   CompatibleID candidates;
+2. the independently matched reviewed INF model for each candidate;
+3. the selected package lane or the typed result `NoNpuDriverRequired` /
+   `ReviewRequired`;
+4. outer package, INF, catalog and driver-binary hashes without normalizing
+   version namespaces;
+5. published-support evidence separately from INF/binary capability evidence;
+6. target build, as-published INF selection and exact-hash installer route;
+7. any transformation delta and why unmodified-package behavior was
+   insufficient;
+8. regenerated catalog/signing identity and later target-host runtime results.
+
+CPU SKU, marketing generation, PCI `REV_XX`, XRT firmware version and firmware
+device revision are diagnostic/correlation fields, not substitutes for the
+reviewed local PnP-to-INF boundary. Package `280` and `376` must not be globally
+ranked. Server 2025 should test the reviewed unmodified WHQL path before a
+ProductType rewrite is introduced. The accepted no-NPU-safe Windows Server
+smoke does not close the deferred NPU-equipped, built/self-signed-driver
+positive case.

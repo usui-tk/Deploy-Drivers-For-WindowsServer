@@ -9,7 +9,7 @@
 
 ## INF analysis
 
-### `npu_mcdm_stack_prod/kipudrv.inf`
+### `c0001/npu_mcdm_stack_prod/kipudrv.inf`
 - SHA-256: `36f5b8c4274add4d886943ad2036c206132c85b3d2fbfb576c629439e2002b81`
 - Class: `ComputeAccelerator`
 - DriverVer: `05/16/2025,32.00.0203.280`
@@ -40,13 +40,13 @@
 | Windows Server 2016 | RejectedBuildFloor | Windows10/WDF-NULL | False | **NotApplicableAsPublished** |
 | Windows Server 2019 | RejectedBuildFloor | Windows10/WDF-NULL | False | **NotApplicableAsPublished** |
 | Windows Server 2022 | RejectedBuildFloor | Windows10/WDF-NULL | False | **NotApplicableAsPublished** |
-| Windows Server 2025 | Candidate | MCDM | True | **StaticCandidateAsPublished** |
+| Windows Server 2025 | Candidate | MCDM | False | **InstallerPayloadMissing** |
 
 > `StaticCandidateAsPublished` is deliberately weaker than installation support. It must be confirmed on real hardware and a clean Windows Server host.
 
 ## Installer analysis
 
-- Path: `npu_sw_installer.exe`
+- Path: `c0001/npu_sw_installer.exe`
 - SHA-256: `96dc03e574e9dfb2c45543833d8a66d5bcecb9af48e9beac07ea72cccf3ce755`
 - Contract: **ExactHashMatched**
 - Exact-hash static contract OS gates:
@@ -61,7 +61,7 @@
 
 ## Driver binary identity analysis
 
-- Path: `npu_mcdm_stack_prod/ipustack.sys`
+- Path: `c0001/npu_mcdm_stack_prod/ipustack.sys`
 - SHA-256: `e5d77c30128e02149a3c88bb66d16302d5569ff7030e859bfb73eada46953a4e`
 - Contract: **ExactHashMatched**
 - Observed file version: `32.00.0203.280`

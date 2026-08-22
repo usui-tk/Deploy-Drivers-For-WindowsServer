@@ -1,0 +1,693 @@
+{
+  "SchemaVersion": "amd-three-tool-common-core-contract/1.0",
+  "ReviewedAtUtc": "2026-08-22T13:00:00Z",
+  "Normalization": "FunctionDefinitionAst.Extent.Text with CRLF/CR normalized to LF; UTF-8 SHA-256",
+  "Scope": "Current Chipset, Graphics, and NPU single-file research scripts",
+  "Tools": [
+    {
+      "Tool": "Chipset",
+      "RelativePath": "tools/amd-chipset-driver-research/Invoke-AmdChipsetDriverResearch.ps1",
+      "ScriptSha256": "45ad6d046547115c82db1cc7421ea059e95245c41a55d88c3d27fd5a1937c5b7",
+      "FunctionCount": 315
+    },
+    {
+      "Tool": "Graphics",
+      "RelativePath": "tools/amd-graphics-driver-research/Invoke-AmdGraphicsDriverResearch.ps1",
+      "ScriptSha256": "262eee0e0b3b11525b8368367230e64c6f5cac7e4dd35e881f7f716d2bc1147f",
+      "FunctionCount": 303
+    },
+    {
+      "Tool": "NPU",
+      "RelativePath": "tools/amd-npu-driver-research/Invoke-AmdNpuDriverResearch.ps1",
+      "ScriptSha256": "dba9761d9dc69463e34207dd3fa039b1a0de712a47ebe8698da66435736d0dd1",
+      "FunctionCount": 326
+    }
+  ],
+  "FunctionCount": 166,
+  "Functions": [
+    {
+      "Name": "Add-AmdCertificateEvidence",
+      "Sha256": "feeae2390a6d369204b048327d1cfa41bed7e46eeb8b02a1074655ca80967732"
+    },
+    {
+      "Name": "Add-AmdHashSegment",
+      "Sha256": "b94c1d2bb377fa9f239950e37dec447cb0e3547f56a500b3415b7fcfbdb59aa2"
+    },
+    {
+      "Name": "Assert-AmdExtractionCompleteSet",
+      "Sha256": "1cdc3901efb4f7afdf3b6da9d61f5e53ec4d203a1e83d0df841ea1f7421de1f5"
+    },
+    {
+      "Name": "ConvertFrom-AmdDerOid",
+      "Sha256": "91ca59abd890b3ad1c1a8e870bca8ca42de9549a159e57c51bfaf015fa9012a1"
+    },
+    {
+      "Name": "ConvertFrom-AmdSevenZipSltPathEntries",
+      "Sha256": "0d15a5c3101bc62c487aaae786625d5780553bb04039bb92e981f8c9bf049104"
+    },
+    {
+      "Name": "ConvertFrom-AmdXmlText",
+      "Sha256": "13e4aeb6a93f1b94dd4c52b29f1b6c6b32245edf1b73777bb367af1f9cd334c6"
+    },
+    {
+      "Name": "ConvertFrom-CanonicalJson",
+      "Sha256": "26316052cb5c4866692df18db52afdf1dfaaf65b9b2b4c75bc30a6b8b4a7aee1"
+    },
+    {
+      "Name": "ConvertTo-AmdCatalogAttributeEvidence",
+      "Sha256": "7b7c260142e0cfbc84a0448586f4de42e50bed76b85f86d2bc427cbb4d315cef"
+    },
+    {
+      "Name": "ConvertTo-AmdCryptographicAttributeEvidence",
+      "Sha256": "94b29944d613aba45a0e9bbe75a98559ba25e794829cbcd2dd0a49f1733d3cda"
+    },
+    {
+      "Name": "ConvertTo-AmdEvidenceSafeFragment",
+      "Sha256": "6282e5602ad98b71a43e4cb20bddca2f23979f72eb41a80b927c043922254f9a"
+    },
+    {
+      "Name": "ConvertTo-AmdHexString",
+      "Sha256": "d4eac1a1330ef0274bd5a7332b5edf5112ee088c233a7a4d4b21b67485e6161b"
+    },
+    {
+      "Name": "ConvertTo-AmdRedactedHeaderMap",
+      "Sha256": "9816db1d1c83c0d00078d32480aafd2eb58bc0d7a0729015dcfcd0e8ab1687b9"
+    },
+    {
+      "Name": "ConvertTo-AmdSafeName",
+      "Sha256": "88c566d41e4881d1e20759eaad941eb2df614700b138a3c536cefe7c27f93742"
+    },
+    {
+      "Name": "ConvertTo-CanonicalJson",
+      "Sha256": "638b4030616c4aaf7b54bd4133041f3c177d4171d449f54fb0f5a2f604968529"
+    },
+    {
+      "Name": "Copy-AmdEvidenceTree",
+      "Sha256": "80cdc634cd9092551b514c843a39b45d20360e78efaba25e66137e376b7a3e31"
+    },
+    {
+      "Name": "Enable-AmdTls12ForWindowsPowerShell",
+      "Sha256": "ff434bc93a9028e66dc34941be43c2a131d15bc22f68138844d61cbfa212df90"
+    },
+    {
+      "Name": "Format-AmdByteSize",
+      "Sha256": "600dd230e5802b9f381e64ecfe81616efe215075215f9b7ef85018a0e1c09b8f"
+    },
+    {
+      "Name": "Format-AmdElapsed",
+      "Sha256": "988c87ffd9dff46be75b0422d041042c814807775ab80ede5d61a00febf98c2f"
+    },
+    {
+      "Name": "Get-AmdArchiveExtractionPathAssessment",
+      "Sha256": "20929c34290bdb771fb17a7724d3ba0559eb220c8e4de735cb90eb27e0fb9297"
+    },
+    {
+      "Name": "Get-AmdAuthenticodePeDigest",
+      "Sha256": "a4a96ce4ef91a2b46432969d6d0ffc4e8c9a9940b096d09b93cc0dabeddcc512"
+    },
+    {
+      "Name": "Get-AmdBoundedTextPreview",
+      "Sha256": "4890363cd5d79756bdb4e5b777277169f5be502064294a3027eae961b10d1789"
+    },
+    {
+      "Name": "Get-AmdCatalogBoundSignToolEvidence",
+      "Sha256": "a4a0de56ed2d7ff883f43d9b071ec97068ddaf9a46b712e173309a466c9d2bb0"
+    },
+    {
+      "Name": "Get-AmdCatalogBoundSignToolProfileDefinitions",
+      "Sha256": "9f2ed9afc95dfb88fc3869508c67a48b98c5cc97bbe4488162664b93c90a2773"
+    },
+    {
+      "Name": "Get-AmdCertificateEvidence",
+      "Sha256": "112f3b426437dd5d1e4dcef093e7a9c3d4a19fc86ad9cbec40aad6abcc30cdf6"
+    },
+    {
+      "Name": "Get-AmdCollectionItems",
+      "Sha256": "8c7f3bdba7c49716c87f03ce8cedaf0c6c3abd322f584fb4fc5da8d8f5540f43"
+    },
+    {
+      "Name": "Get-AmdCommandPath",
+      "Sha256": "841115adf2112b0b3edb19c7401d3e32f1e02ee675f845e7b867e5be0db4f4e2"
+    },
+    {
+      "Name": "Get-AmdCompactErrorMessage",
+      "Sha256": "451ebcbdc74223387b717efb4e0efae630ff11a31d4f5a981a025e93f888a96b"
+    },
+    {
+      "Name": "Get-AmdCultureNameFromLcid",
+      "Sha256": "7f1f795881d16a8e1a0c07e281f2c35a86631b0572fd8327907b68431706a902"
+    },
+    {
+      "Name": "Get-AmdDownloadedPayloadDecision",
+      "Sha256": "1cc4193492a5e6945b47c3897b467dcd91342df2821735394ccf004d6cad17a7"
+    },
+    {
+      "Name": "Get-AmdEvidenceSafeLabel",
+      "Sha256": "33c959f44b821ce2b3f3a8bb89d451ae48b4e0789ecc61b1993acd70cfbae9d1"
+    },
+    {
+      "Name": "Get-AmdEvidenceStoragePolicy",
+      "Sha256": "f6a07aed737f22fb853c79ff10b56554e7b8dc4ef32ee9de524f17dbe5ab8557"
+    },
+    {
+      "Name": "Get-AmdExceptionDiagnostic",
+      "Sha256": "4822b80afe4defe074abfc01b069db21f0b71088e689ec547f1a921d102dcf88"
+    },
+    {
+      "Name": "Get-AmdHttpDownloadResponseDecision",
+      "Sha256": "7e18ec2e0c3f3f402068d067697de6f5bd36eb46b8a0ede0b4567cab6f1e2e03"
+    },
+    {
+      "Name": "Get-AmdHttpRetryDecision",
+      "Sha256": "c2407965274d78be29e86f2e91b124f427d87cdc1228fdf5a5befd1ee04baef0"
+    },
+    {
+      "Name": "Get-AmdInfDirectiveValue",
+      "Sha256": "e286a4d06628812b799b1f56ba5f70ea329942d22a103c97fdec750fbd83c0a8"
+    },
+    {
+      "Name": "Get-AmdInfHardwareIds",
+      "Sha256": "cabf71037999a01d243ff2d70d65e8344d64b91a03967129394b86c6cdd98d49"
+    },
+    {
+      "Name": "Get-AmdInfVersionSectionValue",
+      "Sha256": "d823f9ba80f8d30525fce5372721b1593f88d5f449a523ce8c92324a8bb8b9bb"
+    },
+    {
+      "Name": "Get-AmdInstallerFileValidation",
+      "Sha256": "a8cfdbd9494929ae8159e3a8245854f2573d428b691e24fb5d55e607d921e510"
+    },
+    {
+      "Name": "Get-AmdKernelSignatureCoverageAssessment",
+      "Sha256": "dc61d4e8ec579d4164cf95a339ad22a3e137f48fee142f0c17e8d8dff811655f"
+    },
+    {
+      "Name": "Get-AmdLinuxPackageEvidence",
+      "Sha256": "3b5d11fea0bb1024badd4f48b0a8c09d9f663fe9b816bf7cb347bae630b85aa7"
+    },
+    {
+      "Name": "Get-AmdLocaleNeutralNativeResultClass",
+      "Sha256": "14c3b9b7a5e93539a2c7519e2526f7ea83569e1864891f48482a742fd398d152"
+    },
+    {
+      "Name": "Get-AmdNativeToolLocalizationContext",
+      "Sha256": "3dcd59d36447ea2ddeb7609ec20eef17549d94b2cfdb9e337f2d4f7070a567a5"
+    },
+    {
+      "Name": "Get-AmdOptionObservationsFromText",
+      "Sha256": "3fe5a590ad4d8c07b9324f6ae5020bfb863b683eb18b573ac3115b49d09bae43"
+    },
+    {
+      "Name": "Get-AmdOrdinalSortedObjectsByStringProperty",
+      "Sha256": "0da5c5ab841a99135097ff5d34d908b2c5187e6808d7725173f5cd212a543327"
+    },
+    {
+      "Name": "Get-AmdOrdinalSortedUniqueStrings",
+      "Sha256": "93cbee68ebb67fc2a6d994e92b2091be7fdb883ceaf70192b1bc5e6c66d09fb7"
+    },
+    {
+      "Name": "Get-AmdPathReparsePoints",
+      "Sha256": "248aff37c469622fd61d08f7b4c92a283e6aef9c3a11f2b04532ee010a75dd53"
+    },
+    {
+      "Name": "Get-AmdPathSafetyAssessment",
+      "Sha256": "c90da8e2a839a9bb2bb26844189d55ad7d59ae4c6f3a08f6524a92ca9b0ba191"
+    },
+    {
+      "Name": "Get-AmdPeCertificateEntries",
+      "Sha256": "d71d19d13309a7cf9d869128a85f5dbdf1785f15e32a8a79c14386188757f042"
+    },
+    {
+      "Name": "Get-AmdPeMachineArchitecture",
+      "Sha256": "d4820b87a7b01ecd586a63dde511c617ed55a71c9718b0738c391ea731311f18"
+    },
+    {
+      "Name": "Get-AmdPlatformInfo",
+      "Sha256": "8ab02992f463786821747df1133c4b392deac44e31c2b4d80d5311eb35f6b211"
+    },
+    {
+      "Name": "Get-AmdPortableWindowsKitPathIdentity",
+      "Sha256": "24aa0a7a5fc315241994b99587d6e8264c3623db5f7cef49242d123ce33c5210"
+    },
+    {
+      "Name": "Get-AmdPublicForbiddenPatterns",
+      "Sha256": "7de6fb75efc909d62289a430aa8f6c7313d779eaa93c0e29bdb2aef74310c1c5"
+    },
+    {
+      "Name": "Get-AmdPublicScalarStrings",
+      "Sha256": "20e8ea3c5c771f43d9dcfceeea8e7bacf3e5b644526324d3492c7325729c3b97"
+    },
+    {
+      "Name": "Get-AmdRelativePath",
+      "Sha256": "6ec34e4f6678c98e5c827723eb9e7025c7fb9a1ff3ec455a6adecfe332a8c023"
+    },
+    {
+      "Name": "Get-AmdRetryAfterMilliseconds",
+      "Sha256": "a02228dd9259ac3dcbc5b4e474a8d96ba0e5064c70bf619b3dd88aa85d804731"
+    },
+    {
+      "Name": "Get-AmdRetryDelayMilliseconds",
+      "Sha256": "7cb5d71a3c86cd976a23fc4fe29366b4202ce1ffc21fb9c91774126a4266a7cd"
+    },
+    {
+      "Name": "Get-AmdSevenZipInfo",
+      "Sha256": "ae96819802515d70e639c5c3f77c38e5377de59cc7cd0eb717cd556dcc2dbe54"
+    },
+    {
+      "Name": "Get-AmdSevenZipPath",
+      "Sha256": "47e3b31a74a1967aae77de6eb50215b07c7c6c9fc497ec580a815a67ee40c051"
+    },
+    {
+      "Name": "Get-AmdSha256",
+      "Sha256": "175f8ac5be703ea5253c282d29cfc9cf6cff5d5d53fca621e16f31d94643defc"
+    },
+    {
+      "Name": "Get-AmdShortExtractionPath",
+      "Sha256": "97441391be0d1ab8556f1f9fd4bf500321b8c6d72d2e554e9be293b1a7e893aa"
+    },
+    {
+      "Name": "Get-AmdSignToolResultClass",
+      "Sha256": "99115f64fc06d2b525077a1b885045425e5235f61d204ff58c5a395bde469d18"
+    },
+    {
+      "Name": "Get-AmdSignToolVerificationEvidence",
+      "Sha256": "bdad9f6feea4974547217fb27f8f3200b95c3d03bf7bc886c22ca4875303848f"
+    },
+    {
+      "Name": "Get-AmdSignatureArtifactKind",
+      "Sha256": "1e101999805439d4bfcec2eedcb277968a9d5848350ff214be741a44b14a6d36"
+    },
+    {
+      "Name": "Get-AmdSignedCmsEvidence",
+      "Sha256": "a05ad16049c516571f57434699b46e88384ef0dd33d17a62926b2e468711c067"
+    },
+    {
+      "Name": "Get-AmdSignerInfoEvidence",
+      "Sha256": "a869818990cc67079da3be16b08918a8cfca2ddbfe29acaaba94acea5af932ab"
+    },
+    {
+      "Name": "Get-AmdSpcIndirectDataDigest",
+      "Sha256": "f579cecf682690a97ed7397a0a65c90a7b035d6b37d593ab8d1970914d35f37f"
+    },
+    {
+      "Name": "Get-AmdSpcIndirectDataDigestForContentType",
+      "Sha256": "ce439d117603d81def60f9527abce9271e969f741cec168b6c13d2df3cd1e20f"
+    },
+    {
+      "Name": "Get-AmdStageElapsedTag",
+      "Sha256": "48a78fa82a82a630c5da800a85e1523531fcd48048d12b7f6b9e965b85af93d6"
+    },
+    {
+      "Name": "Get-AmdStaticFileSignatureEvidence",
+      "Sha256": "d1c3b5b2a26fface0e67ab699d074f2357e254674565b5f13a1929992521f6d1"
+    },
+    {
+      "Name": "Get-AmdStringSha256",
+      "Sha256": "32caf7881233e45fc435207a5255a767c62a7ec3167e683333e3f2759bd59d8d"
+    },
+    {
+      "Name": "Get-AmdToolBinaryPublicIdentity",
+      "Sha256": "5fa1b8baa378021d9162504c9360d9b6f59cb6a0b41aaf2e827c91ec7e173309"
+    },
+    {
+      "Name": "Get-AmdToolHelpProbe",
+      "Sha256": "ee03b3a3c25a9e0efb1e93d98944f01980cf8c156438b9eeb87841020b864258"
+    },
+    {
+      "Name": "Get-AmdUtcTimestamp",
+      "Sha256": "2d0a5349dec7c92946815c1c4c2ba0dae455b3905b9f4ff6588cd9cbfe19a399"
+    },
+    {
+      "Name": "Get-AmdWebExceptionResponseDiagnostic",
+      "Sha256": "082bc2e39bc105c940fbc44964519f3af29f39a9418f0c67511a801d6f25d5f1"
+    },
+    {
+      "Name": "Get-AmdWindowsAuthenticodeObservation",
+      "Sha256": "72d93ae3d52d7302874563a6431a5b2ceb96e56b29cb84e78d25cd9246dfd46b"
+    },
+    {
+      "Name": "Get-AmdWindowsCatalogHashEvidence",
+      "Sha256": "ddef8df082dfc207e44a5a2a2ae11ae0463176a8d8aa2ea9863900a987b00939"
+    },
+    {
+      "Name": "Get-AmdWindowsCatalogMemberEvidence",
+      "Sha256": "fd1a59d815e14b808537cce05207383606ec5bc4dbfc747c5abbe4a88af0423b"
+    },
+    {
+      "Name": "Get-AmdWindowsExecutionContext",
+      "Sha256": "190a286b9e52e7d644b454d5d244ea704ce638b9fcdd7a3dacd961e3a872369e"
+    },
+    {
+      "Name": "Get-AmdWindowsSdkToolInfo",
+      "Sha256": "d42ae72da583184424eb477d0375b3b09db31656f569de7350a302a9648b6218"
+    },
+    {
+      "Name": "Get-CanonicalObjectSha256",
+      "Sha256": "b578840ba4eb266949de6e8329f7c178f95134ff21a61b62f57634da4856d1f4"
+    },
+    {
+      "Name": "Initialize-AmdCanonicalJsonRuntime",
+      "Sha256": "2ef0ed98c84ec804b32263c35bb6befafbb00af26286ceb247763367035f2a14"
+    },
+    {
+      "Name": "Initialize-AmdManagedAssemblyProbeType",
+      "Sha256": "59dff4305260f3759e55c7436cbf69466bbe18516574fa1639680da6cea9a8bf"
+    },
+    {
+      "Name": "Initialize-AmdWindowsLocalizationNativeTypes",
+      "Sha256": "feeb797e6283229c4d45df3e636452490af78e52946a57d67e4ff0e729ca2ace"
+    },
+    {
+      "Name": "Invoke-AmdDownloadSessionWarmup",
+      "Sha256": "e35b7a360e34f0a86aeb0d33cd37041a09f2933a0a6eba3677f6ef844d833e05"
+    },
+    {
+      "Name": "Invoke-AmdExpectedAssemblyLoadAttempt",
+      "Sha256": "32fc4eb4a23aae6dc277efbfb0fcbe357f5d29c0470a91f7d75f28b85a8d62b6"
+    },
+    {
+      "Name": "Invoke-AmdFilePathLengthProbe",
+      "Sha256": "161886460fab42222c72abb293a02282d217be1d8237ab3639e34a0fa7b2b3e0"
+    },
+    {
+      "Name": "Invoke-AmdQuietFileDownload",
+      "Sha256": "f4d57da6e63e66bd2a1983dff3ac0a1b3ceddb619a3dcd835c0521c98775b547"
+    },
+    {
+      "Name": "Invoke-AmdQuietTextRequest",
+      "Sha256": "7d54c7683a466d8ddd089ec9f7366494495597960b2e31692bad6ad9f0488616"
+    },
+    {
+      "Name": "Invoke-AmdReadOnlyProcess",
+      "Sha256": "36305a452b1e96b379d17874cf3641aff06e1a010785dcf0c92dcc15f0f2573e"
+    },
+    {
+      "Name": "Invoke-AmdSevenZipPathProbe",
+      "Sha256": "e7515e9f104d2369e06f237ce20e1f7010bffdb8155556e30cd44b7766724fff"
+    },
+    {
+      "Name": "Invoke-AmdSignToolShortPathProbe",
+      "Sha256": "d092f36e0c08948255c2029ee7eae3e7203bcf44e7b70cb48b6a1d8e5a6bbebc"
+    },
+    {
+      "Name": "Invoke-AmdWebRequest",
+      "Sha256": "b1dc52b8b1c065bf742ce6097e50cce14d7b1b09ce3f41769389e9f18b17315c"
+    },
+    {
+      "Name": "New-AmdDirectory",
+      "Sha256": "fc03cf419fb93811415a162c5f82bb985261d0162d737b5d22460e7ec902edb4"
+    },
+    {
+      "Name": "New-AmdExactLengthProbePath",
+      "Sha256": "4bdc519d77ba39ae35a889218c71cb690ab5ff5f44cca961f15ec094aae06556"
+    },
+    {
+      "Name": "New-AmdHashAlgorithmForOid",
+      "Sha256": "7b555519b4bd8d2469c5abeec655139cc6882c674b7a218c65d766561beda807"
+    },
+    {
+      "Name": "New-AmdSignToolCheckEvidence",
+      "Sha256": "831cc5a54417966dbbee1b90c9d57886f904685a6f5cc66a52e4efd54cea36a6"
+    },
+    {
+      "Name": "New-AmdZipFromDirectory",
+      "Sha256": "b2840535276ccc79a10d68d2cfd2976cec4e8b17c053d66dd9fb9caf463612e7"
+    },
+    {
+      "Name": "Protect-AmdDiagnosticString",
+      "Sha256": "19580e14e74c4bff84d13ad9b89d0cd4588346e9fe634668860fd0b295681733"
+    },
+    {
+      "Name": "Protect-AmdDiagnosticValue",
+      "Sha256": "a22fdd947763b2ce504565a1008c292f51dae27a2f58a93dade634032cca5aa3"
+    },
+    {
+      "Name": "Read-AmdDerElement",
+      "Sha256": "d02ef39bf12c9c2b89d5173a1d0442fc9586efcdc01cdc61be346787daf216cd"
+    },
+    {
+      "Name": "Read-AmdDerLength",
+      "Sha256": "6820b4d27ea53ca8c89e63330d0c6bb7571b4f25e5167d4ed7af125783174fbb"
+    },
+    {
+      "Name": "Read-AmdJsonFile",
+      "Sha256": "aefe185188d81a8f15bc931fbe091078c28c3464467d933982eacd6ecb54f7d1"
+    },
+    {
+      "Name": "Read-AmdTextFile",
+      "Sha256": "0de93744c32ec80b7c91e0079470a73020c2e105e7f6ead2eb9590ae64f0ff04"
+    },
+    {
+      "Name": "Resolve-AmdAbsoluteUrl",
+      "Sha256": "7225b817c5b6ae85abdab67b452642dd560cd2a6d01c2e4b6ac2ca5b41b1d317"
+    },
+    {
+      "Name": "Resolve-AmdEvidenceOutputRoot",
+      "Sha256": "b1d13b2d20eaf44d04c34ab1cd72be325dbea2e3682a9dce8a88d798a240872a"
+    },
+    {
+      "Name": "Save-CanonicalJsonFile",
+      "Sha256": "687c60085ab3f876344b6521b0a536df380ac64d47fba6130de78069bea0b188"
+    },
+    {
+      "Name": "Set-AmdDiagnosticStep",
+      "Sha256": "de229f3997e4d9c00b07e6cd689013c5babd94bee7c14432528437cc3b5bd7b9"
+    },
+    {
+      "Name": "Start-AmdDiagnosticTrace",
+      "Sha256": "09ab3b139e5ccb46892f47b16774bb37602f4dfc60e0fe8e8c949b0ad35b0786"
+    },
+    {
+      "Name": "Start-AmdEmergencyEvidenceSession",
+      "Sha256": "b380afb72a791e19b456defd50823ff3dadf9f8cff41a526ac4edf5c3d077741"
+    },
+    {
+      "Name": "Stop-AmdDiagnosticTrace",
+      "Sha256": "4bee38217b6832a8d932add0beb294f2c7d566435981bed22539e6c1d5a5081e"
+    },
+    {
+      "Name": "Test-AmdAllowedDownloadHost",
+      "Sha256": "26be4b54c0f927f1ac9569b6e774e34a4db99505d0b57794e1f1e7815909acf2"
+    },
+    {
+      "Name": "Test-AmdArchivePathEntries",
+      "Sha256": "25dfc9ed290b29c5c9452698efcf06de122629c7f42aaf62f6eb51301d892649"
+    },
+    {
+      "Name": "Test-AmdArchivePathSafetyLogic",
+      "Sha256": "25c6fdb11b5478460dbce5e9e440bec037427bf3c225b749155a1dcdbdf58f4c"
+    },
+    {
+      "Name": "Test-AmdCanonicalJsonCrossRuntimeSelfTest",
+      "Sha256": "95acbfdd5d4965eff4704ca82e603b9528cd3ad385a6dbf51397780722d7725f"
+    },
+    {
+      "Name": "Test-AmdCollectionCardinalitySourceContract",
+      "Sha256": "49ecd5e33efb5ce7d3a97857c426efae56c0b642b88192755b7a09debc5d476b"
+    },
+    {
+      "Name": "Test-AmdDiagnosticPrimitiveSelfTest",
+      "Sha256": "93d8bc51fb43b52b4da9ec6035628d1ca8a7adf11d89d8f61636563f613a5729"
+    },
+    {
+      "Name": "Test-AmdEvidenceArchiveCapability",
+      "Sha256": "36b1b4543787d21d9fe41594fdc821ada8ea6603cb62640f513b9731523ad02f"
+    },
+    {
+      "Name": "Test-AmdEvidenceOutputPolicy",
+      "Sha256": "eff2aa86aee24517bba1bc30cd4a0b586c5a0b9f0c2a2e1745210cfa8df01ab6"
+    },
+    {
+      "Name": "Test-AmdEvidenceZipIntegrity",
+      "Sha256": "720d67937bd3606975456728a8c44d6290e2585cb38a89d454d9bac3bdec8621"
+    },
+    {
+      "Name": "Test-AmdExpectedFallbackProbeSelfTest",
+      "Sha256": "cbf44576a65cce52e390e527ddf20b166a8b3ca0be867f9dba19609042b7d24c"
+    },
+    {
+      "Name": "Test-AmdHttpDownloadTransportSelfTest",
+      "Sha256": "ba2173bc1b58159446619e1fd1f3281b4cbcffa04b23e408ff29857662bf619a"
+    },
+    {
+      "Name": "Test-AmdHttpRetryPolicySelfTest",
+      "Sha256": "ed2d08b742a05628e68c138bd6eccae3ecb448ca284275a099567518d9b3b798"
+    },
+    {
+      "Name": "Test-AmdKernelSignatureCoverageSelfTest",
+      "Sha256": "d8e697c13d1a894be6febbe698a8e164017dcc1a0ea48a9287ca01de14101329"
+    },
+    {
+      "Name": "Test-AmdNativeToolLocalizationSelfTest",
+      "Sha256": "379a6fa2820cc635529f8c06fc6b2d6f695f98ed4a090e64b636d0313ff74ce7"
+    },
+    {
+      "Name": "Test-AmdOrdinalOrderingSelfTest",
+      "Sha256": "c989bd095639a51c10ce7866d26fe05f623db7716b6dac34aef8fc2372952123"
+    },
+    {
+      "Name": "Test-AmdPathSafetyLogic",
+      "Sha256": "4c24b563ea2d7df6b5ccc3af15da8cc40cbe6e2889ee39f79cc00f5a372b608f"
+    },
+    {
+      "Name": "Test-AmdPathWithinToolkitRoot",
+      "Sha256": "343b44bd241d3a166192d39d9b16873edd415f21f078fb159cb3092be4453e82"
+    },
+    {
+      "Name": "Test-AmdPortableExecutableFile",
+      "Sha256": "1cfc929cf5215c676605cc3ba54846783bbe2f6499f1f94ecc989a2b05dbc72d"
+    },
+    {
+      "Name": "Test-AmdPublicPathPropertyName",
+      "Sha256": "d6167fe7d6e5661974f5f17c4c5f26de1cb74cb66a14f34d27cfce67e7d46438"
+    },
+    {
+      "Name": "Test-AmdSensitiveDiagnosticKey",
+      "Sha256": "4d5d37571b7fe391bd2a62aaf4c2122061c3596881489fd8cb2beb987a71669e"
+    },
+    {
+      "Name": "Test-AmdSequentialDownloadSourceContract",
+      "Sha256": "88541ae8b6260005e93f6b759ed6a0da2bd41cb4aa7664625711e9f283bc6f07"
+    },
+    {
+      "Name": "Test-AmdSignToolVerificationProfileSelfTest",
+      "Sha256": "7515e21b850e3a69c95afcb1d365b5d840287b1b766cc794dc73fa1928cd14c6"
+    },
+    {
+      "Name": "Test-AmdSignatureContentTypeRoutingSelfTest",
+      "Sha256": "689a44bf5cfa8565475eb08f3c2f7a055f49b1cffec0a03af022ea0c5322dead"
+    },
+    {
+      "Name": "Test-AmdSignaturePrimitiveSelfTest",
+      "Sha256": "0e1c3b5ee485e55d586f8a0ac2dcde13c173a4592f370ef0b217c4280b561f2a"
+    },
+    {
+      "Name": "Test-AmdSpcIndirectDataContentType",
+      "Sha256": "9d5b283ee04dca91cbd18147a00e5e1a9b47aa964e739234bef0da85d3342f39"
+    },
+    {
+      "Name": "Test-AmdStaticSignatureCandidateFile",
+      "Sha256": "580a465093a9099923c50d58e3c8c422cef21558cf84709084e0548dee5e3b34"
+    },
+    {
+      "Name": "Test-AmdThreeToolCommonCoreContract",
+      "Sha256": "b9e40a95be20f2e5e37fcffcad4213e613d67a1cf8612ca2b49d3b97d32c0f68"
+    },
+    {
+      "Name": "Test-AmdToolchainCapabilityParserSelfTest",
+      "Sha256": "1ddbab9013fe8acf6ccc320bdee16256ae7ce03199585c06fa3eeb9e296e74a8"
+    },
+    {
+      "Name": "Test-AmdWindowsExecutionContextSelfTest",
+      "Sha256": "70f393e1d7d162e7e2da32d75b9181f5009f61a21a8d2350815235964140ce83"
+    },
+    {
+      "Name": "Test-CanonicalJsonFile",
+      "Sha256": "9366c0c1ecf270f488dd33a80898d7017e0e8dfe76c09907e087c11ccd3aeadd"
+    },
+    {
+      "Name": "Write-AmdCaution",
+      "Sha256": "8a8aff8a23b41deeee62d820c2422e042b9c811773ee316f486284fc5b21f4be"
+    },
+    {
+      "Name": "Write-AmdDetail",
+      "Sha256": "3a86cfcb53099f5250dda4a2e1d339964cf9894633bf5387b14da800f61a4dda"
+    },
+    {
+      "Name": "Write-AmdDiagnosticEvent",
+      "Sha256": "246f1bf43edb41acad11905efc72b088398bc7b7f8bbf6f6585dfac220cb20aa"
+    },
+    {
+      "Name": "Write-AmdEvidenceCompletionBanner",
+      "Sha256": "90e37fcbc70b804e4d9e2187b3bfc1a6d9f464dc812e0fa676639a9169abab48"
+    },
+    {
+      "Name": "Write-AmdEvidenceSha256File",
+      "Sha256": "bbf4c47921e4a57ed10edd78f173c855bf7c48347adda4b0681b753e5a1c336f"
+    },
+    {
+      "Name": "Write-AmdFail",
+      "Sha256": "9241d65c33d1d1440cbc32aa8fdd8489ff13e98c58c44fd772857725c19878b0"
+    },
+    {
+      "Name": "Write-AmdFailureSnapshot",
+      "Sha256": "242e8107ea03e57b37f40408ba32ec920369282eb624d8b198445008cc79e111"
+    },
+    {
+      "Name": "Write-AmdLatestEvidencePointer",
+      "Sha256": "541ac73fa8d162cebcad9e72902a0457a8044ab7239d6f6137086caea3ac574b"
+    },
+    {
+      "Name": "Write-AmdLogLine",
+      "Sha256": "9377a26a5b1da5a9ad6e4748969710a6ae691d50238b410db14baf7e4d1974aa"
+    },
+    {
+      "Name": "Write-AmdOk",
+      "Sha256": "9328de1644c87c49a9005a974d96b3a5927aafa069b702b54e40511ba024bb15"
+    },
+    {
+      "Name": "Write-AmdSkip",
+      "Sha256": "d045fd58a569f796f3c454d8d83376bf9c6f6fe89c45e9ac0f915b7059db3a1f"
+    },
+    {
+      "Name": "Write-AmdStep",
+      "Sha256": "9f959e9fc217930d78d6a34ff47081ca40424f7dbf62be9749f9e5a402547cb6"
+    },
+    {
+      "Name": "Write-AmdUtf8NoBom",
+      "Sha256": "12a0dc98048a6031c72f55c6209791813b933da6b498a54aad44eed7208d33a8"
+    },
+    {
+      "Name": "_CanonicalJson_ParseArray",
+      "Sha256": "0826339a74712477afa3674639f1d8916ef4737a9eb42d014767f2ece9fa0a25"
+    },
+    {
+      "Name": "_CanonicalJson_ParseBool",
+      "Sha256": "95c7549db9758a4519596784faaf0482d61d70aaa36cbc2bd6683c921158b6d6"
+    },
+    {
+      "Name": "_CanonicalJson_ParseNull",
+      "Sha256": "a2c9f80579b6de99ca0269f1541c2e037a4cd5d62b5cd43f3180e7d9a4c0c807"
+    },
+    {
+      "Name": "_CanonicalJson_ParseNumber",
+      "Sha256": "2319933278052a12816b37dda032c45daade3d0a92003b9f4ec8391e6b6680b4"
+    },
+    {
+      "Name": "_CanonicalJson_ParseObject",
+      "Sha256": "ca07acb8fdf2dd4afd109b90493a92c93edab57cab9602919844c358521831c3"
+    },
+    {
+      "Name": "_CanonicalJson_ParseString",
+      "Sha256": "ee03d401b509a6bd8f44a86be98b34316496c0a4b4b52dd53e58148eb9eb8edf"
+    },
+    {
+      "Name": "_CanonicalJson_ParseValue",
+      "Sha256": "0b88b6b1b7e6e83c38b1cc27400283d0fac0169c52eefdf079760001a9db87ae"
+    },
+    {
+      "Name": "_CanonicalJson_SkipWs",
+      "Sha256": "f274f6bb5cb7f42266daa072ad541483e4d81f3355d7d2721110131255b84bd1"
+    },
+    {
+      "Name": "_CanonicalJson_WriteArray",
+      "Sha256": "21ce25fd5daa329ac8b53e7cdab6fbb4e5428ecef140e9f3ff2fa9141077d7ec"
+    },
+    {
+      "Name": "_CanonicalJson_WriteNumber",
+      "Sha256": "ec934ecb6dc85501cc34749b6a15d2f32ff6966fa491f9cc582d768691da7f17"
+    },
+    {
+      "Name": "_CanonicalJson_WriteObject",
+      "Sha256": "f29ab684a11409543e5ae5fb5f56a06750273efda9039c06a21b58141dbafeeb"
+    },
+    {
+      "Name": "_CanonicalJson_WriteString",
+      "Sha256": "d26ec330302d142e2050b7b542e9057910b8573c6c0681b9da182bfc63c8c71a"
+    },
+    {
+      "Name": "_CanonicalJson_WriteValue",
+      "Sha256": "417ac47e8eb3e8a5db08ce0a7d6e15f0585b100f75bd478cf7815bda2f9f1095"
+    }
+  ]
+}

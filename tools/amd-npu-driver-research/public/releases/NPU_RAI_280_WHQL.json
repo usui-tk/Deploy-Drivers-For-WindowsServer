@@ -1,1 +1,1141 @@
-{"SchemaVersion":"1.1","ToolVersion":"1.0.0","Artifact":{"FileName":"NPU_RAI_280_WHQL.zip","Sha256":"803afe1e2d75b717f60a368453306ccbd4877cdd936b6531b946b95109a22144","Length":31416645,"Format":"zip","EvidenceLevel":"PayloadObserved"},"Summary":{"FileCount":147,"InfCount":1,"InstallerCount":1,"DriverBinaryCount":1,"DriverVersions":["32.00.0203.280"],"HardwareIds":["PCI\\VEN_1022&DEV_1502","PCI\\VEN_1022&DEV_17F0"]},"Infs":[{"Path":"npu_mcdm_stack_prod/kipudrv.inf","Sha256":"36f5b8c4274add4d886943ad2036c206132c85b3d2fbfb576c629439e2002b81","Version":{"Class":"ComputeAccelerator","ClassGuid":"{F01A9D53-3FF6-48D2-9F97-C8A7004BE10C}","PnpLockdown":"1","DriverVerRaw":"05/16/2025,32.00.0203.280","DriverDate":"05/16/2025","DriverVersion":"32.00.0203.280","CatalogFile":"kipudrv.cat"},"Manufacturer":[{"Token":"%ManufacturerName%","ModelsSection":"IpuMcdmDriver.Mfg","TargetOSVersions":["NTamd64.10.0...22000"]}],"TargetOSVersions":[{"Raw":"NTamd64.10.0...22000","Architecture":"amd64","OSMajorVersion":10,"OSMinorVersion":0,"ProductType":null,"SuiteMask":null,"BuildNumber":22000,"ParseStatus":"Parsed"}],"Models":[{"DescriptionToken":"%IpuMcdmDriver%","InstallSection":"IpuMcdmDriver","HardwareId":"PCI\\VEN_1022&DEV_1502","ModelsSection":"IpuMcdmDriver.Mfg.NTamd64.10.0...22000","TargetOSVersion":"NTamd64.10.0...22000"},{"DescriptionToken":"%IpuMcdmDriver%","InstallSection":"IpuMcdmDriver","HardwareId":"PCI\\VEN_1022&DEV_17F0","ModelsSection":"IpuMcdmDriver.Mfg.NTamd64.10.0...22000","TargetOSVersion":"NTamd64.10.0...22000"}],"UniqueHardwareIds":["PCI\\VEN_1022&DEV_1502","PCI\\VEN_1022&DEV_17F0"],"ServiceBinaries":["%13%\\ipustack.sys"],"Includes":["machine.inf"],"Needs":["PciD3ColdSupported.HW"],"WdfDirectives":[],"ProductTypeAssignmentObserved":false,"ServerProjection":[{"TargetOSVersion":"NTamd64.10.0...22000","Server":"Windows Server 2016","Build":14393,"ProductType":3,"Status":"RejectedBuildFloor","Reason":"OS build 14393 is below selector build floor 22000.","EvidenceLevel":"Analysis"},{"TargetOSVersion":"NTamd64.10.0...22000","Server":"Windows Server 2019","Build":17763,"ProductType":3,"Status":"RejectedBuildFloor","Reason":"OS build 17763 is below selector build floor 22000.","EvidenceLevel":"Analysis"},{"TargetOSVersion":"NTamd64.10.0...22000","Server":"Windows Server 2022","Build":20348,"ProductType":3,"Status":"RejectedBuildFloor","Reason":"OS build 20348 is below selector build floor 22000.","EvidenceLevel":"Analysis"},{"TargetOSVersion":"NTamd64.10.0...22000","Server":"Windows Server 2025","Build":26100,"ProductType":3,"Status":"Candidate","Reason":"Selector does not exclude this server profile.","EvidenceLevel":"Analysis"}],"EvidenceLevel":"PayloadObserved"}],"Installers":[{"Path":"npu_sw_installer.exe","Sha256":"96dc03e574e9dfb2c45543833d8a66d5bcecb9af48e9beac07ea72cccf3ce755","ContractStatus":"ExactHashMatched","ExactHashContract":{"ContractId":"npu-smart-installer-96dc03e574e9","RoutingSemanticId":"amd-npu-smart-installer-routing-v1","EvidenceLevel":"StaticDisassemblyProven","AnalysisStatus":"Initial reverse engineering; exact-hash contract; recovered routing semantics v1","DeviceMatcher":{"regex":"PCI\\\\VEN_1022&DEV_(1502|17F0)","deviceIds":["1502","17F0"],"revisionDiscriminatorObserved":false,"revisionStatement":"No REV_ selector was observed in ASCII strings or the recovered device matcher. This does not prove that revision is unused in every code path."},"PlatformFamilies":[{"deviceId":"1502","installerLabel":"PHX","researchInterpretation":"Phoenix / Hawk Point family"},{"deviceId":"17F0","installerLabel":"STX","researchInterpretation":"Strix / Krackan family"}],"OsGates":[{"condition":"major != 10","action":"Other/unknown path","confidence":"High"},{"condition":"major == 10 and build >= 26100","action":"Install MCDM driver","confidence":"High"},{"condition":"major == 10 and 22621 <= build < 26100 and UBR >= 3527","action":"Install MCDM driver","confidence":"High"},{"condition":"major == 10 and 22621 <= build < 26100 and UBR < 3527","action":"Install WDF/NULL driver","confidence":"High"},{"condition":"major == 10 and 22000 <= build < 22621","action":"Install WDF/NULL driver","confidence":"High"},{"condition":"major == 10 and build < 22000","action":"Windows 10 path / WDF-NULL path","confidence":"Medium"}],"DriverPaths":["npu_mcdm_stack_prod\\kipudrv.inf","npu_wdf_stack_prod\\kipudrv\\kipudrv.inf"],"DriverPathPresence":[{"Path":"npu_mcdm_stack_prod\\kipudrv.inf","Present":true},{"Path":"npu_wdf_stack_prod\\kipudrv\\kipudrv.inf","Present":false}],"ObservedApiFamilies":["SetupAPI","CfgMgr32","NewDev/DiInstallDriverA","Registry","WMI"],"MissingRequiredStringEvidence":[]},"InterestingStrings":["DiInstallDriverA","Installing MCDM driver from %s...","Installing WDF/NULL driver from %s...","NPU Smart Installer application","PCI\\\\VEN_1022&DEV_(1502|17F0)","RtlGetVersion","This is a PHX platform with MCDM installed.","This is a PHX platform with WDF installed.","This is a PHX platform with no driver installed.","This is a STX platform with MCDM installed.","This is a STX platform with WDF installed.","This is a STX platform with no driver installed.","Win32_OperatingSystem","Windows 10 detected. Version: %lu.%lu.%lu.%lu","Windows 11 MCDM OS detected. Version: %lu.%lu.%lu.%lu","Windows 11 WDF OS detected. Version: %lu.%lu.%lu.%lu","Windows 11 detected. Version: %lu.%lu.%lu.%lu","Windows 24 detected. Version: %lu.%lu.%lu.%lu","npu_mcdm_stack_prod\\kipudrv.inf","npu_wdf_stack_prod\\kipudrv\\kipudrv.inf"],"EvidenceLevel":"PayloadObserved","Executed":false,"SafetyStatement":"AMD installer was not executed."}],"DriverBinaries":[{"Path":"npu_mcdm_stack_prod/ipustack.sys","Sha256":"e5d77c30128e02149a3c88bb66d16302d5569ff7030e859bfb73eada46953a4e","ContractStatus":"ExactHashMatched","ExactHashContract":{"ContractId":"ipustack-e5d77c30128e","FileVersionObserved":"32.00.0203.280","EvidenceLevel":"StaticDisassemblyProven","IdentitySemanticId":"amd-npu-ipustack-broad-platform-v1","AnalysisStatus":"Exact-hash Windows MCDM driver contract. Broad platform display-name selection is recovered, but no granular 1..8 firmware device-revision refinement path is observed in this exact binary.","BroadPlatformMap":[{"value":0,"label":"NPU Phoenix"},{"value":1,"label":"NPU Strix"},{"value":2,"label":"NPU Strix"},{"value":3,"label":"NPU Strix Halo"},{"value":4,"label":"NPU Krackan"}],"BroadPlatformDefaultLabel":"NPU","CodenameRecognition":[{"codename":"Phoenix","mode":"BroadPlatformLabel","statement":"Broad platform value 0 renders NPU Phoenix."},{"codename":"Hawk Point","mode":"Shared1502BroadFamilyOnly","statement":"Hawk Point shares the reviewed DEV_1502 broad identity; the exact driver display label remains NPU Phoenix and does not separately distinguish Hawk Point."},{"codename":"Strix Point","mode":"BroadPlatformLabel","statement":"Broad platform values 1 and 2 render NPU Strix."},{"codename":"Strix Halo","mode":"BroadPlatformLabel","statement":"Broad platform value 3 renders NPU Strix Halo."},{"codename":"Krackan Point","mode":"BroadPlatformLabel","statement":"Broad platform value 4 renders NPU Krackan."}],"FirmwareDeviceRevision":{"refinementObserved":false,"messageOpcode":null,"messageOpcodePrimitiveObserved":false,"defaultUnknownValue":null,"map":[],"statement":"The exact 280 binary exposes broad Phoenix/Strix/Strix-Halo/Krackan display-name selection. A dedicated return-0x117 command primitive and the granular STXA/STXB/KRK1/KRK2/HALO/GPT1/GPT2/GPT3 map observed in 376 are not present in this exact hash. Generic response handling contains a 0x117 comparison, so absence of the dedicated primitive must not be interpreted as proof that all 0x117-related protocol awareness is absent."},"StaticEvidence":{"displaySelectionVa":"0x14000cfdf","stringAddresses":{"NPU Phoenix":"0x1400560f0","NPU Strix":"0x140056100","NPU Strix Halo":"0x140056110","NPU Krackan":"0x140056120","NPU":"0x140056130"}},"UpstreamCorrelation":null,"MissingRequiredStringEvidence":[]},"InterestingStrings":["?????????????NPU Phoenix","??????NPU Strix Halo","????NPU Strix","?NPU Krackan"],"EvidenceLevel":"PayloadObserved","Executed":false,"SafetyStatement":"AMD kernel driver was not executed by the research tool."}],"PublishedCompatibility":{"RuleStatus":"ExactArtifactMatched","PublishedDriverLabel":"32.0.203.280","PublishedSupportedCodenames":["Phoenix","Hawk Point","Strix Point","Strix Halo","Krackan Point"],"SupportEvidence":"AmdProductionDriverPublished","SourceIds":["amd-latest-inst","amd-npu-check"],"Notes":"AMD documentation publishes 280 as production driver for the listed codename families."},"ServerAssessment":[{"Server":"Windows Server 2016","Build":14393,"InfSelectorStatus":"RejectedBuildFloor","InstallerRoute":"Windows10/WDF-NULL","InstallerRoutePayloadPresent":false,"StaticAssessment":"NotApplicableAsPublished","Reason":"INF selector rejects this Server profile and the installer-selected legacy WDF/NULL payload is not present in the package.","RuntimeProof":false,"EvidenceLevel":"Analysis"},{"Server":"Windows Server 2019","Build":17763,"InfSelectorStatus":"RejectedBuildFloor","InstallerRoute":"Windows10/WDF-NULL","InstallerRoutePayloadPresent":false,"StaticAssessment":"NotApplicableAsPublished","Reason":"INF selector rejects this Server profile and the installer-selected legacy WDF/NULL payload is not present in the package.","RuntimeProof":false,"EvidenceLevel":"Analysis"},{"Server":"Windows Server 2022","Build":20348,"InfSelectorStatus":"RejectedBuildFloor","InstallerRoute":"Windows10/WDF-NULL","InstallerRoutePayloadPresent":false,"StaticAssessment":"NotApplicableAsPublished","Reason":"INF selector rejects this Server profile and the installer-selected legacy WDF/NULL payload is not present in the package.","RuntimeProof":false,"EvidenceLevel":"Analysis"},{"Server":"Windows Server 2025","Build":26100,"InfSelectorStatus":"Candidate","InstallerRoute":"MCDM","InstallerRoutePayloadPresent":true,"StaticAssessment":"StaticCandidateAsPublished","Reason":"INF selector accepts this Server build and the exact-hash installer selects an MCDM payload that is present.","RuntimeProof":false,"EvidenceLevel":"Analysis"}],"Files":[{"Path":"npu_mcdm_stack_prod/1x4.xclbin","Length":269150,"Sha256":"d1c2461996d9c087574a702197a1838baa0493b2d13f026219d12b231ae9bcc3"},{"Path":"npu_mcdm_stack_prod/1x4_2.5.0.0-518_ipu_2.xclbin","Length":164789,"Sha256":"7c24056c63ce9d6d422853cf4df2be3ee9ac81bc84bff175da16470876f9514d"},{"Path":"npu_mcdm_stack_prod/1x4_2.5.0.189-1.xclbin","Length":269150,"Sha256":"d1c2461996d9c087574a702197a1838baa0493b2d13f026219d12b231ae9bcc3"},{"Path":"npu_mcdm_stack_prod/1x4_2.5.0.259-365.xclbin","Length":350944,"Sha256":"25d0676126c06923e40cfd7b47258c51735bf022b14aa3b2d62800cb9ddef7f5"},{"Path":"npu_mcdm_stack_prod/1x4_3.5.0.0-1482_ipu_2.xclbin","Length":680723,"Sha256":"eb6ef85ea8a26b87a7343d070aef26d883b549d325ea16afcdea824c7577b426"},{"Path":"npu_mcdm_stack_prod/1x4_3.5.0.0-1505.xclbin","Length":1061642,"Sha256":"40bce1b01194189d2af7be3b48e206aaf9fab4bd13935e3c303112c6a8b8d686"},{"Path":"npu_mcdm_stack_prod/1x4_3.5.0.0-1791.xclbin","Length":1118145,"Sha256":"afc811e99517f28fc8b4de67e385bdb4021009c904fd593eeece5f820b9fa9d7"},{"Path":"npu_mcdm_stack_prod/1x4_3.5.0.0-1793_ipu_2.xclbin","Length":1025838,"Sha256":"e1080dce3a85cd6bf1340b2dc36e99e6811d38a59293c14ff68510137d8b58db"},{"Path":"npu_mcdm_stack_prod/1x4_3.5.0.0-1990_ipu_2.xclbin","Length":1042579,"Sha256":"62e2e02e827d3b080c27c31473e49a2ab67e2688cebf12d04b5eec3857823d3b"},{"Path":"npu_mcdm_stack_prod/1x4_3.5.0.0-2044_ipu_2.xclbin","Length":1019411,"Sha256":"6c22ffab8c243107f4f7241bb571f584ae895b92a1fdc8fda965d594125bad87"},{"Path":"npu_mcdm_stack_prod/1x4_3.5.0.0-2145_ipu_2.xclbin","Length":1005665,"Sha256":"8b08af42ab374b7a34865fa20c2a1b25bb4118d4a6f23bcf428dfa2fd9a5e379"},{"Path":"npu_mcdm_stack_prod/1x4_3.5.0.0-2351.xclbin","Length":1291236,"Sha256":"5f9a21490a30bd09b0f080a37006af36276c53082ac396f74a22b8f87cf5769d"},{"Path":"npu_mcdm_stack_prod/1x4_3.5.0.0-798.xclbin","Length":575594,"Sha256":"ecf21166201eadde29103765fb30e34b2d9ddb2431915a544a59223510fec82b"},{"Path":"npu_mcdm_stack_prod/1x4_3.5.0.0-947_ipu_2.xclbin","Length":522645,"Sha256":"0c87f54613ce05cc8fafb4b869b571d02f96ca150e6b5cd0f6aafdcb5684f6ee"},{"Path":"npu_mcdm_stack_prod/1x4_3.5.0.0-949.xclbin","Length":819889,"Sha256":"c64c0d59dfab9f6a12e50252f302bdc8fb7e7b8183fd69d09e2bb796579c8de5"},{"Path":"npu_mcdm_stack_prod/1x4_3.5.0.050-650.xclbin","Length":545276,"Sha256":"c38458dea888c7ccc9f3674647d92dc4349249df1cadfc2874acef5af17ee70d"},{"Path":"npu_mcdm_stack_prod/1x4_v0_122.xclbin","Length":169837,"Sha256":"35892156c190c83a3b6ee140a08611b9979224e494729359771244087a36c91a"},{"Path":"npu_mcdm_stack_prod/4x4_3.5.0.0-1483_ipu_2.xclbin","Length":2539544,"Sha256":"8ef4b96d00e6cb06ca5e1bbd578edc800dd00d19dc58d7eb2e8c9970c2b29e10"},{"Path":"npu_mcdm_stack_prod/4x4_3.5.0.0-1506.xclbin","Length":3293867,"Sha256":"704918f143b156d34745dd8899a333e4e881078da77c017f912fd21dc25fe313"},{"Path":"npu_mcdm_stack_prod/4x4_3.5.0.0-1792.xclbin","Length":3346573,"Sha256":"2915553981cdb1b139b1f97506e9802a13d7b63c03f808687f6564434b88d48a"},{"Path":"npu_mcdm_stack_prod/4x4_3.5.0.0-1794_ipu_2.xclbin","Length":3825387,"Sha256":"87ffd9eb2c3fa63750ca9b39c23dca671ce45015c6d9cbacb6bb71eb7dc7a3a1"},{"Path":"npu_mcdm_stack_prod/4x4_3.5.0.0-1987_ipu_2.xclbin","Length":3695190,"Sha256":"caba2f216ca768e6436eb017dac8658fe7f772a5e756a03c972fca79e6d73c61"},{"Path":"npu_mcdm_stack_prod/4x4_3.5.0.0-1989_ipu_2.xclbin","Length":3695190,"Sha256":"caba2f216ca768e6436eb017dac8658fe7f772a5e756a03c972fca79e6d73c61"},{"Path":"npu_mcdm_stack_prod/4x4_3.5.0.0-2046_ipu_2.xclbin","Length":3627350,"Sha256":"e02879207e25f2b757da74852682ba10006fa67fcc3d3a4272cb185249254ad3"},{"Path":"npu_mcdm_stack_prod/4x4_3.5.0.0-2160_ipu_2.xclbin","Length":3573652,"Sha256":"73a58d9337efb76dcd2be69104824200f82a764072796532cbbc5cfd2ce50c6a"},{"Path":"npu_mcdm_stack_prod/4x4_3.5.0.0-2352.xclbin","Length":4185830,"Sha256":"db66585a84a5f818432225562448ca57395b650b2a1215307ba259bc19233c1e"},{"Path":"npu_mcdm_stack_prod/5x4_3.5.0.0-799.xclbin","Length":2238137,"Sha256":"ca5e69561581048c6c7fb48762f5de7c285373b73a0bae98589e0b50e2cc4523"},{"Path":"npu_mcdm_stack_prod/5x4_3.5.0.0-950.xclbin","Length":2325641,"Sha256":"ad853a2b26ba697895e3ab11492e3803ddddedb05b6d5af358dd5a5486cdb072"},{"Path":"npu_mcdm_stack_prod/5x4_3.5.0.050-651.xclbin","Length":1286546,"Sha256":"f22c2813fd7a6b96e543198032ccffdc1868fcab2882fde9324dd5c52bad1416"},{"Path":"npu_mcdm_stack_prod/AMD_AIE2P_4x4_Overlay_3.5.0.0-2354_ipu_2.xclbin","Length":3783606,"Sha256":"1d44dd229ddd26b32106111c4cab0c7b47a2e17faafd9a6a42f6c2a2a3ca20f3"},{"Path":"npu_mcdm_stack_prod/AMD_AIE2P_4x4_Overlay_CFG0_3.5.0.0-2229_ipu_2.xclbin","Length":596746,"Sha256":"06ee1a0db02a913dc2b66764d804890a8bab5ded95f9d032d96e9b22e462a99f"},{"Path":"npu_mcdm_stack_prod/AMD_AIE2P_Nx4_Overlay_3.5.0.0-2353_ipu_2.xclbin","Length":1048401,"Sha256":"b6cf2a8761ddc16ea7d0060ab3d36e64a33b722f84d30ea95a20b671176a1c37"},{"Path":"npu_mcdm_stack_prod/DPU_Sequence/aie_reconfig_overhead.txt","Length":2250,"Sha256":"4470f5b314e6434dc80299d802cf4fcd89bb1d746e3cef565d706d2a56e519b1"},{"Path":"npu_mcdm_stack_prod/DPU_Sequence/df_bw.txt","Length":12328,"Sha256":"53cbde3715c617ad5efa06318954365b162066eab60ebc0c5197c24818fc8995"},{"Path":"npu_mcdm_stack_prod/DPU_Sequence/gemm_int8.txt","Length":10798004,"Sha256":"8ececbd38fbe17562d387f8d2024b5cf2b7b4320c2d677f699fbd2bbf18499a5"},{"Path":"npu_mcdm_stack_prod/DPU_Sequence/tct_1col.txt","Length":5431452,"Sha256":"cf7975ded95a17ed7d7557e6ee9b1b8d1e72a8c7cae54bd9bba6edd9c0fe11f0"},{"Path":"npu_mcdm_stack_prod/DPU_Sequence/tct_4col.txt","Length":10865481,"Sha256":"bfd73c03242dc1b5dcdd5ea92710310fa8b28d01e5a4f5f04f8cff0c171f0c08"},{"Path":"npu_mcdm_stack_prod/ELF/aie_reconfig_overhead_17f0_10.elf","Length":1264,"Sha256":"2fb370132beea6cdf1d910f045069775380f1e5232af693fe29494519bb90688"},{"Path":"npu_mcdm_stack_prod/ELF/aie_reconfig_overhead_17f0_11.elf","Length":1264,"Sha256":"2fb370132beea6cdf1d910f045069775380f1e5232af693fe29494519bb90688"},{"Path":"npu_mcdm_stack_prod/ELF/aie_reconfig_overhead_17f0_20.elf","Length":1264,"Sha256":"2fb370132beea6cdf1d910f045069775380f1e5232af693fe29494519bb90688"},{"Path":"npu_mcdm_stack_prod/ELF/df_bw_17f0_10.elf","Length":4288,"Sha256":"6b5498e9db3cbe31ee2f7cf874c479d484b621ba7dbc3dce56e2bf1b4ca04b92"},{"Path":"npu_mcdm_stack_prod/ELF/df_bw_17f0_11.elf","Length":4288,"Sha256":"6b5498e9db3cbe31ee2f7cf874c479d484b621ba7dbc3dce56e2bf1b4ca04b92"},{"Path":"npu_mcdm_stack_prod/ELF/df_bw_17f0_20.elf","Length":4288,"Sha256":"6b5498e9db3cbe31ee2f7cf874c479d484b621ba7dbc3dce56e2bf1b4ca04b92"},{"Path":"npu_mcdm_stack_prod/ELF/gemm_int8_17f0_10.elf","Length":2113440,"Sha256":"c63a60e6b868a118df8e789e14727f4252396367fe19fedb9df2c8d835f77af3"},{"Path":"npu_mcdm_stack_prod/ELF/gemm_int8_17f0_11.elf","Length":2113440,"Sha256":"c63a60e6b868a118df8e789e14727f4252396367fe19fedb9df2c8d835f77af3"},{"Path":"npu_mcdm_stack_prod/ELF/gemm_int8_17f0_20.elf","Length":2113440,"Sha256":"c63a60e6b868a118df8e789e14727f4252396367fe19fedb9df2c8d835f77af3"},{"Path":"npu_mcdm_stack_prod/ELF/mobilenet_4col_17f0_10.elf","Length":828208,"Sha256":"fa6d78afb9d4ea55f81016efc3b7531e47963ffa2dccc3a383f5194ff74d0a25"},{"Path":"npu_mcdm_stack_prod/ELF/mobilenet_4col_17f0_11.elf","Length":828208,"Sha256":"fa6d78afb9d4ea55f81016efc3b7531e47963ffa2dccc3a383f5194ff74d0a25"},{"Path":"npu_mcdm_stack_prod/ELF/mobilenet_4col_17f0_20.elf","Length":828208,"Sha256":"fa6d78afb9d4ea55f81016efc3b7531e47963ffa2dccc3a383f5194ff74d0a25"},{"Path":"npu_mcdm_stack_prod/ELF/nop_17f0_10.elf","Length":400,"Sha256":"fae8668d5c979e3aca4c76b3b0370f93a1dc11b77f91f7cc2d8d79598b3f5577"},{"Path":"npu_mcdm_stack_prod/ELF/nop_17f0_11.elf","Length":400,"Sha256":"fae8668d5c979e3aca4c76b3b0370f93a1dc11b77f91f7cc2d8d79598b3f5577"},{"Path":"npu_mcdm_stack_prod/ELF/nop_17f0_20.elf","Length":400,"Sha256":"fae8668d5c979e3aca4c76b3b0370f93a1dc11b77f91f7cc2d8d79598b3f5577"},{"Path":"npu_mcdm_stack_prod/ELF/preemption_memtile_4x4.elf","Length":7888,"Sha256":"5cfef97346bc11e1d29666f87f73a25488abe7824533435e7047f0895ec7dcc5"},{"Path":"npu_mcdm_stack_prod/ELF/preemption_memtile_4x8.elf","Length":12816,"Sha256":"c253c6dbdf96207924257fdae8f8ad53f2b3d6b123c66697e924cb551e9093d2"},{"Path":"npu_mcdm_stack_prod/ELF/preemption_noop_4x4.elf","Length":7888,"Sha256":"23eb28d71ffa495586e6d8d2224b6711dc81233ac1f6cb50c2a662475a3f0c02"},{"Path":"npu_mcdm_stack_prod/ELF/preemption_noop_4x8.elf","Length":12816,"Sha256":"6f5731ecf29af2b3d21dfd72316f89d49470c5ffa1b8af8004432a9b22a84bc7"},{"Path":"npu_mcdm_stack_prod/ELF/tct_1col_17f0_10.elf","Length":1121104,"Sha256":"e24959ca96039887c761aac68488e29dbd384c6417d18249aaee88f5642517a1"},{"Path":"npu_mcdm_stack_prod/ELF/tct_1col_17f0_11.elf","Length":1121104,"Sha256":"e24959ca96039887c761aac68488e29dbd384c6417d18249aaee88f5642517a1"},{"Path":"npu_mcdm_stack_prod/ELF/tct_1col_17f0_20.elf","Length":1121104,"Sha256":"e24959ca96039887c761aac68488e29dbd384c6417d18249aaee88f5642517a1"},{"Path":"npu_mcdm_stack_prod/ELF/tct_4col_17f0_10.elf","Length":2242336,"Sha256":"a3e00757b9cd1edb5bab38d26a0f78e3403d468485e551858344568e65319af8"},{"Path":"npu_mcdm_stack_prod/ELF/tct_4col_17f0_11.elf","Length":2242336,"Sha256":"a3e00757b9cd1edb5bab38d26a0f78e3403d468485e551858344568e65319af8"},{"Path":"npu_mcdm_stack_prod/ELF/tct_4col_17f0_20.elf","Length":2242336,"Sha256":"a3e00757b9cd1edb5bab38d26a0f78e3403d468485e551858344568e65319af8"},{"Path":"npu_mcdm_stack_prod/Mobilenet/buffer_sizes.json","Length":145,"Sha256":"0347b0abbadf7a1ae34fd470693b9a1be42e7717c25d0e2e85907f43f94ba328"},{"Path":"npu_mcdm_stack_prod/Mobilenet/mobilenet_ifm.bin","Length":200704,"Sha256":"4f0c67d3f9af4ddb866e9dab9ada8ff2a59dd7564a55c273c20fd88d9f0aa7fe"},{"Path":"npu_mcdm_stack_prod/Mobilenet/mobilenet_param.bin","Length":7233612,"Sha256":"b05e4f915c818560149c401decb15aac9a948b4da521d7eafdd4f208a124c6bf"},{"Path":"npu_mcdm_stack_prod/RadeonML.dll","Length":633648,"Sha256":"c88094371be03d89e5ea2535cd1bede005972183a04b87a1bcededbe1c4bc0a8"},{"Path":"npu_mcdm_stack_prod/RadeonML_DirectML.dll","Length":4798264,"Sha256":"89215ee310846e1d46fdcae696138a45bde7cfbe78db378038a4d09bb3c72564"},{"Path":"npu_mcdm_stack_prod/RadeonML_IPU.dll","Length":3733816,"Sha256":"b8a6011abb052e594cdcde312e66252a56cf5f5ce1a9a4505b6622bf5f1fdfda"},{"Path":"npu_mcdm_stack_prod/RadeonML_aks.dll","Length":3729720,"Sha256":"c176da9bbb8dd3e018558e77408189e07681b98e5d34526b1988ae24652cc81e"},{"Path":"npu_mcdm_stack_prod/aie2p_gemm_strix_4x2_bf16.json","Length":23987,"Sha256":"77d4d0cfe8d7241c859a9606c1c4e7e8d80401c8179f08e772916725f72cdf5e"},{"Path":"npu_mcdm_stack_prod/aie2p_gemm_strix_4x2_bf16.xclbin","Length":758379,"Sha256":"83c6818d75ffbc0f5c79b7b1b5a0072933a6fba00f948e95cf1cf47c485a84ec"},{"Path":"npu_mcdm_stack_prod/aie2p_gemm_vm_strix_4x4.json","Length":44718,"Sha256":"a57b4d5ea03e7105a6b37ff1669545f2fa0ba0e63631b0ac117aea4cac5ceffe"},{"Path":"npu_mcdm_stack_prod/aie2p_gemm_vm_strix_4x4.xclbin","Length":1277547,"Sha256":"4dc9b231ce0b692825b6f0a998d12e38d45b020ecfed6193101da312d8813c6d"},{"Path":"npu_mcdm_stack_prod/aieml_gemm_asr.json","Length":23943,"Sha256":"88dc8032a64f2d97d601986108147fda6a014e93e8b778305e0b841e5d0c9381"},{"Path":"npu_mcdm_stack_prod/aieml_gemm_asr.xclbin","Length":927627,"Sha256":"18919f73ba7e833a5f337f1491e4bd4fadb802c76d314fd3e4414aa2dfe9ae3e"},{"Path":"npu_mcdm_stack_prod/aieml_gemm_asr_qdq.json","Length":23937,"Sha256":"43ddbb4f5932a381d1d170f3e9ab85d7b9a21481d4cca70bf596426714858aeb"},{"Path":"npu_mcdm_stack_prod/aieml_gemm_asr_qdq.xclbin","Length":1029995,"Sha256":"e87c2213192794224d7ba07af55e416959d468d864e5631e6c7c2553384bbb52"},{"Path":"npu_mcdm_stack_prod/aieml_gemm_vm_phx_4x4.json","Length":44706,"Sha256":"c6389f97b29be68ac131db668776f506d32ef29db0f0e9eb76a36acf590b2793"},{"Path":"npu_mcdm_stack_prod/aieml_gemm_vm_phx_4x4.xclbin","Length":1802027,"Sha256":"d8b16adf18172cb3a5bfdd57328b49b05fa5ebc1e8ae9c86517920533c7bc032"},{"Path":"npu_mcdm_stack_prod/aieml_gemm_vm_phx_4x4_bf16.json","Length":44706,"Sha256":"f6aab327a2d5341077c2feccba8a6ae1d421a6b4b6385ef86b2df3886c31ea59"},{"Path":"npu_mcdm_stack_prod/aieml_gemm_vm_phx_4x4_bf16.xclbin","Length":1491595,"Sha256":"29d66a1678a365783d77eff97f18e5ae4775fe981c8e31dc8cc7cc2621e95d66"},{"Path":"npu_mcdm_stack_prod/aks.dll","Length":1379640,"Sha256":"b8bf97af340d543d081b1f24c8c055ded8f358e0fdfbb02efb4fb15e72f747cf"},{"Path":"npu_mcdm_stack_prod/akskernels.dll","Length":2446136,"Sha256":"78ac99da31e148bf19c0666c15d0b8885acec08e8a43e0244eebc67ac3346c83"},{"Path":"npu_mcdm_stack_prod/amd_taau_ops.rml_plugin.dll","Length":521520,"Sha256":"15f7ec9797bd32bc68d089835c716dadb8d280973b54fc57929f4c31a22914c3"},{"Path":"npu_mcdm_stack_prod/benchmark_17f0_10.json","Length":3373,"Sha256":"b5bf23fe051071ba24f8af68ea29577df341c8133ad1b66f783633b2c593d72d"},{"Path":"npu_mcdm_stack_prod/benchmark_17f0_11.json","Length":3373,"Sha256":"b5bf23fe051071ba24f8af68ea29577df341c8133ad1b66f783633b2c593d72d"},{"Path":"npu_mcdm_stack_prod/benchmark_17f0_20.json","Length":3379,"Sha256":"a0169340ff17a346816647d2960d89c0a9d433bb4313481eef7464dee9943ca1"},{"Path":"npu_mcdm_stack_prod/config_xclbin.txt","Length":1627,"Sha256":"07c99bb26f682c57f0c18b82e2506c09634b25bfe3d68137dba304bb4746a717"},{"Path":"npu_mcdm_stack_prod/gemm_17f0_10.xclbin","Length":608873,"Sha256":"19732a1ba406cb321521398ea25fc5248dfdeb52e3f7f9fdaf00ff9ccd77e982"},{"Path":"npu_mcdm_stack_prod/gemm_17f0_11.xclbin","Length":608873,"Sha256":"19732a1ba406cb321521398ea25fc5248dfdeb52e3f7f9fdaf00ff9ccd77e982"},{"Path":"npu_mcdm_stack_prod/gemm_17f0_20.xclbin","Length":608873,"Sha256":"19732a1ba406cb321521398ea25fc5248dfdeb52e3f7f9fdaf00ff9ccd77e982"},{"Path":"npu_mcdm_stack_prod/gemm_elf_17f0_10.xclbin","Length":463836,"Sha256":"6f1b9594264c69f46ebe8c69b44da239796a90021e106a59bb6c32796f4600fe"},{"Path":"npu_mcdm_stack_prod/gemm_elf_17f0_11.xclbin","Length":463836,"Sha256":"6f1b9594264c69f46ebe8c69b44da239796a90021e106a59bb6c32796f4600fe"},{"Path":"npu_mcdm_stack_prod/gemm_elf_17f0_20.xclbin","Length":463836,"Sha256":"6f1b9594264c69f46ebe8c69b44da239796a90021e106a59bb6c32796f4600fe"},{"Path":"npu_mcdm_stack_prod/ipu_2_pasid.sbin","Length":460624,"Sha256":"426580865c9afbe4bd11829a2f25fee726b237d3e395016ed4bd9523a06c3290"},{"Path":"npu_mcdm_stack_prod/ipu_3_pasid.sbin","Length":460688,"Sha256":"2c40c96663abe8ff156950b66878f12d4cc808637646c4f67cd5b84f2bcb77fd"},{"Path":"npu_mcdm_stack_prod/ipu_4_pasid.sbin","Length":460688,"Sha256":"6b1a73e12935a2b8db7459d003217152494984279f5e9891987d8fbee336ff1f"},{"Path":"npu_mcdm_stack_prod/ipu_pasid.sbin","Length":248592,"Sha256":"d13ff9fb95c6cea40213fa69e5a3465529f00bb67c0984d62343c6e31808fb9e"},{"Path":"npu_mcdm_stack_prod/ipustack.sys","Length":426296,"Sha256":"e5d77c30128e02149a3c88bb66d16302d5569ff7030e859bfb73eada46953a4e"},{"Path":"npu_mcdm_stack_prod/kipudrv.cat","Length":68185,"Sha256":"68c2580e0b3887c0a4541da6c799c669953d062afc0cb93d508f67546254be3f"},{"Path":"npu_mcdm_stack_prod/kipudrv.inf","Length":11186,"Sha256":"36f5b8c4274add4d886943ad2036c206132c85b3d2fbfb576c629439e2002b81"},{"Path":"npu_mcdm_stack_prod/mobilenet_elf_17f0_10.xclbin","Length":3798307,"Sha256":"c86275003f299aeb3a34860c749ceef4be344051272e8f66a16b35b9ddd6d91d"},{"Path":"npu_mcdm_stack_prod/mobilenet_elf_17f0_11.xclbin","Length":3798307,"Sha256":"c86275003f299aeb3a34860c749ceef4be344051272e8f66a16b35b9ddd6d91d"},{"Path":"npu_mcdm_stack_prod/mobilenet_elf_17f0_20.xclbin","Length":3798307,"Sha256":"c86275003f299aeb3a34860c749ceef4be344051272e8f66a16b35b9ddd6d91d"},{"Path":"npu_mcdm_stack_prod/preemption_4x4_17f0.xclbin","Length":77339,"Sha256":"5910350e5e0e03af2302d5514a81daea048d46f43329f1ba9e987b1f8156336f"},{"Path":"npu_mcdm_stack_prod/preemption_4x8_17f0.xclbin","Length":130118,"Sha256":"5be928e3c4cf44e6a27b0fa48d969cf4e42cce5c9166949567770e890c1ee790"},{"Path":"npu_mcdm_stack_prod/qdq.1x4_3.5.0.0-1481_ipu_2.xclbin","Length":172167,"Sha256":"31db106a4d712a6cd900cf07b25ff4cc29081fbcd99cbec18db53e7a675a8370"},{"Path":"npu_mcdm_stack_prod/rml/include/rml/RadeonML.h","Length":36577,"Sha256":"b43304dc1564da4a632127ba097eef5f1ee40b06cf0736f5a270a883e143d90c"},{"Path":"npu_mcdm_stack_prod/rml/include/rml/RadeonML.hpp","Length":20196,"Sha256":"fef45931e314705510a2cd81eefbdedb9379e20e92a1ad385298e4e3127353fe"},{"Path":"npu_mcdm_stack_prod/rml/include/rml/RadeonML_cl.h","Length":3799,"Sha256":"5da9ae6fc616fda16d6a470611fd0184b89154a06874535e0dee2b07ff33bc7a"},{"Path":"npu_mcdm_stack_prod/rml/include/rml/RadeonML_cl.hpp","Length":2508,"Sha256":"129a1263651001d91c56c4e6780267749aef0639ed66ed6130e52defe7035de8"},{"Path":"npu_mcdm_stack_prod/rml/include/rml/RadeonML_d3d12.h","Length":5963,"Sha256":"d003f4e8856580faff7f8845b24f81f578dadce937316b6bccc903e2c4637eda"},{"Path":"npu_mcdm_stack_prod/rml/include/rml/RadeonML_d3d12.hpp","Length":3118,"Sha256":"a95ba3287f69f01329361c7099d6ce1d3adf65a7889faba82aa9d5f7be2fcb3c"},{"Path":"npu_mcdm_stack_prod/rml/include/rml/RadeonML_dml.h","Length":1835,"Sha256":"2f208ee5201de0f130ae08b23ff131302c8a704bc47d4e5918965a3f8f201a55"},{"Path":"npu_mcdm_stack_prod/rml/include/rml/RadeonML_dml.hpp","Length":1719,"Sha256":"65837d78482c78e2a9b4e4ff6303c8a2ba25811b661bf620b9b0caef3ba54ce1"},{"Path":"npu_mcdm_stack_prod/rml/include/rml/RadeonML_graph.h","Length":64031,"Sha256":"8c43e9197e1e16110e300f605e125e295e3debbc407fcc9ee7b28ec411a4337e"},{"Path":"npu_mcdm_stack_prod/rml/include/rml/RadeonML_miopen.h","Length":2276,"Sha256":"7dcdd99ea2a339be6f26bfc2624895e9eb9e068eec0e3661e6b2c6dc9dd3d0cd"},{"Path":"npu_mcdm_stack_prod/rml/include/rml/RadeonML_miopen.hpp","Length":1768,"Sha256":"36c33307faf2782cde7e88b9b21656eda19fe9acec58c83c980920b8a3eb1c8f"},{"Path":"npu_mcdm_stack_prod/rml/include/rml/RadeonML_mtl.h","Length":3963,"Sha256":"6229b5b9d18d9c023f1d97f85e51106c78d068693fce72dbd655a1c784b81b84"},{"Path":"npu_mcdm_stack_prod/rml/include/rml/RadeonML_mtl.hpp","Length":2522,"Sha256":"e63d374fe8fd50b652872eb7f0b24dec0ca4d378cebbe994fefbf982dc88cca0"},{"Path":"npu_mcdm_stack_prod/rml/include/rml/RadeonML_utils.hpp","Length":5988,"Sha256":"857c9151b49f115a604273ba1b1a9501811b4db46d81473de60173e6aa8319c5"},{"Path":"npu_mcdm_stack_prod/rml/tools/rml_amodel.lib","Length":675024,"Sha256":"d67f77b1e56c7d0a21fcf60e5c55f68ed7707645fcc212c626e9c9a59167d5b6"},{"Path":"npu_mcdm_stack_prod/rml/tools/rml_amodel_api.h","Length":3686,"Sha256":"9ea3720dc951ab313612296c2633cd28717dbadb3425ee933f9565dbc8abc50d"},{"Path":"npu_mcdm_stack_prod/rml/tools/rml_amodel_pkgr.exe","Length":1036600,"Sha256":"406eee951c1d234a5fb9aba0b06d8eefd77573f86e2a70d7861c12b4a44090d9"},{"Path":"npu_mcdm_stack_prod/rml/tools/rml_amodel_unpkgr.exe","Length":785720,"Sha256":"49b89e5847c5f4914037d6718fa237e4621a12f5bbec5c6e21ecb0e7a438ee21"},{"Path":"npu_mcdm_stack_prod/rml/tools/sample_win32.config","Length":336,"Sha256":"5f1bfe89508c4bf0a21d2419b904458e89ed6cf809e493f57e63aa398c393764"},{"Path":"npu_mcdm_stack_prod/rml/tools/tracelogging.WPRP","Length":1620,"Sha256":"8991b32b9986f97825f3ce4cdacef91e908936fb30fed1fbc0483e5750f30278"},{"Path":"npu_mcdm_stack_prod/rml/windows/RadeonML.lib","Length":16840,"Sha256":"9e5f7f8992578767b69f3c4070da028fb260a3de4e8e7af6bc10b0732ab9addb"},{"Path":"npu_mcdm_stack_prod/trace-logging-aks.dll","Length":227632,"Sha256":"d49e534744a9adf74d84df2da721636e4810bc1321eaab6538890065a4735581"},{"Path":"npu_mcdm_stack_prod/validate_1502_00.xclbin","Length":48318,"Sha256":"5d53578cc23e567c483fb94f31af3c4255cd260891f77d46e351bef76224e744"},{"Path":"npu_mcdm_stack_prod/validate_17f0_00.xclbin","Length":48344,"Sha256":"05e6ac313f5a9764181fee8922f237eb6cc52e2621a78f07e5758e2ac7b6ef3b"},{"Path":"npu_mcdm_stack_prod/validate_17f0_10.xclbin","Length":48344,"Sha256":"05e6ac313f5a9764181fee8922f237eb6cc52e2621a78f07e5758e2ac7b6ef3b"},{"Path":"npu_mcdm_stack_prod/validate_17f0_11.xclbin","Length":48344,"Sha256":"05e6ac313f5a9764181fee8922f237eb6cc52e2621a78f07e5758e2ac7b6ef3b"},{"Path":"npu_mcdm_stack_prod/validate_17f0_20.xclbin","Length":48344,"Sha256":"05e6ac313f5a9764181fee8922f237eb6cc52e2621a78f07e5758e2ac7b6ef3b"},{"Path":"npu_mcdm_stack_prod/validate_elf_17f0_10.xclbin","Length":177266,"Sha256":"6c61ea528602c436d6c3317325c62cd542591f7256024f72f4d22aaf6a28fc58"},{"Path":"npu_mcdm_stack_prod/validate_elf_17f0_11.xclbin","Length":177266,"Sha256":"6c61ea528602c436d6c3317325c62cd542591f7256024f72f4d22aaf6a28fc58"},{"Path":"npu_mcdm_stack_prod/validate_elf_17f0_20.xclbin","Length":177266,"Sha256":"6c61ea528602c436d6c3317325c62cd542591f7256024f72f4d22aaf6a28fc58"},{"Path":"npu_mcdm_stack_prod/vitis-ai-runtime.dll","Length":7314744,"Sha256":"1244653640d9d2019e0a296c235b00ce17ae01f9d319d5190b71060060d8898b"},{"Path":"npu_mcdm_stack_prod/vitis-ai-runtime2.dll","Length":12009784,"Sha256":"648dba462a6540bcbc9ee10766d7292a1a408d806b04be55538f95621a2232ca"},{"Path":"npu_mcdm_stack_prod/xdp_core.dll","Length":1473840,"Sha256":"172d6d2ef9cc634d8625ec3b1b028f790b29e2f9697ade75c6b174c6466afc9a"},{"Path":"npu_mcdm_stack_prod/xdp_ml_timeline_plugin.dll","Length":619320,"Sha256":"0872b16c2bedfac728b38bf0eea2e26e501815131cb25918d360347632f85c73"},{"Path":"npu_mcdm_stack_prod/xdp_user_plugin.dll","Length":452944,"Sha256":"c16b715449cc10ec54f6b006a6251fe0d05c7b323372f538cdac6cb81f1c241b"},{"Path":"npu_mcdm_stack_prod/xrt-smi.exe","Length":2928440,"Sha256":"dad090452fde21b614cf3e246d3b4aa72620df9560c6024dfae4c4336c31c743"},{"Path":"npu_mcdm_stack_prod/xrt_core.dll","Length":960312,"Sha256":"ae7c27bc74686daafdd3bb0de4f1be230d5e05b1837ae2029f25578b3889a776"},{"Path":"npu_mcdm_stack_prod/xrt_coreutil.dll","Length":2682672,"Sha256":"ab04222bf2186bee9e89dd093abfb1c4fc4a3222c93dbcdee3353f4d269b9397"},{"Path":"npu_sw_installer.exe","Length":595208,"Sha256":"96dc03e574e9dfb2c45543833d8a66d5bcecb9af48e9beac07ea72cccf3ce755"},{"Path":"ryzen-ai-end-user-license-agreement-public.pdf","Length":168872,"Sha256":"587c5b4916ae6053f4a2fbc0a063532bd4ff9e50080491e75cb349c84f2b97a7"}],"Safety":{"VendorExecutablesExecuted":false,"VendorPayloadModified":false,"AnalysisMode":"StaticOnly"}}
+{
+  "SchemaVersion": "1.1",
+  "ToolVersion": "3.0.0",
+  "Artifact": {
+    "FileName": "NPU_RAI_280_WHQL.zip",
+    "Sha256": "803afe1e2d75b717f60a368453306ccbd4877cdd936b6531b946b95109a22144",
+    "Length": 31416645,
+    "Format": "zip",
+    "EvidenceLevel": "PayloadObserved"
+  },
+  "Summary": {
+    "FileCount": 147,
+    "InfCount": 1,
+    "InstallerCount": 1,
+    "DriverBinaryCount": 1,
+    "DriverVersions": [
+      "32.00.0203.280"
+    ],
+    "HardwareIds": [
+      "PCI\\VEN_1022&DEV_1502",
+      "PCI\\VEN_1022&DEV_17F0"
+    ]
+  },
+  "Infs": [
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/kipudrv.inf",
+      "Sha256": "36f5b8c4274add4d886943ad2036c206132c85b3d2fbfb576c629439e2002b81",
+      "Version": {
+        "Class": "ComputeAccelerator",
+        "ClassGuid": "{F01A9D53-3FF6-48D2-9F97-C8A7004BE10C}",
+        "PnpLockdown": "1",
+        "DriverVerRaw": "05/16/2025,32.00.0203.280",
+        "DriverDate": "05/16/2025",
+        "DriverVersion": "32.00.0203.280",
+        "CatalogFile": "kipudrv.cat"
+      },
+      "Manufacturer": [
+        {
+          "Token": "%ManufacturerName%",
+          "ModelsSection": "IpuMcdmDriver.Mfg",
+          "TargetOSVersions": [
+            "NTamd64.10.0...22000"
+          ]
+        }
+      ],
+      "TargetOSVersions": [
+        {
+          "Raw": "NTamd64.10.0...22000",
+          "Architecture": "amd64",
+          "OSMajorVersion": 10,
+          "OSMinorVersion": 0,
+          "ProductType": null,
+          "SuiteMask": null,
+          "BuildNumber": 22000,
+          "ParseStatus": "Parsed"
+        }
+      ],
+      "Models": [
+        {
+          "DescriptionToken": "%IpuMcdmDriver%",
+          "InstallSection": "IpuMcdmDriver",
+          "HardwareId": "PCI\\VEN_1022&DEV_1502",
+          "ModelsSection": "IpuMcdmDriver.Mfg.NTamd64.10.0...22000",
+          "TargetOSVersion": "NTamd64.10.0...22000"
+        },
+        {
+          "DescriptionToken": "%IpuMcdmDriver%",
+          "InstallSection": "IpuMcdmDriver",
+          "HardwareId": "PCI\\VEN_1022&DEV_17F0",
+          "ModelsSection": "IpuMcdmDriver.Mfg.NTamd64.10.0...22000",
+          "TargetOSVersion": "NTamd64.10.0...22000"
+        }
+      ],
+      "UniqueHardwareIds": [
+        "PCI\\VEN_1022&DEV_1502",
+        "PCI\\VEN_1022&DEV_17F0"
+      ],
+      "ServiceBinaries": [
+        "%13%\\ipustack.sys"
+      ],
+      "Includes": [
+        "machine.inf"
+      ],
+      "Needs": [
+        "PciD3ColdSupported.HW"
+      ],
+      "WdfDirectives": [],
+      "ProductTypeAssignmentObserved": false,
+      "ServerProjection": [
+        {
+          "TargetOSVersion": "NTamd64.10.0...22000",
+          "Server": "Windows Server 2016",
+          "Build": 14393,
+          "ProductType": 3,
+          "Status": "RejectedBuildFloor",
+          "Reason": "OS build 14393 is below selector build floor 22000.",
+          "EvidenceLevel": "Analysis"
+        },
+        {
+          "TargetOSVersion": "NTamd64.10.0...22000",
+          "Server": "Windows Server 2019",
+          "Build": 17763,
+          "ProductType": 3,
+          "Status": "RejectedBuildFloor",
+          "Reason": "OS build 17763 is below selector build floor 22000.",
+          "EvidenceLevel": "Analysis"
+        },
+        {
+          "TargetOSVersion": "NTamd64.10.0...22000",
+          "Server": "Windows Server 2022",
+          "Build": 20348,
+          "ProductType": 3,
+          "Status": "RejectedBuildFloor",
+          "Reason": "OS build 20348 is below selector build floor 22000.",
+          "EvidenceLevel": "Analysis"
+        },
+        {
+          "TargetOSVersion": "NTamd64.10.0...22000",
+          "Server": "Windows Server 2025",
+          "Build": 26100,
+          "ProductType": 3,
+          "Status": "Candidate",
+          "Reason": "Selector does not exclude this server profile.",
+          "EvidenceLevel": "Analysis"
+        }
+      ],
+      "EvidenceLevel": "PayloadObserved"
+    }
+  ],
+  "Installers": [
+    {
+      "Path": "c0001/npu_sw_installer.exe",
+      "Sha256": "96dc03e574e9dfb2c45543833d8a66d5bcecb9af48e9beac07ea72cccf3ce755",
+      "ContractStatus": "ExactHashMatched",
+      "ExactHashContract": {
+        "ContractId": "npu-smart-installer-96dc03e574e9",
+        "RoutingSemanticId": "amd-npu-smart-installer-routing-v1",
+        "EvidenceLevel": "StaticDisassemblyProven",
+        "AnalysisStatus": "Initial reverse engineering; exact-hash contract; recovered routing semantics v1",
+        "DeviceMatcher": {
+          "regex": "PCI\\\\VEN_1022&DEV_(1502|17F0)",
+          "deviceIds": [
+            "1502",
+            "17F0"
+          ],
+          "revisionDiscriminatorObserved": false,
+          "revisionStatement": "No REV_ selector was observed in ASCII strings or the recovered device matcher. This does not prove that revision is unused in every code path."
+        },
+        "PlatformFamilies": [
+          {
+            "deviceId": "1502",
+            "installerLabel": "PHX",
+            "researchInterpretation": "Phoenix / Hawk Point family"
+          },
+          {
+            "deviceId": "17F0",
+            "installerLabel": "STX",
+            "researchInterpretation": "Strix / Krackan family"
+          }
+        ],
+        "OsGates": [
+          {
+            "condition": "major != 10",
+            "action": "Other/unknown path",
+            "confidence": "High"
+          },
+          {
+            "condition": "major == 10 and build >= 26100",
+            "action": "Install MCDM driver",
+            "confidence": "High"
+          },
+          {
+            "condition": "major == 10 and 22621 <= build < 26100 and UBR >= 3527",
+            "action": "Install MCDM driver",
+            "confidence": "High"
+          },
+          {
+            "condition": "major == 10 and 22621 <= build < 26100 and UBR < 3527",
+            "action": "Install WDF/NULL driver",
+            "confidence": "High"
+          },
+          {
+            "condition": "major == 10 and 22000 <= build < 22621",
+            "action": "Install WDF/NULL driver",
+            "confidence": "High"
+          },
+          {
+            "condition": "major == 10 and build < 22000",
+            "action": "Windows 10 path / WDF-NULL path",
+            "confidence": "Medium"
+          }
+        ],
+        "DriverPaths": [
+          "npu_mcdm_stack_prod\\kipudrv.inf",
+          "npu_wdf_stack_prod\\kipudrv\\kipudrv.inf"
+        ],
+        "DriverPathPresence": [
+          {
+            "Path": "npu_mcdm_stack_prod\\kipudrv.inf",
+            "Present": false
+          },
+          {
+            "Path": "npu_wdf_stack_prod\\kipudrv\\kipudrv.inf",
+            "Present": false
+          }
+        ],
+        "ObservedApiFamilies": [
+          "SetupAPI",
+          "CfgMgr32",
+          "NewDev/DiInstallDriverA",
+          "Registry",
+          "WMI"
+        ],
+        "MissingRequiredStringEvidence": []
+      },
+      "InterestingStrings": [
+        "DiInstallDriverA",
+        "Installing MCDM driver from %s...",
+        "Installing WDF/NULL driver from %s...",
+        "NPU Smart Installer application",
+        "PCI\\\\VEN_1022&DEV_(1502|17F0)",
+        "RtlGetVersion",
+        "This is a PHX platform with MCDM installed.",
+        "This is a PHX platform with WDF installed.",
+        "This is a PHX platform with no driver installed.",
+        "This is a STX platform with MCDM installed.",
+        "This is a STX platform with WDF installed.",
+        "This is a STX platform with no driver installed.",
+        "Win32_OperatingSystem",
+        "Windows 10 detected. Version: %lu.%lu.%lu.%lu",
+        "Windows 11 MCDM OS detected. Version: %lu.%lu.%lu.%lu",
+        "Windows 11 WDF OS detected. Version: %lu.%lu.%lu.%lu",
+        "Windows 11 detected. Version: %lu.%lu.%lu.%lu",
+        "Windows 24 detected. Version: %lu.%lu.%lu.%lu",
+        "npu_mcdm_stack_prod\\kipudrv.inf",
+        "npu_wdf_stack_prod\\kipudrv\\kipudrv.inf"
+      ],
+      "EvidenceLevel": "PayloadObserved",
+      "Executed": false,
+      "SafetyStatement": "AMD installer was not executed."
+    }
+  ],
+  "DriverBinaries": [
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ipustack.sys",
+      "Sha256": "e5d77c30128e02149a3c88bb66d16302d5569ff7030e859bfb73eada46953a4e",
+      "ContractStatus": "ExactHashMatched",
+      "ExactHashContract": {
+        "ContractId": "ipustack-e5d77c30128e",
+        "FileVersionObserved": "32.00.0203.280",
+        "EvidenceLevel": "StaticDisassemblyProven",
+        "IdentitySemanticId": "amd-npu-ipustack-broad-platform-v1",
+        "AnalysisStatus": "Exact-hash Windows MCDM driver contract. Broad platform display-name selection is recovered, but no granular 1..8 firmware device-revision refinement path is observed in this exact binary.",
+        "BroadPlatformMap": [
+          {
+            "value": 0,
+            "label": "NPU Phoenix"
+          },
+          {
+            "value": 1,
+            "label": "NPU Strix"
+          },
+          {
+            "value": 2,
+            "label": "NPU Strix"
+          },
+          {
+            "value": 3,
+            "label": "NPU Strix Halo"
+          },
+          {
+            "value": 4,
+            "label": "NPU Krackan"
+          }
+        ],
+        "BroadPlatformDefaultLabel": "NPU",
+        "CodenameRecognition": [
+          {
+            "codename": "Phoenix",
+            "mode": "BroadPlatformLabel",
+            "statement": "Broad platform value 0 renders NPU Phoenix."
+          },
+          {
+            "codename": "Hawk Point",
+            "mode": "Shared1502BroadFamilyOnly",
+            "statement": "Hawk Point shares the reviewed DEV_1502 broad identity; the exact driver display label remains NPU Phoenix and does not separately distinguish Hawk Point."
+          },
+          {
+            "codename": "Strix Point",
+            "mode": "BroadPlatformLabel",
+            "statement": "Broad platform values 1 and 2 render NPU Strix."
+          },
+          {
+            "codename": "Strix Halo",
+            "mode": "BroadPlatformLabel",
+            "statement": "Broad platform value 3 renders NPU Strix Halo."
+          },
+          {
+            "codename": "Krackan Point",
+            "mode": "BroadPlatformLabel",
+            "statement": "Broad platform value 4 renders NPU Krackan."
+          }
+        ],
+        "FirmwareDeviceRevision": {
+          "refinementObserved": false,
+          "messageOpcode": null,
+          "messageOpcodePrimitiveObserved": false,
+          "defaultUnknownValue": null,
+          "map": [],
+          "statement": "The exact 280 binary exposes broad Phoenix/Strix/Strix-Halo/Krackan display-name selection. A dedicated return-0x117 command primitive and the granular STXA/STXB/KRK1/KRK2/HALO/GPT1/GPT2/GPT3 map observed in 376 are not present in this exact hash. Generic response handling contains a 0x117 comparison, so absence of the dedicated primitive must not be interpreted as proof that all 0x117-related protocol awareness is absent."
+        },
+        "StaticEvidence": {
+          "displaySelectionVa": "0x14000cfdf",
+          "stringAddresses": {
+            "NPU Phoenix": "0x1400560f0",
+            "NPU Strix": "0x140056100",
+            "NPU Strix Halo": "0x140056110",
+            "NPU Krackan": "0x140056120",
+            "NPU": "0x140056130"
+          }
+        },
+        "UpstreamCorrelation": null,
+        "MissingRequiredStringEvidence": []
+      },
+      "InterestingStrings": [
+        "?????????????NPU Phoenix",
+        "??????NPU Strix Halo",
+        "????NPU Strix",
+        "?NPU Krackan"
+      ],
+      "EvidenceLevel": "PayloadObserved",
+      "Executed": false,
+      "SafetyStatement": "AMD kernel driver was not executed by the research tool."
+    }
+  ],
+  "PublishedCompatibility": {
+    "RuleStatus": "ExactArtifactMatched",
+    "PublishedDriverLabel": "32.0.203.280",
+    "PublishedSupportedCodenames": [
+      "Phoenix",
+      "Hawk Point",
+      "Strix Point",
+      "Strix Halo",
+      "Krackan Point"
+    ],
+    "SupportEvidence": "AmdProductionDriverPublished",
+    "SourceIds": [
+      "amd-latest-inst",
+      "amd-npu-check"
+    ],
+    "Notes": "AMD currently publishes this package alongside 376. Its INF and reviewed installer use broad 1502/17F0 selectors, which is insufficient to establish the device-type package boundary. Recommendation remains fail-closed until the NPU-type relation is independently resolved."
+  },
+  "ServerAssessment": [
+    {
+      "Server": "Windows Server 2016",
+      "Build": 14393,
+      "InfSelectorStatus": "RejectedBuildFloor",
+      "InstallerRoute": "Windows10/WDF-NULL",
+      "InstallerRoutePayloadPresent": false,
+      "StaticAssessment": "NotApplicableAsPublished",
+      "Reason": "INF selector rejects this Server profile and the installer-selected legacy WDF/NULL payload is not present in the package.",
+      "RuntimeProof": false,
+      "EvidenceLevel": "Analysis"
+    },
+    {
+      "Server": "Windows Server 2019",
+      "Build": 17763,
+      "InfSelectorStatus": "RejectedBuildFloor",
+      "InstallerRoute": "Windows10/WDF-NULL",
+      "InstallerRoutePayloadPresent": false,
+      "StaticAssessment": "NotApplicableAsPublished",
+      "Reason": "INF selector rejects this Server profile and the installer-selected legacy WDF/NULL payload is not present in the package.",
+      "RuntimeProof": false,
+      "EvidenceLevel": "Analysis"
+    },
+    {
+      "Server": "Windows Server 2022",
+      "Build": 20348,
+      "InfSelectorStatus": "RejectedBuildFloor",
+      "InstallerRoute": "Windows10/WDF-NULL",
+      "InstallerRoutePayloadPresent": false,
+      "StaticAssessment": "NotApplicableAsPublished",
+      "Reason": "INF selector rejects this Server profile and the installer-selected legacy WDF/NULL payload is not present in the package.",
+      "RuntimeProof": false,
+      "EvidenceLevel": "Analysis"
+    },
+    {
+      "Server": "Windows Server 2025",
+      "Build": 26100,
+      "InfSelectorStatus": "Candidate",
+      "InstallerRoute": "MCDM",
+      "InstallerRoutePayloadPresent": false,
+      "StaticAssessment": "InstallerPayloadMissing",
+      "Reason": "Installer-selected payload path is not present in the package.",
+      "RuntimeProof": false,
+      "EvidenceLevel": "Analysis"
+    }
+  ],
+  "Files": [
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/1x4.xclbin",
+      "Length": 269150,
+      "Sha256": "d1c2461996d9c087574a702197a1838baa0493b2d13f026219d12b231ae9bcc3"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/1x4_2.5.0.0-518_ipu_2.xclbin",
+      "Length": 164789,
+      "Sha256": "7c24056c63ce9d6d422853cf4df2be3ee9ac81bc84bff175da16470876f9514d"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/1x4_2.5.0.189-1.xclbin",
+      "Length": 269150,
+      "Sha256": "d1c2461996d9c087574a702197a1838baa0493b2d13f026219d12b231ae9bcc3"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/1x4_2.5.0.259-365.xclbin",
+      "Length": 350944,
+      "Sha256": "25d0676126c06923e40cfd7b47258c51735bf022b14aa3b2d62800cb9ddef7f5"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/1x4_3.5.0.0-1482_ipu_2.xclbin",
+      "Length": 680723,
+      "Sha256": "eb6ef85ea8a26b87a7343d070aef26d883b549d325ea16afcdea824c7577b426"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/1x4_3.5.0.0-1505.xclbin",
+      "Length": 1061642,
+      "Sha256": "40bce1b01194189d2af7be3b48e206aaf9fab4bd13935e3c303112c6a8b8d686"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/1x4_3.5.0.0-1791.xclbin",
+      "Length": 1118145,
+      "Sha256": "afc811e99517f28fc8b4de67e385bdb4021009c904fd593eeece5f820b9fa9d7"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/1x4_3.5.0.0-1793_ipu_2.xclbin",
+      "Length": 1025838,
+      "Sha256": "e1080dce3a85cd6bf1340b2dc36e99e6811d38a59293c14ff68510137d8b58db"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/1x4_3.5.0.0-1990_ipu_2.xclbin",
+      "Length": 1042579,
+      "Sha256": "62e2e02e827d3b080c27c31473e49a2ab67e2688cebf12d04b5eec3857823d3b"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/1x4_3.5.0.0-2044_ipu_2.xclbin",
+      "Length": 1019411,
+      "Sha256": "6c22ffab8c243107f4f7241bb571f584ae895b92a1fdc8fda965d594125bad87"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/1x4_3.5.0.0-2145_ipu_2.xclbin",
+      "Length": 1005665,
+      "Sha256": "8b08af42ab374b7a34865fa20c2a1b25bb4118d4a6f23bcf428dfa2fd9a5e379"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/1x4_3.5.0.0-2351.xclbin",
+      "Length": 1291236,
+      "Sha256": "5f9a21490a30bd09b0f080a37006af36276c53082ac396f74a22b8f87cf5769d"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/1x4_3.5.0.0-798.xclbin",
+      "Length": 575594,
+      "Sha256": "ecf21166201eadde29103765fb30e34b2d9ddb2431915a544a59223510fec82b"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/1x4_3.5.0.0-947_ipu_2.xclbin",
+      "Length": 522645,
+      "Sha256": "0c87f54613ce05cc8fafb4b869b571d02f96ca150e6b5cd0f6aafdcb5684f6ee"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/1x4_3.5.0.0-949.xclbin",
+      "Length": 819889,
+      "Sha256": "c64c0d59dfab9f6a12e50252f302bdc8fb7e7b8183fd69d09e2bb796579c8de5"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/1x4_3.5.0.050-650.xclbin",
+      "Length": 545276,
+      "Sha256": "c38458dea888c7ccc9f3674647d92dc4349249df1cadfc2874acef5af17ee70d"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/1x4_v0_122.xclbin",
+      "Length": 169837,
+      "Sha256": "35892156c190c83a3b6ee140a08611b9979224e494729359771244087a36c91a"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/4x4_3.5.0.0-1483_ipu_2.xclbin",
+      "Length": 2539544,
+      "Sha256": "8ef4b96d00e6cb06ca5e1bbd578edc800dd00d19dc58d7eb2e8c9970c2b29e10"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/4x4_3.5.0.0-1506.xclbin",
+      "Length": 3293867,
+      "Sha256": "704918f143b156d34745dd8899a333e4e881078da77c017f912fd21dc25fe313"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/4x4_3.5.0.0-1792.xclbin",
+      "Length": 3346573,
+      "Sha256": "2915553981cdb1b139b1f97506e9802a13d7b63c03f808687f6564434b88d48a"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/4x4_3.5.0.0-1794_ipu_2.xclbin",
+      "Length": 3825387,
+      "Sha256": "87ffd9eb2c3fa63750ca9b39c23dca671ce45015c6d9cbacb6bb71eb7dc7a3a1"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/4x4_3.5.0.0-1987_ipu_2.xclbin",
+      "Length": 3695190,
+      "Sha256": "caba2f216ca768e6436eb017dac8658fe7f772a5e756a03c972fca79e6d73c61"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/4x4_3.5.0.0-1989_ipu_2.xclbin",
+      "Length": 3695190,
+      "Sha256": "caba2f216ca768e6436eb017dac8658fe7f772a5e756a03c972fca79e6d73c61"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/4x4_3.5.0.0-2046_ipu_2.xclbin",
+      "Length": 3627350,
+      "Sha256": "e02879207e25f2b757da74852682ba10006fa67fcc3d3a4272cb185249254ad3"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/4x4_3.5.0.0-2160_ipu_2.xclbin",
+      "Length": 3573652,
+      "Sha256": "73a58d9337efb76dcd2be69104824200f82a764072796532cbbc5cfd2ce50c6a"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/4x4_3.5.0.0-2352.xclbin",
+      "Length": 4185830,
+      "Sha256": "db66585a84a5f818432225562448ca57395b650b2a1215307ba259bc19233c1e"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/5x4_3.5.0.0-799.xclbin",
+      "Length": 2238137,
+      "Sha256": "ca5e69561581048c6c7fb48762f5de7c285373b73a0bae98589e0b50e2cc4523"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/5x4_3.5.0.0-950.xclbin",
+      "Length": 2325641,
+      "Sha256": "ad853a2b26ba697895e3ab11492e3803ddddedb05b6d5af358dd5a5486cdb072"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/5x4_3.5.0.050-651.xclbin",
+      "Length": 1286546,
+      "Sha256": "f22c2813fd7a6b96e543198032ccffdc1868fcab2882fde9324dd5c52bad1416"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/AMD_AIE2P_4x4_Overlay_3.5.0.0-2354_ipu_2.xclbin",
+      "Length": 3783606,
+      "Sha256": "1d44dd229ddd26b32106111c4cab0c7b47a2e17faafd9a6a42f6c2a2a3ca20f3"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/AMD_AIE2P_4x4_Overlay_CFG0_3.5.0.0-2229_ipu_2.xclbin",
+      "Length": 596746,
+      "Sha256": "06ee1a0db02a913dc2b66764d804890a8bab5ded95f9d032d96e9b22e462a99f"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/AMD_AIE2P_Nx4_Overlay_3.5.0.0-2353_ipu_2.xclbin",
+      "Length": 1048401,
+      "Sha256": "b6cf2a8761ddc16ea7d0060ab3d36e64a33b722f84d30ea95a20b671176a1c37"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/DPU_Sequence/aie_reconfig_overhead.txt",
+      "Length": 2250,
+      "Sha256": "4470f5b314e6434dc80299d802cf4fcd89bb1d746e3cef565d706d2a56e519b1"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/DPU_Sequence/df_bw.txt",
+      "Length": 12328,
+      "Sha256": "53cbde3715c617ad5efa06318954365b162066eab60ebc0c5197c24818fc8995"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/DPU_Sequence/gemm_int8.txt",
+      "Length": 10798004,
+      "Sha256": "8ececbd38fbe17562d387f8d2024b5cf2b7b4320c2d677f699fbd2bbf18499a5"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/DPU_Sequence/tct_1col.txt",
+      "Length": 5431452,
+      "Sha256": "cf7975ded95a17ed7d7557e6ee9b1b8d1e72a8c7cae54bd9bba6edd9c0fe11f0"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/DPU_Sequence/tct_4col.txt",
+      "Length": 10865481,
+      "Sha256": "bfd73c03242dc1b5dcdd5ea92710310fa8b28d01e5a4f5f04f8cff0c171f0c08"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/aie_reconfig_overhead_17f0_10.elf",
+      "Length": 1264,
+      "Sha256": "2fb370132beea6cdf1d910f045069775380f1e5232af693fe29494519bb90688"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/aie_reconfig_overhead_17f0_11.elf",
+      "Length": 1264,
+      "Sha256": "2fb370132beea6cdf1d910f045069775380f1e5232af693fe29494519bb90688"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/aie_reconfig_overhead_17f0_20.elf",
+      "Length": 1264,
+      "Sha256": "2fb370132beea6cdf1d910f045069775380f1e5232af693fe29494519bb90688"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/df_bw_17f0_10.elf",
+      "Length": 4288,
+      "Sha256": "6b5498e9db3cbe31ee2f7cf874c479d484b621ba7dbc3dce56e2bf1b4ca04b92"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/df_bw_17f0_11.elf",
+      "Length": 4288,
+      "Sha256": "6b5498e9db3cbe31ee2f7cf874c479d484b621ba7dbc3dce56e2bf1b4ca04b92"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/df_bw_17f0_20.elf",
+      "Length": 4288,
+      "Sha256": "6b5498e9db3cbe31ee2f7cf874c479d484b621ba7dbc3dce56e2bf1b4ca04b92"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/gemm_int8_17f0_10.elf",
+      "Length": 2113440,
+      "Sha256": "c63a60e6b868a118df8e789e14727f4252396367fe19fedb9df2c8d835f77af3"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/gemm_int8_17f0_11.elf",
+      "Length": 2113440,
+      "Sha256": "c63a60e6b868a118df8e789e14727f4252396367fe19fedb9df2c8d835f77af3"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/gemm_int8_17f0_20.elf",
+      "Length": 2113440,
+      "Sha256": "c63a60e6b868a118df8e789e14727f4252396367fe19fedb9df2c8d835f77af3"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/mobilenet_4col_17f0_10.elf",
+      "Length": 828208,
+      "Sha256": "fa6d78afb9d4ea55f81016efc3b7531e47963ffa2dccc3a383f5194ff74d0a25"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/mobilenet_4col_17f0_11.elf",
+      "Length": 828208,
+      "Sha256": "fa6d78afb9d4ea55f81016efc3b7531e47963ffa2dccc3a383f5194ff74d0a25"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/mobilenet_4col_17f0_20.elf",
+      "Length": 828208,
+      "Sha256": "fa6d78afb9d4ea55f81016efc3b7531e47963ffa2dccc3a383f5194ff74d0a25"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/nop_17f0_10.elf",
+      "Length": 400,
+      "Sha256": "fae8668d5c979e3aca4c76b3b0370f93a1dc11b77f91f7cc2d8d79598b3f5577"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/nop_17f0_11.elf",
+      "Length": 400,
+      "Sha256": "fae8668d5c979e3aca4c76b3b0370f93a1dc11b77f91f7cc2d8d79598b3f5577"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/nop_17f0_20.elf",
+      "Length": 400,
+      "Sha256": "fae8668d5c979e3aca4c76b3b0370f93a1dc11b77f91f7cc2d8d79598b3f5577"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/preemption_memtile_4x4.elf",
+      "Length": 7888,
+      "Sha256": "5cfef97346bc11e1d29666f87f73a25488abe7824533435e7047f0895ec7dcc5"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/preemption_memtile_4x8.elf",
+      "Length": 12816,
+      "Sha256": "c253c6dbdf96207924257fdae8f8ad53f2b3d6b123c66697e924cb551e9093d2"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/preemption_noop_4x4.elf",
+      "Length": 7888,
+      "Sha256": "23eb28d71ffa495586e6d8d2224b6711dc81233ac1f6cb50c2a662475a3f0c02"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/preemption_noop_4x8.elf",
+      "Length": 12816,
+      "Sha256": "6f5731ecf29af2b3d21dfd72316f89d49470c5ffa1b8af8004432a9b22a84bc7"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/tct_1col_17f0_10.elf",
+      "Length": 1121104,
+      "Sha256": "e24959ca96039887c761aac68488e29dbd384c6417d18249aaee88f5642517a1"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/tct_1col_17f0_11.elf",
+      "Length": 1121104,
+      "Sha256": "e24959ca96039887c761aac68488e29dbd384c6417d18249aaee88f5642517a1"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/tct_1col_17f0_20.elf",
+      "Length": 1121104,
+      "Sha256": "e24959ca96039887c761aac68488e29dbd384c6417d18249aaee88f5642517a1"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/tct_4col_17f0_10.elf",
+      "Length": 2242336,
+      "Sha256": "a3e00757b9cd1edb5bab38d26a0f78e3403d468485e551858344568e65319af8"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/tct_4col_17f0_11.elf",
+      "Length": 2242336,
+      "Sha256": "a3e00757b9cd1edb5bab38d26a0f78e3403d468485e551858344568e65319af8"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ELF/tct_4col_17f0_20.elf",
+      "Length": 2242336,
+      "Sha256": "a3e00757b9cd1edb5bab38d26a0f78e3403d468485e551858344568e65319af8"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/Mobilenet/buffer_sizes.json",
+      "Length": 145,
+      "Sha256": "0347b0abbadf7a1ae34fd470693b9a1be42e7717c25d0e2e85907f43f94ba328"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/Mobilenet/mobilenet_ifm.bin",
+      "Length": 200704,
+      "Sha256": "4f0c67d3f9af4ddb866e9dab9ada8ff2a59dd7564a55c273c20fd88d9f0aa7fe"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/Mobilenet/mobilenet_param.bin",
+      "Length": 7233612,
+      "Sha256": "b05e4f915c818560149c401decb15aac9a948b4da521d7eafdd4f208a124c6bf"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/RadeonML.dll",
+      "Length": 633648,
+      "Sha256": "c88094371be03d89e5ea2535cd1bede005972183a04b87a1bcededbe1c4bc0a8"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/RadeonML_DirectML.dll",
+      "Length": 4798264,
+      "Sha256": "89215ee310846e1d46fdcae696138a45bde7cfbe78db378038a4d09bb3c72564"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/RadeonML_IPU.dll",
+      "Length": 3733816,
+      "Sha256": "b8a6011abb052e594cdcde312e66252a56cf5f5ce1a9a4505b6622bf5f1fdfda"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/RadeonML_aks.dll",
+      "Length": 3729720,
+      "Sha256": "c176da9bbb8dd3e018558e77408189e07681b98e5d34526b1988ae24652cc81e"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/aie2p_gemm_strix_4x2_bf16.json",
+      "Length": 23987,
+      "Sha256": "77d4d0cfe8d7241c859a9606c1c4e7e8d80401c8179f08e772916725f72cdf5e"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/aie2p_gemm_strix_4x2_bf16.xclbin",
+      "Length": 758379,
+      "Sha256": "83c6818d75ffbc0f5c79b7b1b5a0072933a6fba00f948e95cf1cf47c485a84ec"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/aie2p_gemm_vm_strix_4x4.json",
+      "Length": 44718,
+      "Sha256": "a57b4d5ea03e7105a6b37ff1669545f2fa0ba0e63631b0ac117aea4cac5ceffe"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/aie2p_gemm_vm_strix_4x4.xclbin",
+      "Length": 1277547,
+      "Sha256": "4dc9b231ce0b692825b6f0a998d12e38d45b020ecfed6193101da312d8813c6d"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/aieml_gemm_asr.json",
+      "Length": 23943,
+      "Sha256": "88dc8032a64f2d97d601986108147fda6a014e93e8b778305e0b841e5d0c9381"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/aieml_gemm_asr.xclbin",
+      "Length": 927627,
+      "Sha256": "18919f73ba7e833a5f337f1491e4bd4fadb802c76d314fd3e4414aa2dfe9ae3e"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/aieml_gemm_asr_qdq.json",
+      "Length": 23937,
+      "Sha256": "43ddbb4f5932a381d1d170f3e9ab85d7b9a21481d4cca70bf596426714858aeb"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/aieml_gemm_asr_qdq.xclbin",
+      "Length": 1029995,
+      "Sha256": "e87c2213192794224d7ba07af55e416959d468d864e5631e6c7c2553384bbb52"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/aieml_gemm_vm_phx_4x4.json",
+      "Length": 44706,
+      "Sha256": "c6389f97b29be68ac131db668776f506d32ef29db0f0e9eb76a36acf590b2793"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/aieml_gemm_vm_phx_4x4.xclbin",
+      "Length": 1802027,
+      "Sha256": "d8b16adf18172cb3a5bfdd57328b49b05fa5ebc1e8ae9c86517920533c7bc032"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/aieml_gemm_vm_phx_4x4_bf16.json",
+      "Length": 44706,
+      "Sha256": "f6aab327a2d5341077c2feccba8a6ae1d421a6b4b6385ef86b2df3886c31ea59"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/aieml_gemm_vm_phx_4x4_bf16.xclbin",
+      "Length": 1491595,
+      "Sha256": "29d66a1678a365783d77eff97f18e5ae4775fe981c8e31dc8cc7cc2621e95d66"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/aks.dll",
+      "Length": 1379640,
+      "Sha256": "b8bf97af340d543d081b1f24c8c055ded8f358e0fdfbb02efb4fb15e72f747cf"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/akskernels.dll",
+      "Length": 2446136,
+      "Sha256": "78ac99da31e148bf19c0666c15d0b8885acec08e8a43e0244eebc67ac3346c83"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/amd_taau_ops.rml_plugin.dll",
+      "Length": 521520,
+      "Sha256": "15f7ec9797bd32bc68d089835c716dadb8d280973b54fc57929f4c31a22914c3"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/benchmark_17f0_10.json",
+      "Length": 3373,
+      "Sha256": "b5bf23fe051071ba24f8af68ea29577df341c8133ad1b66f783633b2c593d72d"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/benchmark_17f0_11.json",
+      "Length": 3373,
+      "Sha256": "b5bf23fe051071ba24f8af68ea29577df341c8133ad1b66f783633b2c593d72d"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/benchmark_17f0_20.json",
+      "Length": 3379,
+      "Sha256": "a0169340ff17a346816647d2960d89c0a9d433bb4313481eef7464dee9943ca1"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/config_xclbin.txt",
+      "Length": 1627,
+      "Sha256": "07c99bb26f682c57f0c18b82e2506c09634b25bfe3d68137dba304bb4746a717"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/gemm_17f0_10.xclbin",
+      "Length": 608873,
+      "Sha256": "19732a1ba406cb321521398ea25fc5248dfdeb52e3f7f9fdaf00ff9ccd77e982"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/gemm_17f0_11.xclbin",
+      "Length": 608873,
+      "Sha256": "19732a1ba406cb321521398ea25fc5248dfdeb52e3f7f9fdaf00ff9ccd77e982"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/gemm_17f0_20.xclbin",
+      "Length": 608873,
+      "Sha256": "19732a1ba406cb321521398ea25fc5248dfdeb52e3f7f9fdaf00ff9ccd77e982"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/gemm_elf_17f0_10.xclbin",
+      "Length": 463836,
+      "Sha256": "6f1b9594264c69f46ebe8c69b44da239796a90021e106a59bb6c32796f4600fe"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/gemm_elf_17f0_11.xclbin",
+      "Length": 463836,
+      "Sha256": "6f1b9594264c69f46ebe8c69b44da239796a90021e106a59bb6c32796f4600fe"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/gemm_elf_17f0_20.xclbin",
+      "Length": 463836,
+      "Sha256": "6f1b9594264c69f46ebe8c69b44da239796a90021e106a59bb6c32796f4600fe"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ipu_2_pasid.sbin",
+      "Length": 460624,
+      "Sha256": "426580865c9afbe4bd11829a2f25fee726b237d3e395016ed4bd9523a06c3290"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ipu_3_pasid.sbin",
+      "Length": 460688,
+      "Sha256": "2c40c96663abe8ff156950b66878f12d4cc808637646c4f67cd5b84f2bcb77fd"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ipu_4_pasid.sbin",
+      "Length": 460688,
+      "Sha256": "6b1a73e12935a2b8db7459d003217152494984279f5e9891987d8fbee336ff1f"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ipu_pasid.sbin",
+      "Length": 248592,
+      "Sha256": "d13ff9fb95c6cea40213fa69e5a3465529f00bb67c0984d62343c6e31808fb9e"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/ipustack.sys",
+      "Length": 426296,
+      "Sha256": "e5d77c30128e02149a3c88bb66d16302d5569ff7030e859bfb73eada46953a4e"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/kipudrv.cat",
+      "Length": 68185,
+      "Sha256": "68c2580e0b3887c0a4541da6c799c669953d062afc0cb93d508f67546254be3f"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/kipudrv.inf",
+      "Length": 11186,
+      "Sha256": "36f5b8c4274add4d886943ad2036c206132c85b3d2fbfb576c629439e2002b81"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/mobilenet_elf_17f0_10.xclbin",
+      "Length": 3798307,
+      "Sha256": "c86275003f299aeb3a34860c749ceef4be344051272e8f66a16b35b9ddd6d91d"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/mobilenet_elf_17f0_11.xclbin",
+      "Length": 3798307,
+      "Sha256": "c86275003f299aeb3a34860c749ceef4be344051272e8f66a16b35b9ddd6d91d"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/mobilenet_elf_17f0_20.xclbin",
+      "Length": 3798307,
+      "Sha256": "c86275003f299aeb3a34860c749ceef4be344051272e8f66a16b35b9ddd6d91d"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/preemption_4x4_17f0.xclbin",
+      "Length": 77339,
+      "Sha256": "5910350e5e0e03af2302d5514a81daea048d46f43329f1ba9e987b1f8156336f"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/preemption_4x8_17f0.xclbin",
+      "Length": 130118,
+      "Sha256": "5be928e3c4cf44e6a27b0fa48d969cf4e42cce5c9166949567770e890c1ee790"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/qdq.1x4_3.5.0.0-1481_ipu_2.xclbin",
+      "Length": 172167,
+      "Sha256": "31db106a4d712a6cd900cf07b25ff4cc29081fbcd99cbec18db53e7a675a8370"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/rml/include/rml/RadeonML.h",
+      "Length": 36577,
+      "Sha256": "b43304dc1564da4a632127ba097eef5f1ee40b06cf0736f5a270a883e143d90c"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/rml/include/rml/RadeonML.hpp",
+      "Length": 20196,
+      "Sha256": "fef45931e314705510a2cd81eefbdedb9379e20e92a1ad385298e4e3127353fe"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/rml/include/rml/RadeonML_cl.h",
+      "Length": 3799,
+      "Sha256": "5da9ae6fc616fda16d6a470611fd0184b89154a06874535e0dee2b07ff33bc7a"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/rml/include/rml/RadeonML_cl.hpp",
+      "Length": 2508,
+      "Sha256": "129a1263651001d91c56c4e6780267749aef0639ed66ed6130e52defe7035de8"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/rml/include/rml/RadeonML_d3d12.h",
+      "Length": 5963,
+      "Sha256": "d003f4e8856580faff7f8845b24f81f578dadce937316b6bccc903e2c4637eda"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/rml/include/rml/RadeonML_d3d12.hpp",
+      "Length": 3118,
+      "Sha256": "a95ba3287f69f01329361c7099d6ce1d3adf65a7889faba82aa9d5f7be2fcb3c"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/rml/include/rml/RadeonML_dml.h",
+      "Length": 1835,
+      "Sha256": "2f208ee5201de0f130ae08b23ff131302c8a704bc47d4e5918965a3f8f201a55"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/rml/include/rml/RadeonML_dml.hpp",
+      "Length": 1719,
+      "Sha256": "65837d78482c78e2a9b4e4ff6303c8a2ba25811b661bf620b9b0caef3ba54ce1"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/rml/include/rml/RadeonML_graph.h",
+      "Length": 64031,
+      "Sha256": "8c43e9197e1e16110e300f605e125e295e3debbc407fcc9ee7b28ec411a4337e"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/rml/include/rml/RadeonML_miopen.h",
+      "Length": 2276,
+      "Sha256": "7dcdd99ea2a339be6f26bfc2624895e9eb9e068eec0e3661e6b2c6dc9dd3d0cd"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/rml/include/rml/RadeonML_miopen.hpp",
+      "Length": 1768,
+      "Sha256": "36c33307faf2782cde7e88b9b21656eda19fe9acec58c83c980920b8a3eb1c8f"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/rml/include/rml/RadeonML_mtl.h",
+      "Length": 3963,
+      "Sha256": "6229b5b9d18d9c023f1d97f85e51106c78d068693fce72dbd655a1c784b81b84"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/rml/include/rml/RadeonML_mtl.hpp",
+      "Length": 2522,
+      "Sha256": "e63d374fe8fd50b652872eb7f0b24dec0ca4d378cebbe994fefbf982dc88cca0"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/rml/include/rml/RadeonML_utils.hpp",
+      "Length": 5988,
+      "Sha256": "857c9151b49f115a604273ba1b1a9501811b4db46d81473de60173e6aa8319c5"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/rml/tools/rml_amodel.lib",
+      "Length": 675024,
+      "Sha256": "d67f77b1e56c7d0a21fcf60e5c55f68ed7707645fcc212c626e9c9a59167d5b6"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/rml/tools/rml_amodel_api.h",
+      "Length": 3686,
+      "Sha256": "9ea3720dc951ab313612296c2633cd28717dbadb3425ee933f9565dbc8abc50d"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/rml/tools/rml_amodel_pkgr.exe",
+      "Length": 1036600,
+      "Sha256": "406eee951c1d234a5fb9aba0b06d8eefd77573f86e2a70d7861c12b4a44090d9"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/rml/tools/rml_amodel_unpkgr.exe",
+      "Length": 785720,
+      "Sha256": "49b89e5847c5f4914037d6718fa237e4621a12f5bbec5c6e21ecb0e7a438ee21"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/rml/tools/sample_win32.config",
+      "Length": 336,
+      "Sha256": "5f1bfe89508c4bf0a21d2419b904458e89ed6cf809e493f57e63aa398c393764"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/rml/tools/tracelogging.WPRP",
+      "Length": 1620,
+      "Sha256": "8991b32b9986f97825f3ce4cdacef91e908936fb30fed1fbc0483e5750f30278"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/rml/windows/RadeonML.lib",
+      "Length": 16840,
+      "Sha256": "9e5f7f8992578767b69f3c4070da028fb260a3de4e8e7af6bc10b0732ab9addb"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/trace-logging-aks.dll",
+      "Length": 227632,
+      "Sha256": "d49e534744a9adf74d84df2da721636e4810bc1321eaab6538890065a4735581"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/validate_1502_00.xclbin",
+      "Length": 48318,
+      "Sha256": "5d53578cc23e567c483fb94f31af3c4255cd260891f77d46e351bef76224e744"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/validate_17f0_00.xclbin",
+      "Length": 48344,
+      "Sha256": "05e6ac313f5a9764181fee8922f237eb6cc52e2621a78f07e5758e2ac7b6ef3b"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/validate_17f0_10.xclbin",
+      "Length": 48344,
+      "Sha256": "05e6ac313f5a9764181fee8922f237eb6cc52e2621a78f07e5758e2ac7b6ef3b"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/validate_17f0_11.xclbin",
+      "Length": 48344,
+      "Sha256": "05e6ac313f5a9764181fee8922f237eb6cc52e2621a78f07e5758e2ac7b6ef3b"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/validate_17f0_20.xclbin",
+      "Length": 48344,
+      "Sha256": "05e6ac313f5a9764181fee8922f237eb6cc52e2621a78f07e5758e2ac7b6ef3b"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/validate_elf_17f0_10.xclbin",
+      "Length": 177266,
+      "Sha256": "6c61ea528602c436d6c3317325c62cd542591f7256024f72f4d22aaf6a28fc58"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/validate_elf_17f0_11.xclbin",
+      "Length": 177266,
+      "Sha256": "6c61ea528602c436d6c3317325c62cd542591f7256024f72f4d22aaf6a28fc58"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/validate_elf_17f0_20.xclbin",
+      "Length": 177266,
+      "Sha256": "6c61ea528602c436d6c3317325c62cd542591f7256024f72f4d22aaf6a28fc58"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/vitis-ai-runtime.dll",
+      "Length": 7314744,
+      "Sha256": "1244653640d9d2019e0a296c235b00ce17ae01f9d319d5190b71060060d8898b"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/vitis-ai-runtime2.dll",
+      "Length": 12009784,
+      "Sha256": "648dba462a6540bcbc9ee10766d7292a1a408d806b04be55538f95621a2232ca"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/xdp_core.dll",
+      "Length": 1473840,
+      "Sha256": "172d6d2ef9cc634d8625ec3b1b028f790b29e2f9697ade75c6b174c6466afc9a"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/xdp_ml_timeline_plugin.dll",
+      "Length": 619320,
+      "Sha256": "0872b16c2bedfac728b38bf0eea2e26e501815131cb25918d360347632f85c73"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/xdp_user_plugin.dll",
+      "Length": 452944,
+      "Sha256": "c16b715449cc10ec54f6b006a6251fe0d05c7b323372f538cdac6cb81f1c241b"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/xrt-smi.exe",
+      "Length": 2928440,
+      "Sha256": "dad090452fde21b614cf3e246d3b4aa72620df9560c6024dfae4c4336c31c743"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/xrt_core.dll",
+      "Length": 960312,
+      "Sha256": "ae7c27bc74686daafdd3bb0de4f1be230d5e05b1837ae2029f25578b3889a776"
+    },
+    {
+      "Path": "c0001/npu_mcdm_stack_prod/xrt_coreutil.dll",
+      "Length": 2682672,
+      "Sha256": "ab04222bf2186bee9e89dd093abfb1c4fc4a3222c93dbcdee3353f4d269b9397"
+    },
+    {
+      "Path": "c0001/npu_sw_installer.exe",
+      "Length": 595208,
+      "Sha256": "96dc03e574e9dfb2c45543833d8a66d5bcecb9af48e9beac07ea72cccf3ce755"
+    },
+    {
+      "Path": "c0001/ryzen-ai-end-user-license-agreement-public.pdf",
+      "Length": 168872,
+      "Sha256": "587c5b4916ae6053f4a2fbc0a063532bd4ff9e50080491e75cb349c84f2b97a7"
+    }
+  ],
+  "Safety": {
+    "VendorExecutablesExecuted": false,
+    "VendorPayloadModified": false,
+    "AnalysisMode": "StaticOnly"
+  }
+}

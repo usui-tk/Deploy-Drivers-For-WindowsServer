@@ -27,6 +27,12 @@ These reports are evidence/history, not the normative specification. Use:
 
 ## Current report layout
 
+### Active implementation plans
+
+| Report | Topic |
+|---|---|
+| `GRAPHICS-SIGNATURE-AND-COMMON-HARDENING-PLAN-2026-08-17.md` | Cross-tool gap assessment, newest-generation-per-track certificate scope, installer de-duplication, G0–G4 implementation result and remaining Windows qualification gates |
+
 ### Versioned hardening reports
 
 | Report | Topic |
@@ -37,6 +43,7 @@ These reports are evidence/history, not the normative specification. Use:
 | `0.7.4-WINDOWS-FULL-RUN-HARDENING.md` | Artifact-chain qualification |
 | `0.8.1-WINDOWS-METADATA-FETCH-HARDENING.md` | AMD product-page retry/fallback hardening |
 | `0.8.2-WINDOWS-PUBLICATION-PORTABILITY-HARDENING.md` | Cross-platform publication manifest/portability |
+| `1.1.2-WINDOWS-PATH-SAFETY-AND-NATIVE-REUSE-CORRECTION.md` | SignTool MAX_PATH evidence, fail-closed path gate, short aliases and limited native-only reuse correction |
 
 ### Real-artifact comparison
 

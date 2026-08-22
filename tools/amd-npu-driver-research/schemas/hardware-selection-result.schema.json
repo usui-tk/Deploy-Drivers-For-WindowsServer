@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/tools/amd-npu-driver-research/schemas/hardware-selection-result.schema.json",
+  "title": "AMD NPU hardware-only driver track selection result",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "SchemaVersion",
+    "Decision",
+    "SelectedTrack",
+    "SelectedArtifact",
+    "WindowsBuild",
+    "ObservedHardwareIds",
+    "MatchedInfHardwareIdPatterns",
+    "CpuIdentityUsed",
+    "FirmwareDeviceRevisionUsed",
+    "InstallationAuthorized",
+    "WindowsServerRuntimeProof",
+    "Reason"
+  ],
+  "properties": {
+    "SchemaVersion": {
+      "const": "amd-npu-hardware-selection-result/1.0"
+    },
+    "Decision": {
+      "enum": [
+        "280",
+        "376",
+        "NoNpuDriverRequired",
+        "ReviewRequired"
+      ]
+    },
+    "SelectedTrack": {
+      "type": ["string", "null"],
+      "enum": ["280", "376", null]
+    },
+    "SelectedArtifact": {
+      "type": ["string", "null"]
+    },
+    "WindowsBuild": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "ObservedHardwareIds": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "MatchedInfHardwareIdPatterns": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "CpuIdentityUsed": {
+      "const": false
+    },
+    "FirmwareDeviceRevisionUsed": {
+      "const": false
+    },
+    "Automatic280FallbackEnabled": {
+      "const": false
+    },
+    "InstallationAuthorized": {
+      "const": false
+    },
+    "WindowsServerRuntimeProof": {
+      "const": false
+    },
+    "Reason": {
+      "type": "string"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": { "Decision": { "const": "376" } },
+        "required": ["Decision"]
+      },
+      "then": {
+        "properties": {
+          "SelectedTrack": { "const": "376" },
+          "Automatic280FallbackEnabled": { "const": false }
+        },
+        "required": ["Automatic280FallbackEnabled"]
+      }
+    },
+    {
+      "if": {
+        "properties": { "Decision": { "enum": ["NoNpuDriverRequired", "ReviewRequired"] } },
+        "required": ["Decision"]
+      },
+      "then": {
+        "properties": {
+          "SelectedTrack": { "const": null },
+          "SelectedArtifact": { "const": null }
+        }
+      }
+    }
+  ]
+}

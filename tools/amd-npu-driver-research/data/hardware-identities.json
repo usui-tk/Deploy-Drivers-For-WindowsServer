@@ -4,10 +4,10 @@
   "catalogCompleteness": "ReviewedBroadIdentityRulesWithObservedRuntimeBindings",
   "unknownHardwarePolicy": "ReviewRequired",
   "identityOrder": [
-    "ProcessorCatalogExactSku",
-    "PciHardwareId",
-    "PciRevisionAdvisory",
-    "FirmwareDeviceRevision"
+    "WindowsPnpHardwareId",
+    "WindowsPnpCompatibleId",
+    "ReviewedInfModelMatch",
+    "PciSubsystemAndRevisionRetainedForEvidenceOnly"
   ],
   "sources": [
     {
@@ -71,7 +71,7 @@
         }
       ],
       "firmwareRevisionMap": [],
-      "preinstallDiscriminator": "Exact processor catalog match is required to distinguish Phoenix from Hawk Point. PCI DEV alone is intentionally insufficient.",
+      "preinstallDiscriminator": "No Phoenix/Hawk Point CPU distinction is required for Windows driver-track selection. Match the complete Windows PnP HardwareID/CompatibleID set against the reviewed INF model; retain SUBSYS and REV as evidence without using them to infer a CPU/NPU combination.",
       "evidenceSourceIds": [
         "amd-npu-check",
         "amd-ryzenai-1.7-inst",
@@ -176,7 +176,7 @@
         }
       ],
       "firmwareRevisionSemantics": "Firmware-reported AIE2 device-revision values, not PCI REV_XX bytes. Linux upstream defines STXA=1, STXB=2, KRK1=3, KRK2=4, HALO=5, GPT1=6, GPT2=7, GPT3=8, UNKN=9 and enables AIE2_GET_DEV_REVISION from firmware 6.24. Exact-hash Windows ipustack.sys 32.00.20101.3760 independently contains the same 1..8 refinement order, unknown default 9, and a dedicated 0x117 command primitive.",
-      "preinstallDiscriminator": "PCI DEV 17F0 is a broad family selector. Use an exact processor catalog match before driver installation; use firmware revision only when a trusted runtime can query it.",
+      "preinstallDiscriminator": "PCI DEV 17F0 is sufficient as an INF model input when the complete Windows PnP identity matches the reviewed preferred-production-track INF. CPU SKU, CPU ID, CPU/NPU combination and firmware device revision are not driver-track inputs. Unknown or incomplete PnP identity remains ReviewRequired.",
       "evidenceSourceIds": [
         "amd-npu-check",
         "amd-ryzenai-1.7-inst",

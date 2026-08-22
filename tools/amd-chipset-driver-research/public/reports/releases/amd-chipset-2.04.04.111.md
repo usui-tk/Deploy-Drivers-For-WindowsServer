@@ -13,7 +13,7 @@
 
 ## Device-driver details
 
-### `d4_Data1.cab_9ed7c73e0e1f\amdas4.inf`
+### `c0005\amdas4.inf`
 
 - Driver version: `1.2.0.0046`; Class: `System`; KMDF: `NotDeclared`; UMDF: `NotDeclared`
 
@@ -22,7 +22,7 @@
 | AmdAS4 Device | `ACPI\AMDI0050` | ACPI-enumerated PnP hardware ID | `AmdAS4` | Native | Native | Native | Native |
 | AmdAS4 Device | `ACPI\ASD0001` | ACPI-enumerated PnP hardware ID | `AmdAS4` | Native | Native | Native | Native |
 
-### `d4_Data1.cab_9ed7c73e0e1f\amdcir.inf`
+### `c0005\amdcir.inf`
 
 - Driver version: `3.2.4.0110`; Class: `HIDClass`; KMDF: `NotDeclared`; UMDF: `NotDeclared`
 
@@ -32,7 +32,7 @@
 | AMD CIR Driver | `*AMDC002` | Generic PnP hardware ID | `AMDCIR64` | Native | Native | Native | Native |
 | AMD CIR Driver | `*AMDC003` | Generic PnP hardware ID | `AMDCIR64` | Native | Native | Native | Native |
 
-### `d4_Data1.cab_9ed7c73e0e1f\amdgpio2.inf`
+### `c0005\amdgpio2.inf`
 
 - Driver version: `2.2.0.126`; Class: `System`; KMDF: `NotDeclared`; UMDF: `NotDeclared`
 
@@ -42,7 +42,7 @@
 | AMD GPIO Controller | `ACPI\AMDI0030` | ACPI-enumerated PnP hardware ID | `GPIO_Inst` | Native | Native | Native | Native |
 | AMD GPIO Controller | `ACPI\GPIO0010` | ACPI-enumerated PnP hardware ID | `GPIO_Inst` | Native | Native | Native | Native |
 
-### `d4_Data1.cab_9ed7c73e0e1f\amdgpio3.inf`
+### `c0005\amdgpio3.inf`
 
 - Driver version: `2.0.1.0000`; Class: `System`; KMDF: `NotDeclared`; UMDF: `NotDeclared`
 
@@ -51,7 +51,7 @@
 | AMD GPIO Controller | `ACPI\AMDF030` | ACPI-enumerated PnP hardware ID | `GPIO_Inst` | Native | Native | Native | Native |
 | AMD GPIO Controller | `ACPI\AMDIF030` | ACPI-enumerated PnP hardware ID | `GPIO_Inst` | Native | Native | Native | Native |
 
-### `d4_Data1.cab_9ed7c73e0e1f\amdhub3.inf`
+### `c0005\amdhub3.inf`
 
 - Driver version: `2.0.0.0060`; Class: `USB`; KMDF: `NotDeclared`; UMDF: `NotDeclared`
 
@@ -64,7 +64,7 @@
 | AMD USB Hub | `AMDUSB3\CLASS_09&SUBCLASS_00&PROT_00` | AMDUSB3-enumerated PnP hardware ID | `AMDHUB3` | Native | Native | Native | Native |
 | AMD USB Hub | `AMDUSB3\CLASS_09&SUBCLASS_01` | AMDUSB3-enumerated PnP hardware ID | `AMDHUB3` | Native | Native | Native | Native |
 
-### `d4_Data1.cab_9ed7c73e0e1f\amdhub30.inf`
+### `c0005\amdhub30.inf`
 
 - Driver version: `1.1.0.0276`; Class: `USB`; KMDF: `NotDeclared`; UMDF: `NotDeclared`
 
@@ -77,7 +77,7 @@
 | AMD USB Hub | `AMDUSB30\CLASS_09&SUBCLASS_00&PROT_00` | AMDUSB30-enumerated PnP hardware ID | `AMDHUB30` | Projection | Projection | Projection | Projection |
 | AMD USB Hub | `AMDUSB30\CLASS_09&SUBCLASS_01` | AMDUSB30-enumerated PnP hardware ID | `AMDHUB30` | Projection | Projection | Projection | Projection |
 
-### `d4_Data1.cab_9ed7c73e0e1f\amdhub31.inf`
+### `c0005\amdhub31.inf`
 
 - Driver version: `1.0.5.3`; Class: `USB`; KMDF: `NotDeclared`; UMDF: `NotDeclared`
 
@@ -106,7 +106,7 @@
 | Generic SuperSpeed USB Hub | `USB\AMD_HUB31SS` | USB-enumerated PnP hardware ID | `Hub_Product3_Install` | Native | Native | Native | Native |
 | Generic USB Hub | `USB\AMD_HUB31` | USB-enumerated PnP hardware ID | `Hub_Product2_Install` | Native | Native | Native | Native |
 
-### `d4_Data1.cab_9ed7c73e0e1f\amdi2c.inf`
+### `c0005\amdi2c.inf`
 
 - Driver version: `1.2.0.99`; Class: `System`; KMDF: `NotDeclared`; UMDF: `NotDeclared`
 
@@ -115,7 +115,7 @@
 | AMD I2C Controller | `ACPI\AMD0010` | ACPI-enumerated PnP hardware ID | `amdi2c_Device` | Native | Native | Native | Native |
 | AMD I2C Controller | `ACPI\AMDI0010` | ACPI-enumerated PnP hardware ID | `amdi2c_Device` | Native | Native | Native | Native |
 
-### `d4_Data1.cab_9ed7c73e0e1f\amdiov.inf`
+### `c0005\amdiov.inf`
 
 - Driver version: `1.2.0.0043`; Class: `System`; KMDF: `NotDeclared`; UMDF: `NotDeclared`
 
@@ -132,7 +132,7 @@
 | AMD IOMMU Device | `PCI\VEN_1022&DEV_15D1` | PCI-enumerated PnP hardware ID | `NULL_DRIVER` | Native | Native | Native | Native |
 | AMD IOMMU Device | `PCI\VEN_1022&DEV_1611` | PCI-enumerated PnP hardware ID | `NULL_DRIVER` | Native | Native | Native | Native |
 
-### `d4_Data1.cab_9ed7c73e0e1f\amdmicropep.inf`
+### `c0005\amdmicropep.inf`
 
 - Driver version: `1.0.25.0`; Class: `System`; KMDF: `1.11`; UMDF: `NotDeclared`
 
@@ -142,7 +142,7 @@
 | AMD Micro PEP Device | `ACPI\AMD0005` | ACPI-enumerated PnP hardware ID | `AmdMicroPEP.Install` | Native | Native | Native | Native |
 | AMD Micro PEP Device | `ACPI\AMDI0005` | ACPI-enumerated PnP hardware ID | `AmdMicroPEP.Install` | Native | Native | Native | Native |
 
-### `d4_Data1.cab_9ed7c73e0e1f\amdpcidev.inf`
+### `c0005\amdpcidev.inf`
 
 - Driver version: `1.0.0.0067`; Class: `System`; KMDF: `NotDeclared`; UMDF: `NotDeclared`
 
@@ -153,7 +153,7 @@
 | AMD PCI | `PCI\VEN_1022&DEV_1485` | PCI-enumerated PnP hardware ID | `AMDPCIDev_Inst` | Native | Native | Native | Native |
 | AMD PCI | `PCI\VEN_1022&DEV_148A` | PCI-enumerated PnP hardware ID | `AMDPCIDev_Inst` | Native | Native | Native | Native |
 
-### `d4_Data1.cab_9ed7c73e0e1f\amdpsp.inf`
+### `c0005\amdpsp.inf`
 
 - Driver version: `4.10.0.1`; Class: `SecurityDevices`; KMDF: `NotDeclared`; UMDF: `NotDeclared`
 
@@ -163,7 +163,7 @@
 | AMD PSP 3.0 Device | `PCI\VEN_1022&DEV_1486` | PCI-enumerated PnP hardware ID | `amdpsp_Device_30` | Native | Native | Native | Native |
 | AMD PSP 3.0 Device | `PCI\VEN_1022&DEV_15dF` | PCI-enumerated PnP hardware ID | `amdpsp_Device_30` | Native | Native | Native | Native |
 
-### `d4_Data1.cab_9ed7c73e0e1f\amdrhub3.inf`
+### `c0005\amdrhub3.inf`
 
 - Driver version: `1.0.0.0012`; Class: `USB`; KMDF: `NotDeclared`; UMDF: `NotDeclared`
 
@@ -176,7 +176,7 @@
 | AMD USB Hub | `AMDUSB3\CLASS_09&SUBCLASS_00&PROT_00` | AMDUSB3-enumerated PnP hardware ID | `AMDHUB3` | Native | Native | Native | Native |
 | AMD USB Hub | `AMDUSB3\CLASS_09&SUBCLASS_01` | AMDUSB3-enumerated PnP hardware ID | `AMDHUB3` | Native | Native | Native | Native |
 
-### `d4_Data1.cab_9ed7c73e0e1f\amdrxhc.inf`
+### `c0005\amdrxhc.inf`
 
 - Driver version: `1.0.0.0012`; Class: `USB`; KMDF: `NotDeclared`; UMDF: `NotDeclared`
 
@@ -187,7 +187,7 @@
 | AMD USB3.1 Host Controller - 1.1 | `PCI\VEN_1022&DEV_15E1` | PCI-enumerated PnP hardware ID | `AMDXHCI` | Native | Native | Native | Native |
 | AMD USB3.1 Host Controller - 1.1 | `PCI\VEN_1022&DEV_15E5` | PCI-enumerated PnP hardware ID | `AMDXHCI` | Native | Native | Native | Native |
 
-### `d4_Data1.cab_9ed7c73e0e1f\amdsfhkmdf.inf`
+### `c0005\amdsfhkmdf.inf`
 
 - Driver version: `1.0.0.300`; Class: `System`; KMDF: `1.15`; UMDF: `NotDeclared`
 
@@ -195,7 +195,7 @@
 |---|---|---|---|---|---|---|---|
 | AMD Sensor Fusion Hub | `PCI\VEN_1022&DEV_15E4` | PCI-enumerated PnP hardware ID | `amdsfhkmdf_Device` | Native | Native | Native | Native |
 
-### `d4_Data1.cab_9ed7c73e0e1f\amdsfhkmdfi2c.inf`
+### `c0005\amdsfhkmdfi2c.inf`
 
 - Driver version: `1.0.0.86`; Class: `System`; KMDF: `1.15`; UMDF: `NotDeclared`
 
@@ -203,7 +203,7 @@
 |---|---|---|---|---|---|---|---|
 | AMD SFH KMDF I2C | `PCI\VEN_1022&DEV_15E6` | PCI-enumerated PnP hardware ID | `amdsfhkmdf_Device` | Native | Native | Native | Native |
 
-### `d4_Data1.cab_9ed7c73e0e1f\amdsfhspbi2c.inf`
+### `c0005\amdsfhspbi2c.inf`
 
 - Driver version: `1.0.0.86`; Class: `System`; KMDF: `NotDeclared`; UMDF: `NotDeclared`
 
@@ -211,7 +211,7 @@
 |---|---|---|---|---|---|---|---|
 | AMD SFH I2C Controller | `ACPI\AMDI0011` | ACPI-enumerated PnP hardware ID | `amdsfhspbi2c_Device` | Native | Native | Native | Native |
 
-### `d4_Data1.cab_9ed7c73e0e1f\amdsfhumdf.inf`
+### `c0005\amdsfhumdf.inf`
 
 - Driver version: `1.0.0.300`; Class: `Sensor`; KMDF: `NotDeclared`; UMDF: `2.15.0`
 
@@ -219,7 +219,7 @@
 |---|---|---|---|---|---|---|---|
 | AMD UMDF Sensor | `ACPI\AMDI0080` | ACPI-enumerated PnP hardware ID | `amdsfhumdf_Inst` | Native | Native | Native | Native |
 
-### `d4_Data1.cab_9ed7c73e0e1f\amduart.inf`
+### `c0005\amduart.inf`
 
 - Driver version: `1.2.0.106`; Class: `System`; KMDF: `NotDeclared`; UMDF: `NotDeclared`
 
@@ -228,7 +228,7 @@
 | AMD UART Controller | `ACPI\AMD0020` | ACPI-enumerated PnP hardware ID | `amduart_Inst` | Native | Native | Native | Native |
 | AMD UART Controller | `ACPI\AMDI0020` | ACPI-enumerated PnP hardware ID | `amduart_Inst` | Native | Native | Native | Native |
 
-### `d4_Data1.cab_9ed7c73e0e1f\amdxhc.inf`
+### `c0005\amdxhc.inf`
 
 - Driver version: `1.1.0.0276`; Class: `USB`; KMDF: `NotDeclared`; UMDF: `NotDeclared`
 
@@ -238,7 +238,7 @@
 | AMD USB 3.0 Host Controller | `PCI\VEN_1022&DEV_7814` | PCI-enumerated PnP hardware ID | `AMDXHC` | Projection | Projection | Projection | Projection |
 | AMD USB 3.0 Host Controller | `PCI\VEN_1022&DEV_7914` | PCI-enumerated PnP hardware ID | `AMDXHC` | Projection | Projection | Projection | Projection |
 
-### `d4_Data1.cab_9ed7c73e0e1f\amdxhc31.inf`
+### `c0005\amdxhc31.inf`
 
 - Driver version: `1.0.5.3`; Class: `USB`; KMDF: `NotDeclared`; UMDF: `NotDeclared`
 
@@ -265,7 +265,7 @@
 | AMD USB3.1 eXtensible Host Controller | `PCI\VEN_1022&DEV_43DE` | PCI-enumerated PnP hardware ID | `AMD_Product19_Install` | Native | Native | Native | Native |
 | AMD USB3.1 eXtensible Host Controller | `PCI\VEN_1022&DEV_43DF` | PCI-enumerated PnP hardware ID | `AMD_Product20_Install` | Native | Native | Native | Native |
 
-### `d4_Data1.cab_9ed7c73e0e1f\amd_sata.inf`
+### `c0005\amd_sata.inf`
 
 - Driver version: `1.2.001.0402`; Class: `HDC`; KMDF: `NotDeclared`; UMDF: `NotDeclared`
 
@@ -278,7 +278,7 @@
 | AMD SATA Controller | `PCI\VEN_1022&DEV_7901&CC_0106` | PCI-enumerated PnP hardware ID | `amd_sata_inst` | Native | Native | Native | Native |
 | AMD SATA Controller | `PCI\VEN_1022&DEV_7904&CC_0106` | PCI-enumerated PnP hardware ID | `amd_sata_inst` | Native | Native | Native | Native |
 
-### `d4_Data1.cab_9ed7c73e0e1f\smbusamd.inf`
+### `c0005\smbusamd.inf`
 
 - Driver version: `5.12.0.38`; Class: `System`; KMDF: `NotDeclared`; UMDF: `NotDeclared`
 
@@ -291,7 +291,7 @@
 | AMD SMBus | `PCI\VEN_1022&DEV_780B` | PCI-enumerated PnP hardware ID | `AMDSMBus64` | Native | Native | Native | Native |
 | AMD SMBus | `PCI\VEN_1022&DEV_790B` | PCI-enumerated PnP hardware ID | `AMDSMBus64` | Native | Native | Native | Native |
 
-### `d4_Data1.cab_9ed7c73e0e1f\usbfilter.inf`
+### `c0005\usbfilter.inf`
 
 - Driver version: `2.0.10.287`; Class: `USB`; KMDF: `NotDeclared`; UMDF: `NotDeclared`
 

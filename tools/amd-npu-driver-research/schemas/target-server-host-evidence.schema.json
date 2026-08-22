@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:amd-npu-driver-research:target-server-host-evidence:1.0",
+  "title": "AMD NPU Driver Research Target Server Host Evidence",
+  "type": "object",
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "Status",
+    "EvidenceScope",
+    "MutationPerformed"
+  ],
+  "properties": {
+    "SchemaVersion": { "const": "amd-driver-target-server-host-evidence/1.0" },
+    "ToolkitVersion": { "type": "string" },
+    "Status": { "type": "string" },
+    "CollectedAtUtc": { "type": "string" },
+    "EvidenceScope": { "const": "TargetServerHost" },
+    "ExecutionContext": { "type": "object" },
+    "WindowsHostSecurityPosture": { "type": ["object", "null"] },
+    "RuntimeDriverValidation": { "type": "object" },
+    "MutationPerformed": { "const": false }
+  },
+  "additionalProperties": true
+}

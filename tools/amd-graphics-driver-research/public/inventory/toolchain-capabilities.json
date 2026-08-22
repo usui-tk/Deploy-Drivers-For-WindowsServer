@@ -1,0 +1,324 @@
+{
+  "SchemaVersion": "amd-driver-toolchain-capability-summary/1.1",
+  "ToolkitVersion": "3.0.0",
+  "CollectedAtUtc": "2026-08-21T20:54:18.5844566Z",
+  "EvidenceScope": "WindowsNativeToolchain",
+  "Status": "Observed",
+  "ExecutionClass": "WindowsClient",
+  "LocalizationContext": {
+    "SchemaVersion": "amd-native-tool-localization-context/1.0",
+    "ClassificationPolicy": "LocaleNeutral",
+    "NaturalLanguageOutputRequiredForCorrectness": false,
+    "NativeToolOutputLanguageForced": false,
+    "ExecutionClass": "WindowsClient",
+    "PowerShell": {
+      "Culture": "ja-JP",
+      "UICulture": "ja-JP",
+      "CurrentCulture": "ja-JP",
+      "CurrentUICulture": "ja-JP",
+      "InstalledUICulture": "ja-JP"
+    },
+    "Windows": {
+      "NativeApiStatus": "Observed",
+      "UserDefaultLocale": "ja-JP",
+      "SystemDefaultLocale": "ja-JP",
+      "UserDefaultUILanguageLcid": 1041,
+      "UserDefaultUILanguage": "ja-JP",
+      "SystemDefaultUILanguageLcid": 1041,
+      "SystemDefaultUILanguage": "ja-JP"
+    },
+    "Console": {
+      "InputCodePage": 932,
+      "OutputCodePage": 932,
+      "InputEncoding": "shift_jis",
+      "OutputEncoding": "shift_jis"
+    },
+    "PosixLocaleEnvironmentHints": {
+      "LANG": null,
+      "LC_ALL": null,
+      "LC_MESSAGES": null,
+      "Contract": "InformationalOnlyOnWindowsNativeTools"
+    }
+  },
+  "ResultClassificationContract": {
+    "Version": "amd-native-tool-result-classification/1.0",
+    "PrimarySignals": [
+      "ProcessLaunch",
+      "ExitCode",
+      "ObservedOptionTokens",
+      "ExpectedResultCoverage"
+    ],
+    "NaturalLanguageOutputRole": "DiagnosticOnly",
+    "EnglishOutputRequired": false,
+    "PosixLangVariablesControlWindowsSdkTools": false
+  },
+  "Tools": [
+    {
+      "Name": "signtool.exe",
+      "Family": "SignTool",
+      "Status": "Available",
+      "Binary": {
+        "Status": "Available",
+        "ToolName": "signtool.exe",
+        "PortablePath": "WindowsKits/10/bin/10.0.28000.0/x64/signtool.exe",
+        "PathClass": "WindowsKitVersionedBin",
+        "KitVersion": "10.0.28000.0",
+        "Architecture": "x64",
+        "SizeBytes": 551408,
+        "Sha256": "8334a9a93cef11438f2f1fae52b8e5cf32350de067927d18505a3f5843d2b2fc",
+        "FileVersion": "4.00 (WinBuild.160101.0800)",
+        "ProductVersion": "10.0.28000.2114",
+        "CandidateCount": 3,
+        "Candidates": [
+          {
+            "PortablePath": "WindowsKits/10/bin/10.0.28000.0/x64/signtool.exe",
+            "PathClass": "WindowsKitVersionedBin",
+            "KitVersion": "10.0.28000.0",
+            "Discovery": "WindowsKitsSearch",
+            "FileVersion": "4.00 (WinBuild.160101.0800)"
+          },
+          {
+            "PortablePath": "WindowsKits/10/bin/10.0.28000.0/arm64/signtool.exe",
+            "PathClass": "WindowsKitVersionedBin",
+            "KitVersion": "10.0.28000.0",
+            "Discovery": "WindowsKitsSearch",
+            "FileVersion": "4.00 (WinBuild.160101.0800)"
+          },
+          {
+            "PortablePath": "WindowsKits/10/bin/10.0.28000.0/x86/signtool.exe",
+            "PathClass": "WindowsKitVersionedBin",
+            "KitVersion": "10.0.28000.0",
+            "Discovery": "WindowsKitsSearch",
+            "FileVersion": "4.00 (WinBuild.160101.0800)"
+          }
+        ]
+      },
+      "HelpProbes": [
+        {
+          "ProbeId": "RootHelp",
+          "Arguments": [
+            "/?"
+          ],
+          "ProbeStatus": "Observed",
+          "ExitCode": 0,
+          "OutputSha256": "a44dd9945c72f97becfd2c119bbc794d5d6b05a573be9e385b8848da9ec5c72b",
+          "OutputLineCount": 24,
+          "Error": null,
+          "NaturalLanguageOutputRole": "DiagnosticOnly",
+          "TokenParsingPolicy": "OrdinalIgnoreCase"
+        },
+        {
+          "ProbeId": "VerifyHelp",
+          "Arguments": [
+            "verify",
+            "/?"
+          ],
+          "ProbeStatus": "Observed",
+          "ExitCode": 0,
+          "OutputSha256": "6e5817115d5c20991a8f0e6c030f5875eb8ba191bc584fc675770fa543f1545e",
+          "OutputLineCount": 79,
+          "Error": null,
+          "NaturalLanguageOutputRole": "DiagnosticOnly",
+          "TokenParsingPolicy": "OrdinalIgnoreCase"
+        }
+      ],
+      "OptionObservations": [
+        {
+          "Token": "/a",
+          "Observed": true
+        },
+        {
+          "Token": "/ad",
+          "Observed": true
+        },
+        {
+          "Token": "/ag",
+          "Observed": true
+        },
+        {
+          "Token": "/all",
+          "Observed": true
+        },
+        {
+          "Token": "/as",
+          "Observed": true
+        },
+        {
+          "Token": "/c",
+          "Observed": true
+        },
+        {
+          "Token": "/d",
+          "Observed": true
+        },
+        {
+          "Token": "/ds",
+          "Observed": true
+        },
+        {
+          "Token": "/hash",
+          "Observed": true
+        },
+        {
+          "Token": "/kp",
+          "Observed": true
+        },
+        {
+          "Token": "/ms",
+          "Observed": true
+        },
+        {
+          "Token": "/o",
+          "Observed": true
+        },
+        {
+          "Token": "/pa",
+          "Observed": true
+        },
+        {
+          "Token": "/pg",
+          "Observed": true
+        },
+        {
+          "Token": "/ph",
+          "Observed": true
+        },
+        {
+          "Token": "/r",
+          "Observed": true
+        },
+        {
+          "Token": "/tw",
+          "Observed": true
+        },
+        {
+          "Token": "/v",
+          "Observed": true
+        }
+      ],
+      "TargetObservations": []
+    },
+    {
+      "Name": "Inf2Cat.exe",
+      "Family": "Inf2Cat",
+      "Status": "Available",
+      "Binary": {
+        "Status": "Available",
+        "ToolName": "Inf2Cat.exe",
+        "PortablePath": "WindowsKits/10/bin/10.0.28000.0/x86/Inf2Cat.exe",
+        "PathClass": "WindowsKitVersionedBin",
+        "KitVersion": "10.0.28000.0",
+        "Architecture": "x64",
+        "SizeBytes": 34880,
+        "Sha256": "82c302fc9069783674b51665ce80e769f8500db7fc737a4b8a3773c521950b86",
+        "FileVersion": "1.0.0112.33",
+        "ProductVersion": "1.0.0112.33+12bb255d",
+        "CandidateCount": 1,
+        "Candidates": [
+          {
+            "PortablePath": "WindowsKits/10/bin/10.0.28000.0/x86/Inf2Cat.exe",
+            "PathClass": "WindowsKitVersionedBin",
+            "KitVersion": "10.0.28000.0",
+            "Discovery": "WindowsKitsSearch",
+            "FileVersion": "1.0.0112.33"
+          }
+        ]
+      },
+      "HelpProbes": [
+        {
+          "ProbeId": "RootHelp",
+          "Arguments": [
+            "/?"
+          ],
+          "ProbeStatus": "Observed",
+          "ExitCode": 0,
+          "OutputSha256": "bf409454336ac667cf5bc25ecc93156d4fdc7de63989de16bf6ee64aa29ab96c",
+          "OutputLineCount": 88,
+          "Error": null,
+          "NaturalLanguageOutputRole": "DiagnosticOnly",
+          "TokenParsingPolicy": "OrdinalIgnoreCase"
+        }
+      ],
+      "OptionObservations": [
+        {
+          "Token": "/driver:",
+          "Observed": true
+        },
+        {
+          "Token": "/os:",
+          "Observed": true
+        },
+        {
+          "Token": "/nocat",
+          "Observed": true
+        },
+        {
+          "Token": "/uselocaltime",
+          "Observed": true
+        },
+        {
+          "Token": "/verbose",
+          "Observed": true
+        },
+        {
+          "Token": "/?",
+          "Observed": false
+        }
+      ],
+      "TargetObservations": [
+        {
+          "Token": "SERVER2016_X64",
+          "Observed": true
+        },
+        {
+          "Token": "ServerRS5_X64",
+          "Observed": true
+        },
+        {
+          "Token": "ServerFE_X64",
+          "Observed": true
+        },
+        {
+          "Token": "Server2025_X64",
+          "Observed": true
+        }
+      ]
+    }
+  ],
+  "VerificationProfileContract": {
+    "Version": "amd-driver-verification-profile-contract/1.0",
+    "Profiles": [
+      {
+        "Id": "AuthenticodeDefault/1",
+        "ToolFamily": "SignTool",
+        "Purpose": "Default Authenticode verification",
+        "MutationPerformed": false
+      },
+      {
+        "Id": "KernelEmbeddedOrCatalog/1",
+        "ToolFamily": "SignTool",
+        "Purpose": "Kernel-mode policy verification without an explicit target-OS claim",
+        "MutationPerformed": false
+      },
+      {
+        "Id": "KernelExplicitCatalog/1",
+        "ToolFamily": "SignTool",
+        "Purpose": "Kernel-mode policy verification bound to an explicitly correlated catalog without combining /kp and /o",
+        "MutationPerformed": false
+      },
+      {
+        "Id": "WindowsDriverExplicitCatalogTargetOs/1",
+        "ToolFamily": "SignTool",
+        "Purpose": "Windows Driver Verification Policy bound to an explicitly correlated catalog and explicit target OS; /pa and /kp are intentionally omitted",
+        "MutationPerformed": false
+      },
+      {
+        "Id": "DriverPackageSignabilityMatrix/1",
+        "ToolFamily": "Inf2Cat",
+        "Purpose": "Driver-package signability for explicit Windows target tokens; qualification commands may generate catalogs only in a private disposable workspace",
+        "MutationPerformed": true
+      }
+    ]
+  },
+  "MutationPerformed": false
+}

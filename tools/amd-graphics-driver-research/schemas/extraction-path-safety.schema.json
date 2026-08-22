@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/schemas/amd-graphics-extraction-path-safety.schema.json",
+  "title": "AMD Graphics Extraction Path Safety",
+  "type": "object",
+  "required": ["SchemaVersion", "ToolkitVersion", "Status", "SafeFullPathLimit", "ArtifactCount", "Assessments", "Issues"],
+  "properties": {
+    "SchemaVersion": { "const": "amd-graphics-extraction-path-safety/1.0" },
+    "ToolkitVersion": { "type": "string" },
+    "Status": { "enum": ["Pass", "Blocked"] },
+    "SafeFullPathLimit": { "const": 240 },
+    "ArtifactCount": { "type": "integer", "minimum": 0 },
+    "Assessments": { "type": "array" },
+    "Issues": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": true
+}

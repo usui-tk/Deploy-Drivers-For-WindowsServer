@@ -15,6 +15,6 @@
 | Right only | 1 |
 
 ## Right-only files
-- `ryzen-ai-end-user-license-agreement-public.pdf`
+- `c0001/ryzen-ai-end-user-license-agreement-public.pdf`
 
 ## Left-only files

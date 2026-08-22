@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/usui-tk/Deploy-Drivers-For-WindowsServer/tools/amd-npu-driver-research/schemas/test-stage-evidence.schema.json",
+  "title": "AMD NPU Test-stage runtime evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "SchemaVersion",
+    "ToolkitVersion",
+    "CollectedAtUtc",
+    "PowerShellVersion",
+    "PSEdition",
+    "Status",
+    "SourceDataContractCount",
+    "HardwareOnlySelectionTestCount",
+    "PackageLaneSelectionTestCount",
+    "ResearchAndCertificateScopeTestCount",
+    "SignatureSelfTestCount",
+    "Utf8JsonSyntaxSelfTestCount",
+    "CanonicalJsonCrossRuntimeSelfTestCount",
+    "EvidenceSnapshotSelfTestCount",
+    "SignedCmsAvailable",
+    "SignedCmsRuntime",
+    "Utf8JsonSyntaxContract",
+    "CanonicalJsonCrossRuntimeContract",
+    "EvidenceSnapshotContract"
+  ],
+  "properties": {
+    "SchemaVersion": { "const": "amd-npu-test-stage-evidence/1.1" },
+    "ToolkitVersion": { "type": "string" },
+    "CollectedAtUtc": { "type": "string" },
+    "PowerShellVersion": { "type": "string" },
+    "PSEdition": { "type": "string" },
+    "Status": { "enum": ["Pass", "Fail"] },
+    "SourceDataContractCount": { "type": "integer", "minimum": 0 },
+    "HardwareOnlySelectionTestCount": { "const": 10 },
+    "PackageLaneSelectionTestCount": { "const": 4 },
+    "ResearchAndCertificateScopeTestCount": { "const": 3 },
+    "SignatureSelfTestCount": { "const": 14 },
+    "Utf8JsonSyntaxSelfTestCount": { "const": 1 },
+    "CanonicalJsonCrossRuntimeSelfTestCount": { "const": 1 },
+    "EvidenceSnapshotSelfTestCount": { "const": 1 },
+    "SignedCmsAvailable": { "type": "boolean" },
+    "SignedCmsRuntime": { "type": "object" },
+    "Utf8JsonSyntaxContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["Status", "MessageRoundTrip", "Error"],
+      "properties": {
+        "Status": { "enum": ["Pass", "Fail"] },
+        "MessageRoundTrip": { "type": ["string", "null"] },
+        "Error": { "type": ["string", "null"] }
+      }
+    },
+    "CanonicalJsonCrossRuntimeContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["Status", "PythonReferenceSha256", "Issues"],
+      "properties": {
+        "Status": { "enum": ["Pass", "Fail"] },
+        "PythonReferenceSha256": { "type": ["string", "null"] },
+        "Issues": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "EvidenceSnapshotContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "Status",
+        "RequiredFiles",
+        "ConfiguredFiles",
+        "MissingFiles",
+        "DuplicateFiles"
+      ],
+      "properties": {
+        "Status": { "enum": ["Pass", "Fail"] },
+        "RequiredFiles": { "type": "array", "items": { "type": "string" } },
+        "ConfiguredFiles": { "type": "array", "items": { "type": "string" } },
+        "MissingFiles": { "type": "array", "items": { "type": "string" } },
+        "DuplicateFiles": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}
